@@ -1,0 +1,352 @@
+Title: NAC: Neural Action Codec for Vision-Language-Action Models
+
+URL Source: https://arxiv.org/pdf/2606.21372v1
+
+Published Time: Tue, 23 Jun 2026 00:52:38 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# NAC: Neural Action Codec for Vision-Language-Action Models 
+
+Ahad Jawaid Yu Xiang 
+
+The University of Texas at Dallas 
+
+Abstract: Vision-language-action (VLA) models rely on discrete action tokeniz-ers to bridge continuous robot control and autoregressive sequence modeling, yet existing tokenizers often trade off between compression, latency, and down-stream performance. We revisit this design through the lens of neural audio codecs—convolutional encoder–decoder architectures with residual vector quan-tization that serve as the standard front end for audio foundation models. Moti-vated by their success, we introduce the Neural Action Codec (NAC), which treats short robot action trajectories as multi-channel 1D signals and compresses them using a multi-scale RVQGAN architecture. We observe that audio-specific mel-spectrogram objectives are ill-suited for kinematic signals; however, by replacing them with simple time-domain and non-mel spectral reconstruction losses, audio-codec-style models can autoencode actions with high fidelity without substantial architectural changes. NAC provides a compact, ordered token space via offset codebooks, enabling standard autoregressive policies to operate over short, struc-tured sequences. Meanwhile, a Vocos-style decoder with an ISTFT head and adver-sarial discriminators recovers smooth, detailed trajectories. Across LIBERO-10, RoboMimic, and a suite of real-world manipulation tasks, NAC achieves lower reconstruction error and higher success rates than binning, FAST, and prior VQ-based tokenizers at comparable or better compression rates. These results demon-strate that repurposed neural audio codecs offer a strong, practical backbone for learned action tokenization in modern VLAs. 
+
+Keywords: Action Tokenization, Manipulation, VLA, Behavioral Cloning 
+
+Figure 1: Neural audio codecs [ 1 , 2 , 3] adapted for action tokenization. Top: Modern neural codecs compress raw waveforms into compact, multi-scale discrete codes, preserving coarse structures and fine temporal details. Bottom: NAC applies this approach to robot action chunks, treating actions as multi-channel 1D signals to learn a highly compressed, discrete latent space for downstream autoregressive policy learning. 
+
+# 1 Introduction 
+
+Large-scale vision-language-action (VLA) models [ 4, 5] map visual observations and natural language instructions directly to low-level control signals. Formulating robot control as a sequence modeling 
+
+> arXiv:2606.21372v1 [cs.RO] 19 Jun 2026
+
+task [ 6, 7] allows VLAs to inherit the generalization and reasoning capabilities of pre-trained vision-language models (VLMs) [ 8 ]. However, training VLAs requires action tokenization [ 6, 9] to represent continuous physical actions as discrete symbols. The action tokenizer is a critical design choice in VLA pretraining. Early methods relied on uniform per-dimension binning [ 6], producing prohibitively long token sequences for high-frequency control. Subsequent approaches, like FAST [ 9 , 10 ], used frequency-domain compression to shorten sequences. This improved performance, demonstrating that compressing the action space simplifies the generative modeling task for the VLA [9]. Despite these advances, designing an optimal action tokenizer remains challenging [ 7 ]. The primary difficulty lies in capturing statistical regularities that enable the policy to model the underlying action distribution effectively. A secondary challenge is latency, dictated by the compression rate (tokens per action chunk) and the tokenizer’s decoding speed. The audio generation domain has extensively studied and largely mitigated similar challenges—high-fidelity compression, low latency, and complex temporal distributions. Neural audio codecs [ 1, 2, 3]use convolutional encoder-decoders with Residual Vector Quantization (RVQ) [ 11 ] to compress waveforms into discrete codes. These scalable architectures form the foundation of modern audio foundation models [12, 13]. Audio and robotic actions share a continuous time-series structure but differ notably. Action sequences operate at lower frequencies (e.g., 30-60 Hz) [ 14 , 9] than audio (16-48 kHz) [ 15 ]. Actions are also multi-channel (typically 7-14 dimensions for robot joints or end-effectors) [ 14 ], whereas audio is primarily single or dual-channel. Furthermore, audio models optimize for the mel-frequency domain [16 ], which matches human pitch perception rather than a linear Hertz scale. Despite these differences, the core objective of compressing continuous spatio-temporal signals remains fundamentally similar. We propose the Neural Action Codec (NAC), which adapts state-of-the-art audio codec architectures for robotic action tokenization. Figure 1 illustrates this transfer from audio codecs to action chunks. Our core finding is that this adaptation primarily requires rethinking frequency-domain objectives. By removing or heavily regularizing mel-frequency domain losses [ 16 , 2], multi-scale RVQGAN models [17, 3] effectively compress action sequences without major architectural deviations. Our main contributions are as follows: • We introduce NAC, a learned action tokenizer based on a multi-scale RVQGAN architecture [17, 3], specifically adapted for multi-channel robot trajectories. • We formulate an autoregressive behavioral cloning policy that uses NAC’s offset codebooks for structured, causal next-token prediction. • We demonstrate that dropping audio-specific mel-spectrogram losses is critical for applying neural audio codecs to robotic actions, and we introduce the first application of adversarial loss to action tokenization. • We empirically validate our approach’s reconstruction fidelity and downstream policy performance across simulated and real-world benchmarks. 
+
+> 1
+
+# 2 Related Work 
+
+2.1 Audio Codecs and Audio Foundation Models 
+
+Neural audio codecs [ 1, 2, 3] compress waveforms into discrete codes using convolutional encoders and RVQ. SoundStream [ 1 ] paired SEANet encoders with RVQ for low-bitrate compression; DAC [ 3]          
+
+> 1Visit the project page at https://ahadjawaid.com/nac or contact the author at
+> ahad.jawaid@utdallas.edu .
+
+2improved fidelity via quantization bottlenecks and discriminator design; and SNAC [17] introduced multi-scale RVQ to operate at varied temporal resolutions. These discrete codes enable audio foundation models to treat generation as sequence modeling over codec tokens [ 12 , 13 , 18 ]. We adapt this codec recipe for robotic action sequences. 
+
+2.2 Vision-Language-Action Models 
+
+Vision-Language-Action (VLA) models extend pretrained vision-language models (VLMs) [ 19 , 8 ]into generalist robot policies. A recurring bottleneck is mapping continuous action trajectories into a compact discrete form for efficient modeling. Autoregressive VLAs like OpenVLA [ 6] fine-tune Llama-2 [ 20 ] to predict discrete action tokens directly, making the tokenizer central to sequence length, compression, and learnability. This focus extends to broader foundation systems: MolmoACT [10 , 21 ] adopts FAST tokenization [ 9], and π0-family models [ 4 , 5, 22 ] depend on effective action representations during training. This suggests that even models with continuous low-level action heads benefit from grounding in a strong discrete action space. NAC targets this setting by learning representations from neural codec principles rather than relying purely on hand-designed compression. 
+
+2.3 Discrete Action Tokenizers 
+
+Early VLAs used naive per-dimension binning [ 6], yielding prohibitively long sequences. FAST [ 9] compresses actions via the Discrete Cosine Transform (DCT) [ 23 ] and Byte-Pair Encoding (BPE) [ 24 ], but its hand-designed frequency prior may miss complex, non-linear dynamics. Learned tokenizers offer a data-driven alternative: VQ-VLA [ 25 ] uses vector quantization [ 26 ]; ActionCodec [27 ] and FASTer [ 28 ] employ RVQ, with FASTer utilizing a transformer autoencoder [ 29 ] and DCT L1 reconstruction [ 30 ]; and OAT [ 7] enforces causally ordered token spaces via nested dropout [ 31 ]and register tokens [32]. NAC bridges state-of-the-art audio codecs [ 33 , 17 ] and action modeling. Unlike FASTer and OAT, it uses a fully convolutional SEANet encoder with multi-scale RVQ and adversarial training, optimizing for kinematic fidelity rather than human-audio perceptual priors [16]. 
+
+# 3 Method 
+
+In this section, we introduce the Neural Action Codec (NAC). NAC maps continuous action chunks to 1D signals, compresses them via a convolutional encoder and multi-scale RVQ [ 17 , 11 ], and decodes them via a Vocoder-style decoder. This technique, originally developed in the audio domain, recovers phase information lost during spectrogram encoding [ 15 ]. We then detail the autoregressive behavioral cloning formulation [34, 35] that leverages NAC’s structured token space. 
+
+3.1 Preliminaries 
+
+We formulate robotic control via behavioral cloning [ 36 ]. Given a history of visual observations 
+
+oimg ∈ RHo×Ncam ×C×H×W (where Ho is history length, Ncam is number of cameras, and C, H, W 
+
+are image dimensions) and a task condition l (a natural language instruction or discrete task UID), the policy predicts a contiguous chunk of future actions a1: Ha ∈ RB×Ha×Da . Here, B is batch size, 
+
+Ha is action horizon, and Da is action dimensionality. Autoregressive sequence models require a tokenizer T to map the continuous action chunk a1: Ha
+
+into a discrete token sequence C = [ c1, . . . , c L], where ci ∈ V for a discrete vocabulary V, and L
+
+is the total number of multi-scale tokens. Regressing continuous actions directly can suffer from compounding errors [ 35 ] and struggles with multimodal action distributions [ 6 ]. Mapping chunks into discrete tokens allows the policy πθ to leverage the expressive modeling capabilities of autoregressive transformers by maximizing the log-likelihood of the token sequence: 
+
+max  
+
+> θ
+
+E
+
+" LX
+
+> i=1
+
+log πθ (ci | oimg , l, c <i )
+
+#
+
+, (1) 3Figure 2: NAC overview: A continuous action chunk is flattened into a 1D pseudo-waveform and encoded by a SEANet-style encoder [ 37 ]. Multi-scale residual vector quantization [ 17 ] compresses the latent into discrete codes at progressively finer temporal resolutions. A Vocos-style decoder [ 38 , 33 ] with an ISTFT head reconstructs the action chunk. The policy then models the resulting offset code sequence autoregressively for downstream control. where c<i = [ c1, . . . , c i−1] denotes previously generated tokens. During inference, the policy autoregressively generates a token sequence ˆC1: L. A detokenization mapping then recovers the executable continuous actions: 
+
+T −1 : ˆC1: L 7 → ˆa1: Ha (2) 
+
+3.2 NAC Tokenizer 1D Signal Representation. We treat the continuous action chunk a ∈ RB×Ha×Da as a 1D mul-tichannel signal. We first flatten the actions along the temporal and feature dimensions to form 
+
+aflat ∈ RB×(Ha·Da). This is unsqueezed into a single-channel 1D pseudo-waveform w ∈ RB×1×L,where L = Ha · Da. Optionally, per-dimension linear normalization is applied based on dataset statis-tics prior to flattening. 
+
+SEANet Encoder. The pseudo-waveform w is processed by a fully convolutional SEANet-style encoder [ 1]. It consists of stacked 1D convolutions [ 39 ] with strided downsampling defined by ratios 
+
+R = [ r1, . . . , r k]. The total temporal downsampling factor (hop length) is Q R. The network uses residual blocks [ 40 ] with ELU activations [ 41 ], weight normalization [ 42 ], and reflection padding [ 43 ]. The output is a continuous latent representation z ∈ RB×Denc ×T ′
+
+, where Denc is the latent dimension (e.g., 512) and T ′ = L/ Q R. Figure 2 overviews the full tokenizer and policy pipeline. 
+
+Multi-Scale Residual Vector Quantization (MRVQ). To discretize z, we apply Multi-Scale RVQ [ 17 ] over nq quantization stages, each with a codebook of size Vbins (e.g., 1024). Unlike standard RVQ [ 11 ], we apply per-stage temporal pooling prior to quantization. This forces earlier stages to compress information over wider temporal windows to capture coarse, global trajectory structures, while later stages capture fine-grained, high-frequency residuals. Let the unquantized residual at stage s be zs (with z0 = z). The quantized output is the nearest neighbor in the codebook: 
+
+cs = arg min 
+
+> j∈Vbins
+
+|| pool (zs) − e(s) 
+
+> j
+
+|| 2 (3) where pool (·) is a temporal average pooling operation, and e(s) 
+
+> j
+
+is the j-th learned embedding in the 
+
+s-th codebook. Codebooks are trained jointly with the tokenizer: k-means initialization on the first batch [ 44 ], then exponential moving average (EMA) updates at every forward pass, keeping each codebook vector as a slow running average of the encoder features assigned to that code. We upsample embeddings back to the encoder resolution and subtract them to form the residual for the next stage: 
+
+zs+1 = zs − upsample (e(s) 
+
+> cs
+
+). The final quantized latent is the sum of the upsampled embeddings. 4Algorithm 1 NAC Tokenizer Training 
+
+Require: Dataset D of action chunks {a1: Ha }; SEANet encoder Eϕ(·); Multi-Scale RVQ Q(·);Vocos-style decoder Dθ (·); Discriminator Dadv (·). 
+
+> 1:
+
+Initialize codebook embeddings via k-means on the first training batch  
+
+> 2:
+
+while not converged do  
+
+> 3:
+
+Sample action chunk a1: Ha ∼ D  
+
+> 4:
+
+Flattening: w ← Flatten (a1: Ha ) ∈ RB×1×(Ha·Da) 
+
+> 5:
+
+Encoding: z ← Eϕ(w) 
+
+> 6:
+
+Quantization: ˆz, C 1: Lc , Lcommit ← Q (z) ▷ EMA-update codebooks  
+
+> 7:
+
+Decoding: ˆw ← Dθ (ˆ z) 
+
+> 8:
+
+Reconstruction loss: Lreconst ← MSE (w, ˆw) ▷ Or some other reconstruction loss  
+
+> 9:
+
+Generator opt: {ϕ, Q, θ } ← { ϕ, Q, θ } − η∇(Lreconst + 1000 · L commit + Ladv ( ˆ w, D adv ))  
+
+> 10:
+
+Discriminator opt: Dadv ← Dadv − η∇L D(w, ˆw) 
+
+> 11:
+
+T (·) ← { Flatten , E ϕ, Q} , T −1(·) ← {Q −1, D θ , Unflatten } return T (·), T −1(·)
+
+Commitment Loss. We apply a commitment loss [45 ] to prevent the encoder’s continuous outputs from arbitrarily diverging from the learned codebook embeddings. Without this regularization, the encoder could scale its outputs indefinitely, causing codebook collapse [ 46 ] where only a few vectors are used. The commitment loss penalizes the squared L2 distance between the unquantized latents and the chosen codebook vectors: 
+
+Lcommit = ∥z − sg (ec)∥22 (4) where sg (·) denotes the stop-gradient operator, so codebook vectors are updated by EMA rather than through this loss. In NAC, we aggressively scale the commitment loss (e.g., by a factor of 1000) to strictly bound the latent space. 
+
+Decoder and ISTFT Head. The quantized latent passes to a Vocos-style backbone [ 33 , 17 ] consisting of a Conv1D embedding layer, ResNet [ 47 ] blocks with attention, and a stack of ConvNeXt [ 48 ]blocks. To map back to the 1D signal space, we employ an Inverse Short-Time Fourier Transform (ISTFT) Head [ 15 ]. The network predicts STFT magnitude and phase, and the ISTFT operation reconstructs the 1D signal. Crucially, the ISTFT hop length synchronizes with the encoder’s hop length. This decoder functions as our detokenizer T −1, projecting discrete latents back to continuous action space. 
+
+Discriminator and Adversarial Loss. Neural codecs use adversarial training via Generative Adver-sarial Networks [ 49 ] to improve high-frequency fidelity. Audio models employ Multi-Period Dis-criminators (MPD) [ 38 ] for periodic patterns, and Multi-Resolution Discriminators (MRD) [ 50 ] or DAC discriminators [ 3 ] for wide-band frequency and phase structures. For robotic control, capturing these high-frequency components helps model rapid corrective motions or sharp velocity changes. Following the SNAC architecture [ 17 ], we adapt these discriminators for 1D action signals. While our framework supports MPD, MRD, and DAC discriminators, our ablations show the DAC discrimi-nator provides the strongest adversarial signal for robotic actions. 
+
+Reconstruction Loss and Frequency Domain Shift. Neural audio codecs typically rely on mel-spectrogram reconstruction losses [ 51 ] to align compression with human auditory perception. Because robotic actions are kinematic signals rather than acoustic waves, we completely drop the mel-loss, which severely degrades control signal representations. We formulate our generator loss Lgen as: 
+
+Lgen = Lreconst + λcommit Lcommit + Ladv , (5) We define Lreconst using Mean Squared Error (MSE), L1, or an unscaled spectrogram loss. Ladv is the adversarial loss from the DAC discriminator. The overall training procedure is summarized in Algorithm 1. 
+
+3.3 Behavioral Cloning Policy 
+
+We train an autoregressive behavioral cloning policy [ 7 ], ‘NACPolicy‘, utilizing the frozen NAC tokenizer. The policy predicts the discrete token sequence directly from observations and instructions. 5To provide structured generation, NAC uses offset codebooks. If the tokenizer has nq scales, the policy vocabulary size is |V| = nq × Vbins + 1 , accounting for a Beginning-Of-Sequence ( BOS ) token. Token IDs for scale s are bounded within [s · Vbins , (s + 1) · Vbins ).During training, the ground truth discrete codes (a list of nq tensors) are offset and concatenated into a flat 1D sequence. The layout dictates that all tokens for scale 0 are predicted first, followed sequentially by tokens for scale 1, and so forth: 
+
+Cflat = [ BOS , C (0) 1 , . . . , C (0)  
+
+> L0
+
+, C (1) 1 , . . . , C (1)  
+
+> L1
+
+, . . . ] (6) We optimize the policy using a standard causal cross-entropy loss [ 52 ] over this structured sequence, conditioned on features from the observation encoder. At inference, the policy autoregressively generates tokens using this fixed layout. It partitions them into per-scale segments, recovers code indices via modulo arithmetic, and passes them to the frozen NAC detokenizer (Appendix A.1, Algorithm 2). We execute the first nsteps of the predicted chunk in a receding horizon fashion. 
+
+# 4 Experiments 
+
+We designed our experiments to answer five questions: (1) Can audio codec architectures model robot actions? (2) What adaptations are necessary for effective control? (3) Do adversarial training and the ISTFT head materially improve results? (4) Do NAC tokens improve downstream control in simulation and reality? (5) Does the resulting compression–latency tradeoff make NAC practical for fast closed-loop policies? 
+
+4.1 Experimental Setup 
+
+Figure 3: Simulation environments. We benchmark tokenizers across both (a) a LIBERO-10 sub-set [53] and (b) RoboMimic [54] to assess downstream control performance. We compare NAC against continuous-control and discrete-token baselines: Bin [ 6], Diffusion Pol-icy [ 55 ], FAST [ 9], VQ-VLA [ 25 ], and OAT [ 7 ]. These span naive binning, diffusion-based control, hand-designed compression, and learned tokenization. Unless noted, all policy comparisons share ob-servation inputs, action horizons, and training protocols, differing only in action parameterization; full hyperparameters are in Appendix Tables 4 and 5. We evaluate on LIBERO-10 [ 53 ] and RoboMimic [54 ]. Figure 3 shows both simulation suites. We report task success rate (%) for downstream policies and reconstruction MSE for tokenizer ablations. Per-task real-world results are in Appendix Table 6. Overall results, tokenizer ablations, and compression statistics are summarized in Tables 2, 1, and 3. 
+
+4.2 Can audio codec architectures model robot actions? 
+
+Our first objective was to determine if neural audio codecs [ 1 , 2 , 3 , 17 ] provide a viable foundation for action tokenization, and which components remain necessary after retargeting. Table 1 confirms their viability, provided audio-specific assumptions are removed. Mel-spectrogram training collapses downstream performance to nearly zero (Table 1a). Simple signal-domain or non-mel frequency-domain objectives produce strong policies, indicating the primary obstacle is perceptual mismatch. MSE yields the strongest downstream control, whereas spectrogram loss provides the best reconstruction MSE, emphasizing that tokenizers should be evaluated on both 6Recon. Loss Perf. (%) MSE 
+
+L1 44.78 ± 2.48 0.002 ± 0.005 MSE 49.2 ± 1.54 0.0008 ± 0.0007 DCT 47.85 ± 1.18 0.0007 ± 0.0008 Mel Spec. 0 ± 0.11 0.038 ± 0.026 Spectrogram 48.3 ± 2.92 0.0002 ± 0.001 (a) Reconstruction Loss 
+
+Discriminator Perf. (%) MSE 
+
+DAC 49.45 ± 2.02 0.0005 ± 0.0018 MPD 46.28 ± 1.48 0.0005 ± 0.0007 MRD 45.68 ± 1.72 0.0004 ± 0.0006 
+
+None 0 0.35 ± 0.12 
+
+(b) Discriminator 
+
+Tokenizer Head Performance (%) MSE 
+
+ISTFT 48.3 ± 2.92 0.0002 ± 0.001 
+
+Linear 42.1 ± 1.54 0.0006 ± 0.001 
+
+(c) Decoder Head 
+
+Table 1: Action tokenization ablations on LIBERO-10 [ 53 ]. Performance (%) represents downstream policy task success rate; MSE is reconstruction error on 14,000 validation action chunks. (a) Recon-struction loss. (b) Discriminator. (c) Decoder head.                                                   
+
+> Environment Bin [6] Diffusion Policy [55] FAST [9] VQ-VLA [25] OAT [7] NAC (Ours) LIBERO-10 [53] 3.95 ±0.8 25.48 ±1.3 38.02 ±1.3 10.85 ±1.85 44.17 ±1.2 49.73 ±1.0 RoboMimic [54] 7.56 ±1.05 27.25 ±1.87 28.38 ±2.37 21.44 ±1.45 31.94 ±2.15 33.94 ±1.86 Real World 6.25 22.5 40.0 31.25 40.0 50.0
+
+Table 2: Overall manipulation performance (success rate %) across simulation and real-world environments. Simulation benchmarks were evaluated over 8 seeds with 50 trials per task. Real-world values indicate the average success rate across 8 physical tasks (10 trials each). A full task-by-task breakdown is provided in Appendix Table 6. metrics. Removing the discriminator causes complete downstream failure (Table 1b), demonstrating that adversarial training preserves the fine-grained temporal detail necessary for precise control. Replacing the ISTFT head with a linear decoder worsens both reconstruction and policy success (Table 1c), suggesting this structured decoder remains valuable for detail-sensitive action trajectories. Overall, the codec recipe—convolutional encoder, residual vector quantization, adversarial training, and an ISTFT-style decoder—transfers effectively to actions when optimized for kinematic fidelity rather than human auditory perception. 
+
+4.3 Do NAC tokens improve performance? 
+
+Having established NAC as a viable tokenizer, we evaluate its downstream control performance on standard simulated manipulation benchmarks [ 53 , 54 ]. Table 2 shows that NAC achieves the highest performance on both LIBERO-10 [53] and RoboMimic [54]. On LIBERO-10, NAC outperforms FAST by 11.71 points and OAT by 5.56 points. Similar trends emerge on RoboMimic. These results indicate that better action compression alone is insufficient; the tokenizer must preserve the structure required for next-token policy learning. NAC’s multi-scale residual quantization provides a superior interface for autoregressive control compared to hand-designed compression (FAST) and alternative learned tokenizers. 
+
+4.4 Do NAC tokens transfer to the real world? 
+
+Simulation gains require the learned token space to remain stable under real-world noise, calibration errors, and execution mismatch. We evaluated all methods on 8 physical manipulation tasks spanning fine grasping, object placement, and deformable control. Figure 4 shows representative tasks; Appendix B.2 gives full layouts (Figure 5) and per-task results (Table 6). Table 2 illustrates that NAC achieves the highest overall real-world success rate. 7Method Params (M) Tokens |K| # of Bits Enc (ms) Dec (ms) Recon (ms)                                    
+
+> Bin [6] 0.002 224 1024 2240 0.045 0.039 0.079 OAT [7] 65.207 12 1024 120 0.931 2.392 3.347 VQ-VLA [25] 65.556 12 1024 120 7.086 4.045 11.049 FAST [9] 0.000 36 1024 360 0.170 0.110 0.290 NAC (Ours) 63.006 12 1024 120 1.270 2.183 3.536
+
+Table 3: Compression and latency statistics for different tokenizers. Recon denotes total reconstruction time on a single Nvidia RTX 4090 GPU. NAC reaches 50% total success, outperforming both OAT and FAST (40%). The most significant gains occur on tasks requiring precise, localized corrections—such as grasping grapes and stacking blocks—where minor modeling errors cause failures. While no single tokenizer dominates every task, NAC’s compressed token space transfers effectively to physical control, outperforming alternatives on average. 
+
+Figure 4: Real-world evaluation tasks. Outlines indicate initial start states (red) and successfully completed states (green). 
+
+4.5 Does stronger compression make fast policies practical? 
+
+Action tokenization fundamentally aims to reduce the sequence length processed by the policy. Shorter sequences lower autoregressive rollout costs, which is critical as control frequency increases. We compare compression statistics and tokenizer runtime in Table 3. NAC compresses each action chunk to 12 tokens, matching top learned tokenizers while reducing the token count by nearly 19 × relative to Bin and 3 × relative to FAST. Although slower than hand-designed tokenizers like FAST, NAC is significantly faster than VQ-VLA and operates within a practical range for real-time control. This tradeoff provides a highly favorable balance between compression, fidelity, and downstream policy performance, making high-frequency autoregressive policies more plausible. 
+
+# 5 Discussion 
+
+We introduced the Neural Action Codec (NAC), a multi-scale RVQGAN architecture adapted for robotic action tokenization. Our experiments demonstrate that neural audio architectures transfer well to robot actions when optimized for kinematic fidelity rather than human-audio perception. Removing mel-spectrogram losses, retaining adversarial training, and using an ISTFT-style decoder head are critical for stable action compression. NAC provides a compact, structured discrete action space that supports causal autoregressive policies, yielding superior performance over binning, frequency-domain compression, and prior learned tokenizers in both simulation and real-world benchmarks. 
+
+Limitations. The flattened 1D action representation requires the sequence length Ha · Da to be strictly divisible by the network’s combined downsampling ratios ( K = Q(ratios ) × Q(vq_scales )). Additionally, detokenization requires explicit knowledge of the target action dimensionality to reshape the decoded 1D signal correctly. 
+
+Future Work. We plan to extend NAC to a cross-embodiment shared token space that avoids naive padding. Drawing on the success of audio foundation models, we aim to train NAC on a massive corpus of diverse action data to leverage scaling gains. Finally, given NAC’s superior compression rate, we plan to apply it to high-frequency control domains. 8References 
+
+[1] N. Zeghidour, A. Luebs, A. Omran, J. Skoglund, and M. Tagliasacchi. SoundStream: An end-to-end neural audio codec. IEEE/ACM Transactions on Audio, Speech, and Language Processing ,30:495–507, 2021. [2] A. Défossez, J. Copet, G. Synnaeve, and Y. Adi. High fidelity neural audio compression. Trans-actions on Machine Learning Research , 2023. ISSN 2835-8856. URL https://openreview. net/forum?id=ivCd8z8zR2 . arXiv:2210.13438. [3] R. Kumar, P. Seetharaman, A. Luebs, I. Kumar, and K. Kumar. High-fidelity audio compression with improved RVQGAN. In Advances in Neural Information Processing Systems , volume 36, pages 27980–27993, 2023. arXiv:2306.06546. [4] K. Black, N. Brown, D. Driess, A. Esmail, M. Equi, C. Finn, N. Fusai, L. Groom, K. Hausman, B. Ichter, et al. π0: A vision-language-action flow model for general robot control. arXiv preprint arXiv:2410.24164 , 2024. [5] K. Black, N. Brown, J. Darpinian, K. Dhabalia, D. Driess, A. Esmail, M. R. Equi, C. Finn, N. Fusai, M. Y. Galliker, D. Ghosh, L. Groom, K. Hausman, B. Ichter, S. Jakubczak, T. Jones, L. Ke, D. LeBlanc, S. Levine, A. Li-Bell, M. Mothukuri, S. Nair, K. Pertsch, A. Z. Ren, L. X. Shi, L. Smith, J. T. Springenberg, K. Stachowicz, J. Tanner, Q. Vuong, H. Walke, A. Walling, H. Wang, L. Yu, and U. Zhilinsky. π0.5: A vision-language-action model with open-world generalization. In 9th Annual Conference on Robot Learning , 2025. URL https: //openreview.net/forum?id=vlhoswksBO .[6] M. J. Kim, K. Pertsch, S. Karamcheti, T. Xiao, A. Balakrishna, S. Nair, R. Rafailov, E. P. Foster, P. R. Sanketi, Q. Vuong, T. Kollar, B. Burchfiel, R. Tedrake, D. Sadigh, S. Levine, P. Liang, and C. Finn. OpenVLA: An open-source vision-language-action model. In 8th Annual Conference on Robot Learning , 2024. URL https://openreview.net/forum?id=ZMnD6QZAE6 .[7] C. Liu, X. Han, J. Gao, Y. Zhao, H. Chen, and Y. Du. OAT: Ordered action tokenization. arXiv preprint arXiv:2602.04215 , 2026. [8] A. Yang, A. Li, B. Yang, B. Zhang, B. Hui, B. Zheng, B. Yu, C. Gao, C. Huang, C. Lv, et al. Qwen3 technical report. arXiv preprint arXiv:2505.09388 , 2025. [9] K. Pertsch, K. Stachowicz, B. Ichter, D. Driess, S. Nair, Q. Vuong, O. Mees, C. Finn, and S. Levine. FAST: Efficient action tokenization for vision-language-action models. arXiv preprint arXiv:2501.09747 , 2025. [10] J. Lee, J. Duan, H. Fang, Y. Deng, S. Liu, B. Li, B. Fang, J. Zhang, Y. R. Wang, S. Lee, et al. MolmoAct: Action reasoning models that can reason in space. arXiv preprint arXiv:2508.07917 ,2025. [11] D. Lee, C. Kim, S. Kim, M. Cho, and W.-S. Han. Autoregressive image generation using residual quantization. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 11523–11532, 2022. [12] Z. Borsos, R. Marinier, D. Vincent, E. Kharitonov, O. Pietquin, M. Sharifi, D. Roblek, O. Teboul, D. Grangier, M. Tagliasacchi, et al. AudioLM: A language modeling approach to audio generation. IEEE/ACM Transactions on Audio, Speech, and Language Processing , 31:2523– 2533, 2023. [13] C. Wang, S. Chen, Y. Wu, Z. Zhang, L. Zhou, S. Liu, Z. Chen, Y. Liu, H. Wang, J. Li, et al. Neural codec language models are zero-shot text to speech synthesizers. arXiv preprint arXiv:2301.02111 , 2023. 9[14] R. Cadene, S. Alibert, F. Capuano, M. Aractingi, A. Zouitine, P. Kooijmans, J. Choghari, M. Russi, C. Pascal, S. Palma, D. Aubakirova, M. Shukor, J. Moss, A. Soare, Q. Lhoest, Q. Gallouédec, and T. Wolf. Lerobot: An open-source library for end-to-end robot learning. In The Fourteenth International Conference on Learning Representations , 2026. URL https: //openreview.net/forum?id=CiZMMAFQR3 .[15] T. Kaneko, K. Tanaka, H. Kameoka, and S. Seki. iSTFTNet: Fast and lightweight mel-spectrogram vocoder incorporating inverse short-time fourier transform. In ICASSP 2022–2022 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , pages 6207–6211. IEEE, 2022. [16] S. S. Stevens, J. Volkmann, and E. B. Newman. A scale for the measurement of the psychological magnitude pitch. The journal of the acoustical society of america , 8(3):185–190, 1937. [17] H. Siuzdak, F. Grötschla, and L. A. Lanzendörfer. SNAC: Multi-scale neural audio codec. In Audio Imagination: NeurIPS 2024 Workshop on AI-Driven Speech, Music, and Sound Generation , 2024. URL https://openreview.net/forum?id=PFBF5ctj4X .[18] D. Yang, J. Tian, X. Tan, R. Huang, S. Liu, X. Chang, J. Shi, S. Zhao, J. Bian, Z. Zhao, et al. UniAudio: An audio foundation model toward universal audio generation. arXiv preprint arXiv:2310.00704 , 2023. [19] L. Beyer, A. Steiner, A. S. Pinto, A. Kolesnikov, X. Wang, D. Salz, M. Neumann, I. Alab-dulmohsin, M. Tschannen, E. Bugliarello, T. Unterthiner, D. Keysers, S. Koppula, F. Liu, A. Grycner, A. Gritsenko, N. Houlsby, M. Kumar, K. Rong, J. Eisenschlos, R. Kabra, M. Bauer, M. Bošnjak, X. Chen, M. Minderer, P. Voigtlaender, I. Bica, I. Balazevic, J. Puigcerver, P. Pa-palampidi, O. Henaff, X. Xiong, R. Soricut, J. Harmsen, and X. Zhai. Paligemma: A versatile 3b vlm for transfer, 2024. URL https://arxiv.org/abs/2407.07726 .[20] H. Touvron, L. Martin, K. Stone, P. Albert, A. Almahairi, Y. Babaei, N. Bashlykov, S. Batra, P. Bhargava, S. Bhosale, D. Bikel, L. Blecher, C. C. Ferrer, M. Chen, G. Cucurull, D. Esiobu, J. Fernandes, J. Fu, W. Fu, B. Fuller, C. Gao, V. Goswami, N. Goyal, A. Hartshorn, S. Hosseini, R. Hou, H. Inan, M. Kardas, V. Kerkez, M. Khabsa, I. Kloumann, A. Korenev, P. S. Koura, M.-A. Lachaux, T. Lavril, J. Lee, D. Liskovich, Y. Lu, Y. Mao, X. Martinet, T. Mihaylov, P. Mishra, I. Molybog, Y. Nie, A. Poulton, J. Reizenstein, R. Rungta, K. Saladi, A. Schelten, R. Silva, E. M. Smith, R. Subramanian, X. E. Tan, B. Tang, R. Taylor, A. Williams, J. X. Kuan, P. Xu, Z. Yan, I. Zarov, Y. Zhang, A. Fan, M. Kambadur, S. Narang, A. Rodriguez, R. Stojnic, S. Edunov, and T. Scialom. Llama 2: Open foundation and fine-tuned chat models, 2023. URL 
+
+https://arxiv.org/abs/2307.09288 .[21] H. Fang, J. Duan, D. Clay, S. Wang, S. Liu, W. Huang, X. Fan, W.-C. Tsai, S. Chen, Y. R. Wang, S. Xing, J. Cho, J. S. Park, A. Eftekhar, P. Sushko, K. Farley, A. Wadhwa, C. Harrison, W. Han, Y.-C. Lee, E. VanderBilt, R. Hendrix, S. Ellawela, L. Ngoo, J. Chai, Z. Ren, A. Farhadi, D. Fox, and R. Krishna. Molmoact2: Action reasoning models for real-world deployment, 2026. URL 
+
+https://arxiv.org/abs/2605.02881 .[22] P. Intelligence, B. Ai, A. Amin, R. Aniceto, A. Balakrishna, G. Balke, K. Black, G. Bokin-sky, S. Cao, T. Charbonnier, V. Choudhary, F. Collins, K. Conley, G. Connors, J. Darpinian, K. Dhabalia, M. Dhaka, J. DiCarlo, D. Driess, M. Equi, A. Esmail, Y. Fang, C. Finn, C. Glos-sop, T. Godden, I. Goryachev, L. Groom, H. Habeeb, H. Hancock, K. Hausman, G. Hussein, V. Hwang, B. Ichter, C. Jacobsen, S. Jakubczak, R. Jen, T. Jones, G. Kammerer, B. Katz, L. Ke, M. Khadikov, C. Kuchi, M. Lamb, D. LeBlanc, B. LeCount, S. Levine, X. Li, A. Li-Bell, V. Lialin, Z. Liang, W. Lim, Y. Lu, E. Luo, V. Mano, N. Marwaha, A. Mongush, L. Mur-phy, S. Nair, T. Patterson, K. Pertsch, A. Z. Ren, G. Schelske, C. Sharma, B. Shi, L. X. Shi, L. Smith, J. T. Springenberg, K. Stachowicz, W. Stoeckle, J. Tang, J. Tanner, S. Tekeste, M. Torne, K. Vedder, Q. Vuong, A. Walling, H. Wang, J. Wang, X. Wang, C. Whalen, S. Whit-more, B. Williams, C. Xu, S. Yoo, L. Yu, W. Zhang, Z. Zhang, and U. Zhilinsky. π0.7: a 10 steerable generalist robotic foundation model with emergent capabilities, 2026. URL https: //arxiv.org/abs/2604.15483 .[23] N. Ahmed, T. Natarajan, and K. R. Rao. Discrete cosine transform. IEEE transactions on Computers , 100(1):90–93, 1974. [24] R. Sennrich, B. Haddow, and A. Birch. Neural machine translation of rare words with subword units. In Proceedings of the 54th annual meeting of the association for computational linguistics (volume 1: long papers) , pages 1715–1725, 2016. [25] Y. Wang, H. Zhu, M. Liu, J. Yang, H.-S. Fang, and T. He. VQ-VLA: Improving vision-language-action models via scaling vector-quantized action tokenizers. In Proceedings of the IEEE/CVF International Conference on Computer Vision , 2025. arXiv:2507.01016. [26] R. Gray. Vector quantization. IEEE Assp Magazine , 1(2):4–29, 1984. [27] Z. Dong, Y. Liu, S. Zhang, B. Ye, Y. Yuan, F. Ni, J. Gong, X. Qiu, H. Zhao, Y. Li, et al. ActionCodec: What makes for good action tokenizers. arXiv preprint arXiv:2602.15397 , 2026. [28] Y. Liu, S. Zhang, Z. Dong, B. Ye, T. Yuan, X. Yu, L. Yin, C. Lu, J. Shi, L. J.-T. Yu, L. Zheng, J. Gong, T. Jiang, X. Qiu, and H. Zhao. FASTer: Toward powerful and efficient autoregressive vision–language–action models with learnable action tokenizer and block-wise decoding. In 
+
+The Fourteenth International Conference on Learning Representations , 2026. URL https: //openreview.net/forum?id=k6nTUFoqeT . arXiv:2512.04952. [29] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, Ł. Kaiser, and I. Polosukhin. Attention is all you need. Advances in neural information processing systems ,30, 2017. [30] H. Zhao, O. Gallo, I. Frosio, and J. Kautz. Loss functions for image restoration with neural networks. IEEE Transactions on computational imaging , 3(1):47–57, 2016. [31] O. Rippel, M. Gelbart, and R. Adams. Learning ordered representations with nested dropout. In 
+
+International Conference on Machine Learning , pages 1746–1754. PMLR, 2014. [32] T. Darcet, M. Oquab, J. Mairal, and P. Bojanowski. Vision transformers need registers. In 
+
+International Conference on Learning Representations (ICLR) , 2024. [33] H. Siuzdak. Vocos: Closing the gap between time-domain and fourier-based neural vocoders for high-quality audio synthesis. arXiv preprint arXiv:2306.00814 , 2023. [34] L. Chen, K. Lu, A. Rajeswaran, K. Lee, A. Grover, M. Laskin, P. Abbeel, A. Srinivas, and I. Mordatch. Decision transformer: reinforcement learning via sequence modeling. In Proceed-ings of the 35th International Conference on Neural Information Processing Systems , pages 15084–15097, 2021. [35] T. Z. Zhao, V. Kumar, S. Levine, and C. Finn. Learning fine-grained bimanual manipulation with low-cost hardware. arXiv preprint arXiv:2304.13705 , 2023. [36] F. Torabi, G. Warnell, and P. Stone. Behavioral cloning from observation. In Proceedings of the 27th International Joint Conference on Artificial Intelligence , pages 4950–4957, 2018. [37] M. Tagliasacchi, Y. Li, K. Misiunas, and D. Roblek. SEANet: A Multi-Modal Speech En-hancement Network. In Interspeech 2020 , pages 1126–1130, 2020. doi:10.21437/Interspeech. 2020-1563. [38] J. Kong, J. Kim, and J. Bae. HiFi-GAN: Generative adversarial networks for efficient and high fidelity speech synthesis. In Advances in Neural Information Processing Systems , volume 33, pages 17022–17033, 2020. 11 [39] S. Kiranyaz, O. Avci, O. Abdeljaber, T. Ince, M. Gabbouj, and D. J. Inman. 1d convolutional neural networks and applications: A survey. Mechanical systems and signal processing , 151: 107398, 2021. [40] K. He, X. Zhang, S. Ren, and J. Sun. Deep residual learning for image recognition. In 
+
+Proceedings of the IEEE conference on computer vision and pattern recognition , pages 770– 778, 2016. [41] D.-A. Clevert, T. Unterthiner, and S. Hochreiter. Fast and accurate deep network learning by exponential linear units (elus). arXiv preprint arXiv:1511.07289 , 4(5):11, 2015. [42] T. Salimans and D. P. Kingma. Weight normalization: A simple reparameterization to accelerate training of deep neural networks. Advances in neural information processing systems , 29, 2016. [43] P. Isola, J.-Y. Zhu, T. Zhou, and A. A. Efros. Image-to-image translation with conditional adversarial networks. In Proceedings of the IEEE conference on computer vision and pattern recognition , pages 1125–1134, 2017. [44] J. MacQueen. Multivariate observations. In Proceedings ofthe 5th Berkeley symposium on mathematical statisticsand probability , volume 1, pages 281–297. University of California press Oakland, CA, USA, 1967. [45] A. Van Den Oord, O. Vinyals, et al. Neural discrete representation learning. Advances in neural information processing systems , 30, 2017. [46] A. Roy, A. Vaswani, A. Neelakantan, and N. Parmar. Theory and experiments on vector quantized autoencoders. arXiv preprint arXiv:1805.11063 , 2018. [47] S. Targ, D. Almeida, and K. Lyman. Resnet in resnet: Generalizing residual architectures. arXiv preprint arXiv:1603.08029 , 2016. [48] Z. Liu, H. Mao, C.-Y. Wu, C. Feichtenhofer, T. Darrell, and S. Xie. A convnet for the 2020s. In 
+
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 11976–11986, 2022. [49] I. J. Goodfellow, J. Pouget-Abadie, M. Mirza, B. Xu, D. Warde-Farley, S. Ozair, A. Courville, and Y. Bengio. Generative adversarial nets. Advances in neural information processing systems ,27, 2014. [50] W. Jang, D. Lim, J. Yoon, B. Kim, and J. Kim. UnivNet: A neural vocoder with multi-resolution spectrogram discriminators for high-fidelity waveform generation. arXiv preprint arXiv:2106.07889 , 2021. [51] J. Shen, R. Pang, R. J. Weiss, M. Schuster, N. Jaitly, Z. Yang, Z. Chen, Y. Zhang, Y. Wang, R. Skerrv-Ryan, et al. Natural tts synthesis by conditioning wavenet on mel spectrogram predictions. In 2018 IEEE international conference on acoustics, speech and signal processing (ICASSP) , pages 4779–4783. IEEE, 2018. [52] A. Radford, K. Narasimhan, T. Salimans, I. Sutskever, et al. Improving language understanding by generative pre-training. Openai , 2018. [53] B. Liu, Y. Zhu, C. Gao, Y. Feng, Q. Liu, Y. Zhu, and P. Stone. Libero: Benchmarking knowledge transfer for lifelong robot learning. Advances in Neural Information Processing Systems , 36: 44776–44791, 2023. [54] A. Mandlekar, D. Xu, J. Wong, S. Nasiriany, C. Wang, R. Kulkarni, L. Fei-Fei, S. Savarese, Y. Zhu, and R. Martín-Martín. What matters in learning from offline human demonstrations for robot manipulation. In Conference on Robot Learning , pages 1678–1690. PMLR, 2022. [55] C. Chi, Z. Xu, S. Feng, E. Cousineau, Y. Du, B. Burchfiel, R. Tedrake, and S. Song. Diffusion policy: Visuomotor policy learning via action diffusion. The International Journal of Robotics Research , 44(10-11):1684–1704, 2025. arXiv:2303.04137. 12 Appendix A Method Details 
+
+A.1 Autoregressive Policy Inference Algorithm 2 Autoregressive NAC Policy Inference 
+
+Require: Observations oimg from Ncam cameras; task condition l; autoregressive policy π(·); detok-enizer T −1; maximum tokens Lmax ; number of scales nq; bins per scale Vbins .
+
+1: Extract features: f ← ObsEncoder (oimg , l )
+
+2: Initialize sequence: Cflat ← [BOS ]
+
+3: while |Cflat | ≤ Lmax do 
+
+4: Sample next token: cnext ∼ π( · | f, C flat )
+
+5: Append token: Cflat ← Cflat ⊕ cnext 
+
+6: Remove BOS token from Cflat 
+
+7: Initialize list for decoded scales: Cscales ← ∅
+
+8: Partition Cflat into nq segments based on the known lengths {L0, . . . , L nq−1}
+
+9: for each segment Ss corresponding to scale s do 
+
+10: Recover code indices: C(s) ← Ss (mod Vbins )
+
+11: Append to list: Cscales ← Cscales ⊕ C(s)
+
+12: Detokenize to action chunk: ˆa1: Ha ← T −1(Cscales ) return ˆa1: nsteps ▷ Execute actions in a reced-ing horizon 
+
+# B Experimental Details 
+
+B.1 Training Hyperparameters 
+
+Tables 4 and 5 summarize settings from our training configs for LIBERO-10 and RoboMimic. All tokenizer and policy experiments use action horizon 32 and 500 training demonstrations. Dashes indicate settings that do not apply (e.g., non-learned tokenizers). 
+
+Setting NAC Bin FAST VQ-VLA OAT 
+
+Training steps 50k — — 50k 50k Discretization 2-scale RVQ per-dim. bins DCT+BPE 12-group VQ FSQ + registers Codebook size 1024 1024 1024 1024 × 12 1024 
+
+Architecture SEANet + 12-layer Vocos — pretrained FAST causal VAE encoder L=3 ,decoder L=10 
+
+Learning rate 2×10 −4 — — 5×10 −5 2×10 −4
+
+LR schedule cosine — — — —Loss / other MSE + DAC; 
+
+λcommit =10 3
+
+[−1, 1] DCT scale 10 VQ wt. 5 12 registers 
+
+Table 4: Tokenizer hyperparameters for benchmarked methods. 
+
+B.2 Real-World Evaluation 
+
+We evaluate all policies trained with these tokenizers on eight physical manipulation tasks with 10 trials per task per method. To keep conditions consistent across policies, we recreate each scene using physical markers outlined with black tape, matching the layouts used during data collection (Figure 5 shows all eight tasks). Each trial runs for up to 1000 action timesteps. A trial ends when the policy succeeds, enters a task-specific failure state, or hits this horizon. An operator may also terminate a trial early if continued 13 Setting Value                 
+
+> Executed action steps 16 Observation history length 2Training steps 50k Batch size 256 Transformer dimension ( d)256 Transformer layers 4Attention heads 4Dropout 0.1 Policy learning rate 5×10 −5
+> Vision encoder learning rate 1×10 −5
+> Autoregressive policies (Bin, FAST, VQ-VLA, OAT, NAC)
+> Top-ksampling 10 Sampling temperature 1.0
+> Diffusion Policy
+> Inference sampler DDIM Inference steps 10 Training timesteps 100
+
+Table 5: Policy hyperparameters (shared across Bin, FAST, VQ-VLA, OAT, NAC, and Diffusion Policy). 
+
+Task Bin Diffusion FAST VQ-VLA OAT NAC (Ours) 
+
+Weighing 50 40 80 90 40 90 
+
+Grapes 0 30 80 30 80 100 
+
+Marker 0 30 60 30 50 50 Two Blocks 0 0 0 0 0 30 
+
+Three Blocks 0 0 0 0 10 0Chess 0 0 10 0 40 10 Place Stone 0 0 10 50 30 40 Fold Towel 0 80 80 50 70 80 
+
+Total 6.25 22.5 40 31.25 40 50 
+
+Table 6: Real-world manipulation performance reported (success rate %) across 8 tasks with 10 trials per task. execution appears likely to damage the robot or the environment. Success and failure are judged manually using the criteria in Table 7. 14 Figure 5: Full Real-world evaluation tasks. Outlines indicate the initial start states (red) and success-fully completed states (green) 
+
+Task Task Prompt Success Criterion Failure Criterion 
+
+Weighing Turn on the weighing machine. Scale display on after the arm retracts. Button pressed but screen not active. Grapes Place the grapes on the plate. Grapes transferred onto the plate. Fewer than half remain on the plate. Marker Place the marker in the bin. Marker fully inside the bin at trial end. Marker outside the bin or dropped outside the workspace. Two Blocks Stack the two cubes. Both cubes stacked stably. Either cube falls, is knocked off the workspace, or the stack is incomplete. Three Blocks Stack the three cubes. All three cubes stacked stably. Any cube falls, is knocked off the workspace, or the stack is incomplete. Chess Take the queen with the rook. Rook captures the queen as in-tended. Queen not moved off the play-ing mat, or any piece knocked over. Place Stone Place white stone on board. Stone on the target intersection from training. Stone on any other intersection (illegal move). Fold Towel Fold the towel. Towel matches the folded target from training. Towel not folded, unfolded, or knocked off the workspace. 
+
+Table 7: Real-world evaluation tasks and trial criteria. 15

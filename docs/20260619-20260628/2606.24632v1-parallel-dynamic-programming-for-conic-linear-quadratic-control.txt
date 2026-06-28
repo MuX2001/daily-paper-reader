@@ -1,0 +1,1207 @@
+Title: Parallel Dynamic Programming for Conic Linear Quadratic Control
+
+URL Source: https://arxiv.org/pdf/2606.24632v1
+
+Published Time: Wed, 24 Jun 2026 01:06:56 GMT
+
+Number of Pages: 7
+
+Markdown Content:
+# Parallel Dynamic Programming for Conic Linear Quadratic Control ⋆
+
+Luyao Zhang ∗ Gabriel Bravo-Palacios ∗∗ Brian Plancher ∗∗ 
+
+Sergio Grammatico ∗∗ Delft Center for Systems and Control, TU Delft, The Netherlands (e-mail: {l.zhang-7, s.grammatico}@tudelft.nl).  
+
+> ∗∗
+
+Barnard College, Columbia University, New York, NY 10027 USA & Dartmouth College, Hanover, NH 03755, USA (e-mail: {gbravo, plancher}@dartmouth.edu) 
+
+Abstract: Linear Quadratic (LQ) control problems are at the heart of linear control theory and Model Predictive Control (MPC). While performant, standard approaches to solving such problems are inherently serial, limiting real-time scalability despite the parallel computing power available on modern multi-core CPUs. Contributing to addressing this challenge and motivated by “divide and conquer” strategies, we present a parallel-in-time approach that solves computationally demanding conic optimal control problems through the use of the alternating direction method of multipliers (ADMM). In particular, we formulate the inner primal update of ADMM as an LQ problem and split the reformulated problem along the time horizon. This enables us to derive a variant of the Riccati recursion using dynamic programming to solve each subproblem in parallel. Numerical benchmarks on two real-world applications demonstrate as much as a 5x speedup compared to existing related approaches on multi-core CPU hardware. 
+
+Keywords: Numerical optimization methods, optimal control, parallel algorithms. 1. INTRODUCTION Model Predictive Control (MPC) has become increasingly popular in practice due to its ability to adapt to dy-namic environments and systematically handle complex constraints, e.g., second-order conic constraints that com-monly appear in robotics and aerospace control problems involving friction (Wensing et al., 2024) and thrust lim-its (Tracy and Manchester, 2021). These algorithms op-erate by repeatedly solving finite-horizon optimal control problems online. Fueled by advances in numerical opti-mization solvers, real-time conic nonlinear MPC is now practical for many robotics tasks and modalities (Wensing et al., 2024). In most efficient MPC implementations, the key com-putational primitive is the Linear-Quadratic (LQ) prob-lem (Rao et al., 1998; Vanroye et al., 2023). This in-cludes both historic and modern iterative schemes such as Sequential Quadratic Programming (SQP) (Betts, 2010; Jordana et al., 2025; Verschueren et al., 2021) and Dif-ferential Dynamic Programming (DDP) (Jacobson and Mayne, 1970; Li et al., 2023; Howell et al., 2019). In most of these approaches, the resulting LQ (sub)problem can be interpreted as a quadratic optimization problem subject to linear dynamics constraints. Its corresponding KKT system exhibits a banded structure, which can be solved using a sparse LDL ⊤ factorization, or an efficient Riccati recursion (Dunn and Bertsekas, 1989) inspired by  
+
+> ⋆This work is partially supported by NWO (Project AMADeuS) and US NSF (Award 2411369). Opinions, findings, conclusions, or recommendations expressed in this material are those of the authors and do not necessarily reflect those of the funding organizations.
+
+dynamic programming. We note that, as discussed in Jor-dana et al. (2025), the two approaches are closely related, and many variants, such as the square-root Riccati recur-sion (Frison and Jørgensen, 2013), have been proposed for further efficiency. However, the complexity of the aforementioned methods scales linearly with the length of the prediction horizon and becomes a bottleneck in long-horizon problems (Betts and Erb, 2003). Moreover, while current solvers for (conic) trajectory optimization are serial (Garstka et al., 2021; O’Donoghue et al., 2016), recent advances in parallel com-puting motivate the development of new parallel algo-rithms for such problems. One key class of such paral-lel algorithms is “divide and conquer” approaches, which decompose the problem into smaller subproblems that can be solved independently, followed by a consensus step that combines their partial solutions. In particular, Wright (1991) proposes two such methods, partitioned dynamic programming (PDP) and partitioned Riccati re-cursion (PRI), which differ in their treatment of the system of equations associated with the LQ problem, and in the way they parameterize the subproblems. There are multi-ple variants and extensions to these approaches (Nielsen and Axehill, 2015; Laine and Tomlin, 2019; Särkkä and García-Fernández, 2023); in particular, Jallet et al. (2024) consider general LQ problems with implicit dynamics and stage-wise equality constraints, and under explicit dynam-ics, apply a reduction phase that coincides with that of the PDP method. Table 1 summarizes the comparison among these various methods. 
+
+> arXiv:2606.24632v1 [math.OC] 23 Jun 2026
+
+Table 1. Comparison of parallel methods.                                        
+
+> Method Reduction Consensus
+> Factorization Type Computational Efficiency Factorization Type Computational Efficiency
+> PDP (Wright, 1991) Stage LL ⊤Medium Banded LDL ⊤Medium
+> PRI (Wright, 1991) Stage LU Low Banded LDL ⊤Medium Nielsen and Axehill, 2015 Stage LL ⊤Medium Stage LL ⊤Low
+> ProxLQR (Jallet et al., 2024) Stage LDL ⊤Medium Stage LDL ⊤High
+> PDPLQR (ours) Stage square-root LL ⊤High Stage LU/LL ⊤High
+
+Despite the advances achieved, with the exception of Jallet et al. (2024), the aforementioned methods do not account for constraints at all, let alone conic constraints. We build on this previous work and introduce a new LQ solver which is not only more computationally efficient through its parallel-in-time approach, but can also solve large-scale conic optimal control problems through the alternating direction method of multipliers (ADMM) for constraint handling. In particular, we decompose the ADMM primal problem into parallel fixed-end LQ subproblems, which we solve through our own variant of the Riccati recursion, achieving increased computational efficiency. Compared to related and common approaches for solving such problems, we demonstrate as much as a 5x speedup on multi-core CPU hardware. We release our software open-source at: 
+
+https://github.com/Luyao787/PDP-LQR .2. BACKGROUND 
+
+2.1 Dense Linear Algebra 
+
+This work uses the following dense linear algebra oper-ations: matrix-matrix/vector multiplication (gemm /gemv ),triangular matrix-matrix/vector multiplication (trmm /trmv ),symmetric rank-k update (syrk ), Cholesky factorization, triangular solve (trsv ), as well as LU factorization and solve. More technical details can be found in (Boyd and Vandenberghe, 2004, Appendix C). 
+
+2.2 The Conic LQ Problem 
+
+We consider the following convex conic LQ problem: 
+
+min  
+
+> x,u,s
+> N−1
+
+∑
+
+> k=0
+
+ℓk(xk, u k) + ℓN (xN ) (1a) s.t. xk+1 = Akxk + Bkuk + ck, (1b) 
+
+Dx,k xk + Du,k uk + sk = ek, (1c) 
+
+sk ∈ K k, k = [0 , N − 1] , (1d) 
+
+Dx,N xN + sN = eN , sN ∈ K N , (1e) where N is the prediction horizon. The decision variables include the state and control sequences, x := ( x1, . . . , x N )
+
+with xk ∈ Rnx , and u := ( u0, . . . , u N −1) with uk ∈ Rnu ,respectively, and the slack variables s := ( s0, . . . , s N −1)
+
+with sk ∈ Rnc,k . The stage cost ℓk(·) and the terminal cost ℓN (·) in (1a) have the quadratic form: 
+
+ℓk(xk, u k) = 
+
+[qk
+
+rk
+
+]⊤ [xk
+
+uk
+
+]
+
++ 12
+
+[xk
+
+uk
+
+]⊤ [Qk M ⊤
+
+> k
+
+Mk Rk
+
+] [ xk
+
+uk
+
+]
+
+,ℓN (xN ) = 12 x⊤ 
+
+> N
+
+QN xN + q⊤ 
+
+> N
+
+xN ,
+
+where qk, rk, Qk, Mk, Rk, and qN , QN are running and terminal cost weight matrices. Moreover, the stage-wise constraints (1d) and (1e) are characterized by matrices 
+
+Dx,k ∈ Rnc,k ×nx , Du,k ∈ Rnc,k ×nu , ek ∈ Rnc,k , and a (Cartesian product of) convex cone(s) Kk. We solve (1) via an ADMM-based approach, where the core idea is to separately handle the dynamics and conic constraints to simplify the optimization process, as described below. 
+
+2.3 Conic ADMM 
+
+Following Garstka et al. (2021), we reformulate (1) as: 
+
+min   
+
+> ˜x,˜u,x,u,s
+> N−1
+
+∑
+
+> k=0
+
+ℓk(˜ xk, ˜uk) + ℓN (˜ xN ) + 
+
+> N
+
+∑
+
+> k=0
+
+IKk (sk), (2a) s.t. ˜xk+1 = Ak ˜xk + Bk ˜uk + ck, (2b) 
+
+Dx,k ˜xk + Du,k ˜uk + sk = ek, (2c) 
+
+˜xk = xk, ˜uk = uk, k = [0 , N − 1] , (2d) 
+
+Dx,N ˜xN + sN = eN , (2e) 
+
+˜xN = xN , (2f) where ˜xk and ˜uk are auxiliary variables achieving consen-sus with xk and uk, respectively, through (2d) and (2f). The indicator function IK of the set K in (2b) integrates the conic constraints into the objective. The ADMM algo-rithm solves problem (2) through the following three-step iteration (Boyd et al., 2011): 
+
+˜xj+1 , ˜uj+1 := argmin  
+
+> ˜x,˜u
+
+Lρ,σ (xj , uj , sj , yj , ˜x, ˜u), (3a) 
+
+sj+1 := Π K
+
+(˜sj+1 + ρ−1yj ) , (3b) 
+
+yj+1 := yj + ρ(˜sj+1 − sj+1 ), (3c) where (3a) represents an unconstrained LQ problem that minimizes the augmented Lagrangian Lρ,σ over ˜x and 
+
+˜u, subject to linear dynamics. The expression for the augmented Lagrangian is given by: 
+
+Lρ,σ (·) = 
+
+> N−1
+
+∑
+
+> k=0
+
+ℓk(˜ xk, ˜uk) + ℓN (˜ xN ) + 
+
+> N
+
+∑
+
+> k=0
+
+IKk (sk), (4) 
+
++ ρ
+
+2
+
+∥∥Dx,N ˜xN + sN − eN + ρ−1yN
+
+∥∥22
+
++ 
+
+> N−1
+
+∑
+
+> k=0
+
+ρ
+
+2
+
+∥∥Dx,k ˜xk + Du,k ˜uk + sk − ek + ρ−1yk
+
+∥∥22
+
++
+
+> N
+
+∑
+
+> k=0
+
+σ
+
+2 ∥xk − ˜xk∥22 + 
+
+> N−1
+
+∑
+
+> k=0
+
+σ
+
+2 ∥uk − ˜uk∥22 ,
+
+where the parameters ρ > 0 and σ > 0 act as regular-ization or step-size terms, and y is the vector of dual variables associated with the stage-wise constraints (2c). (3b) projects s into K, and (3c) updates the dual variables. The j superscript denotes the ADMM iteration index. An intermediate constraint relaxation step is often included between (3a) and (3b), which for the running variables takes the following form: Fig. 1. Parallel-in-time illustration for an LQ problem partitioned into J = 3 subproblems. Adjacent sub-problems are coupled through a shared linkage state. Each subproblem in the reduction phase is a fixed-end LQ problem. The tuple Ti, represents the com-ponents of the conditional value function at stage i.In the consensus phase, we combine the solutions of the subproblems and obtain the linkage states and Lagrange multipliers. Finally, the state and control input sequences are recovered. 
+
+(xkj+1 , u kj+1 ) := α(˜ xj+1  
+
+> k
+
+, ˜uj+1  
+
+> k
+
+) + (1 − α)( xjk, u jk) (5a) 
+
+˜sj+1  
+
+> k
+
+:= α(ek − Dx,k ˜xj+1  
+
+> k
+
+− Du,k ˜uj+1  
+
+> k
+
+) + (1 − α)sjk,
+
+(5b) where α ∈ (0 , 2) is the relaxation parameter. If α > 1,(5) imposes over-relaxation, with demonstrated improved convergence using α values in the range 1.5−1.8 (Eckstein and Bertsekas, 1992). In our implementation, the relax-ation parameter is set to α = 1 .6, following Stellato et al. (2020). 
+
+2.4 The LQ Problem 
+
+In (3a), we solve an LQ problem, which arises not only in ADMM-type methods but is also compatible with alter-native constraint-handling approaches, including interior-point methods (Domahidi et al., 2012) and proximal aug-mented Lagrangian methods (Løwenstein et al., 2024). To match the quadratic form of the cost function in (1), we reformulate the augmented Lagrangian in (4) as a function of terms of the following cost matrices: 
+
+ˆQk = Qk + σI + ρD ⊤
+
+> x,k
+
+Dx,k , syrk n2
+
+> x
+
+nc (6a) 
+
+ˆRk = Rk + σI + ρD ⊤
+
+> u,k
+
+Du,k , syrk n2
+
+> u
+
+nc (6b) 
+
+ˆMk = Mk + ρD ⊤
+
+> u,k
+
+Dx,k , gemm 2nxnunc (6c) 
+
+ˆqk = qk + D⊤
+
+> x,k
+
+(
+
+ρ(sjk − ek) − yj )
+
+− σx j , (6d) 
+
+ˆrk = rk + D⊤
+
+> u,k
+
+(
+
+ρ(sjk − ek) − yj )
+
+− σu j . (6e) We highlight the linear algebra routines and floating-point operation (flop) counts in blue for reference, with additional context provided in the following section. 3. PARALLEL LQ SOLVER Our parallel algorithm to address (3a) comprises a back-ward pass and a forward pass. The backward pass includes two phases, namely the reduction and consensus phases, as illustrated in Figure 1. The forward pass involves a parallel rollout of the linear dynamics. This section focuses on the methods applied in the backward pass. We adopt a divide-and-conquer strategy to parallelize the computation of (3a). In particular, we break down the LQ problem along the prediction horizon into J similar subproblems {P i}J−1 
+
+> i=0
+
+. Let Ni and ki denote the horizon length and starting stage of the i-th subproblem. We then define the state and input sequences for subproblem i as: 
+
+xi = ( x1,i , . . . , x Ni,i ) := ( xki+1 , . . . , x ki+Ni ) (7a) 
+
+ui = ( u0,i , . . . , u Ni−1,i ) := ( uki , . . . , u ki+Ni−1). (7b) Two consecutive subproblems, Pi and Pi+1 , are linked by the condition xNi,i = x0,i +1 , ensuring continuity between the final state of Pi and the initial state of Pi+1 . Therefore, in addition to the initial state x0,i , we also parameterize each subproblem by its terminal state xNi,i , resulting in a fixed-end LQ problem Pi(x0,i , x Ni,i ):
+
+min 
+
+> ˆxi,ui
+> Ni−1
+
+∑
+
+> n=0
+
+ℓn,i (xn,i , u n,i ) (8) s.t. xn+1 ,i = An,i xn,i + Bn,i un,i + cn,i , n ∈ [0 , N i − 1] ,
+
+where ˆxi = ( x1,i , . . . , x Ni−1,i ) is the state sequence, ex-cluding the initial and terminal states. In the remainder of this section, we describe the stages of our algorithm in detail and occasionally omit the subscript 
+
+i and the hat symbol for notational simplicity. 
+
+3.1 Reduction Phase 
+
+By dualizing the dynamics constraint coupling the termi-nal and second last stages, we reformulate (8) as follows: 
+
+max 
+
+> λN
+
+min  
+
+> ˆx,u
+> N−1
+
+∑
+
+> n=0
+
+ℓn(xn, u n) (9) 
+
++ λ⊤ 
+
+> N
+
+(AN −1xN −1 + BN −1uN −1 − xN )
+
+s.t. xn+1 = Anxn + Bnun + cn, n ∈ [0 , N − 2] ,
+
+where x0 and xN are treated as parameters. The inner minimization problem in (9) resembles a standard LQ problem with no terminal cost, but includes an additional term arising from the terminal state constraint. We then apply dynamic programming to solve the inner optimiza-tion problem, starting from the minimization problem at stage N − 1, where gN −1,N denotes the conditional dual value function from stage N − 1 to N :
+
+gN −1,N (xN −1, x N , λ N ) = min  
+
+> uN−1
+
+ℓN −1(xN −1, u N −1)+ λ⊤ 
+
+> N
+
+(AN −1xN −1 + BN −1uN −1 − xN ) .
+
+(10) By analytically solving the unconstrained problem above, we derive the mathematical expression for the conditional dual value function from stage n to N as follows: 
+
+gn,N (xn, x N , λ N ) = β + 12 x⊤ 
+
+> n
+
+Pn,N xn + p⊤ 
+
+> n,N
+
+xn
+
+− 12 λ⊤ 
+
+> N
+
+Cn,N λN + λ⊤ 
+
+> N
+
+(An,N xn + cn,N − xN ) ,
+
+(11) where β is a constant value. Given gn+1 ,N , the Bellman equation at stage 0 ≤ n < N − 1 is 
+
+min 
+
+> un
+
+ℓn(xn, u n)+ gn+1 ,N (Anxn +Bnun +cn, x N , λ N ). (12) We represent the action-value function in (12) by Qn (13), and derive the cost Hessians and gradients by grouping relevant terms as shown in (14): 
+
+Qn(xn, u n, x N , λ N ) = β +
+
+[Qx,n 
+
+Qu,n 
+
+Qλ,n 
+
+]⊤ [ xn
+
+un
+
+λN
+
+]
+
++ 12
+
+[ xn
+
+un
+
+λN
+
+]⊤ 
+
+Qxx,n Q⊤ 
+
+> ux,n
+
+Q⊤
+
+> λx,n
+
+Qux,n Quu,n Q⊤
+
+> λu,n
+
+Qλx,n Qλu,n Qλλ,n 
+
+[ xn
+
+un
+
+λN
+
+]
+
+,
+
+(13) 
+
+Qxx,n = Qn + AnPn+1 ,N An,Quu,n = Rn + BnPn+1 ,N Bn,Qux,n = Mn + B⊤ 
+
+> n
+
+Pn+1 ,N An,Qλλ,n = −Cn+1 ,N ,Qλx,n = An+1 ,N An,Qλu,n = An+1 ,N Bn,Qx,n = qn + A⊤ 
+
+> n
+
+(Pn+1 ,N cn + pn+1 ,N ) ,Qu,n = rn + B⊤ 
+
+> n
+
+(Pn+1 ,N cn + pn+1 ,N ) ,Qλ,n = An+1 ,N cn + cn+1 ,N .
+
+(14) Next, by setting the gradient of Qn to zero, we solve the minimization problem (12) to obtain the optimal control input u∗ 
+
+> n
+
+and the conditional dual value function gn,N . The optimal control input is then: 
+
+u∗ 
+
+> n
+
+= −Q−1
+
+> uu,n
+
+Qux,n xn − Q−1
+
+> uu,n
+
+Q⊤
+
+> λu,n
+
+λN − Q−1
+
+> uu,n
+
+Qu,n 
+
+:= Knxn + GnλN + dn.
+
+Substituting u∗ 
+
+> n
+
+into the action-value function in (13), we obtain the key components of gn,N :
+
+Pn,N = Qxx,n − Q⊤
+
+> ux,n
+
+Q−1
+
+> uu,n
+
+Qux,n 
+
+Cn,N = −Qλλ,n + Qλu,n Q−1
+
+> uu,n
+
+Q⊤
+
+> λu,n
+
+An,N = Qλx,n − Qλu,n Q−1
+
+> uu,n
+
+Qux,n 
+
+pn,N = Qx,n − Q⊤
+
+> ux,n
+
+Q−1
+
+> uu,n
+
+Qu,n 
+
+cn,N = Qλ,n − Qλu,n Q−1
+
+> uu,n
+
+Qu,n .
+
+Solving the first-stage minimization problem, we obtain the conditional value function Vi (Särkkä and García-Fernández, 2023) for subproblem i by maximizing the conditional dual value function over the dual variable λNi :
+
+Vi(x0,i , x Ni,i ) = max 
+
+> λNi
+
+g0,N i,i (x0,i , x Ni,i , λ Ni,i ), (15) which represents the optimal cost of the trajectory, condi-tioned on the initial and terminal states. If the terminal state is not reachable, the value function tends toward in-finity. To simplify the notation, we introduce the following: 
+
+Ti := ( Pi,i +1 , p i,i +1 , C i,i +1 , A i,i +1 , b i,i +1 ) := (P0,N i,i , p 0,N i,i , C 0,N i,i , A 0,N i,i , b 0,N i,i ) , i ∈ [0 , J − 2] .
+
+For the last subproblem, we define TJ−1 := ( PJ−1, p J−1).The full reduction phase is shown in Algorithm 1, with the linear algebra operation and the flop counts highlighted in blue, including only the cubic and quadratic terms. In Algorithm 1 (Lines 7-11), instead of directly implementing (14), we adopt the square-root Riccati recursion proposed in (Frison and Jørgensen, 2013), where the recursion is ex-pressed in terms of the Cholesky factor Lnn,x rather than 
+
+Pn. This method reduces the flop counts and improves spa-tial locality in the cache by packing the matrices. The com-putational cost of the stage factorization is summarized in Table 2. Cost of factorization for re-duction and consensus phases                     
+
+> Phase Operation Cost per stage (flops)
+> Reduction Factorization (free-end) 73n3
+> x+ 4 n2
+> xnu+ 2 nxn2
+> u+ 13n3
+> u
+> + ( nx+nu)2nc,k
+> Factorization (fixed-end) Free-end Factorization Cost
+> +2n 3x+6n 2xnu+2n xn2u
+> Consensus Factorization (LU) 26 n3
+> x/3
+> Factorization (Cholesky) 20 n3
+> x/3
+
+Table 2. We highlight in bold the additional floating-point operations required by the stage factorization in the fixed-end reduction. Moreover, during the reduction phase, we perform J backward passes in parallel. If the whole LQ problem is evenly divided, the computational load differs between the first J − 1 backward passes and the final one. Specifically, the last backward pass employs the standard Riccati recursion, by excluding Lines 17-25. To minimize unnecessary lag time, we balance the computational load by increasing the horizon length of the final subproblem. Let ψ denote the ratio between the computation time of the stage factorization in the fixed-end reduction (Lines 7-25) and that in the free-end reduction (Lines 7-16). Assum-ing that all CPUs have identical computing capabilities, we determine the horizon length N ′ of the first J − 1
+
+subproblems as follows, by equating the computation time of the first subproblem with that of the last one: 
+
+N ′ ≈ int (N/ (ψ + J − 1)) , (16) which we denote as a load-balancing scheme. 
+
+3.2 Consensus Phase 
+
+Next, we aim to combine the subproblems by consider-ing a minimization problem associated with all linkage states. Let the linkage state sequence be denoted as: 
+
+xlk = ( xlk  
+
+> 1
+
+, . . . , x lk 
+
+> J−1
+
+) := ( xk1 , . . . , x kJ−1 ). The optimiza-tion problem is then formulated as: 
+
+V (x0) = min 
+
+> xlk
+
+VJ−1(xlk 
+
+> J−1
+
+) + 
+
+> J−2
+
+∑
+
+> i=0
+
+Vi(xlk  
+
+> i
+
+, x lk 
+
+> i+1
+
+), (17) where xlk  
+
+> 0
+
+is defined as x0. By substituting (15) into (17), we derive a min-max problem over the linkage states and corresponding dual variables: 
+
+min 
+
+> xlk
+
+max 
+
+> λlk
+
+VJ−1(xlk 
+
+> J−1
+
+) + 
+
+> J−2
+
+∑
+
+> i=0
+
+g0,N i,i (xlk  
+
+> i
+
+, x lk 
+
+> i+1
+
+, λ lk 
+
+> i+1
+
+), (18) where λlk = (λlk  
+
+> 1
+
+, . . . , λ lk 
+
+> J−1
+
+) := (λN0 , . . . , λ NJ−2 ). The optimality conditions for (18) are obtained by taking the gradient of the objective function with respect to xlk and 
+
+λlk , yielding the following system of equations: 
+
+−λlk  
+
+> i−1
+
++ Pi−1,i xlk  
+
+> i−1
+
++ A⊤
+
+> i−1,i
+
+λlk  
+
+> i
+
++ pi−1,i = 0 , i ∈ [2 , J − 1] 
+
+Ai−1,i xlk  
+
+> i−1
+
+− Ci−1,i λlk  
+
+> i
+
+− xlk  
+
+> i
+
++ ci−1,i = 0 , i ∈ [1 , J − 1] 
+
+−λlk  
+
+> J−1
+
++ PJ−1xlk  
+
+> J−1
+
++ pJ−1 = 0 . (19) Leveraging the special structure of the resulting banded KKT matrix, we perform a backward elimination to es-tablish the relationship between xi and λi:Algorithm 1 Reduction phase  
+
+> 1:
+
+if not last subproblem then  
+
+> 2:
+
+Lxx,N ← 0, p N ← 0, C N ← 0, F N ← I 
+
+> 3:
+
+else  
+
+> 4:
+
+PN ← Q1/2 
+
+> n
+
+, p N ← qN 
+
+> 5:
+
+end if  
+
+> 6:
+
+for n = N − 1 → 0 do  
+
+> 7:
+
+Vn ←
+
+[B⊤
+
+> n
+
+A⊤
+
+> n
+
+]
+
+Lxx,n +1 trmm n2
+
+> x
+
+(nx + nu) 
+
+> 8:
+
+Mn ←
+
+[Rn ∗
+
+S⊤ 
+
+> n
+
+Qn
+
+]
+
++ VnV⊤ 
+
+> n
+> 9:
+
+Mn := 
+
+[Rn + B⊤ 
+
+> n
+
+Pn+1 Bn
+
+S⊤ 
+
+> n
+
++ A⊤ 
+
+> n
+
+Pn+1 Bn Qn + A⊤ 
+
+> n
+
+Pn+1 An
+
+] 
+
+> 10:
+
+syrk nx(nx + nu)2
+
+> 11:
+
+[Luu,n ∗
+
+Lxu,n Lxx,n 
+
+]
+
+← choFact (Mn) 13 (nx + nu)3 
+
+> 12: 13:
+
+Pn+1 cn ← Lxx,n +1 
+
+(L⊤
+
+> xx,n +1
+
+cn
+
+) + pn+1 trmv 2n2
+
+> x
+> 14:
+
+[ ln
+
+pn
+
+]
+
+←
+
+[rn
+
+qn
+
+]
+
++
+
+[B⊤
+
+> n
+
+A⊤
+
+> n
+
+]
+
+Pn+1 cn gemv 2nx(nx + nu) 
+
+> 15:
+
+ln ← L−1
+
+> uu,n
+
+ln trsv n2 
+
+> u
+> 16:
+
+pn ← pn − Lxu,n ln gemv 2nxnu 
+
+> 17:
+
+if not last subproblem then  
+
+> 18:
+
+Kn ← L−⊤ 
+
+> uu,n
+
+L⊤ 
+
+> xu,n
+
+trsv nxn2 
+
+> u
+> 19:
+
+dn ← L−⊤ 
+
+> uu,n
+
+ln trsv n2 
+
+> u
+> 20:
+
+[F B F A ] ← [Fn+1 Bn Fn+1 An] gemm 2n2
+
+> x
+
+nu + 2 n3 
+
+> x
+> 21:
+
+Λn ← − L−1
+
+> uu,n
+
+(F B )⊤ trsv nxn2 
+
+> u
+> 22:
+
+Cn ← Cn+1 + Λ ⊤ 
+
+> n
+
+Λn gemm 2n2
+
+> x
+
+nu 
+
+> 23:
+
+Fn ← F A + F BK n gemm 2n2
+
+> x
+
+nu 
+
+> 24:
+
+fn ← fn+1 + Fn+1 (Bndn + cn) gemv 2nxnu + 2 n2 
+
+> x
+> 25:
+
+end if  
+
+> 26:
+
+end for  
+
+> 27:
+
+P0,N ← Lxx, 0L⊤
+
+> xx, 0
+
+, p0,N ← p0 
+
+> 28:
+
+C0,N ← C0, A0,N ← F0, c0,N ← f0
+
+Algorithm 2 Consensus phase  
+
+> 1:
+
+PJ−1 ← PNJ−1 , p J−1 ← pNJ−1 , xlk  
+
+> 0
+
+← x0 
+
+> 2:
+
+for i = J − 2 → 0 do  
+
+> 3:
+
+CP ← Ci,i +1 Pi+1 , P A ← Pi+1 Ai,i +1 gemm 4n3 
+
+> x
+> 4:
+
+lufact i ← luFact (I + CP ) 23 n3 
+
+> x
+> 5:
+
+Di ← luSolve (lufact i, A i,i +1 ) 2n3 
+
+> x
+> 6:
+
+Pi ← Pi,i +1 + D⊤ 
+
+> i
+
+P A gemm 2n3 
+
+> x
+> 7:
+
+pi ← pi,i +1 + D⊤ 
+
+> i
+
+(Pi+1 ci,i +1 + pi+1 ) gemv 4n2 
+
+> x
+> 8:
+
+end for  
+
+> 9:
+
+for i = 0 → J − 2 do  
+
+> 10:
+
+ei ← Ai,i +1 xlk  
+
+> i
+
++ ci,i +1 − Ci,i +1 pi+1 gemv 4n2 
+
+> x
+> 11:
+
+xlk  
+
+> i+1
+
+← luSolve (lufact i, e i) 2n2 
+
+> x
+> 12:
+
+λlk  
+
+> i+1
+
+← Pi+1 xlk  
+
+> i+1
+
++ pi+1 gemv 2n2 
+
+> x
+> 13:
+
+end for 
+
+λlk  
+
+> i
+
+= Pixlk  
+
+> i
+
++ pi (20) 
+
+Pi = Pi,i +1 + A⊤
+
+> i,i +1
+
+(I + Pi+1 Ci,i +1 )−1Pi+1 Ai,i +1 
+
+pi = pi,i +1 + A⊤
+
+> i,i +1
+
+(I + Pi+1 Ci,i +1 )−1(Pi+1 ci,i +1 + pi+1 ),
+
+where Pi and pi are the parameters associated with the value function of an LQ problem. During the backward pass, the connection between two consecutive states is: 
+
+xlk  
+
+> i+1
+
+= ( I + Ci,i +1 Pi+1 )−1(Ai,i +1 xlk  
+
+> i
+
++ ci,i +1 − Ci,i +1 pi+1 ).
+
+(21) Once {Pi} and {pi} are computed, we use (20) and (21) to obtain the linkage states and Lagrangian dual variables. The consensus phase is described in Algorithm 2. Unlike (Jallet et al., 2024), our method only requires Pi,i +1 to be positive semi-definite rather than positive definite, at the cost of approximately 2nx additional flop counts per stage. 4. NUMERICAL RESULTS The objectives of this numerical study are threefold: (1) to evaluate the computational performance of the proposed solver across a wide range of horizon lengths, (2) to ex-amine the effects of varying the number of subproblems and stage constraints, and (3) to validate the effective-ness of the proposed load-balancing scheme via (16). In addition, we compare the performance of our parallel solver PDPLQR against several high-performance, state-of-the-art, LQ solvers: one based on the square-root Riccati recursion (Frison and Jørgensen, 2013) adopted in acados (Verschueren et al., 2021) and identified as Riccati LQR ,the proximal LQ solver ( ProxLQR ) integrated in Aligator (Jallet et al., 2024), and the widely used sparse linear solver QDLDL (Stellato et al., 2020). All simulations are conducted, using Google Benchmark, on a laptop with a 2.30 GHz Intel Core i7-11800H processor (8 physical cores) and 16 GB RAM. We implement our parallel method in C++ using Eigen for dense linear algebra. The OpenMP API is used to enable parallel exe-cution. To minimize the overhead of online thread creation, all threads are created and bound to specific CPU cores during the problem setup. We disable Turbo Boost for sta-ble thermal performance during benchmarking. Moreover, for a fair comparison, we use Aligator v0.16.0, which is optimized for explicit dynamics. 
+
+4.1 Benchmarking Results 
+
+For benchmarking, we focus on two real-world engineer-ing problems: (a) quadrotor hovering control representing a short-horizon case and (b) low-thrust orbital transfer planning representing a long-horizon case. The quadrotor model is linearized around the hovering condition, with 12 states (nx = 12) and 4 control inputs (nu = 4) . We enforce box constraints on the state and input variables, resulting in nc,k = 16 constraints per stage. The orbital dynamics model is adopted from (Tracy and Manchester, 2021), con-sisting of 13 states and 2 control inputs. The imposed stage constraint requires that the ℓ-2 norm of the control input vector uk remains below a specific bound, ∥uk∥2 ≤ umax .This is a typical second-order cone constraint. Figure 2 illustrates the impact of various horizon lengths. 
+
+PDPLQR-J refers to the proposed solver with J subprob-lems. The solve time includes the backward and forward passes required for solving one LQ problem (the first ADMM step). The proposed solver, PDPLQR , demonstrates superior performance on the quadrotor hovering control problem across all tested horizon lengths, achieving a speedup exceeding 4× over QDLDL and 2× over ProxLQR 
+
+for N > 20 . ProxLQR performs an LDL ⊤ factorization of a matrix of size (nu + nc,k ) × (nu + nc,k ), instead of a Cholesky factorization of a matrix of size nu × nu.This approach is more numerically stable, but comes at 10 20 30 40 50           
+
+> horizon length
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> solve time (ms)
+> 2.9x
+> 3.8x
+> 4.5x
+> 4.7x
+> 5.1x
+> 2.7x
+> 3.6x
+> 4.3x
+> 4.5x
+> 4.9x
+> 1.2x
+> 1.6x
+> 2.0x
+> 2.0x
+> 2.2x
+> 2.3x
+> 2.2x
+> 2.5x
+> 2.3x
+> 2.4x
+> 1.0x 1.0x 1.0x 1.0x 1.0x
+> QDLDL
+> ProxLQR serial
+> Riccati LQR
+> ProxLQR-4
+> PDPLQR-4 (a) quadrotor hovering control 1000 2000 3000
+> horizon length
+> 0
+> 5
+> 10
+> 15
+> 20
+> 25
+> 30
+> 35
+> 40
+> solve time (ms)
+> 9.9x
+> 8.8x
+> 7.3x
+> 7.2x
+> 7.0x
+> 6.0x
+> 4.9x
+> 4.6x
+> 4.1x
+> 1.8x
+> 1.8x
+> 1.6x
+> 1.0x 1.0x
+> 1.0x
+> QDLDL
+> ProxLQR serial
+> Riccati LQR
+> ProxLQR-8
+> PDPLQR-8 (b) low-thrust orbital transfer planning
+
+Fig. 2. Benchmarking results across various horizon lengths. Above-bar numbers indicate the speedups achieved by our 
+
+PDPLQR solver over realted work. In the quadrotor hovering control experiment, load balancing is turned off. unconstrained constrained 
+
+> 0.00
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+> 0.10
+> 0.12
+> Solve time for backward pass (ms)
+> 0.069
+> 0.100
+> 0.065
+> 0.004
+> 0.080
+> 0.005
+> 0.040
+> 0.011
+> 0.050
+> 0.014
+> 0.035
+> 0.016
+> 0.042
+> 0.020
+> 0.025
+> 0.040
+> 0.035
+> 0.045
+> reduction
+> consensus
+> Riccati LQR
+> PDPLQR-2
+> PDPLQR-3
+> PDPLQR-4
+> PDPLQR-8
+> Riccati LQR
+> PDPLQR-2
+> PDPLQR-3
+> PDPLQR-4
+> PDPLQR-8
+
+Fig. 3. Solve times for the backward pass on the quadro-tor control problem under unconstrained and con-strained settings. Inside-bar numbers indicate phase solve times. the cost of increased computation time. In the low-thrust planning problem, we partition the LQ problem into eight subproblems to achieve better performance. The parallel solvers, PDPLQR and ProxLQR , consistently outperform the serial implementations; moreover, our solver is more than 
+
+35% faster than the ProxLQR .
+
+4.2 Ablation Studies 
+
+We now delve into assessing the backward pass (Algo-rithm 1), which is the most computationally demanding component of the LQ-problem solution process. Table 2 shows that solving the fixed-end LQ problem is more com-putationally expensive than its free-end counterpart. By substituting nx = 12 , n u = 4 , n c = 0 into Table 2, we can estimate that the ratio between the flop counts of the fixed-end and free-end stage factorizations is 2.08 . This value implies that splitting the horizon evenly into two parts offers little computational advantage. To validate this find-ing, we measure the computation time of the backward pass for the Riccati LQR and our parallel solver, PDPLQR .The results for the problem with N = 20 are shown in Figure 3. As expected, dividing the LQ problem into three subproblems reduces the computation time. However, we note that it is not beneficial to use an excessive number of threads for short-horizon problems (N ≤ 20) since the factorization in the consensus phase often incurs a higher computational cost than that in the reduction phase, as indicated in Table 2. Next, we turn to the constrained LQ problem. As illustrated on the right side of Figure 3, all parallel solvers outperform the Riccati LQR , since the flops associated with the stage constraints, (nx + nu)2nc,offset the additional computational cost introduced by the fixed-end formulation. Overall, our method is effective for short-horizon problems with a large number of constraints and when properly choosing the number of segments. Next, we investigate the effect of the load-balancing tech-nique on the long-horizon problem introduced in Section 3.1. With the horizon length fixed at 2000 , we vary the number of subproblems. Without load balancing, the solve times (ms) were 11.26, 5.61, 3.88, and 3.01 for J = 2 , 4, 6,and 8, respectively. Incorporating load balancing reduced these to 8.81, 4.95, 3.56, and 2.87 ms , corresponding to improvements of 21 .7% , 11 .7% , 8.1% , and 4.9% . The load-balancing effect becomes negligible, as the value of N ′ (16) is close to the evenly divided horizon length. 5. CONCLUSION In this work, we demonstrate that temporal parallelization on multi-core CPUs enables efficient solutions to LQ prob-lems for optimal control problems with various horizon lengths. In the future, we plan to extend our open-source solver to support additional constraint-handling methods, including proximal augmented Lagrangian methods and interior-point methods, and to adapt it to other parallel computing architectures like GPUs. 6. DECLARATION OF GENERATIVE AI AND AI-ASSISTED TECHNOLOGIES IN THE WRITING PROCESS ChatGPT helped to enhance the writing quality of this work. Nonetheless, the authors reviewed and edited the manuscript throughout the full writing process, and as-sume full responsibility for the content of this publication. 
+
+REFERENCES Betts, J.T. (2010). Practical methods for optimal control and estimation using nonlinear programming . SIAM. Betts, J.T. and Erb, S.O. (2003). Optimal low thrust trajectories to the moon. SIAM Journal on Applied Dynamical Systems , 2(2), 144–170. doi:10.1137/S1111111102409080. Boyd, S., Parikh, N., Chu, E., Peleato, B., Eckstein, J., et al. (2011). Distributed optimization and statistical learning via the alternating direction method of multipliers. Foundations and Trends ® in Machine learning , 3(1), 1–122. Boyd, S. and Vandenberghe, L. (2004). Convex Optimization .Cambridge University Press. Domahidi, A., Zgraggen, A.U., Zeilinger, M.N., Morari, M., and Jones, C.N. (2012). Efficient interior point methods for multistage problems arising in receding horizon control. In 2012 IEEE 51st IEEE Conference on Decision and Control (CDC) , 668–674. doi: 10.1109/CDC.2012.6426855. Dunn, J.C. and Bertsekas, D.P. (1989). Efficient dynamic pro-gramming implementations of Newton’s method for unconstrained optimal control problems. Journal of Optimization Theory and Applications , 63(1), 23–38. doi:10.1007/BF00940728. Eckstein, J. and Bertsekas, D.P. (1992). On the douglas—rachford splitting method and the proximal point algorithm for maximal monotone operators. Mathematical programming , 55(1), 293–318. Frison, G. and Jørgensen, J.B. (2013). Efficient implementation of the riccati recursion for solving linear-quadratic control problems. In 2013 IEEE International Conference on Control Applications (CCA) , 1117–1122. doi:10.1109/CCA.2013.6662901. Garstka, M., Cannon, M., and Goulart, P. (2021). COSMO: A Conic Operator Splitting Method for Convex Conic Problems. Journal of Optimization Theory and Applications , 190(3), 779–810. doi: 10.1007/s10957-021-01896-x. Howell, T.A., Jackson, B.E., and Manchester, Z. (2019). Al-tro: A fast solver for constrained trajectory optimization. In 
+
+2019 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , 7674–7679. doi:10.1109/IROS40897.2019. 8967788. Jacobson, D.H. and Mayne, D.Q. (1970). Differential dynamic programming. Elsevier .Jallet, W., Dantec, E., Arlaud, E., Carpentier, J., and Mansard, N. (2024). Parallel and Proximal Linear-Quadratic Methods for Real-Time Constrained Model-Predictive Control. ArXiv:2405.09197 [cs, math]. Jordana, A., Kleff, S., Meduri, A., Carpentier, J., Mansard, N., and Righetti, L. (2025). Structure-exploiting sequential quadratic programming for model-predictive control. IEEE Transactions on Robotics , 41, 4960–4974. doi:10.1109/TRO.2025.3595674. Laine, F. and Tomlin, C. (2019). Parallelizing LQR Computation Through Endpoint-Explicit Riccati Recursion. In 2019 IEEE 58th Conference on Decision and Control (CDC) , 1395–1402. IEEE, Nice, France. doi:10.1109/CDC40024.2019.9029974. Li, H., Yu, W., Zhang, T., and Wensing, P.M. (2023). A unified perspective on multiple shooting in differential dynamic program-ming. In 2023 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , 9978–9985. doi:10.1109/IROS55552. 2023.10342217. Løwenstein, K.F., Bernardini, D., and Patrinos, P. (2024). Qpalm-ocp: A newton-type proximal augmented lagrangian solver tai-lored for quadratic programs arising in model predictive con-trol. IEEE Control Systems Letters , 8, 1349–1354. doi:10.1109/ LCSYS.2024.3410638. Nielsen, I. and Axehill, D. (2015). A parallel structure exploiting factorization algorithm with applications to Model Predictive Control. In 2015 54th IEEE Conference on Decision and Con-trol (CDC) , 3932–3938. IEEE, Osaka. doi:10.1109/CDC.2015. 7402830. O’Donoghue, B., Chu, E., Parikh, N., and Boyd, S. (2016). Conic Optimization via Operator Splitting and Homogeneous Self-Dual Embedding. Journal of Optimization Theory and Applications ,169(3), 1042–1068. doi:10.1007/s10957-016-0892-3. Rao, C.V., Wright, S.J., and Rawlings, J.B. (1998). Application of Interior-Point Methods to Model Predictive Control. Journal of Optimization Theory and Applications , 99(3), 723–757. doi: 10.1023/A:1021711402723. Särkkä, S. and García-Fernández, Á.F. (2023). Temporal paral-lelization of dynamic programming and linear quadratic control. 
+
+IEEE Transactions on Automatic Control , 68(2), 851–866. doi: 10.1109/TAC.2022.3147017. Stellato, B., Banjac, G., Goulart, P., Bemporad, A., and Boyd, S. (2020). OSQP: an operator splitting solver for quadratic programs. Mathematical Programming Computation , 12(4), 637– 672. doi:10.1007/s12532-020-00179-2. Tracy, K. and Manchester, Z. (2021). Low-thrust trajectory opti-mization using the kustaanheimo-stiefel transformation. In 31st AIAA/AAS Space Flight Mechanics Meeting . Charlotte, North Carolina. Vanroye, L., Sathya, A., De Schutter, J., and Decré, W. (2023). Fa-trop: A fast constrained optimal control problem solver for robot trajectory optimization and control. In 2023 IEEE/RSJ Inter-national Conference on Intelligent Robots and Systems (IROS) ,10036–10043. doi:10.1109/IROS55552.2023.10342336. Verschueren, R., Frison, G., Kouzoupis, D., Frey, J., van Duijkeren, N., Zanelli, A., Novoselnik, B., Albin, T., Quirynen, R., and Diehl, M. (2021). acados – a modular open-source framework for fast embedded optimal control. Mathematical Programming Computation .Wensing, P.M., Posa, M., Hu, Y., Escande, A., Mansard, N., and Prete, A.D. (2024). Optimization-based control for dynamic legged robots. IEEE Transactions on Robotics , 40, 43–63. doi: 10.1109/TRO.2023.3324580. Wright, S.J. (1991). Partitioned Dynamic Programming for Optimal Control. SIAM Journal on Optimization , 1(4), 620–642. doi: 10.1137/0801037. Publisher: Society for Industrial and Applied Mathematics.

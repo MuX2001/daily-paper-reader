@@ -1,0 +1,504 @@
+Title: Inference-Time Robot Behavior Steering through Physically-Aware Reconfiguration of Task-Structure
+
+URL Source: https://arxiv.org/pdf/2606.26588v1
+
+Published Time: Fri, 26 Jun 2026 00:29:09 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# Inference-Time Robot Behavior Steering through Physically-Aware Reconfiguration of Task-Structure 
+
+Yiyuan Pan 1, Hanjiang Hu 1, Shangtao Li 1,Xusheng Luo ∗,1, Changliu Liu ∗,1
+
+> ∗
+
+Co-advising 
+
+Robotics Institute, Carnegie Mellon University, Pittsburgh, PA 15213, USA 
+
+{yiyuanp, hanjianh, shangtal, xushengl, cliu6 }@andrew.cmu.edu 
+
+Abstract: A central challenge in deploying learned robot policies is inference-time behavior steering : redirecting a policy at test time to satisfy user preferences not anticipated during training, without retraining. Existing methods fail in two modes: end-to-end methods require fine-tuning or expert-level guidance, while neuro-symbolic methods rely on predefined symbols whose edits can result in logically reasonable but physically infeasible plans. To address this challenge, we propose ReStruct , which builds upon a neural automaton policy that decomposes a visuomotor policy into a high-level state-machine skeleton capturing task struc-ture and a low-level continuous controller represented as a residual policy. Specifi-cally, ReStruct adopts the automaton to represent the preference and incorporates it into the skeleton through a synchronous product, thereby reconfiguring the task structure. With the controller kept frozen, the action priors provided by the skele-ton are updated accordingly to enable physically-aware control under a modified task structure. Extensive experiments from simulation and real-world show that 
+
+ReStruct steers a wide range of preferences, from object-centric specifications to temporal-logic constraints, and after steering surpasses existing methods, exceed-ing VLA models in both task success and preference-following by up to 25%. 
+
+Keywords: Behavior Steering, Neuro-Symbolic Learning, Robot Manipulation 
+
+Figure 1: Behavior Steering Mechanism for Different Models. (Preference : ϕ1 “Put the can into the shelf ”; ϕ2 “Put the can to the higher place ”) (a) The multi-task policy can place the can into the trash bin and the mug onto the shelf, respectively. (b) The end-to-end policy requires the injection of expert knowledge. (c) The neuro-symbolic policy either fails by generating a logically valid but physically infeasible plan ( ϕ1), or fails due to its limited symbolic vocabulary (ϕ2). (d) Ours addresses policy steering through a three-stage process without requiring retraining. 
+
+# 1 Introduction 
+
+Recent advances in robot learning have produced policies capable of diverse long-horizon manipula-tion [1, 2]. A central deployment challenge is adapting these policies to user preferences, constraints, or safety requirements not anticipated during training. We refer to it as inference-time behavior steering [3, 4], where policies must be steered at test time without retraining or additional data. Ex-isting approaches generally fail in two modes: end-to-end methods, such as vision-language-action 
+
+> arXiv:2606.26588v1 [cs.RO] 25 Jun 2026
+
+models [5, 6] and diffusion policies [7], adapt behavior either through fine-tuning or imposed guid-ance mechanisms, which are limited to preferences that are approximately differentiable and require expert knowledge. Neuro-symbolic methods [8, 9] support semantic-level preference specification through a symbolic layer, yet isolated symbolic modification may produce plans that are logically valid but physically infeasible, even for preferences expressible within the predefined symbol space. At a conceptual level, both families essentially seek an intermediate representation (e.g., a soft La-grangian in diffusion policies, predicates in neuro-symbolic methods) that translates semantic prefer-ences into adjustments of the continuous policy distribution [4]. We argue that robust inference-time steering requires this representation to be physically-aware : it should ground each preference in the subset of controller-executable behaviors that satisfy the preference. Existing methods fail this prop-erty in opposite ways (Fig. 1). First , end-to-end policies lack an explicit abstraction, so they must re-ground new preferences into the executable set through retraining or constraint injection [10, 11]. 
+
+Second , neuro-symbolic methods expose such an abstraction, but their symbolic edits cannot prop-agate to the controller-level networks; hence, even when the preference is expressible and the plan logically valid, execution may still stay mismatched and physically infeasible [12]. A recent method, Emergent Neural Automaton Policy (ENAP) [13], offers a promising substrate for physically grounded steering. It decomposes a visuomotor policy into a low-level continuous controller and a high-level state-machine skeleton, whose symbolic abstractions can naturally serve as the intermediate representation between the semantic preference and the controller. Because the symbolic abstraction emerges automatically from demonstrations and is thus inherently aligned with the training data distribution, enabling in-domain preference editing. However, extending such representations to support policy steering under preferences remains an open problem. To ensure physically-aware grounding to support efficient steering, we build on ENAP and introduce 
+
+ReStruct , a framework for adapting learned policies to user-specified preferences without retrain-ing. Specifically, to satisfy a user-specified preference, ReStruct first reconfigures the task structure of the base policy while keeping its low-level controller fixed. We use the automaton to represent the preference and incorporate it into the policy’s symbolic skeleton through a synchronous prod-uct. Since modifying the task structure alone can produce physically infeasible behaviors, ReStruct 
+
+subsequently reshapes the action priors provided the skeleton to filter out infeasible behaviors under the new specification, ensuring that the reconfigured structure remains executable by the controller. We validate ReStruct from in-domain preferences to those that are physically in-domain yet seman-tically out-of-domain (OOD) through novel compositions. In summary, our contributions are: • We introduce ReStruct , a steering framework that enables learned policies to follow high-level semantic preferences, ranging from object-centric specifications to temporal logic, offering everyday users a new perspective to reshape their robots through language, without expert-level knowledge or retraining. • The framework provides interpretable and symbolically verifiable steering through its state-machine structure and prototype-based action priors, enabling preference satisfaction to be inspected at both the symbolic and control levels. • The framework improves data efficiency and cross-task adaptation by reusing experience across diverse demonstrations. It enables target-task behavior to be synthesized by injecting preferences into demonstrations from related but distinct tasks. • Extensive experiments show that ReStruct improves preference following without degrad-ing task success and surpasses VLA models by up to 25% on both, indicating strategy adaptation rather than mere preference compliance. 
+
+# 2 Preliminaries 
+
+1) Emergent Neural Automaton Policy (ENAP). ENAP [13] decomposes a visuomotor policy into three parts: a high-level state machine skeleton, a low-level controller, and an action-prior bridge that transfers skeleton-level priors to the controller network. 2(i) High-level skeleton : The skeleton is instantiated as a Probabilistic Mealy Machine (PMM): 
+
+Definition 2.1 (Probabilistic Mealy Machine) A PMM is a tuple M = ( Q, Σ, Γ, δ, λ, q 0), where 
+
+Q is a finite set of states, Σ a finite input alphabet, Γ the output, δ(q′ | q, σ ), σ ∈ Σ the transition probability, λ(γ | q, σ ), γ ∈ Γ the output probability, and q0 the initial state. 
+
+In Definition 2.1, states q ∈ Q represent discrete task phases (e.g., reach , grasp ), while Σ denotes a discrete observation alphabet obtained by clustering encoded observations. Given an observation 
+
+ot, the encoder ϕθ extracts a feature zt = ϕθ (ot), which is then mapped to a cluster σt ∈ Σ. The continuous action space is denoted by Γ = A ⊆ Rd.
+
+Figure 2: ENAP diagram. 
+
+(ii) Action-prior Bridge : Each edge (q, σ ) → q′ stores a fixed action priors at 
+
+> base
+
+drawn from demonstrations that exercise this transition. (iii) Low-level controller : A residual policy network πψ outputs a cor-rection ∆at = πψ (qt, o t, a t
+
+> base
+
+). The final action is ˆat = at 
+
+> base
+
++ ∆ at.The inference process of ENAP follows a deterministic predict–act– update cycle (Fig. 2). At time step t, given the current state qt and discretized observation input σt,the PMM first predicts a coarse action prior at
+
+> base
+
+. Guided by this prior, the low-level controller then generates fine-grained control actions. After execution, the PMM updates its internal state to qt+1 .We build on ENAP because its symbolic abstraction emerges directly from demonstrations, pro-viding natural alignment with the training data and the symbolic skeleton for in-domain steering. 
+
+ReStruct inherits ENAP’s procedure for extracting the symbolic skeleton and observation alphabet, while reimplementing the bridge and low-level components to support physically-aware adaptation. 
+
+2) Linear Temporal Logic (LTL) Specifications. LTL extends propositional logic with temporal operators that describe how truth values evolve along a trajectory [14]. Given a set of atomic propo-sitions AP , LTL formulas are built from p ∈ AP , Boolean connectives, and the temporal operators 
+
+⃝ (next), ♢ (eventually), □ (always), and U (until). In our settings, these propositions correspond to clusters in the PMM’s observation alphabet Σ, optionally refined by a VLM (e.g., splitting a generic “ pick ” cluster into “ pick red cube ” and “ pick blue cube ”); a preference like “ pick red cube first ” is then expressible as ♢(pick red cube ∧ ⃝ ♢pick blue cube ). We consider a variant of LTL, namely Linear Temporal Logic over Finite Traces ( LTL f ), which is defined over finite-time robot trajectories [15]. Each LTL f formula can be translated into a Deterministic Finite Automaton (DFA) A = ( S, s 0, ΣA, δ A, F ), where ΣA denotes the input alphabet and F ⊆ S is the set of accepting states. s0, δ A denote the start state and transition function, respectively. The DFA accepts exactly the trajectories that satisfy the corresponding formula. 
+
+Definition 2.2 (Synchronous Product of PMM & DFA) Given a PMM M = ( Q, Σ, Γ, δ, λ, q 0)
+
+and a DFA A = ( S, s 0, ΣA, δ A, F ), their synchronous product is 
+
+P = M ⊗ A = ( Q × S, Σ⊗, Γ, δ ⊗, λ ⊗, (q0, s 0), F ⊗), (1) 
+
+where the shared alphabet is Σ⊗ = Σ ∩ ΣA, the accepting set is F⊗ = Q × F , and the transition and output functions are 
+
+δ⊗(( q, s ), σ ) =  δ(q, σ ), δ A(s, σ ), λ⊗(( q, s ), σ ) = λ(q, σ ). (2) We adopt LTL f and DFAs for two reasons. First , LTL f provides a structured and expressive lan-guage for specifying preferences, ranging from object-centric descriptions to temporal-logic con-straints. Second , the synchronous product incorporates preferences into a state-machine representa-tion in which every transition is traceable, making the steering verifiable and explainable. 
+
+# 3 Methodology 
+
+Problem Formulation. We consider a Partially Observable Markov Decision Process (POMDP) [16, 17] with observation space O and continuous action space A, in which a trajectory takes the 3Figure 3: Overview of ReStruct on PegInsert task. ( Left ) Base policy P1; ( Middle ) ReStruct 
+
+transforms preference into a DFA; its synchronous product with M1 yields the steered skeleton 
+
+M2. (Right ) Trajectories are repopulated, producing P2, which inherits P1’s frozen low-level. 
+
+Blue / Black / Red lines are high-level skeleton / low-level controller / user-side flows. form τ = {(ot, a t)}Tt=0 . We are given a base policy π0 trained on a demonstration set D = {τi}Ni=1 .At deployment, the user provides a natural-language preference ϕ. The goal is to produce an adapted policy πϕ that maximizes Pr τ ∼πϕ [τ |= ϕ] while preserving the task performance without retraining. Equivalently, πϕ targets the posterior p(τ | ϕ) ∝ pD (τ ) · p(ϕ | τ ).
+
+Method Overview. We first analyze steering through a Bayesian lens, which motivates the design of ReStruct . Letting z be the intermediate representation (Section 1) through which ϕ acts on τ .Given z, the trajectory posterior can be factorized as follows (detailed derivation in Appendix): 
+
+p(τ | ϕ) ∝ pD (τ ) · p(ϕ|τ ) ∝ pD (τ )
+
+| {z } 
+
+> learned base policy
+
+· X
+
+> z
+
+pD (z | τ )
+
+| {z }
+
+> abstraction grounding
+
+· p(z | ϕ)
+
+| {z }
+
+> preference grounding
+
+. (3) Intuitively, the base policy proposes trajectories, abstractions ground them to z, and preference grounding up-weights the ϕ-consistent z. Existing approaches have two failure modes: End-to-end methods provide only base policy pD (τ ), so steering requires injecting pD (z|τ )p(z|ϕ) through expert knowledge or retraining; neuro-symbolic methods edit the skeleton through p(z|ϕ) but omit factor pD (z|τ ), so the edited skeleton can be incompatible the low-level network. How does ReStruct coordinate all three factors? In ReStruct the abstraction z takes the form of a state-machine (PMM). Specifically, we convert ϕ into a DFA and takes its synchronous product with the skeleton ( p(z|ϕ) term, Section 3.1), and the low-level controller is held fixed when steering (pD (τ ) term, Section 3.3). Then, the per-edge action priors on the modified skeleton are recom-puted ( pD (z|τ ) term, Section 3.2), bridging the gap between the edited skeleton and the unchanged network to enable physically-aware control. 
+
+3.1 High-Level: Symbolic Skeleton Reconfiguration 
+
+This subsection instantiates the p(z|ϕ) term of Eq. (3): Given a user preference ϕ, we construct a steered skeleton M2 by reconfiguring the base skeleton M1, such that the resulting skeleton can generate only preference-satisfying plans. The construction proceeds in two stages: (i) DFA generation from the preference ϕ; (ii) synchronous product between the resulting DFA and the base skeleton M1. The structure of the base skeleton and its clustering alphabet may be refined. A VLM first receives three inputs: the cluster alphabet Σ from the base skeleton M1, the natural-language preference ϕ, and M1 itself. It returns a DFA A together with a (possibly refined) skeleton 4M′
+
+> 1
+
+. Internally, the VLM first determines whether the clustering alphabet Σ is expressive enough to encode the preference ϕ: (i) If Σ is sufficient, the VLM translates ϕ into an LTL f formula [18], 
+
+Figure 4: VLM-based Preference Ground-ing. The VLM refines the alphabet and skele-ton M1, then generates preference DFA. compiles it into a DFA A using toolbox Spot [19], and leaves the skeleton unchanged ( M′ 
+
+> 1
+
+= M1). (ii) If ϕ requires finer semantic granularity, the VLM refines the relevant clusters (e.g., pick →
+
+pick red , pick blue ) to obtain an expanded al-phabet Σ′. We then generate A over Σ′, and refine 
+
+M1 by replacing each affected edge (q, σ, q ′) ∈M1 with the set {(q, σ k, q ′) : σk ∈ split( σ)}.During the process, only the topological structure is modified; the action priors remain unchanged. The procedure is shown in Fig. 4. We then form the steered skeleton M2 = A ⊗ M′ 
+
+> 1
+
+following the Definition 2.2. Intuitively, the product takes the intersection of two logics: M′
+
+> 1
+
+captures the traces induced by the demonstrations, 
+
+A admits the traces satisfying ϕ. The resulting M2 serves as the structural target against which action priors are re-computed in the next subsection. 
+
+3.2 Action-Prior Bridge: Trajectory Replay 
+
+In the previous discussion, we showed that refining the pD (z|τ ) term of the steered skeleton is vital: the traditional neuro-symbolic method fails in steering because its prior is anchored to the demon-stration that may contain preference-violating behaviors. In our paper, the high-level product (Sec-tion 3.1) yields M2 that admits solely preference-consistent traces, and we need to recompute the action priors for the skeleton to guide physically-aware generation of preference-aligned behavior. Not only for neuro-symbolic methods, most visuomotor policies learn a direct observation-to-action map, compressing the separable structure in the data into an entangled representation. For example (see Fig. 1 (c)), when executing pick(can) → place(shelf) , such a single-mode prior grasps the can from above and incurs a vertical-clearance violation that blocks shelf insertion. ENAP’s per-edge fixed action has the same failure mode. Thus, we redesign the action-prior bridge for ENAP: 
+
+ReStruct stores, for each edge (q, σ ) → q′, the raw list of the action that performs such transitions in the demonstration, to provide diverse priors. Empirically, during skeleton construction, we randomly retain 1/50 ∼ 1/10 of the demonstrations as representative trajectories to make it lightweight. Recognizing the steered skeleton M2 as an acceptor, we replay each representative trajectory τi =
+
+{cit, a it}Ti
+
+> t=0
+
+, following from the initial node q0′ = ( q0, s 0) and the transitions its clusters induce. A trajectory is rejected and discarded if it reaches a state with no valid transition or terminates outside the accepting set F⊗ of the synchronous product M2; otherwise it is accepted , and its actions are written into the action lists of the edges it traverses. Edges that no accepted trajectory traverses are pruned. The populated action list becomes the action-priors’ candidate pool from which the low-level controller selects at inference. 
+
+3.3 Low-Level: Action Generation 
+
+The controller is frozen throughout steering. Its design must therefore stay reliable when the prior inherited from the high-level skeleton it consumes changes. Thus, we also redesign the structure of the low-level controller for ENAP, and keep it frozen after network training. Specifically, the controller process the observation ot and the active edge’s action list alist  
+
+> t
+
+through following process: 
+
+aprt  
+
+> t
+
+= SoftAttn  ϕθ (ot), a it
+
+, ∀ ait ∈ alist  
+
+> t
+
+,araw  
+
+> t
+
+= aprt  
+
+> t
+
++ MLP  ϕθ (ot) − ct, a prt 
+
+> t
+
+,
+
+ˆat = Clamp  araw  
+
+> t
+
+, a list 
+
+> t
+
+.
+
+(4) 5Figure 5: Task Suite . Causal skill 0 ∼4: rotate block, close drawer, open drawer, push right, push left ; Unconstrained skill 0∼4: turn on led, turn on bulb, rotate block, push left, move slider . Challenges : PassTeaPot demands a trajectory-level preference, CanSorting ’s ϕ
+
+requires compositional generalization, e.g., a new combination of red can with the blue bowl. 
+
+ConeCover tests spatial reasoning with task memory, since a placed cone shouldn’t be re-picked. 
+
+Causal and Unconstrained require combine atomic skills to form long-horizon execution. Table 1: Comparison on Complex Manipulation. We report mean values over 8 seeds 64 trials.                                                                                                     
+
+> Method
+> StackCube (Fixed) PegInsert SeqPushT
+> Base ϕ1ϕ2Base ϕ1Base ϕ1ϕ2
+> SR SR SRP SR SRP SR SR SRP SR SR SRP SR SRP
+> - Behavior Cloning (Reject Filtering)
+> Transformer [21] 89 .129 .729 .759 .459 .490 .660 .960 .937 .521 .921 .915 .615 .6
+> GMM [22] 87 .542 .242 .245 .345 .385 .953 .153 .153 .134 .434 .421 .921 .9
+> - Diffusion Policy (Soft Lagrangian)
+> DP [7] 93 .887 .568 .881 .242 .257 .842 .220 .340 .628 .118 .831 .218 .8
+> - VLA Models (Prompt Injection)
+> OpenVLA [6] 81 .267 .221 .957 .828 .168 .854 .729 .718 .820 .312 .57.83.1
+> π0.5[5] 92 .285 .937 .573 .448 .485 .975 .050 .028 .131 .226 .612 .56.2
+> ReStruct 95 .398 .498 .476 .676 .698 .495 .395 .346 .953 .150 .043 .834 .4
+
+Specifically, attention maps ϕθ (ot) to a prototype aprt  
+
+> t
+
+; a residual MLP combines it with the within-cluster offset ϕθ (ot) − ct (ct: centroid of the active cluster σt) to produce araw  
+
+> t
+
+, which is clamped to the range of alist  
+
+> t
+
+to generate the executable ˆat. The encoder, attention module, and MLP are jointly trained via behavior cloning (ENAP’s training algorithm) and frozen during steering. Two reasons motivate this attention design over ENAP’s fixed prior (see action-prior bridge, Section 2). First , it makes the MLP robust to steering-induced prior changes: the fixed prior would expose the MLP to a limited set of priors during training, so when steering rewrites the structure, the new prior could be OOD. Second , prototype priors give the controller finer adaptability and flexibility. 
+
+Remark 3.1 (Steerable Scope) ReStruct considers: (i) In-domain : the preferred trajectory is demonstrated, whether or not semantic clustering exposes it; (ii) Compositional OOD : the tra-jectory itself is unseen, yet its behaviors are each demonstrated, semantically compositional—novel combination of previously seen behaviors (e.g., CanSorting ϕ1 in Fig. 5) [20]. 
+
+# 4 Experiments 
+
+In this section, we present extensive experimental results to address the following questions: (Q1) :Can ReStruct improve preference adherence without degrading task success? (Q2) : Can ReStruct 
+
+assemble ordered sequences from unordered data to complete long-horizon tasks? (Q3) : Can Re-Struct exhibit the steering advantages of a state machine over other symbolic structures? 
+
+Experiment Setup. We evaluate across three scenarios: (1) Complex Manipulation in Man-iSkill simulator [23]: StackCube (Fixed) , PegInsert , SeqPushT . (2) Long-Horizon TAMP in 6Table 2: Comparison on Real-World Manipulation. We report mean values over 32 trials.                                                 
+
+> Method
+> CanSorting PassTeaPot ConeCover
+> Base ϕ1ϕ2Base ϕ1Base ϕ1ϕ2
+> SR SR SRP SR SRP SR SR SRP SR SR SRP SR SRP
+> π0.5[5] 100 .078 .143 .871 .931 .2100 .081 .218 .843 .843 .812 .534 .49.4
+> ReStruct 93 .3100 .0100 .0100 .084 .4100 .0100 .0100 .087 .5100 .0100 .078 .178 .1
+
+Table 3: Comparison on Long-Horizon TAMP. Mean SR for completing the first k skills in the 5-skills ( k/ 5), over 8 seeds and 64 trials; Flower ∗ is Flower fine-tuned on the preference sequence.                                                                                               
+
+> Method Param (M)
+> Causal Unconstrained
+> ϕ1ϕ2ϕ1ϕ2
+> 3/5 4/5 5/5 3/5 4/5 5/5 3/5 4/5 5/5 3/5 4/5 5/5
+> HULC [24] 47 12 .510 .91.67.83.10.06.30.00.03.13.13.1
+> LCD [25] 68 15 .67.87.818 .812 .512 .514 .110 .93.115 .615 .69.4
+> MDT [26] 440 31 .331 .33.1100 .0100 .035 .914 .110 .910 .915 .615 .615 .6
+> Flower [27] 947 96 .957 .857 .892 .242 .239 .164 .151 .645 .373 .470 .360 .9
+> Flower ∗947 100 .087 .587 .5100 .054 .751 .678 .178 .154 .793 .893 .876 .6
+> ReStruct 571 98 .493 .892 .2100 .081 .376 .690 .684 .481 .3100 .093 .893 .8
+
+Calvin benchmark [1]: a Causal and an Unconstrained skill set. (3) Real-World Manipulation :
+
+PassTeaPot , CanSorting , and ConeCover . Each task defines a base goal and preference vari-ant(s), across the suite, spanning from object-centric to trajectory-level specifications (Fig. 5). In (1) and (3), all tested models are trained using the same demonstration dataset and steered via a mech-anism suited to their backbone. In (2), we adopt VLA baselines with their best reported weights. Further details on task success criteria and the robot platform are provided in the Appendix. 
+
+Metrics. We report two orthogonal metrics: (1) SR (%), the success rate regardless of preference satisfaction; and (2) SRP (%), the success rate under the specified preference. 
+
+4.1 Task Performance & Preference Following (Q1) ReStruct achieves the best performance on both SR and SRP across nearly all tasks (Tables 1 and 2). The baselines exhibit a clear trade-off: reject-filtering methods (Transformer, GMM) enforce preference compliance by discarding non-compliant trajectories, which substantially reduces SR (see ∆= SR-SRP), whereas constraint or prompt injection approaches (DP, OpenVLA, π0.5) preserve SR but provide weak steering. Moreover, ReStruct also retains ENAP’s robustness to multimodal demonstrations, as illustrated by the preference-free Base performance on SeqPushT . Nevertheless, steering introduces its own challenge (Equation (4)): the modified aprt  
+
+> t
+
+, c t encode the preferred mode, while ϕθ (ot) biases the frozen MLP toward the original learned behavior. This competition most degrades ϕ-SRP from ϕ-SR on tasks with complex hybrid dynamics, e.g., SeqPushT .
+
+4.2 Recovering Ordered Sequences from Unordered Data (Q2) 
+
+Following ENAP, we extract the state machine from the Flower policy. As shown in Table 3, Re-Struct successfully recovers the ordered sequence and achieves the highest success rate among all methods. The results demonstrate that ReStruct can reuse experience distributed across unordered data to robustly execute the ordered sequence, leveraging related behaviors when task-specific data is limited or difficult to obtain due to the long-horizon nature of the task. To further evaluate this robustness, we perform 64 noise-perturbed rollouts initialized from the start state of a successful demonstration and measure, at each step, their deviation from the reference trajectory, yielding per-phase Deviation Tubes (Fig. 7). Compared with the fine-tuned Flower policy, ReStruct produces narrower tubes, and the deviation resets at skill boundaries rather than accumulating across phases. 7Table 4: Ablation Study on Complex Manipulation. We report mean values over 8 seeds.                                            
+
+> Method
+> StackCube (Fixed) PegInsert SeqPushT
+> Base SR ϕ1SR ϕ1SRP Base SR ϕ1SR ϕ1SRP Base SR ϕ1SR ϕ1SRP ReStruct 95 .398 .498 .498 .495 .395 .346 .953 .150 .0
+> w\o Replay 95 .335 .914 .198 .482 .864 .146 .931 .215 .6
+> w\o Attention + Clamp 98 .437 .526 .696 .993 .887 .540 .634 .425 .0
+
+Figure 7: Steering a Sequence from a Skill Graph of Unconstrained -ϕ1. ( Left ) ReStruct has narrower deviation tubes. ( Right ) ϕ1 steers the fully-connected PMM graph into a sequential chain. 
+
+4.3 Decisiveness via Statefulness (Q3) 
+
+Figure 6: Episode-length distribution over successful ϕ1-steered PegInsert rollouts. 
+
+ReStruct inherits statefulness from its state-machine-based steering, providing a level of decisiveness ab-sent in other symbolic structures. First , the node structure encodes task history as an internal memory. 
+
+Moreover , on multimodal tasks such as PegInsert ,
+
+ReStruct can commit to a single preferred mode, thereby reducing runtime mode uncertainty: even when both are steered by ϕ1, successful ReStruct 
+
+episodes are shorter than those of a diffusion policy (Fig. 6). This reduction in uncertainty can even im-prove success rates beyond those of the unsteered base policy on multimodal tasks, e.g., the ϕ1-SR is higher than Base SR in SeqPushT (Table 1). 
+
+Ablation Studies. We show the two components of ReStruct ’s action prior (Table 4). w\o Replay 
+
+skips the replay-based re-grounding, and w\o Attention+Clamp collapses each list and its attention into a single fixed mean action. Each removal hurts task performance and preference adherence, which confirms the validity of our designs. More ablations can be found in the Appendix. 
+
+# 5 Limitation 
+
+First , ReStruct builds on ENAP, and extending it to other policy classes remains open, since dis-tilling policies into ENAP incurs a performance gap—future direction is reducing the gap. Second ,both task success and preference compliance depend on the VLM-generated LTL formula. This may be alleviated through iterative, multi-round formula refinement. Third , our steerable scope (Re-mark 3.1) is bounded: scaling to richer OOD regimes and eliciting new skills remain unexplored. 
+
+# 6 Conclusion. 
+
+We propose ReStruct , a zero-shot behavior steering framework that satisfies preferences at inference time by reconfiguring a policy’s task structure without retraining. Specifically, we first transform the preference into an automaton and generate a steered task structure based on it, while keeping the base policy network frozen. An action prior recomputation process is then used to bridge the gap between the modified high-level structure and the original controller. Extensive experiments validate 
+
+ReStruct consistently leads in both success and preference compliance. More broadly, ReStruct 
+
+provides a viable path for everyday users to reshape their robots by language, not retraining. 8A Related Works 
+
+A.1 Preference Specification for Robot Policies 
+
+Deploying a learned policy to real users almost always reveals a gap between what it was trained to do and what each user actually wants. In the domain, preference specification spans a broad spectrum. Scalar comparisons remain canonical: feedback can train rewards [28, 29, 30], and DPO-style updates can align diffusion policies from pairwise preferences without an explicit re-ward [31]. Natural language provides a more flexible substrate, from describing deviations in the source demonstrations [32] to grounding open-vocabulary object goals [32, 33, 34, 35]. Demonstra-tions also encode intent implicitly, from hand-held grippers [36] and web videos [37] to egocentric smart-glass recordings [38] that scale data collection toward zero-shot deployment. Visual goals 
+
+reduce linguistic ambiguity through image-edited subgoals [39] and intentionally sparse sketches [40], while formal specifications encode intent as automata or temporal-logic formulas, increasingly coupled with LLM-based language-to-spec translation [41, 42]. Policy-side preference integration can be grouped into three regimes. Training-time methods re-optimize or fine-tune policies under the preference signal [28, 29, 31, 36, 37, 38]; prompt-level methods condition language-aware VLAs [33] or pass LLM-generated plans to low-level controllers [35]; and neuro-symbolic methods route preferences through symbolic intermediaries layered over the policy, such as LLM-scored affordances over learned skill libraries [43], executable code calling neural primitives [44], or language-translated formal specifications consumed by planners [42]. These approaches expose two structural limitations. Controller-alignment methods offer broad pref-erence expressivity, but require re-optimizing or fine-tuning the policy for each new user preference [28, 31, 36, 37, 38], making them impractical after deployment. Symbolic-routing methods avoid modifying the controller by inserting a symbolic scaffold [35, 41, 42, 43, 44], but this scaffold is typ-ically defined by a fixed designer-specified vocabulary, with a fixed symbol-to-controller interface that prevents symbolic edits from reliably propagating to the executed behavior. What is needed, then, is a steering route that avoids retraining yet still propagates the user’s preference all the way into the controller’s behavior—which is precisely what ReStruct provides. 
+
+A.2 Neuro-symbolic Policies for Manipulation 
+
+Neuro-symbolic methods in manipulation aim to combine the compositional structure and inter-pretability of symbolic reasoning with the perceptual and sensorimotor flexibility of neural net-works. Classical task and motion planning frameworks such as PDDLStream [45] established a clean factoring—discrete symbolic search over manually specified predicates paired with contin-uous motion planners—but their reliance on hand-authored symbolic vocabularies sharply limited adaptability. Subsequent work has therefore pushed each layer of this stack toward learnable sub-stitutes. In the action layer, hierarchical and option-based methods replace fixed primitives with discoverable skills [46], later evolving into great parameterized skills [47, 48] that admit continuous control within otherwise symbolic plans. In the state layer, predicate-learning approaches ground continuous sensorimotor signals into discrete symbols [49, 50]—through neuro-symbolic concept learners [51], or self-supervised automaton extraction directly from visuomotor data [13]. In the model layer, the symbolic transition dynamics themselves are inferred, from probabilistic rules in stochastic domains [52] to graph-neural relational models [53] and hybrid automata for stochastic transitions [54]. A more recent and complementary line offloads the high-level structure to pre-trained foundation models [43, 44, 42]. While these approaches successfully marry learning with symbolic structure, they share a common architectural commitment: the symbolic layer is external to the controller—either hand-authored, learned as a separate module, or generated by a foundation model on top of a frozen low-level policy—and the controller acts as a black box beneath it. ReStruct departs from this pattern by re-computing the policy’s symbolic-level prior under each user preference and propagating it back 9into the low-level controller, so that the preference is realized as a physically-aware steering signal rather than a detached symbolic plan layered above the policy. 
+
+A.3 Inference-time Adaptation of Learned Policies 
+
+A recent line of work asks how to bias a deployed generative policy without retraining it [55, 56]. Most methods operate inside the diffusion denoising loop: human sketches and clicks bias the ac-tion sampling [3], an external dynamics model guides toward visual outcomes [57], or Feynman-Kac particles resample intermediate trajectories under arbitrary rewards [4]. Decoding-level methods in-stead choose among policy proposals—bidirectional decoding searches for actions consistent across timesteps [58] and contrastive decoding refocuses attention on task-relevant objects [59]—without altering policy weights. Latent-space approaches run reinforcement learning over the diffusion pol-icy’s noise input to adapt it online [60]. For VLA-class generalists, pretrained VLMs act as runtime verifiers, selecting action plans whose predicted outcomes align with the VLA’s textual reasoning [61] or with downstream task goals [62]. These methods steer within the action distribution, which restricts the preferences they can handle to those that are approximately differentiable, such as a gradient signal or a sampleable verifier. Genuine steering, however, requires reaching beyond the action distribution: forming a semantic understanding of the real-world complex preference, and feeding that understanding back into the action distribution itself. ReStruct provides this route via computing a symbolic-level interpretation of the user preference and propagating it back through the controller’s action distribution. 
+
+# B Derivation of the Steering Posterior 
+
+This section elaborates the three-factor decomposition in Eq. (3) of Section 3. First, we treat the in-termediate representation z as a latent variable through which the preference ϕ acts on the trajectory 
+
+τ , and take the trajectory prior to be the base policy pD (τ ). By Bayes’ rule, dropping 1/p (ϕ) as a constant in τ , we have p(τ | ϕ) ∝ pD (τ ) p(ϕ | τ ). Then, marginalizing the likelihood over z and identifying p(z | τ ) = pD (z | τ ) as the demonstration-induced abstraction grounding, we have: 
+
+p(ϕ | τ ) = X
+
+> z
+
+p(ϕ | z, τ ) pD (z | τ ). (5) Given Eq. (5), we have the assumption of conditional independence ϕ ⊥ τ | z: once the abstraction 
+
+z can express the preference, the determination of preference satisfaction only depends on z alone, not on the specific trajectory realizing it. Under the assumption, it yields p(ϕ | z, τ ) = p(ϕ | z), and hence p(ϕ | τ ) = P 
+
+> z
+
+p(ϕ | z) pD (z | τ ).Inverting p(ϕ | z) = p(z | ϕ) p(ϕ)/p D (z) and substituting into Eq. (5) gives the exact factorization 
+
+p(τ | ϕ) ∝ pD (τ ) X 
+
+> z
+
+pD (z | τ ) p(z | ϕ)
+
+pD (z) . (6) Given the formulation, we assume pD (z) to be uniform over the abstractions in the support, as in the idealized regime where the demonstrations cover all abstractions with equal mass. Then 1/p D (z) is a global constant, factors out of the sum, and is absorbed into ∝:
+
+p(τ | ϕ) ∝ pD (τ )
+
+| {z } 
+
+> base policy
+
+X
+
+> z
+
+pD (z | τ )
+
+| {z }
+
+> abstraction grounding
+
+p(z | ϕ)
+
+| {z }
+
+> preference grounding
+
+. (7) The clean form makes each factor’s role transparent: the base policy proposes trajectories, the ab-straction grounding maps them to z, and the preference grounding up-weights the ϕ-consistent z.When pD (z) is non-uniform, Eq. (6) retains the factor 1/p D (z), which reweights each abstraction by the inverse of its frequency in the demonstrations. 10 C Experimental Setups 
+
+C.1 Embodiments and Training Compute Complex Manipulation and Long-Horizon TAMP both run on a Franka Emika Panda, with av-erage demonstration lengths of ∼13K and ∼30K steps, respectively; the Real-World suite uses a Kinova Gen3 in a noisy, data-sparse setting with much shorter ∼1.6K-step demonstrations. All experiments are trained on a single NVIDIA RTX 4090. 
+
+C.2 Task Definition 1) StackCube (Fixed) . The agent must stack two colored cubes (Red/Green) in any valid ver-tical configuration. The initial positions of the two cubes are fixed, located on opposite sides of the arm. A trial is considered successful only if the top cube aligns within half-width of the bottom cube, remains static, and is fully released by the gripper. 
+
+2) PegInsert . This task requires picking up a bi-colored peg and inserting either the orange or white end into a randomly positioned hole on the box. The environment features significant variability: peg lengths are sampled from U [0 .15 , 0.20] m and radii from U [0 .015 , 0.025] m, with initial rotation poses randomized. Success is defined as inserting either end at least 0.03 m into the hole (radius rpeg + 0 .02 m). 
+
+3) SeqPushT . A variant with sequential goals of the Push-T task. The robot must maneuver a T-shaped block to two potential target poses in any order. The T-block’s initial pose is fully randomized within a 0.076 m×0.20 m respawn box. Success is achieved if the block reaches the two target poses in sequence, with its Intersection-over-Union (IoU) exceeding 0.90 at each target pose. 
+
+4) Unconstrained . The agent completes five atomic skills— turn on led (LED on), 
+
+turn on bulb (bulb on), rotate block (red block rotated), push left (blue block pushed left), and move slider (slider moved right)—in the order specified by our preference. These skills are mutually independent; success requires all five in the prescribed order. 
+
+5) Causal . The agent completes five atomic skills— rotate block (blue block rotated), 
+
+close drawer (drawer closed), open drawer (drawer opened), push right (pink block pushed right), and push left (blue block pushed left)—in the order specified by our preference. 
+
+close drawer causally depends on open drawer , constraining the order of skill attempts. 
+
+6) CanSorting . It involves sorting three colored cans (red, green, blue) into the same-colored bowls fixed on the table. Our preference, however, asks the agent to instead place each can into a bowl of a target color independent of its own—an OOD behavior demanding compositional gener-alization. 
+
+7) PassTeaPot . The arm grasps a teapot’s handle at a fixed pose and carries it to the table’s far end, with a power strip placed randomly along one side. Demonstrations cover trajectories both near and far from the strip; our preference asks for look-ahead trajectory shaping. 
+
+8) ConeCover . The arm grasps a cone from a fixed source and covers two fixed differently-colored blocks (blue, green) in any order. Cones are visually identical, requiring spatial memory—for ex-ample, lifting the cone already on the blue block and redirecting it onto the green one. 
+
+# D Walkthroughs of Product PMM Construction 
+
+We illustrate the skeleton refinement pipeline on the three Complex Manipulation tasks in Fig. 8, Fig. 9, and Fig. 10 and three Real-World tasks in Fig. 11, Fig. 12, and Fig. 13. Each figure pairs the 11 Figure 8: Diagram of Skeleton Variations for StackCube (Fixed) . The base skeleton and the DFA of preference ϕ1 are synthesized into a steered state machine, with an unrefined cluster table. cluster table (refined or not) with the state-machine topology, showing how preference ϕ1 compiles into a DFA and product-composes with the base skeleton to yield the steered state machine. For readability, the nodes in the Skeleton after Production & Replay are labeled using the same symbols as the base skeleton, such as q0. However, these nodes actually represent product states and should not be interpreted as the original base nodes. Moreover, this post-replay topology already reflects the pruning of edges that are not traversed by accepted trajectories, so the action lists carried by the surviving edges have likewise been re-populated. 
+
+# E Further Ablations: Decoupling Preference from Execution 
+
+Tables 5 and 6 together expose a clean functional decoupling. Reducing the trajethe ctories used to construct the PMM primarily harms preference satisfaction (SRP) while leaving raw task com-pletion (SR) only mildly affected; conversely, undertraining the base policy primarily harms SR while leaving SRP relatively stable, since the symbolic structure that carries the preference handle remains intact. This asymmetry holds across all three Complex Manipulation tasks, including the more dynamics-heavy SeqPushT . The results reveal that preference adherence depends primarily on whether the PMM carries sufficiently rich priors, while overall task performance hinges on the scale of data and training devoted to the base policy. 
+
+# F VLM Prompt Templates 
+
+Two VLM queries operationalize the preference compilation pipeline: First , the Cluster Refinement Query ingests the task description, the M learned clusters (each summarized by N representative images), a small set of demonstration trajectories, and the user preference; it decides whether one cluster Ci should be partitioned into K sub-clusters, returning either NO or YES together with an 12 Figure 9: Diagram of Skeleton Variations for PegInsert . The base skeleton and the DFA of preference ϕ1 are synthesized into a steered state machine, with a refined cluster table. 
+
+Figure 10: Diagram of Skeleton Variations for SeqPushT . The base skeleton and the DFA of preference ϕ1 are synthesized into a steered state machine, with an unrefined cluster table. 13 Figure 11: Diagram of Skeleton Variations for ConeCover . The base skeleton and the DFA of preference ϕ1 are synthesized into a steered state machine, with an unrefined cluster table. 
+
+Figure 12: Diagram of Skeleton Variations for CanSorting . The base skeleton and the DFA of preference ϕ1 are synthesized into a steered state machine, with an unrefined cluster table. 14 Figure 13: Diagram of Skeleton Variations for PassTeaPot . The base skeleton and the DFA of preference ϕ1 are synthesized into a steered state machine, with a refined cluster table. Table 5: Ablations on the Number of Trajectories for Constructing PMM in Complex Manip-ulation. We use 100% demonstrations to train base policy. We report mean values over 8 seeds.                                             
+
+> Method
+> StackCube (Fixed) PegInsert SeqPushT
+> Base SR ϕ1SR ϕ1SRP Base SR ϕ1SR ϕ1SRP Base SR ϕ1SR ϕ1SRP ReStruct (50 Trajs) 95 .398 .498 .498 .495 .395 .346 .953 .150 .0
+> - 30 Trajs 93 .890 .687 .590 .689 .189 .137 .542 .235 .9
+> - 10 Trajs 90 .684 .479 .792 .284 .481 .334 .432 .825 .0
+
+explicit image-to-sub-cluster assignment that sums to N . Second , the LTL Translation Query then runs on the refined clusters and emits a single LTL formula over the cluster alphabet c0, . . . , c M −1 in a fixed underscore-and-parenthesis syntax that the downstream DFA converter consumes verbatim. 
+
+Prompt 1: Cluster Refinement Query 
+
+You are an analyst examining state clusters learned from robot manipulation demonstrations. Your job is to decide whether a single cluster needs to be split into sub-clusters so that a user preference can be enforced over the resulting skeleton. # Background - A state-machine skeleton has been learned from visuomotor demonstrations. Each cluster Ci groups visually and behaviorally similar states; transitions between clusters form the skeleton. - A cluster requires refinement when the user preference would treat two subsets of that cluster differently---for example, some states inside Ci
+
+satisfy the preference while others violate it. # Inputs ## Task 
+
+{{ TASK DESCRIPTION }} 
+
+## Cluster representatives There are M = {{ NUM CLUSTERS }} clusters. For each cluster Ci, you receive 
+
+N = {{ N IMAGES PER CLUSTER }} representative images, indexed 1 through N :
+
+[IMAGES : C 0][IMAGES : C 1] ... [IMAGES : C {M − 1}]
+
+## Representative trajectories Each trajectory is a sequence of (cluster id, action) pairs sampled from a 
+
+15 Table 6: Ablations on the Number of Trajectories for Base Policy Training in Complex Manip-ulation. We use 50 trajectories to construct PMM. We report mean values over 8 seeds.                                             
+
+> Method
+> StackCube (Fixed) PegInsert SeqPushT
+> Base SR ϕ1SR ϕ1SRP Base SR ϕ1SR ϕ1SRP Base SR ϕ1SR ϕ1SRP ReStruct (100% Trajs) 95 .398 .498 .498 .495 .395 .346 .953 .150 .0
+> - 75% Trajs 93 .893 .890 .690 .693 .893 .837 .545 .340 .6
+> - 50% Trajs 84 .487 .584 .489 .185 .982 .831 .335 .934 .4
+
+demonstration, formatted as: Trajectory k : ( c0, a 0) → (c1, a 1) → · · · → (cT , a T )
+
+{{ TRAJECTORIES }} 
+
+## User preference 
+
+{{ USER PREFERENCE }} 
+
+# Rules - Identify AT MOST ONE cluster Ci to split in this response. If multiple clusters look refinable, pick the one most directly implicated by the preference. - The split must PARTITION the N representative images of Ci into K
+
+sub-clusters Ci-1, Ci-2, . . . , Ci-K (with K≥2). Each image is assigned to exactly one sub-cluster, and the sub-cluster sizes sum to N .- Use the cluster images AND the trajectories jointly when judging whether a sub-distinction exists. Trajectories tell you how a cluster is used over time; the images tell you what states inside it look like. # Output format Respond in EXACTLY one of the two formats below; do not include any prose, reasoning, or text outside these formats. [Case 1] No cluster needs splitting: NO [Case 2] Cluster Ci should be split into K sub-clusters: YES Cluster: C i Number of sub-clusters: KAssignment (image indices in [1 , N ]; each index appears in exactly one sub-cluster): - C i-1: images <indices>, criterion: <one-sentence visual/semantic> - C i-2: images <indices>, criterion: <one-sentence visual/semantic> - ... - C i-K: images <indices>, criterion: <one-sentence visual/semantic> 
+
+Prompt 2: LTL Translation Query 
+
+You are an analyst translating a user preference about a robot manipulation task into a Linear Temporal Logic (LTL) formula over the task’s learned cluster alphabet. # Background A state-machine skeleton has been learned from demonstrations; each state corresponds to a refined cluster Ci. To enforce the preference at runtime, we compile it into an LTL formula whose atomic propositions are cluster identifiers ( c0, c 1, . . . ). The formula is then converted to a DFA and product-composed with the skeleton. # Inputs ## Task 
+
+{{ TASK DESCRIPTION }} 
+
+16 ## Refined clusters There are M = {{ NUM CLUSTERS }} refined clusters. For each cluster Ci you receive {{ N IMAGES PER CLUSTER }} representative images: 
+
+[IMAGES : C 0][IMAGES : C 1] ... [IMAGES : C {M − 1}]
+
+## User preference 
+
+{{ USER PREFERENCE }} 
+
+# Procedure - For each cluster Ci, infer its semantic role from the images and the task description (e.g., "pick teapot", "place in red bowl", "approach power strip"). These names are for your own reasoning; they will NOT appear in the output. - Map the user preference onto cluster identifiers---identify which clusters the preference constrains, and the temporal relation among them (avoid, require, sequence, until, ...). - Express the preference as an LTL formula whose atomic propositions are the cluster identifiers ci.# LTL syntax (use EXACTLY this notation) Atomic propositions: c0, c1, ..., c {M-1 }
+
+Operators (connect via underscores; group with parentheses): - "not X" negation of X - "G X" X holds globally (always) - "F X" X holds eventually - "X U Y" X holds until Y - "X to Y" X implies Y - "X and Y" conjunction - "X or Y" disjunction Examples: - "never enter c3" -> "G not c3" - "eventually reach c5" -> "F c5" - "avoid c1 until c3, then if c1 occurs never reach c3": -> "(not c1 U c3) and G(c1 to G(not c3))" # Output format Respond with EXACTLY ONE LINE: the LTL formula in the syntax above. Do not include any prose, reasoning, justification, code fences, or markdown. 
+
+17 References 
+
+[1] O. Mees, L. Hermann, E. Rosete-Beas, and W. Burgard. Calvin: A benchmark for language-conditioned policy learning for long-horizon robot manipulation tasks. IEEE Robotics and Automation Letters , 7(3):7327–7334, 2022. [2] H. Zhou, M. Ding, W. Peng, M. Tomizuka, L. Shao, and C. Gan. Generalizable long-horizon manipulations with large language models. arXiv preprint arXiv:2310.02264 , 2023. [3] Y. Wang, L. Wang, Y. Du, B. Sundaralingam, X. Yang, Y.-W. Chao, C. P´ erez-D’Arpino, D. Fox, and J. Shah. Inference-time policy steering through human interactions. In 2025 IEEE International Conference on Robotics and Automation (ICRA) , pages 15626–15633. IEEE, 2025. [4] R. Singhal, Z. Horvitz, R. Teehan, M. Ren, Z. Yu, K. McKeown, and R. Ranganath. A gen-eral framework for inference-time scaling and steering of diffusion models. arXiv preprint arXiv:2501.06848 , 2025. [5] K. Black, N. Brown, J. Darpinian, K. Dhabalia, D. Driess, A. Esmail, M. R. Equi, C. Finn, N. Fusai, M. Y. Galliker, et al. π0.5: a vision-language-action model with open-world general-ization. In 9th Annual Conference on Robot Learning , 2025. [6] M. J. Kim, K. Pertsch, S. Karamcheti, T. Xiao, A. Balakrishna, S. Nair, R. Rafailov, E. Foster, G. Lam, P. Sanketi, et al. Openvla: An open-source vision-language-action model. arXiv preprint arXiv:2406.09246 , 2024. [7] C. Chi, Z. Xu, S. Feng, E. Cousineau, Y. Du, B. Burchfiel, R. Tedrake, and S. Song. Diffusion policy: Visuomotor policy learning via action diffusion. The International Journal of Robotics Research , 44(10-11):1684–1704, 2025. [8] B. P. Bhuyan, A. Ramdane-Cherif, R. Tomar, and T. Singh. Neuro-symbolic artificial intelli-gence: a survey. Neural Computing and Applications , 36(21):12809–12844, 2024. [9] T. Silver, A. Athalye, J. B. Tenenbaum, T. Lozano-P´ erez, and L. P. Kaelbling. Learning neuro-symbolic skills for bilevel planning. arXiv preprint arXiv:2206.10680 , 2022. [10] M. Nakamoto, O. Mees, A. Kumar, and S. Levine. Steering your generalists: Improving robotic foundation models via value guidance. arXiv preprint arXiv:2410.13816 , 2024. [11] B. H¨ aon, K. Stocking, I. Chuang, and C. Tomlin. Mechanistic interpretability for steering vision-language-action models. arXiv preprint arXiv:2509.00328 , 2025. [12] J. Mao, J. B. Tenenbaum, and J. Wu. Neuro-symbolic concepts. arXiv preprint arXiv:2505.06191 , 2025. [13] Y. Pan, X. Luo, H. Hu, P. Yu, and C. Liu. Emergent neural automaton policies: Learning symbolic structure from visuomotor trajectories. arXiv preprint arXiv:2603.25903 , 2026. [14] M. Y. Vardi. An automata-theoretic approach to linear temporal logic. In Logics for concur-rency: structure versus automata , pages 238–266. Springer, 2005. [15] G. De Giacomo and M. Y. Vardi. Linear temporal logic and linear dynamic logic on finite traces. 2013. [16] M. T. Spaan. Partially observable markov decision processes. In Reinforcement learning: State-of-the-art , pages 387–414. Springer, 2012. [17] H. Kurniawati. Partially observable markov decision processes and robotics. Annual review of control, robotics, and autonomous systems , 5(1):253–277, 2022. 18 [18] S. Xu, X. Luo, Y. Huang, L. Leng, R. Liu, and C. Liu. Nl2hltl2plan: Scaling up natural lan-guage understanding for multi-robots through hierarchical temporal logic task specifications. 
+
+IEEE Robotics and Automation Letters , 2025. [19] A. Duret-Lutz, A. Lewkowicz, A. Fauchille, T. Michaud, E. Renault, and L. Xu. Spot 2.0—a framework for ltl and-automata manipulation. In International Symposium on Automated Tech-nology for Verification and Analysis , pages 122–129. Springer, 2016. [20] R. Wang, J. Mao, J. Hsu, H. Zhao, J. Wu, and Y. Gao. Programmatically grounded, composi-tionally generalizable robotic manipulation. arXiv preprint arXiv:2304.13826 , 2023. [21] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, Ł. Kaiser, and I. Polo-sukhin. Attention is all you need. Advances in neural information processing systems , 30, 2017. [22] D. A. Reynolds et al. Gaussian mixture models. Encyclopedia of biometrics , 741(659-663):3, 2009. [23] T. Mu, Z. Ling, F. Xiang, D. Yang, X. Li, S. Tao, Z. Huang, Z. Jia, and H. Su. Maniskill: Generalizable manipulation skill benchmark with large-scale demonstrations. arXiv preprint arXiv:2107.14483 , 2021. [24] O. Mees, L. Hermann, and W. Burgard. What matters in language conditioned robotic imitation learning over unstructured data. IEEE Robotics and Automation Letters , 7(4):11205–11212, 2022. [25] E. Zhang, Y. Lu, W. Wang, and A. Zhang. Language control diffusion: Efficiently scaling through space, time, and tasks. arXiv preprint arXiv:2210.15629 , 2022. [26] M. Reuss, ¨ O. E. Ya˘ gmurlu, F. Wenzel, and R. Lioutikov. Multimodal diffusion transformer: Learning versatile behavior from multimodal goals. arXiv preprint arXiv:2407.05996 , 2024. [27] M. Reuss, H. Zhou, M. R¨ uhle, ¨ O. E. Ya˘ gmurlu, F. Otto, and R. Lioutikov. Flower: Democratiz-ing generalist robot policies with efficient vision-language-action flow policies. arXiv preprint arXiv:2509.04996 , 2025. [28] P. F. Christiano, J. Leike, T. Brown, M. Martic, S. Legg, and D. Amodei. Deep reinforcement learning from human preferences. Advances in neural information processing systems , 30, 2017. [29] Y. J. Ma, W. Liang, G. Wang, D.-A. Huang, O. Bastani, D. Jayaraman, Y. Zhu, J. Fan, et al. Eureka: Human-level reward design via coding large language models. In International con-ference on learning Representations , volume 2024, pages 26516–26560, 2024. [30] Y. Pan, Z. Liu, and H. Wang. Wonder wins ways: Curiosity-driven exploration through multi-agent contextual calibration. Advances in Neural Information Processing Systems , 38:116109– 116137, 2026. [31] Y. Chen, D. K. Jha, M. Tomizuka, and D. Romeres. Fdpp: Fine-tune diffusion policy with hu-man preference. In 2025 IEEE International Conference on Robotics and Automation (ICRA) ,pages 12010–12016. IEEE, 2025. [32] P. Goyal, R. J. Mooney, and S. Niekum. Zero-shot task adaptation using natural language. 
+
+arXiv preprint arXiv:2106.02972 , 2021. [33] A. Stone, T. Xiao, Y. Lu, K. Gopalakrishnan, K.-H. Lee, Q. Vuong, P. Wohlhart, S. Kirmani, B. Zitkovich, F. Xia, et al. Open-world object manipulation using pre-trained vision-language models. arXiv preprint arXiv:2303.00905 , 2023. 19 [34] S. Holk, D. Marta, and I. Leite. Predilect: Preferences delineated with zero-shot language-based reasoning in reinforcement learning. In Proceedings of the 2024 ACM/IEEE Interna-tional Conference on Human-Robot Interaction , pages 259–268, 2024. [35] J. Thumm, C. Agia, M. Pavone, and M. Althoff. Text2interaction: Establishing safe and prefer-able human-robot interaction. arXiv preprint arXiv:2408.06105 , 2024. [36] C. Chi, Z. Xu, C. Pan, E. Cousineau, B. Burchfiel, S. Feng, R. Tedrake, and S. Song. Universal manipulation interface: In-the-wild robot teaching without in-the-wild robots. arXiv preprint arXiv:2402.10329 , 2024. [37] H. Bharadhwaj, R. Mottaghi, A. Gupta, and S. Tulsiani. Track2act: Predicting point tracks from internet videos enables generalizable robot manipulation. In European Conference on Computer Vision , pages 306–324. Springer, 2024. [38] V. Liu, A. Adeniji, H. Zhan, S. Haldar, R. Bhirangi, P. Abbeel, and L. Pinto. Egozero: Robot learning from smart glasses. arXiv preprint arXiv:2505.20290 , 2025. [39] K. Black, M. Nakamoto, P. Atreya, H. Walke, C. Finn, A. Kumar, and S. Levine. Zero-shot robotic manipulation with pre-trained image-editing diffusion models. In International Conference on Learning Representations , volume 2024, pages 33431–33452, 2024. [40] P. Sundaresan, Q. Vuong, J. Gu, P. Xu, T. Xiao, S. Kirmani, T. Yu, M. Stark, A. Jain, K. Haus-man, et al. Rt-sketch: Goal-conditioned imitation learning from hand-drawn sketches. In 8th Annual Conference on Robot Learning , 2024. [41] R. T. Icarte, T. Klassen, R. Valenzano, and S. McIlraith. Using reward machines for high-level task specification and decomposition in reinforcement learning. In International Conference on Machine Learning , pages 2107–2116. PMLR, 2018. [42] Y. Chen, J. Arkin, C. Dawson, Y. Zhang, N. Roy, and C. Fan. Autotamp: Autoregressive task and motion planning with llms as translators and checkers. In 2024 IEEE International conference on robotics and automation (ICRA) , pages 6695–6702. IEEE, 2024. [43] M. Ahn, A. Brohan, N. Brown, Y. Chebotar, O. Cortes, B. David, C. Finn, C. Fu, K. Gopalakr-ishnan, K. Hausman, et al. Do as i can, not as i say: Grounding language in robotic affordances. 
+
+arXiv preprint arXiv:2204.01691 , 2022. [44] J. Liang, W. Huang, F. Xia, P. Xu, K. Hausman, B. Ichter, P. Florence, and A. Zeng. Code as policies: Language model programs for embodied control. In 2023 IEEE International conference on robotics and automation (ICRA) , pages 9493–9500. IEEE, 2023. [45] C. R. Garrett, T. Lozano-P´ erez, and L. P. Kaelbling. Pddlstream: Integrating symbolic planners and blackbox samplers via optimistic adaptive planning. In Proceedings of the international conference on automated planning and scheduling , volume 30, pages 440–448, 2020. [46] G. Konidaris and A. Barto. Skill discovery in continuous reinforcement learning domains using skill chaining. Advances in neural information processing systems , 22, 2009. [47] K. Pertsch, Y. Lee, and J. Lim. Accelerating reinforcement learning with learned skill priors. In Conference on robot learning , pages 188–204. PMLR, 2021. [48] B. Da Silva, G. Konidaris, and A. Barto. Learning parameterized skills. arXiv preprint arXiv:1206.6398 , 2012. [49] G. Konidaris, L. P. Kaelbling, and T. Lozano-Perez. From skills to symbols: Learning symbolic representations for abstract high-level planning. Journal of Artificial Intelligence Research , 61: 215–289, 2018. 20 [50] T. Silver, A. Athalye, J. B. Tenenbaum, T. Lozano-P´ erez, and L. P. Kaelbling. Learning neuro-symbolic skills for bilevel planning. arXiv preprint arXiv:2206.10680 , 2022. [51] J. Mao, C. Gan, P. Kohli, J. B. Tenenbaum, and J. Wu. The neuro-symbolic concept learner: Interpreting scenes, words, and sentences from natural supervision. arXiv preprint arXiv:1904.12584 , 2019. [52] H. M. Pasula, L. S. Zettlemoyer, and L. P. Kaelbling. Learning symbolic models of stochastic domains. Journal of Artificial Intelligence Research , 29:309–352, 2007. [53] R. Chitnis, T. Silver, J. B. Tenenbaum, T. Lozano-Perez, and L. P. Kaelbling. Learning neuro-symbolic relational transition models for bilevel planning. In 2022 IEEE/RSJ international conference on intelligent robots and systems (IROS) , pages 4166–4173. IEEE, 2022. [54] M. Poli, S. Massaroli, L. Scimeca, S. Chun, S. J. Oh, A. Yamashita, H. Asama, J. Park, and A. Garg. Neural hybrid automata: Learning dynamics with multiple modes and stochastic transitions. Advances in Neural Information Processing Systems , 34:9977–9989, 2021. [55] Y. Pan, Y. Xu, Z. Liu, and H. Wang. Planning from imagination: Episodic simulation and episodic memory for vision-and-language navigation. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 39, pages 6345–6353, 2025. [56] Y. Xu, Y. Pan, and Z. Liu. Dream to recall: Imagination-guided experience retrieval for memory-persistent vision-and-language navigation. IEEE Transactions on Pattern Analysis and Machine Intelligence , 2026. [57] M. Du and S. Song. Dynaguide: Steering diffusion polices with active dynamic guidance. 
+
+Advances in Neural Information Processing Systems , 38:44192–44221, 2026. [58] Y. Liu, J. I. Hamid, A. Xie, Y. Lee, M. Du, and C. Finn. Bidirectional decoding: Improving action chunking via guided test-time sampling. International Conference on Learning Repre-sentations (ICLR) , 2025. URL https://arxiv.org/abs/2408.17355 .[59] S. Wu, X. Luo, J. Zhang, J. Xie, J. Song, H. T. Shen, and L. Gao. Policy contrastive decoding for robotic foundation models. arXiv preprint arXiv:2505.13255 , 2025. [60] A. Wagenmaker, M. Nakamoto, Y. Zhang, S. Park, W. Yagoub, A. Nagabandi, A. Gupta, and S. Levine. Steering your diffusion policy with latent space reinforcement learning. arXiv preprint arXiv:2506.15799 , 2025. [61] Y. Wu, R. Tian, G. Swamy, and A. Bajcsy. From foresight to forethought: Vlm-in-the-loop policy steering via latent alignment. arXiv preprint arXiv:2502.01828 , 2025. [62] Z. Li, J. Liu, Z. Dong, T. Teng, Q. Rouxel, D. Caldwell, and F. Chen. Towards deploying vla without fine-tuning: Plug-and-play inference-time vla policy steering via embodied evolution-ary diffusion. IEEE Robotics and Automation Letters , 11(5):6234–6241, 2026. 21

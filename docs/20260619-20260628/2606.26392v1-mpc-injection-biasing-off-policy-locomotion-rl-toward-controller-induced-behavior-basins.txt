@@ -1,0 +1,1095 @@
+Title: MPC-Injection: Biasing Off-Policy Locomotion RL Toward Controller-Induced Behavior Basins
+
+URL Source: https://arxiv.org/pdf/2606.26392v1
+
+Published Time: Fri, 26 Jun 2026 00:20:18 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+# MPC-Injection: Biasing Off-Policy Locomotion RL Toward Controller-Induced Behavior Basins 
+
+Roy Xing 1, Seyoung Ree 2, Brian Plancher 11 Dartmouth College, 2 Harvard University 
+
+Figure 1: Snapshots of two RL policies trained with the same velocity-tracking reward. Left: pure RL learns to vibrate its legs, producing irregular footsteps. Right: RL with 25% MPC-Injection learns to trot. Colored spheres mark foot contacts and the raster plots below show footstep timing. Both policies achieve similar return, but only the MPC-Injection policy produces a deployable gait. A more dramatic case on a 2D walker appears in Figure 4b. 
+
+Abstract: Reinforcement learning (RL) for locomotion frequently converges to locally optimal but undeployable behaviors, such as vibrating limbs or scooting on the torso, that maximize return without producing a usable gait. We present MPC-Injection, a low-overhead method that steers RL toward a designer-preferred gait by inserting transitions into the replay buffer from a model predictive controller solving the same Markov decision process. Unlike reward shaping, MPC-Injection does not require redesigning the task reward, and unlike adversarial imitation learning, it adds no discriminator, no kinematic retargeting, and no auxiliary objective. Instead, the controller’s preferred behavior is transferred to the policy purely through the replay state distribution. On a 2D walker in simulation and with sim-to-real evaluation on a Go2 quadruped, we show that MPC-Injection drives the policy into the controller’s behavior basin using a one to two-term task reward, producing gaits qualitatively comparable to those of reward shaping with twenty-one tuned terms and of adversarial motion priors without their discriminator and retargeting overhead. We further analyze how the injected transitions bias actor-critic updates toward controller-visited states, allowing the policy to learn behaviors that pure RL may fail to reach under simple reward functions. 
+
+Keywords: reinforcement learning, model predictive control, legged locomotion 
+
+## 1 Introduction 
+
+Off-policy reinforcement learning for legged locomotion routinely converges to behaviors that are technically optimal but practically useless. A walker trained with a simple velocity-tracking reward 
+
+> arXiv:2606.26392v1 [cs.RO] 24 Jun 2026
+
+learns to drag itself along the ground because scooting is a stable attractor under that reward. A quadruped trained with a similar reward learns to vibrate some of its limbs, hitting the velocity target while producing a gait that no engineer would deploy on hardware. Both policies achieve high return. Neither produces a usable robot. This gap between maximizing a reward and producing a deployable behavior is widely recognized. Tasks that admit multiple high-return solutions admit multiple behavior basins , regions of the state-visitation space that achieve similar return but differ in kinematics and dynamics. We use behavior biasing to mean selecting, among the high-return basins available under a given task reward, the basin preferred by the designer. The central question of this paper is as follows: how do we effectively and efficiently execute behavior biasing? 
+
+The two current dominant approaches both pay a heavy specification cost. Reward shaping adds hand-tuned terms that encourage particular behaviors, but the terms require extensive trial and error and changing the desired behavior typically requires retraining [ 1 , 2 , 3 ]. Adversarial imitation methods such as adversarial motion priors [ 4, 5 ] and trajectory-tracking methods [ 6, 7 ] reduce reward engineering but introduce a discriminator network, kinematic retargeting, and a reference motion dataset that must be collected or curated. We study MPC-Injection as a third option. The method generates trajectories from a model predictive controller solving the same Markov decision process and inserts the resulting transitions into the replay buffer of an off-policy RL algorithm. The actor and critic see a state distribution that includes states the controller visits, which biases the learned policy toward the controller’s behavior basin. The RL task reward is unchanged. There is no behavior-cloning loss, no discriminator, and no auxiliary objective, and unlike offline RL, the policy can continue to adapt from experience online. While similar mechanisms have appeared under different names in prior work (e.g., used to improve return in sparse-reward navigation [ 8 , 9] and to bootstrap manipulation controllers [ 10 ]), to our knowledge, this is the first analysis of replay-distribution biasing as a mechanism for selecting among distinct high-return behavior basins under an intentionally underspecified locomotion reward . Our experiments on a 2D walker in simulation and with sim-to-real evaluation on a Go2 quadruped show that MPC-Injection drives the policy into the controller’s behavior basin using only a one to two-term task reward, producing gaits qualitatively comparable to reward shaping with twenty-one tuned terms and to adversarial motion priors without their discriminator or retargeting overhead. Our primary contributions are: • An empirical characterization of behavior biasing via MPC-Injection, showing that under identical task rewards it selects qualitatively different locomotion basins from vanilla RL, with a 25% injection ratio reliably inducing the controller’s basin across SAC and TD3. • A benchmark comparison on a Unitree Go2 quadruped showing that MPC-Injection produces qualitatively similar gaits to reward shaping with twenty-one tuned terms and to adversarial motion priors without their discriminator or retargeting overhead, including on real robot hardware through sim-to-real transfer. 
+
+## 2 Related Work 
+
+Behavior biasing for legged locomotion is typically achieved by either engineering the reward or imitating reference motions. Both approaches transfer the burden of behavior specification onto a particular interface, either the reward function or the motion dataset, and pay an engineering cost proportional to the complexity of the desired behavior. Table 1 positions MPC-Injection against these alternatives along three axes: the amount of reward engineering required, the imitation machinery added to the RL loss, and the type of behavior data used. 
+
+Reward Shaping Reward shaping modifies the task reward by adding hand-tuned terms that reward or penalize specific motions until a desired behavior emerges [ 11 , 12 ]. The shaping terms take many forms, including potential functions [ 13 , 14 , 15 , 16 ], barrier functions [ 17 , 18 , 19 ], penalty terms [ 20 , 21 ], and phase-modulated terms [ 22 , 23 , 2 ]. While effective, reward shaping requires extensive trial-and-error tuning, and any change to the desired behavior typically requires retraining. 2Table 1: Comparison of MPC-Injection with related behavior biasing methods.              
+
+> Method Reward engineering Imitation machinery Behavior data
+> Reward Shaping High: hand-tuned terms None None Trajectory tracking IL Low High: tracking loss, retargeting Mocap, reference trajectories AMP / adversarial IL Low High: discriminator, retargeting Mocap, motion clips Human demo-augmented replay Varies Moderate: replay augmentation Human / expert transitions
+> MPC-Injection (ours) Low None MPC transitions
+
+Imitation Learning Imitation learning sidesteps reward engineering by training the policy to match reference motion data [ 24 , 25 , 26 , 27 ]. In legged locomotion, the dominant approaches either track reference trajectories [ 6, 28 , 29 ] or use adversarial imitation [ 24 ] as in adversarial motion priors [ 4, 5]. Both approaches replace reward engineering with separate engineering burdens: kinematic retargeting of motion data to the target robot, and either a tracking loss or a discriminator network that must be trained alongside the policy. 
+
+Human Demonstration-Augmented Replays Demonstration-augmented off-policy RL uses human expert demonstrations as additional replay data [ 30 , 31 , 32 ]. These methods rely on a human demonstrator and typically introduce additional machinery such as prioritized sampling or separate demonstration buffers. The reliance on human teleoperation also limits applicability as collecting demonstrations is impractical for many tasks and embodiments, particularly for morphologies where human intuition does not transfer (see Section 4.4 for a 3-legged half-cheetah example). 
+
+Hybrid MPC and RL Frameworks A broader literature combines MPC and RL in other ways, including RL residual policies that modify MPC outputs [33, 34, 35], MPC as a source of reference trajectories [ 31 , 36 ], guided policy search [ 37 , 38 ], and RL-tuned MPC parameters [ 39 , 40 ]. In the taxonomy of Reiter et al. [ 41 ], MPC-Injection falls under MPC for pre-processing in RL training. The methods above either couple the controller to the deployed policy architecturally or use controller outputs as supervision targets, whereas MPC-Injection introduces the controller’s behavior only through off-policy transitions and leaves the RL pipeline otherwise unchanged. 
+
+MPC-Injection Prior work has used controller-generated replay data to bootstrap off-policy RL in sparse-reward navigation [ 8, 9] and dexterous manipulation [ 10 ], treating injected transitions primarily as a tool for improving return or accelerating exploration. Our work is closest to [ 10 ] but differs in two ways. First, we show that the mechanism generalizes to a variety of off-policy RL algorithms (specifically SAC and TD3) rather than DDPG alone. Second, we analyze controller-generated replay as a mechanism for selecting among distinct high-return behavior basins under an intentionally underspecified locomotion reward, an analysis that prior work has not provided. 
+
+## 3 Method 
+
+MPC-Injection biases the learned policy toward a controller-induced behavior basin by changing the replay state distribution. The actor and critic are optimized over a mixture of policy-visited and controller-visited states, leaving the RL task reward unchanged. Figure 2 illustrates the pipeline. The full off-policy training procedure is given as Algorithm 1 in Appendix A, and Appendix D provides an optimization-level account of why this induces basin selection rather than behavior cloning. 
+
+Data Generation We generate MPC trajectories offline in the same simulation environment used for RL training, unlike prior work that generates trajectories online [ 8, 9]. Offline generation is similar to the pipeline of [ 10 ] and enables precise control over the MPC-to-RL transition ratio in the replay 3Figure 2: MPC-Injection: An MPC controller is deployed in the same simulation environment used for RL training and the resulting trajectories are stored. During RL training, a target fraction of MPC transitions are injected into the replay buffer alongside on-policy transitions, biasing actor and critic updates toward the controller’s behavior basin while leaving the task reward unchanged. buffer. The MPC objective is designed to produce the desired behavior under the same task, moving the behavior-specification interface from the RL reward into the MPC cost. We use sampling-based MPC [ 42 ] for the walker and gradient-based MPC [ 43 ] for the quadruped, demonstrating that the choice of MPC method is not critical to the approach .Rewards are recomputed from the RL task reward at injection time rather than stored with the MPC trajectories. This allows different RL reward functions to be evaluated against the same MPC dataset without regenerating trajectories. For the quadruped, the MPC outputs joint torques while the RL policy outputs target joint positions, so we additionally convert each MPC torque into an equivalent position target via inverse PD before injection (see Appendix C.2). 
+
+Replay Buffer Injection We define the injection ratio p as the target fraction of replay-buffer entries generated by MPC. After each on-policy transition is inserted, MPC transitions are added until the empirical fraction |D MPC |/|D| reaches p. Minibatches are sampled uniformly from the combined buffer, so the expected fraction of MPC samples per gradient update is also approximately p. MPC transitions enter learning only through the replay distribution: there is no separate imitation loss, no sample weighting, and no auxiliary objective. The training process of the off-policy agent is otherwise unchanged from standard SAC [44] or TD3 [45]. 
+
+## 4 Experiments 
+
+Through our experiments we evaluate two claims. First, that MPC-Injection selects qualitatively different locomotion basins from vanilla RL under identical task rewards, with 25% as the injection ratio that most reliably induces the controller’s basin. Second, that the resulting locomotion quality is similar to reward shaping and AMP without their engineering overhead. Recall that a behavior basin is a region of state space that achieves similar return but may differ in kinematics and dynamics. Section 4.2 establishes the first claim on a 2D walker [ 46 ] and a Unitree Go2 [ 47 ] quadruped in simulation. The walker serves as a controlled diagnostic with a deliberately underspecified reward, and we run it across both SAC and TD3 to confirm the result is not specific to a single off-policy algorithm. Since the two algorithms produce nearly identical results (Figure 3), subsequent analysis uses SAC. Section 4.3 establishes the second claim on the Go2 in simulation and with qualitative sim-to-real evaluation on hardware, demonstrating real-world practicality of MPC-Injection. Section 4.4 then provides a qualitative case study on an unconventional morphology, illustrating the data-source advantage of MPC-Injection when reference motions are difficult or impossible to obtain. 
+
+4.1 Experimental Setup Environments and training We evaluate policies via state-distribution embeddings, footstep regularity, torque usage, and qualitative gait comparison. We use the 2D walker environment from the DeepMind Control Suite [ 46 ] and a Unitree Go2 quadruped, both simulated in MuJoCo [ 48 ]. We train SAC and TD3 on the walker for 500k environment steps with 5 seeds per configuration, and 4(a) SAC. (b) TD3. 
+
+Figure 3: Episodic return on the walker velocity-tracking reward across MPC-Injection ratios (0%, 25%, 50%, 75%, 100%) for (a) SAC and (b) TD3. Several injection ratios converge to similar episodic return, confirming that the task reward admits multiple high-return solutions. Because the reward is underspecified for the desired behavior, training curves do not reflect which behavior basin each policy has converged to. Basin membership is evaluated separately in Figures 4a and 4b. SAC on the quadruped for 1M steps with 5 seeds. Full network architectures and hyperparameters can be found in Appendix C. 
+
+Reward functions The walker uses a torso velocity-tracking reward that admits multiple high-return solutions where vtorso is the torso velocity and vcmd is the commanded velocity: 
+
+R(vcmd ) = (5 · clip 
+
+ vtorso 
+
+vcmd 
+
+, 0, 1
+
+
+
++ 1) /6. (1) The quadruped uses a two-term reward combining velocity tracking with a forward-progress bias (full definitions in Appendix C.1, Table 3): 
+
+R(vcmd ) = wtrack rtrack (vcmd ) + wfwd rfwd (vcmd ). (2) The reward-shaping baseline, adapted from the Unitree mjlab implementation [ 49 ] with term weights re-tuned for off-policy training, uses twenty-one tuned terms. The AMP baseline follows [ 4] using retargeted dog motion capture data with a four-term reward (Tables 4, 5, and 6). 
+
+MPC trajectory generation and sim-to-real We use sampling-based MPC [ 42 ] for the walker and gradient-based MPC [ 43 ] for the quadruped, with trajectories generated offline in the same simulation environment used for RL training. For the quadruped, the MPC outputs joint torques while the RL policy outputs target joint position offsets. We convert MPC torques into equivalent position targets via inverse PD calculations before injection (Appendix C.2). For sim-to-real transfer on the Go2, we apply domain randomization over mass, friction, and joint dynamics (Appendix F). 
+
+4.2 Replay Buffer Distribution Biasing Under an Identical Reward 
+
+We evaluate the claim that MPC-Injection selects qualitatively different locomotion basins from vanilla RL under identical task rewards, by sweeping MPC-Injection ratios on the 2D walker as a controlled diagnostic, then verifying the same pattern on the Unitree Go2 quadruped. 
+
+Walker The walker reward in Eq. 1 depends only on torso velocity and therefore admits multiple high-return solutions. We sweep injection ratios across 0% (pure RL), 25%, 50%, 75%, and 100% on both SAC and TD3. Figure 3 shows that several injection settings reach similar episodic return across both algorithms, confirming that the replay-distribution bias can change behavior without requiring a different task reward. Because the underspecified reward makes return uninformative about basin membership, we evaluate basin membership through qualitative footstep analysis and state-distribution embeddings. Figure 4b shows that pure RL converges to a grounded scooting strategy that drags the top of the torso along the ground, while 25% MPC-Injection learns an upright, periodic gait matching the MPC 5(a) 
+
+> (b)
+
+Figure 4: State-space structure and qualitative behavior under 0% and 25% MPC-Injection with the same velocity-tracking reward. (a) UMAP embedding of the visited state distributions showing that 25% MPC-Injection occupies a compact, structured region of state space while 0% (pure RL) occupies a more diffuse region. (b) Behavior snapshots and footstep raster plots. The 0% policy (blue walker, orange torso trajectory) drags its torso along the ground in a scooting gait. The 25% policy (orange walker, cyan torso trajectory) walks upright with periodic alternating footsteps. Red spheres mark right-foot contacts, green spheres mark left-foot contacts.   
+
+> (a) Pure RL (b) 25% MPC-Injection (c) Torque usage CDF
+
+Figure 5: Quadruped behavior comparison between pure RL and 25% MPC-Injection in simulation. (a) Footstep trajectories under pure RL show chaotic, irregular patterns. (b) Footstep trajectories under 25% MPC-Injection show structured, periodic patterns matching a trotting gait. (c) Cumulative distribution function of average motor torque magnitude per episode, showing that 25% MPC-Injection produces lower-torque behavior consistent with the MPC controller’s energy-cost objective. behavior. Figure 4a corroborates this through the state-distribution embeddings, revealing that the 25% policy occupies a compact, structured region of state space while the pure RL policy occupies a more diffuse region. Higher injection ratios (50%, 75%, 100%) fail to produce regular gaits, as the actor gradient becomes dominated by states the policy cannot consistently reach via its own rollouts (Appendices D and E contain the higher-ratio behaviors and the optimization-level account). Prior MPC-Injection work [ 10 , 9] reports that around 25% is an ideal injection ratio and improves returned reward in non-locomotion tasks. We find that in locomotion the same injection ratio still works well, but instead selects the controller’s behavior basin without necessarily improving return. 
+
+Quadruped The quadruped exhibits the same qualitative pattern as the walker. Pure off-policy RL learns to vibrate the joints (Figure 1), producing chaotic and irregular footstep trajectories (Figure 5a). With 25% MPC-Injection, the policy learns a structured trot with periodic footstep patterns (Figure 5b). An analogous injection-ratio sweep on the quadruped (Appendix E) confirms that 25% remains the most reliable operating regime. The torque magnitude CDF in Figure 5c 6(a) Reward-Shaped (b) AMP (c) MPC-Injection (ours) 
+
+Figure 6: Qualitative comparisons between reward shaping (a), AMP (b), and MPC-Injection (c). MPC-Injection produces behaviors comparable to AMP and reward shaping while avoiding manual reward redesign and discriminator training. further indicates that the injected replay distribution biases the learned policy toward the lower-torque behavior demonstrated by the MPC controller, consistent with the energy-cost terms in the MPC objective. Together with the walker results, this confirms that 25% MPC-Injection consistently induces the controller’s behavior basin across both the diagnostic walker and the deployment-target quadruped under simple velocity-tracking rewards. 
+
+4.3 Sim-to-Real Comparisons to Reward Shaping and AMP 
+
+We position MPC-Injection relative to two common ways of specifying locomotion behavior: 1) reward shaping, which modifies the task reward, and 2) AMP, which adds an adversarial imitation objective. All methods use a low-pass filter before the PD controller. From the supplemental videos, we observe three qualitatively different trotting gaits. The reward-shaped policy strikes the ground relatively hard with its feet in order to maintain a robust and stable gait. The AMP policy mimics the retargeted dog motion capture dataset and produces an energetic trot. The MPC-Injection policy converges to a stable trot similar to the reward-shaped policy but bearing closer resemblance to the simulated MPC controller. Figure 6 provides snapshots of the behaviors produced by each method. All three methods produce comparable locomotion quality but with substantially different engineering costs. Reward shaping requires hand-crafted reward terms 1, AMP requires training an additional discriminator network and kinematic retargeting of motion capture data, while MPC-Injection requires only a pre-existing MPC controller and leaves the RL objective unchanged. Despite this comparability, we observe failure modes for both baselines that MPC-Injection avoids. Reward-shaping policies occasionally converged to unwanted behaviors such as walking on the knees, depending on the seed. AMP was unstable, consistently drifted, and required multiple real-world trials to successfully track the 0.5 m/s velocity command without falling. While additional reward shaping could address this, doing so compounds AMP’s existing discriminator and retargeting overhead. We further evaluated robustness through perturbation testing (see supplemental video). Both reward shaping and MPC-Injection remained stable under perturbations applied to the torso, while AMP was highly sensitive. 
+
+4.4 Qualitative Case Study on MPC-Injection for Unusual Robot Morphologies 
+
+Finally, we illustrate that MPC can be particularly useful as a behavior-data source for non-standard locomotion tasks, especially those with no reference dataset and no human teleoperation demon-strations. In these settings, adversarial imitation methods and trajectory-tracking methods cannot be directly applied without first synthesizing reference motions through a separate process. MPC, by contrast, can be deployed on any morphology for which a dynamics model and cost function are available. As such, we include a qualitative case study on an unconventional morphology: a 3-legged half-cheetah modified from the DM Control Suite. Figure 7 compares pure RL and 25% MPC-Injection under the same simple torso-velocity-tracking reward for this unique morphology. 
+
+> 1The reward-shaped function was derived from the Unitree mjlab implementation [ 49 ], which was tuned for PPO. We adapted this for off-policy algorithms which required relatively extensive best-effort tuning.
+
+7Figure 7: Snapshots of RL policies with the same simple torso velocity-tracking reward function on an unusual morphology. Blue walker: Pure RL with an orange torso traced trajectory. Orange walker: RL with 25% MPC-Injection with a cyan torso traced trajectory. The MPC-Injection policy learned to use the third leg as indicated by its highlighted foot contact via the blue sphere while the pure RL policy did not. As with our prior experiments, the pure RL policy converges to an undesirable strategy, two-legged walking that leaves the front leg vestigial. In contrast, the 25% MPC-Injection policy uses all three legs in a coordinated gait that mirrors the optimized MPC behavior. 
+
+## 5 Conclusion 
+
+We presented MPC-Injection, a low-overhead method for behavior biasing in off-policy RL that selects a designer-preferred locomotion behavior by inserting controller-generated transitions into the replay buffer. On a 2D walker and a Unitree Go2 quadruped, MPC-Injection drives the learned policy into the controller’s behavior basin using only a one to two-term task reward. It achieves comparable locomotion quality to reward shaping with twenty-one tuned terms and to adversarial motion priors without their discriminator or retargeting overhead, and transfers qualitatively to Go2 hardware. These results position MPC-Injection as a practical alternative to reward shaping and imitation learning when a controller for the desired behavior already exists, or is easy to design. 
+
+## 6 Limitations & Future Work 
+
+Several limitations bound our results. First, the optimization-level analysis in Appendix D predicts that the implicit basin pull from replay-distribution biasing may weaken under extended training. Once the policy operates inside the controller’s basin, on-policy rollouts overlap heavily with injected MPC states, reducing the additional pull contributed by those transitions. Preliminary experiments on the quadruped are consistent with this prediction, but not conclusive. Future work could study mechanisms for preserving basin membership during late training, such as curriculum-based injection, basin-aware early stopping, or critics augmented with behavior-sensitive regularization. Second, the current paper studies behavior biasing in relatively simple velocity-tracking locomotion tasks. It remains to be shown how robust the method is under broader command spaces, more diverse terrains, contact-rich tasks, and online or adaptive MPC data generation. In particular, we found that naively mixing trajectories generated from widely varying velocity commands does not always preserve a clean behavior basin during learning. This motivates future work on curriculum learning over command ranges and online selection of which MPC trajectories to inject. Finally, MPC-Injection should not be interpreted as eliminating behavior specification but as shifting the burden from reward tuning or imitation-learning pipeline development to standard controller design, and is therefore most useful when a controller for the desired behavior already exists. 
+
+## 7 Acknowledgments 
+
+We used LLM tools, including Codex and Claude Code, to assist with software implementation, proofreading, and review. All final text and references were edited and reviewed by humans. 8References 
+
+[1] D. M ¨uller, E. Knoop, D. Mylonopoulos, A. Serifi, M. A. Hopkins, R. Grandia, and M. B ¨acher. Olaf: Bringing an Animated Character to Life in the Physical World, Dec. 2025. URL http: //arxiv.org/abs/2512.16705 . arXiv:2512.16705 [cs]. [2] Y. Liang, Z. Peng, Y. Zhao, and W. Yan. Learning robust bipedal running via structured gait and trajectory guidance. Robotica , pages 1–19, Jan. 2026. ISSN 0263-5747, 1469-8668. doi:10.1017/S0263574725103007. URL https://www.cambridge.org/core/product/ identifier/S0263574725103007/type/journal_article .[3] H. Xue, T. He, Z. Wang, Q. Ben, W. Xiao, Z. Luo, X. Da, F. Casta ˜neda, G. Shi, S. Sastry, L. J. Fan, and Y. Zhu. Opening the Sim-to-Real Door for Humanoid Pixel-to-Action Policy Transfer, Nov. 2025. URL http://arxiv.org/abs/2512.01061 . arXiv:2512.01061 [cs]. [4] X. B. Peng, Z. Ma, P. Abbeel, S. Levine, and A. Kanazawa. AMP: Adversarial Motion Priors for Stylized Physics-Based Character Control. ACM Transactions on Graphics , 40 (4):1–20, Aug. 2021. ISSN 0730-0301, 1557-7368. doi:10.1145/3450626.3459670. URL 
+
+http://arxiv.org/abs/2104.02180 . arXiv:2104.02180 [cs]. [5] C. Li, M. Vlastelica, S. Blaes, J. Frey, F. Grimminger, and G. Martius. Learning Agile Skills via Adversarial Imitation of Rough Partial Demonstrations, Nov. 2022. URL http: //arxiv.org/abs/2206.11693 . arXiv:2206.11693 [cs]. [6] S. Zhao, Y. Ze, Y. Wang, C. K. Liu, P. Abbeel, G. Shi, and R. Duan. ResMimic: From General Motion Tracking to Humanoid Whole-body Loco-Manipulation via Residual Learning, Oct. 2025. URL http://arxiv.org/abs/2510.05070 . arXiv:2510.05070 [cs]. [7] Y. Ze, Z. Chen, J. P. Ara ´ujo, Z.-a. Cao, X. B. Peng, J. Wu, and C. K. Liu. TWIST: Teleoperated Whole-Body Imitation System, May 2025. URL http://arxiv.org/abs/2505.02833 .arXiv:2505.02833 [cs]. [8] M. Dawood, N. Dengler, J. De Heuvel, and M. Bennewitz. Handling Sparse Rewards in Reinforcement Learning Using Model Predictive Control. In 2023 IEEE International Con-ference on Robotics and Automation (ICRA) , pages 879–885, London, United Kingdom, May 2023. IEEE. ISBN 979-8-3503-2365-8. doi:10.1109/ICRA48891.2023.10161492. URL 
+
+https://ieeexplore.ieee.org/document/10161492/ .[9] J. Shin, A. Hakobyan, M. Park, Y. Kim, G. Kim, and I. Yang. Infusing model predictive control into meta-reinforcement learning for mobile robots in dynamic environments. IEEE Robotics and Automation Letters , 7(4):10065–10072, Oct. 2022. ISSN 2377-3766, 2377-3774. doi:10. 1109/LRA.2022.3191234. URL http://arxiv.org/abs/2109.07120 . arXiv:2109.07120 [cs]. [10] J. Br ¨udigam, A.-A. Abbas, M. Sorokin, K. Fang, B. Hung, M. Guru, S. Sosnowski, J. Wang, S. Hirche, and S. L. Cleac’h. Jacta: A Versatile Planner for Learning Dexterous and Whole-body Manipulation, Oct. 2024. URL http://arxiv.org/abs/2408.01258 . arXiv:2408.01258 [cs]. [11] A. D. Laud. Theory and application of reward shaping in reinforcement learning . PhD Thesis, University of Illinois at Urbana-Champaign, USA, 2004. [12] A. Y. Ng, D. Harada, and S. J. Russell. Policy Invariance Under Reward Transformations: Theory and Application to Reward Shaping. In Proceedings of the Sixteenth International Conference on Machine Learning , ICML ’99, pages 278–287, San Francisco, CA, USA, 1999. Morgan Kaufmann Publishers Inc. ISBN 1-55860-612-2. 9[13] S. H. Jeon, S. Heim, C. Khazoom, and S. Kim. Benchmarking Potential Based Rewards for Learning Humanoid Locomotion. In 2023 IEEE International Conference on Robotics and Automation (ICRA) , pages 9204–9210, May 2023. doi:10.1109/ICRA48891.2023.10160885. URL http://arxiv.org/abs/2307.10142 . arXiv:2307.10142 [cs]. [14] A. Malysheva, D. Kudenko, and A. Shpilman. Learning to Run with Potential-Based Reward Shaping and Demonstrations from Video Data. In 2018 15th International Conference on Control, Automation, Robotics and Vision (ICARCV) , pages 286–291, Nov. 2018. doi:10.1109/ ICARCV.2018.8581310. URL http://arxiv.org/abs/2012.08824 . arXiv:2012.08824 [cs]. [15] A. Harutyunyan, S. Devlin, P. Vrancx, and A. Nowe. Expressing Arbitrary Reward Functions as Potential-Based Advice. Proceedings of the AAAI Conference on Artificial Intelligence ,29(1), Feb. 2015. ISSN 2374-3468, 2159-5399. doi:10.1609/aaai.v29i1.9628. URL https: //ojs.aaai.org/index.php/AAAI/article/view/9628 .[16] T. Westenbroek, F. Castaneda, A. Agrawal, S. Sastry, and K. Sreenath. Lyapunov Design for Robust and Efficient Robotic Reinforcement Learning. In 6th Conference on Robot Learning (CoRL 2022) , Auckland, New Zealand, Nov. 2022. doi:10.48550/arXiv.2208.06721. URL 
+
+http://arxiv.org/abs/2208.06721 . arXiv:2208.06721 [cs]. [17] G. Kim, Y.-H. Lee, and H.-W. Park. A Learning Framework for Diverse Legged Robot Locomotion Using Barrier-Based Style Rewards. In 2025 IEEE International Conference on Robotics and Automation (ICRA) , pages 10004–10010, Atlanta, GA, USA, May 2025. IEEE. ISBN 979-8-3315-4139-2. doi:10.1109/ICRA55743.2025.11128517. URL https: //ieeexplore.ieee.org/document/11128517/ .[18] Y. Kim, H. Oh, J. Lee, J. Choi, G. Ji, M. Jung, D. Youm, and J. Hwangbo. Not Only Rewards but Also Constraints: Applications on Legged Robot Locomotion. IEEE Transactions on Robotics ,40:2984–3003, 2024. ISSN 1552-3098, 1941-0468. doi:10.1109/TRO.2024.3400935. URL 
+
+https://ieeexplore.ieee.org/document/10530429/ .[19] L. Yang, B. Werner, M. d. Sa, and A. D. Ames. CBF-RL: Safety Filtering Reinforcement Learning in Training with Control Barrier Functions, Oct. 2025. URL http://arxiv.org/ abs/2510.14959 . arXiv:2510.14959 [cs]. [20] G. Ji, J. Mun, H. Kim, and J. Hwangbo. Concurrent Training of a Control Policy and a State Estimator for Dynamic and Robust Legged Locomotion. IEEE Robotics and Automation Letters ,7(2):4630–4637, Apr. 2022. ISSN 2377-3766, 2377-3774. doi:10.1109/LRA.2022.3151396. URL http://arxiv.org/abs/2202.05481 . arXiv:2202.05481 [cs]. [21] N. Rudin, D. Hoeller, P. Reist, and M. Hutter. Learning to Walk in Minutes Using Massively Parallel Deep Reinforcement Learning. In Proceedings of the 5th Conference on Robot Learn-ing , pages 91–100. PMLR, Jan. 2022. URL https://proceedings.mlr.press/v164/ rudin22a.html . ISSN: 2640-3498. [22] J. Siekmann, Y. Godse, A. Fern, and J. Hurst. Sim-to-Real Learning of All Common Bipedal Gaits via Periodic Reward Composition. In 2021 IEEE International Conference on Robotics and Automation (ICRA) , pages 7309–7315, Xi’an, China, May 2021. IEEE. ISBN 978-1-7281-9077-8. doi:10.1109/ICRA48506.2021.9561814. URL https://ieeexplore.ieee.org/ document/9561814/ .[23] J. Lee, J. Hwangbo, L. Wellhausen, V. Koltun, and M. Hutter. Learning Quadrupedal Lo-comotion over Challenging Terrain. Science Robotics , 5(47):eabc5986, Oct. 2020. ISSN 2470-9476. doi:10.1126/scirobotics.abc5986. URL http://arxiv.org/abs/2010.11251 .arXiv:2010.11251 [cs]. 10 [24] A. Escontrela, X. B. Peng, W. Yu, T. Zhang, A. Iscen, K. Goldberg, and P. Abbeel. Adversarial Motion Priors Make Good Substitutes for Complex Reward Functions. In 2022 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 25–32, Kyoto, Japan, Oct. 2022. IEEE. ISBN 978-1-6654-7927-1. doi:10.1109/IROS47612.2022.9981973. URL 
+
+https://ieeexplore.ieee.org/document/9981973/ .[25] N. Pollard, J. Hodgins, M. Riley, and C. Atkeson. Adapting human motion for the control of a humanoid robot. In Proceedings 2002 IEEE International Conference on Robotics and Automation (Cat. No.02CH37292) , volume 2, pages 1390–1397 vol.2, May 2002. doi:10.1109/ ROBOT.2002.1014737. URL https://ieeexplore.ieee.org/document/1014737/ .[26] D. Grimes, R. Chalodhorn, and R. Rao. Dynamic Imitation in a Humanoid Robot through Nonparametric Probabilistic Inference. In Robotics: Science and Systems II . Robotics: Science and Systems Foundation, Aug. 2006. ISBN 978-0-262-69348-6. doi:10.15607/RSS.2006.II.026. URL http://www.roboticsproceedings.org/rss02/p26.pdf .[27] V. Kurtz and J. W. Burdick. Generative Predictive Control: Flow Matching Policies for Dynamic and Difficult-to-Demonstrate Tasks, May 2025. URL http://arxiv.org/abs/2502.13406 .arXiv:2502.13406 [cs]. [28] Z. Chen, M. Ji, X. Cheng, X. Peng, X. B. Peng, and X. Wang. GMT: General Motion Tracking for Humanoid Whole-Body Control, Sept. 2025. URL http://arxiv.org/abs/2506.14770 .arXiv:2506.14770 [cs]. [29] Y. Fuchioka, Z. Xie, and M. Van De Panne. OPT-Mimic: Imitation of Optimized Trajectories for Dynamic Quadruped Behaviors. In 2023 IEEE International Conference on Robotics and Automation (ICRA) , pages 5092–5098, London, United Kingdom, May 2023. IEEE. ISBN 979-8-3503-2365-8. doi:10.1109/ICRA48891.2023.10160562. URL https://ieeexplore. ieee.org/document/10160562/ .[30] A. George, A. Bartsch, and A. B. Farimani. Minimizing Human Assistance: Augmenting a Sin-gle Demonstration for Deep Reinforcement Learning. In 2023 IEEE International Conference on Robotics and Automation (ICRA) , pages 5027–5033, May 2023. doi:10.1109/ICRA48891. 2023.10161119. URL https://ieeexplore.ieee.org/document/10161119/ .[31] M. Vecerik, T. Hester, J. Scholz, F. Wang, O. Pietquin, B. Piot, N. Heess, T. Roth ¨orl, T. Lampe, and M. Riedmiller. Leveraging Demonstrations for Deep Reinforcement Learning on Robotics Problems with Sparse Rewards, Oct. 2018. URL http://arxiv.org/abs/1707.08817 .arXiv:1707.08817 [cs]. [32] A. Nair, B. McGrew, M. Andrychowicz, W. Zaremba, and P. Abbeel. Overcoming Exploration in Reinforcement Learning with Demonstrations. In 2018 IEEE International Conference on Robotics and Automation (ICRA) , pages 6292–6299, May 2018. doi:10.1109/ICRA.2018. 8463162. URL https://ieeexplore.ieee.org/document/8463162/ . ISSN: 2577-087X. [33] H. Zhou, X. Zhang, and V. Tzoumas. Adaptive Legged Locomotion via Online Learning for Model Predictive Control. IEEE Robotics and Automation Letters , 11(2):1778–1785, Feb. 2026. ISSN 2377-3766. doi:10.1109/LRA.2025.3644161. URL https://ieeexplore.ieee.org/ document/11299577/ .[34] J. Cheng, D. Kang, G. Fadini, G. Shi, and S. Coros. Rambo: RL-Augmented Model-Based Whole-Body Control for Loco-Manipulation. IEEE Robotics and Automation Letters , 10(9): 9462–9469, Sept. 2025. ISSN 2377-3766, 2377-3774. doi:10.1109/LRA.2025.3594984. URL 
+
+https://ieeexplore.ieee.org/document/11106746/ .[35] S. H. Jeon, H. J. Lee, S. Hong, and S. Kim. Residual MPC: Blending Reinforcement Learning with GPU-Parallelized Model Predictive Control, Oct. 2025. URL http://arxiv.org/abs/ 2510.12717 . arXiv:2510.12717 [cs]. 11 [36] M. Bogdanovic, M. Khadiv, and L. Righetti. Model-free reinforcement learning for robust locomotion using demonstrations from trajectory optimization. Frontiers in Robotics and AI , 9:854212, Aug. 2022. ISSN 2296-9144. doi:10.3389/frobt.2022.854212. URL https: //www.frontiersin.org/articles/10.3389/frobt.2022.854212/full .[37] J. Carius, F. Farshidian, and M. Hutter. MPC-Net: A First Principles Guided Policy Search. 
+
+IEEE Robotics and Automation Letters , 5(2):2897–2904, Apr. 2020. ISSN 2377-3766, 2377-3774. doi:10.1109/LRA.2020.2974653. URL http://arxiv.org/abs/1909.05197 .arXiv:1909.05197 [cs]. [38] S. Levine and V. Koltun. Guided policy search. In S. Dasgupta and D. McAllester, editors, Pro-ceedings of the 30th International Conference on Machine Learning , volume 28 of Proceedings of Machine Learning Research , pages 1–9, Atlanta, Georgia, USA, 17–19 Jun 2013. PMLR. URL https://proceedings.mlr.press/v28/levine13.html .[39] B. Amos, I. D. J. Rodriguez, J. Sacks, B. Boots, and J. Z. Kolter. Differentiable MPC for End-to-end Planning and Control, Oct. 2019. URL http://arxiv.org/abs/1810.13400 .arXiv:1810.13400 [cs]. [40] E. Adabag, M. Greiff, J. Subosits, and T. Lew. Differentiable Model Predictive Control on the GPU, Oct. 2025. URL http://arxiv.org/abs/2510.06179 . arXiv:2510.06179 [math]. [41] R. Reiter, J. Hoffmann, D. Reinhardt, F. Messerer, K. Baumg ¨artner, S. Sawant, J. B ¨odecker, M. Diehl, and S. Gros. Synthesis of model predictive control and reinforcement learning: Survey and classification. Annual Reviews in Control , 61:101045, 2026. ISSN 13675788. doi: 10.1016/j.arcontrol.2026.101045. URL https://linkinghub.elsevier.com/retrieve/ pii/S1367578826000015 .[42] T. Howell, N. Gileadi, S. Tunyasuvunakool, K. Zakka, T. Erez, and Y. Tassa. Predictive Sampling: Real-time Behaviour Synthesis with MuJoCo. Dec 2022. doi:10.48550/arXiv.2212. 00541. URL https://arxiv.org/abs/2212.00541 .[43] L. Amatucci, J. Sousa-Pinto, G. Turrisi, D. Orban, V. Barasuol, and C. Semini. Primal-Dual iLQR for GPU-Accelerated Learning and Control in Legged Robots. IEEE Robotics and Automation Letters , 11(1):1010–1017, Jan. 2026. ISSN 2377-3766, 2377-3774. doi:10.1109/ LRA.2025.3632610. URL https://ieeexplore.ieee.org/document/11248841/ .[44] T. Haarnoja, A. Zhou, P. Abbeel, and S. Levine. Soft actor-critic: Off-policy maximum entropy deep reinforcement learning with a stochastic actor. In J. Dy and A. Krause, editors, Proceedings of the 35th International Conference on Machine Learning , volume 80 of Proceedings of Machine Learning Research , pages 1861–1870. PMLR, 2018. URL https://proceedings. mlr.press/v80/haarnoja18b.html .[45] S. Fujimoto, H. van Hoof, and D. Meger. Addressing function approximation error in actor-critic methods. In J. Dy and A. Krause, editors, Proceedings of the 35th International Conference on Machine Learning , volume 80 of Proceedings of Machine Learning Research , pages 1587–1596. PMLR, 2018. URL https://proceedings.mlr.press/v80/fujimoto18a.html .[46] Y. Tassa, Y. Doron, A. Muldal, T. Erez, Y. Li, D. de Las Casas, D. Budden, A. Abdolmaleki, J. Merel, A. Lefrancq, T. Lillicrap, and M. Riedmiller. Deepmind control suite, 2018. URL 
+
+https://arxiv.org/abs/1801.00690 .[47] Unitree Robotics. Unitree Go2. https://www.unitree.com/go2/ . Product page. Accessed: 2026-05-17. [48] E. Todorov, T. Erez, and Y. Tassa. Mujoco: A physics engine for model-based control. In 2012 IEEE/RSJ International Conference on Intelligent Robots and Systems , pages 5026–5033. IEEE, 2012. doi:10.1109/IROS.2012.6386109. 12 [49] Unitree Robotics. Unitree RL mjlab. https://github.com/unitreerobotics/unitree_ rl_mjlab , 2026. GitHub repository. Accessed: 2026-05-15. [50] G. Kim, D. Kang, J.-H. Kim, S. Hong, and H.-W. Park. Contact-implicit model predictive control: Controlling diverse quadruped motions without pre-planned contact modes or trajectories. 
+
+The International Journal of Robotics Research , 44(3):486–510, Mar. 2025. doi:10.1177/ 02783649241273645. URL https://doi.org/10.1177/02783649241273645 .[51] A. Du, E. Adabag, G. Bravo Palacios, and B. Plancher. Gato: Gpu-accelerated and batched trajectory optimization for scalable edge model predictive control. In 2026 IEEE International Conference on Robotics and Automation (ICRA) , 2026. [52] K. Nguyen, S. Schoedel, A. Alavilli, B. Plancher, and Z. Manchester. Tinympc: Model-predictive control on resource-constrained microcontrollers. In 2024 IEEE International Con-ference on Robotics and Automation (ICRA) , 2024. doi:10.1109/ICRA57147.2024.10610987. URL https://doi.org/10.1109/ICRA57147.2024.10610987 .[53] F. Schramm, P. Fabre, N. Perrin-Gilbert, and J. Carpentier. Reference-Free Sampling-Based Model Predictive Control, Nov. 2025. URL http://arxiv.org/abs/2511.19204 .arXiv:2511.19204 [cs]. [54] A. Raffin, A. Hill, A. Gleave, A. Kanervisto, M. Ernestus, and N. Dormann. Stable-baselines3: Reliable reinforcement learning implementations. Journal of Machine Learning Research , 22 (268):1–8, 2021. URL http://jmlr.org/papers/v22/20-1364.html .
+
+## A Problem Statement 
+
+This section introduces the two main theoretical components of MPC-Injection, the MPC controller and the off-policy RL algorithm. We formulate both in the context of solving Markov decision processes (MDPs) following [ 41 ], to illustrate how both approaches solve the same problem and how MPC solutions can help RL. An MDP is defined by a 5-tuple 
+
+M := ( S, A, P, l, γ ) (3) with state space S, action space A, state transition model P : S × A → Dist (S), stage cost or reward 
+
+l : S × A → R, and discount factor γ ∈ (0 , 1] . Given a policy π, we define the value function 
+
+V π (s) := E
+
+" ∞X
+
+> k=0
+
+γkl(Sk, A k) | S0 = s
+
+#
+
+(4) and the action-value function 
+
+Qπ (s, a ) := E
+
+" ∞X
+
+> k=0
+
+γkl(Sk, A k) | S0 = s, A 0 = a
+
+#
+
+(5) Solving an MDP means finding an optimal policy π∗ that optimizes the total expected return J(π) = 
+
+Eτ ∼π [R(τ )] , where τ = ( S0, A 0, S 1, A 1, . . . , S n) is a trajectory and R(τ ) = Pnk=0 γkl(Sk, A k) is its total cost or reward. RL maximizes this return while optimal control minimizes the analogous cost, but both yield a policy π∗ used to control the robot. 
+
+A.1 Model Predictive Control 
+
+Through the MDP formulation, the MPC policy is 
+
+πMPC (s) = arg min  
+
+> a
+
+QMPC (s, a ) (6) 13 where the action-value function for the MPC is defined as 
+
+QMPC (s, a ) = min  
+
+> zN−1
+
+X
+
+> k=0
+
+lMPC (xk, u k) + ¯V MPC (xN )
+
+s.t. x0 = s, u0 = a, xk+1 = f MPC (xk, u k), 0 ≤ k < N. 
+
+(7) Here, N ∈ N is the MPC prediction horizon, xk and uk are the predicted state and control at stage k,
+
+lMPC is the stage cost, ¯V MPC is the terminal cost or terminal value approximation, and f MPC is the deterministic prediction model that approximates the environment transition distribution P (· | s, a ).At inference time, MPC repeatedly solves this finite-horizon problem at the current state, applies only the first control input, observes the next state, and repeats in a receding-horizon manner. Under this cost-minimization convention, lower values of QMPC (s, a ) are preferred. The MPC controller can be of any type, gradient-based [ 50 , 51 , 52 ] or sampling-based [ 53 , 42 ], as long as the trajectories collected from it are from the same RL environment that the off-policy algorithm learns from. 
+
+A.2 Off-Policy RL 
+
+In deep RL the policy πRL  
+
+> θ
+
+is a neural network with weights θ. The optimal policy in off-policy actor-critic methods, such as Soft Actor-Critic (SAC) [ 44 ] or Twin Delayed Deep Deterministic Policy Gradient (TD3) [45], is found by solving 
+
+max  
+
+> θ
+
+Es∼D 
+
+Qϕ(s, π RL  
+
+> θ
+
+(s))  (8) where D is a replay buffer and ϕ are the weights of the learned Q-function. Off-policy methods can learn from transitions generated by any policy stored in the replay buffer. Each of the off-policy algorithms we use follows the general steps in Algorithm 1. 
+
+Algorithm 1 Off-Policy RL with Optional MPC-Injection. The blue line is the only modification needed to recover the MPC-Injection variant.  
+
+> 1:
+
+Input: initial policy parameters θ, Q-function parameters ϕ, empty replay buffer D, optional MPC-to-policy transition ratio p 
+
+> 2:
+
+Set target parameters equal to main parameters  
+
+> 3:
+
+repeat  
+
+> 4:
+
+Observe state s and select action a 
+
+> 5:
+
+Execute a in the environment  
+
+> 6:
+
+Observe next state s′, reward r, and done signal d 
+
+> 7:
+
+Store (s, a, r, s ′, d ) in replay buffer D 
+
+> 8:
+
+If MPC-Injection is enabled, store MPC transitions in D until ratio p is satisfied  
+
+> 9:
+
+if s′ is terminal then  
+
+> 10:
+
+Reset environment state  
+
+> 11:
+
+end if  
+
+> 12:
+
+if it is time to update then  
+
+> 13:
+
+for each update step do  
+
+> 14:
+
+Randomly sample a batch of transitions, {(s, a, r, s ′, d )}, from D 
+
+> 15:
+
+Compute targets  
+
+> 16:
+
+Update Q-function by one step of gradient descent  
+
+> 17:
+
+Update policy by one step of gradient ascent  
+
+> 18:
+
+Update target networks  
+
+> 19:
+
+end for  
+
+> 20:
+
+end if  
+
+> 21:
+
+until convergence Because off-policy methods learn from transitions collected by any policy, we can mix trajectories from an MPC controller with trajectories from the learned policy in the same buffer, assuming that they were all generated from the same environment. MPC-Injection leverages this to perform behavior biasing. Additional details that differentiate the off-policy algorithms, particularly in the update steps, are described in the TD3 and SAC papers. 14 B MPC Details 
+
+Walker trajectory generation. Walker trajectories were generated using the sampling-based model predictive controller from [ 42 ]. The planner operated with a horizon of 0.8 s and a control update period of 0.025 s , corresponding to 
+
+Nplan = 0.80.025 + 1 = 33 
+
+planning nodes. The MuJoCo simulator timestep was 0.0025 s , so each MPC action was held for 10 simulator steps between planner updates. Each trajectory rollout had length 1000 simulator steps, corresponding to 2.5 s of simulated time, with one MPC optimization iteration per planner update. The walker cost function used weights wspeed = 1 .0, wheight = 10 .0, wrotation = 3 .0, and wcontrol =0.1, with target forward speed v⋆x = 1 .0 m /s and target torso height h⋆ = 1 .2 m . Initial states were generated to be similar to the RL environment by scanning a grid over the admissible walker joint ranges with grid spacing 0.1, with the yaw angle sampled over [−π, π ], root translation coordinates fixed at zero, and all initial joint velocities zero. 
+
+Quadruped trajectory generation. Quadruped trajectories were generated using the MPX model predictive controller [ 43 ] in its Go2 whole-body iLQR configuration. The controller operated at 
+
+50 Hz with planning timestep 0.02 s and horizon length N = 25 , corresponding to a prediction horizon of 0.5 s . Trajectory rollouts were executed in MuJoCo at 200 Hz , so the MPC action was updated every 4 simulator steps. Each rollout had length 1000 control steps, corresponding to 20 s of simulated time. The solver was warm-started between successive MPC calls by shifting the previous state, control, and dual trajectories forward. The gait generator used a trotting pattern with duty factor 0.5, step frequency 2.0 Hz , step height 
+
+0.065 m , and leg phase offsets [0 .5, 0.0, 0.0, 0.5] . When the commanded speed magnitude fell below a small threshold, the controller switched to standing mode by setting the duty factor to 1.0.The stage cost penalized base position, base orientation, joint angles, base linear and angular velocity, joint velocity, swing-foot position, joint torque, and ground reaction force, with diagonal weights 
+
+Qp = diag(0 , 0, 10 4), Qrot = diag(10 3, 10 4, 10 3), Qq = 10 −1I, Q ˙p = 2 × 10 3I, Qω = 5 × 10 2I, Q ˙q = 10 −1I, Qτ = 10 −1I, Qgrf = 10 −2I, 
+
+together with a swing-foot tracking weight 
+
+Qfoot = diag  [10 4, 10 4, 10 5]⊗4.
+
+The optimizer used a Gauss–Newton Hessian approximation and included penalties for friction-cone, torque-limit, and joint-speed violations. The applied simulator torque combined the MPC output with a low-level PD controller ( Kp = 10 , Kd = 2 ): 
+
+τapp = τmpc + 10 ( qdes − q) − 2 ˙ q. 
+
+Initial states and commands were sampled to match the RL training environment. Joint positions were perturbed within ±0.05 rad , base roll and pitch within ±0.03 rad , and joint velocities within 
+
+±0.05 rad /s. Forward velocity commands were sampled from [0 , 0.5] m /s, while lateral and yaw-rate commands were fixed at zero. Commands were resampled every 250 control steps (5 seconds at 50 Hz). Trajectories were discarded if the robot fell, defined as roll or pitch exceeding 0.5 rad or base height dropping below 0.1 m .
+
+## C Details on Policy Learning with Off-Policy Reinforcement Learning 
+
+We use the TD3 and SAC implementations from Stable-Baselines3 [ 54 ] as the baseline off-policy RL algorithms, with MPC-Injection implemented in the same framework. Table 2 lists the training hyperparameters. 15 Env. Algo Steps Nenv LR Buffer Start Batch Grad Other training settings 
+
+Walker SAC 5 × 10 5 4 3 × 10 −4 10 6 10 4 256 1 τ = 0 .005 , γ = 0 .99 
+
+Walker TD3 5 × 10 5 4 3 × 10 −4 10 6 10 4 256 −1 τ = 0 .005 , γ = 0 .99 , π delay = 2 
+
+Walker SAC-MPC 5 × 10 5 4 3 × 10 −4 10 6 10 4 256 1 τ = 0 .005 , γ = 0 .99 
+
+Walker TD3-MPC 5 × 10 5 4 3 × 10 −4 10 6 10 4 256 −1 τ = 0 .005 , γ = 0 .99 , π delay = 2 
+
+Quadruped SAC 10 6 256 3 × 10 −4 5 × 10 6 5 × 10 4 256 −1 τ = 0 .005 , γ = 0 .99 
+
+Quadruped TD3 10 6 256 3 × 10 −4 5 × 10 6 5 × 10 4 256 −1 τ = 0 .005 , γ = 0 .99 
+
+Quadruped SAC-MPC 10 6 256 3 × 10 −4 5 × 10 6 5 × 10 4 256 −1 τ = 0 .005 , γ = 0 .99 
+
+Quadruped TD3-MPC 10 6 256 3 × 10 −4 5 × 10 6 5 × 10 4 256 −1 τ = 0 .005 , γ = 0 .99 
+
+Table 2: Training hyperparameters for the walker and quadruped tasks and the RL algorithm used. 
+
+MPC-Injection Quadruped Reward Terms Definition Scale 
+
+Linear velocity-tracking reward rtrack (vcmd ) = exp − ∥vcmd  
+
+> xy
+
+− vbase  
+
+> xy
+
+∥22 + 2( vbase  
+
+> z
+
+)2
+
+0.25 
+
+!
+
+wtrack = 1 .5
+
+Forward linear velocity reward rfwd (vcmd ) = 
+
+
+
+clip 
+
+
+
+(vbase  
+
+> xy
+
+)⊤ vcmd  
+
+> xy
+> ∥vcmd
+> xy ∥2
+
+, 0, ∥vcmd  
+
+> xy
+
+∥2
+
+
+
+, ∥vcmd  
+
+> xy
+
+∥2 > 0.1,
+
+0, otherwise. 
+
+wfwd = 1 .5
+
+Table 3: Reward terms for the simple quadruped velocity tracking task used to showcase MPC-Injection’s behavior shaping abilities. 
+
+AMP Reward Component Definition Scale 
+
+AMP style reward rstyle = αAMP max 
+
+
+
+1 − 14
+
+ D(st, s t+1 ) − 12, 0
+
+
+
+αAMP = 2 .0
+
+Task reward aggregation rtask = max 
+
+
+
+1.5 rlin + 0 .5 ryaw − 3 × 10 −4 cact , 0
+
+
+
+clipped at zero Final PPO reward rPPO = (1 − λtask ) rstyle + λtask rtask λtask = 0 .3
+
+Table 4: Reward terms used for the AMP baseline. Here D(st, s t+1 ) is the AMP discriminator output and rtask is the environment task reward. 
+
+AMP Positive Task-Reward Term Definition Scale 
+
+Linear velocity tracking rlin = exp − ∥vcmd  
+
+> xy
+
+− vbase  
+
+> xy
+
+∥22
+
+0.25 
+
+!
+
+wlin = 1 .5
+
+Yaw-rate tracking ryaw = exp − (ωcmd  
+
+> z
+
+− ωbase  
+
+> z
+
+)2
+
+0.25 
+
+!
+
+wyaw = 0 .5
+
+Table 5: Positive task-reward terms for the AMP baseline. The MLP actor and critic each use two hidden layers of size 256 for both the walker and quadruped tasks, with input and output dimensions matched to each task. The walker actor and critic receive the same environment observation and the actor outputs the continuous action vector. For the quadruped we use an asymmetric actor-critic architecture: the actor receives a 45-dimensional policy observation containing hardware-available signals and outputs a 12-dimensional vector of joint position residuals, while the critic receives the same 45-dimensional observation concatenated with a 3-dimensional privileged observation of base linear velocity (48 dimensions total). 
+
+C.1 Quadruped Reward Functions 
+
+This subsection details the reward and penalty terms for the three quadruped reward configurations used in the main paper. The MPC-Injection simple reward is in Table 3. The AMP baseline is in Tables 4, 5, and 6. The reward-shaping baseline is in Tables 7 and 8. We found in testing that the forward linear velocity term was necessary for off-policy methods to learn to walk under the simple reward or the reward-shaping baseline. On-policy methods, e.g., PPO, did not require this term. 16 AMP Task Penalty Term Definition Scale 
+
+Action rate penalty cact = ∥at − at−1∥22 wact =
+
+−3 × 10 −4
+
+Table 6: Task penalty term for the AMP baseline. 
+
+Reward Shaping Quadruped Positive Reward Term Definition Scale 
+
+Linear velocity tracking rtrack-lin = exp − ∥vcmd  
+
+> xy
+
+− vbase  
+
+> xy
+
+∥22 + 2( vbase  
+
+> z
+
+)2
+
+0.25 
+
+!
+
+wtrack-lin = 4 .0
+
+Angular velocity tracking rtrack-ang = exp − (ωcmd  
+
+> z
+
+− ωbase  
+
+> z
+
+)2 + 0 .05 ∥ωbase  
+
+> xy
+
+∥22
+
+0.25 
+
+!
+
+wtrack-ang = 2 .5
+
+Forward linear velocity reward rfwd-lin =
+
+
+
+clip 
+
+
+
+(vbase  
+
+> xy
+
+)⊤ vcmd  
+
+> xy
+> ∥vcmd
+> xy ∥2
+
+, 0, ∥vcmd  
+
+> xy
+
+∥2
+
+
+
+, ∥vcmd  
+
+> xy
+
+∥2 > 0.1,
+
+0, otherwise, 
+
+wfwd-lin = 6 .0
+
+Forward yaw-rate reward rfwd-ang =
+
+
+
+clip 
+
+
+
+ωbase  
+
+> z
+
+sign( ωcmd  
+
+> z
+
+), 0, |ωcmd  
+
+> z
+
+|
+
+
+
+, |ωcmd  
+
+> z
+
+| > 0.1,
+
+0, otherwise, 
+
+wfwd-ang = 1 .0
+
+Variable posture reward rpose = exp 
+
+− 112 
+
+> 12
+
+X
+
+> j=1
+
+(qj − qj, 0)2
+
+σj (c)2
+
+ wpose = 0 .42 
+
+Base height tracking rheight = exp − (zbase − 0.27) 2
+
+0.01 
+
+!
+
+wheight = 1 .0
+
+Feet air-time reward rair = χ max( Tair − | tmode − Tair | , 0) , Tair = 0 .245 wair = 0 .75 
+
+Scheduled diagonal gait reward rgait = χ max 2 14
+
+> 4
+
+X
+
+> i=1
+
+1[Ii = Si(ϕ)] − 12
+
+!
+
+, 0
+
+!
+
+wgait = 1 .35 
+
+Table 7: Positive reward terms for the fully reward shaped quadruped velocity tracking task. Here 
+
+c = ∥vcmd 
+
+xy ∥2 + |ωcmd 
+
+z |, χ = 1[c > 0.1] , and Ii = 1[i ∈ contact ]. For the air-time term, tmode =min i(Iitcontact 
+
+i + (1 − Ii)tair 
+
+i ) when exactly two feet are in contact, and tmode = 0 otherwise. For the gait term, ϕ = ( t/ 0.52) mod 1 , Si(ϕ) = 1[(( ϕ + δi) mod 1) < 0.52] , with δFR = δRL = 0 and 
+
+δFL = δRR = 0 .5.
+
+Reward Shaping Quadruped Penalty Term Definition Scale 
+
+Lateral velocity penalty clat = χ (vbase  
+
+> y
+
+)2 wlat = −1.0
+
+Flat orientation penalty cflat = ∥gproj  
+
+> xy
+
+∥22 wflat = −0.7
+
+Body angular velocity penalty cbody-ang = ∥ωworld  
+
+> xy
+
+∥22 wbody-ang =
+
+−0.16 
+
+Pitch tilt penalty cpitch = θ2 
+
+> pitch
+
+wpitch = −2.0
+
+Angular momentum penalty cangmom = ∥hbase ∥22 wangmom =
+
+−0.014 
+
+Termination penalty cterm = 1[terminated ] wterm = −10 .0
+
+Joint acceleration penalty cjoint-acc = ∥¨q∥22 wjoint-acc =
+
+−3 × 10 −7
+
+Joint limit penalty cjoint-lim =
+
+> 12
+
+X
+
+> j=1
+
+h
+
+max( qsoft  
+
+> j
+
+− qj , 0) + max( qj − qsoft  
+
+> j
+
+, 0) 
+
+i
+
+wjoint-lim = −1.0
+
+Action rate penalty cact-rate = ∥at − at−1∥22 wact-rate =
+
+−0.045 
+
+Bad two-foot contact penalty cbad-2 = χ 1[|C| = 2] 1[C / ∈ {{ FL , RR }, {FR , RL }} ] wbad-2 = −0.7
+
+Feet clearance penalty cclr = χ
+
+> 4
+
+X
+
+> i=1
+
+|zi − ztar | ∥ vfoot  
+
+> i,xy
+
+∥2, ztar = 0 .07 wclr = −1.0
+
+Feet slip penalty cslip = χ
+
+> 4
+
+X
+
+> i=1
+
+∥vfoot  
+
+> i,xy
+
+∥22 1[i ∈ contact ] wslip = −0.12 
+
+Soft landing penalty cland = χ
+
+> 4
+
+X
+
+> i=1
+
+f contact  
+
+> i
+
+1[i ∈ first-contact ] wland =
+
+−2 × 10 −4
+
+Table 8: Penalty terms for the fully reward shaped quadruped velocity tracking task. Here C = {i :
+
+Ii = 1 } is the set of feet in contact. 17 C.2 Converting Quadruped MPC Trajectories to RL Transitions 
+
+For the quadruped, the MPC outputs joint torques while the RL policy outputs joint position residuals, so we must convert each recorded MPC transition into an action-labeled RL transition. Let k index control steps and i ∈ { 0, . . . , D − 1} index the simulator substeps within a control step, with D = 4 
+
+in our quadruped experiments. We denote by τ app  
+
+> k,i
+
+the joint torque sent to the simulator at substep 
+
+(k, i ), which the MPC-controlled system computes as 
+
+τ app  
+
+> k,i
+
+= τ mpc  
+
+> k,i
+
++ Kmpc 
+
+> p
+
+ qdes  
+
+> k,i
+
+− qk,i 
+
+ − Kmpc  
+
+> d
+
+˙qk,i , (9) where qk,i and ˙qk,i are the measured joint positions and velocities at substep (k, i ).In the RL environment, the policy outputs a residual action ak that is converted into a joint target 
+
+qtgt  
+
+> k
+
+= qnom + s a k, where qnom is the nominal standing configuration and s is the action scale. The target is held fixed across all D substeps of the control interval and tracked by a PD controller: 
+
+τ rl  
+
+> k,i
+
+= Krl 
+
+> p
+
+ qtgt  
+
+> k
+
+− qk,i 
+
+ − Krl  
+
+> d
+
+˙qk,i . (10) To associate each MPC control interval with an RL action, we choose the target so that the RL torque matches the recorded applied torque at the first substep of the interval, τ rl  
+
+> k, 0
+
+= τ app  
+
+> k, 0
+
+. Solving for the joint target and the corresponding residual action gives 
+
+qtgt  
+
+> k
+
+= qk, 0 + τ app  
+
+> k, 0
+
++ Krl  
+
+> d
+
+˙qk, 0
+
+Krl 
+
+> p
+
+, (11) 
+
+ak = qtgt  
+
+> k
+
+− qnom 
+
+s , (12) where all operations are applied elementwise across joints. Because qtgt  
+
+> k
+
+is held fixed over the full control interval, the torque match is exact only at substep 
+
+i = 0 . At later substeps, the state evolves to (qk,i , ˙qk,i ), and the RL controller would produce 
+
+τ rl  
+
+> k,i
+
+= τ app  
+
+> k, 0
+
++ Krl  
+
+> p
+
+(qk, 0 − qk,i ) + Krl  
+
+> d
+
+( ˙ qk, 0 − ˙qk,i ) , (13) giving a substep-wise torque mismatch under standard action replay of 
+
+∆τk,i = τ rl  
+
+> k,i
+
+− τ app  
+
+> k,i
+
+= τ app  
+
+> k, 0
+
+− τ app  
+
+> k,i
+
++ Krl  
+
+> p
+
+(qk, 0 − qk,i ) + Krl  
+
+> d
+
+( ˙ qk, 0 − ˙qk,i ) . (14) If the target could be recomputed at every simulator substep, the exact target would be 
+
+qtgt ,∗ 
+
+> k,i
+
+= qk,i + τ app  
+
+> k,i
+
++ Krl  
+
+> d
+
+˙qk,i 
+
+Krl 
+
+> p
+
+, (15) which would satisfy τ rl  
+
+> k,i
+
+= τ app  
+
+> k,i
+
+for every substep i.Because this conversion is exact only at the first simulator substep of each control interval, the injected quadruped transitions are approximate off-policy samples rather than exact ones; we retain the standard injection pipeline and treat the residual action mismatch as a modeling approximation. 
+
+## D Why Replay-Distribution Bias Selects Behaviors 
+
+We provide an intuition-level account of how MPC-Injection biases behavior selection in replay-buffer-based actor-critic algorithms. We do not claim convergence guarantees under function approximation. The purpose of the analysis is to explain why MPC-Injection consistently drives the policy into the controller’s behavior basin under simple task rewards where vanilla RL converges elsewhere. 
+
+Distribution mismatch and the critic. A natural concern is whether injecting MPC transitions breaks the off-policy learning machinery. Consider the actor gradient for TD3, 
+
+∇θ
+
+1
+
+|B|
+
+X
+
+> s∈B
+
+Qϕ1 (s, π θ (s)) , (16) 18 Figure 8: Log-scale box plot showing the evolution of torso-height distributions at different training checkpoints for 0% and 25% MPC-Injection, where MPC-Injection biases learning toward the gait demonstrated by MPC transitions and leads to earlier emergence of upright locomotion under the same reward. where B is a batch of transitions from the replay buffer D and Qϕi are the two learned Q-functions with parameters ϕi for i = 1 , 2. The analogous actor gradient for SAC is 
+
+∇θ
+
+1
+
+|B|
+
+X
+
+> s∈B
+
+
+
+min  
+
+> i=1 ,2
+
+Qϕi (s, ˜aθ (s)) − α log πθ (˜ aθ (s)|s)
+
+
+
+, (17) where ˜aθ (s) is a reparameterized sample from πθ (·| s). The corresponding critic update is 
+
+∇ϕi
+
+1
+
+|B|
+
+X
+
+> (s,a,r,s ′)∈B
+
+(Qϕi (s, a ) − y(r, s ′)) 2, i = 1 , 2. (18) Both updates sample states from D and evaluate the current policy. Injecting MPC transitions changes the distribution of states s that appear in these sums, but this is consistent with off-policy learning: 
+
+D may contain data from any mixture of behavior policies, including an MPC controller, as long as transitions are collected from the same MDP. The recorded (s, a, r, s ′) tuples are valid samples of 
+
+P (·| s, a ) and l(s, a ) regardless of the behavior policy that generated a, so the critic update is a valid Q-learning step on the augmented distribution. 
+
+Where behavior selection comes from. The critic remaining valid does not by itself explain why πθ
+
+converges to the controller’s behavior basin rather than simply learning a more accurate Q over a wider state distribution. The behavior-selection effect arises from the actor objective. Both Eqs. 16 and 17 evaluate Q at states sampled from D and at actions produced by the current policy . Without MPC-Injection, D is filled with states the current policy reaches during its own rollouts, so the actor is optimized only over the basin the policy currently occupies. If early training drives the policy into an undesirable basin, such as the walker’s scooting behavior, the actor is updated exclusively on scooting states, the policy stays there, and the basin reinforces itself. Figure 8 and Table 9 show this self-confining dynamic empirically. With p = 0 (vanilla RL), the walker’s torso height collapses to ground-scooting values. With p = 25% MPC-Injection, the torso height stays in the upright range from the beginning of training. The basin separation appears relatively early and persists, consistent with the actor being optimized over different state distributions in the two cases. We note that the pure RL torso height distribution in early training is due to both random exploration and random initialization. After a few timesteps in an episode the pure RL policy falls, leading to the learned scooting behavior unlike MPC-Injection, which learns a walking gait early in training. 
+
+The injection mechanism. MPC-Injection breaks the self-confining loop by placing MPC-visited states in D. The actor is then updated to take high-Q actions at states the current policy would otherwise never see, such as the upright periodic configurations along the MPC trajectory. Crucially, the actor’s update at these states uses its own action πθ (s), not the recorded MPC action. This 19 Table 9: Torso-height behavior of walker policies during training. Values summarize the qualitative torso-height distributions shown in Fig. 8. Pure RL eventually collapses to a low-torso strategy, while 25% MPC-Injection converges to an upright locomotion behavior.               
+
+> Checkpoint Pure RL torso height 25% MPC-Injection torso height Main takeaway
+> 25k Low, around 0.19 m Around 0.60 m Pure RL begins in a low-torso height regime. 100k Around 0.80 m Highly variable, 0.06–1.36 m MPC-Injection begins exploring upright postures but has not stabilized. 150k Around 0.77 m Median around 1.08 m MPC-Injection shifts the learned behavior toward upright walking. 200k Low, around 0.20 m Stable upright, around 1.23 m MPC-Injection converges to upright locomotion while pure RL collapses to a low-torso strategy.
+
+distinguishes MPC-Injection from behavior cloning: the policy is not asked to match the MPC’s actions at MPC-visited states, but to take whatever action maximizes the learned Q at those states. The critic, trained on rewards and dynamics observed along both MPC and on-policy trajectories, supplies the Q-values that make this evaluation meaningful. Over training, the combined update drives πθ toward actions whose trajectories overlap with the controller’s basin while still allowing on-policy refinement within that basin. 
+
+Role of the injection ratio. This view clarifies why the injection ratio p matters. If p is too small, MPC-visited states are rarely sampled in a batch and the actor gradient is dominated by states from the policy’s current basin, recovering vanilla RL. If p is too large, the actor gradient is dominated by states drawn from a distribution the policy cannot consistently reach via its own rollouts, and the policy never closes the loop between the basin pull and its own visitation distribution. The analysis therefore predicts an intermediate regime in which the actor is updated frequently enough on MPC-visited states to be pulled toward the controller’s basin and frequently enough on its own rollouts to consolidate that basin as a region it can reach and stabilize from. Section 4.2 finds that 
+
+p = 25% is such a regime, and Figure 9 shows that this is the ratio at which the walker’s footstep pattern is most structured, while higher ratios produce less coherent gaits. 
+
+A predicted failure mode. Finally, this view predicts a specific failure mode under extended training. The basin pull from MPC-Injection is implicit and acts only through the actor’s evaluation of Q at MPC-visited states. Once the policy operates inside the controller’s basin, the on-policy rollouts entering D overlap heavily with the injected MPC states, and the additional pull contributed by the MPC transitions diminishes. The actor objective is then approximately what it would be under vanilla RL restricted to the controller’s basin, with no explicit term anchoring it there. Behaviors that improve local return without preserving the basin, such as lower torso height, would therefore not be penalized, and the policy may drift over extended training. This is in contrast to reward shaping or AMP, in which the corresponding term remains in the reward or critic signal throughout training and continues to shape Q and πθ toward the desired basin. 
+
+## E Ablation on Increased MPC-Injection Percentages 
+
+2D Walker. Figure 9 shows the walker’s behavior as the injection ratio increases above 25%. At 50% and 75%, the policy continues to achieve high episodic return (Figure 3) but produces erratic footstep patterns, including jumping and falling. At 100%, the policy fails to consistently produce a stable gait and episodic return drops as well. These results are consistent with the analysis in Appendix D. 20 Figure 9: Walker behavior under varying MPC-Injection ratios (25% top-left, 50% top-right, 75% bottom-left, 100% bottom-right). Each panel pairs a walking-behavior snapshot with a raster plot of footsteps. As the injection ratio increases above 25%, the behavior becomes more erratic and diverges from the MPC behavior. 
+
+Figure 10: Quadruped training curves across 0%, 25%, 50%, 75%, and 100% MPC-Injection for SAC. Behavior convergence emerges around 400k timesteps; on a subset of seeds, drift was observed after extended training (see Appendix D for the predicted mechanism). As the injection ratio increases, the actor gradient becomes dominated by states the policy cannot consistently reach via its own rollouts, preventing it from reaching any single basin. 
+
+Quadruped. The quadruped showed similar results to the walker, with injection percentages higher than 25% leading to degraded behavior. Figure 10 presents the corresponding training curves, where behavior convergence to the MPC basin emerges early at around 400k timesteps. On a subset of seeds we observed behavior drift after extended training, consistent with the prediction in Appendix D, though further experiments are needed to confirm this is a general phenomenon rather than simply a seed-specific effect. 21 F Hardware and Sim-to-Real Transfer 
+
+Robot system. The quadruped is a 12-DOF Unitree Go2. The RL policy runs on a tethered desktop computer (Intel Core Ultra 9 CPU, 64 GB RAM, NVIDIA GeForce RTX 5090) that communicates with the Go2 over Ethernet. 
+
+Simulation-side preparation. We use the domain randomization parameters in Table 10 for MPC-Injection and the reward-shaping baseline, and the parameters in Table 11 for AMP. We additionally calibrate per-joint damping, armature, and friction-loss using MuJoCo’s system identification utilities to bring the simulation closer to the physical Go2. 
+
+Deployment stack. A low-pass filter sits between the policy output and the low-level PD controller, with a cutoff of 5.0 Hz. The PD controller tracks joint position targets with gains Krl  
+
+> p
+
+= 20 and 
+
+Krl  
+
+> d
+
+= 1 for the hip and thighs, while the calves had gains Krl  
+
+> p
+
+= 40 and Krl  
+
+> d
+
+= 2 . This filter-and-PD stack is shared across the reward-shaped policy and the MPC-Injection policy compared in Section 4.3. The AMP implementation is an updated version of the one found in [ 24 ] that uses Krl  
+
+> p
+
+= 25 and 
+
+Krl  
+
+> d
+
+= 0 .5. Accounting for the low-pass filter and PD controllers, differences in hardware behavior reflect differences in the policies themselves rather than differences in the low-level control layer. Table 10: Domain randomization parameters for MPC-Injection and the reward-shaping baseline. 
+
+Category Parameter Range / Value Contact Tangential friction [0 .3, 1.6] 
+
+Base dynamics Added base mass [−1.0, 3.0] kg Base dynamics CoM displacement, each axis [−0.05 , 0.05] mSensing Joint encoder bias [−0.015 , 0.015] rad Control Kp scale [0 .9, 1.1] 
+
+Control Kd scale [0 .9, 1.1] 
+
+Joint dynamics Damping scale [0 .8, 1.2] 
+
+Joint dynamics Armature scale [0 .8, 1.2] 
+
+Joint dynamics Friction-loss scale [0 .8, 1.2] 
+
+Actuation Motor strength scale [0 .9, 1.1] 
+
+Observation noise Joint position ±0.01 rad Observation noise Joint velocity ±1.5 rad/s Observation noise Angular velocity ±0.2 rad/s Observation noise Gravity estimate ±0.05 
+
+Pushes Interval [5 .0, 10 .0] sPushes Linear velocity kick (x, y, z ) [−0.5, 0.5] , [−0.5, 0.5] , [−0.25 , 0.25] m/s Pushes Angular velocity kick (r, p, y ) [−0.52 , 0.52] , [−0.52 , 0.52] , [−0.78 , 0.78] rad/s 
+
+Table 11: Domain randomization parameters for the AMP baseline. 
+
+Category Parameter Range / Value Contact Tangential friction [0 .25 , 1.75] 
+
+Base dynamics Added base mass [−1.0, 1.0] kg Control Kp scale [0 .9, 1.1] 
+
+Control Kd scale [0 .9, 1.1] 
+
+Observation noise Base linear velocity, critic only ±0.1 m/s Observation noise Base angular velocity ±0.3 rad/s Observation noise Gravity estimate ±0.05 
+
+Observation noise Joint position ±0.03 rad Observation noise Joint velocity ±1.5 rad/s Pushes Interval 15 .0 sPushes Linear velocity (x, y ) [−1.0, 1.0] , [−1.0, 1.0] m/s Initialization Reference-state initialization Mocap state with probability 0.85 
+
+22

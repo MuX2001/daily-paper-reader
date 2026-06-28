@@ -1,0 +1,596 @@
+Title: Improving Vision-Language-Action Model Fine-Tuning with Structured Stage and Keyframe Supervision
+
+URL Source: https://arxiv.org/pdf/2606.26801v1
+
+Published Time: Fri, 26 Jun 2026 00:45:21 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# Improving Vision-Language-Action Model Fine-Tuning with Structured Stage and Keyframe Supervision 
+
+Yuan Xu 1,2, Yixiang Chen 1,2, Kai Wang 2, Jiabing Yang 1,2
+
+Peiyan Li 1,2, Qisen Ma 1,2, Yan Huang 1,2,3†, Liang Wang 1,2†
+
+Abstract — Vision-Language-Action (VLA) models have shown strong potential for generalizable robotic manipulation. During fine-tuning, however, action supervision applies equally across all timesteps, without structured supervision on which manipulation stage the robot is in or what the next gripper-event target should be. This causes failures to concentrate around challenging gripper-event transitions. To address this, we propose StaKe, a plug-in auxiliary supervision framework that automatically derives two complementary signals from demonstration gripper states without manual annotation: a stage classifier that identifies the current manipulation stage, and a keyframe predictor that estimates the target joint action at the next gripper transition. Both are modeled as lightweight auxiliary heads that enrich the learned representations during training, while leaving the base VLA policy architecture and inference loop unchanged. Experiments on bimanual simulation and single-arm Franka real-robot tasks show that StaKe consistently improves success rates (relative gains of 14% and 56%, respectively), with larger improvements on longer-horizon tasks that involve more gripper-event transitions. Ablation studies validate each design choice, and qualitative analysis confirms that the learned representations faithfully track manipulation stages. These results indicate that structured supervision is an effective and general strategy for enhancing VLA fine-tuning in long-horizon manipulation. Project website: https://hi-yuanxu.github.io/StaKe-Web/. 
+
+I. INTRODUCTION Enabling robots to interpret open-ended language instruc-tions and execute diverse manipulation skills is a long-standing aspiration of embodied intelligence [1]. The rapid progress of Vision-Language Models (VLMs) [2], [3], which acquire rich cross-modal representations from internet-scale data, has opened a promising path toward this goal. By grounding VLM representations in physical action spaces, Vision-Language-Action (VLA) models [4], [5], [6], [7], [8] cast robotic manipulation as a language-conditioned generation problem and learn end-to-end mappings from visual observations and instructions to executable actions. Pre-trained on large-scale robotic datasets [9], [10] and fine-tuned on downstream tasks, recent VLA policies such as 
+
+π0 [11] and π0.5 [12] have shown remarkable generalization across a wide range of manipulation scenarios. When fine-tuning these models for real-world deployment, current practice relies on a continuous action loss applied 
+
+† Corresponding author 
+
+> 1
+
+School of Artificial Intelligence, University of Chinese Academy of Sciences. 2New Laboratory of Pattern Recognition (NLPR), State Key Laboratory of Multimodal Artificial Intelligence Systems (MAIS), Institute of Automation, Chinese Academy of Sciences. 3FiveAges. Emails: {yuan.xu, yhuang, wangliang }@nlpr.ia.ac.cn (a) Motion -Fail: Failed to grasp the block. (b) Skill -Fail: Failed to handover the block. 
+
+Fig. 1: Manipulation failures concentrate around gripper-state transi-tions. A motion-fail occurs when the robot fails to reach and grasp the target during free-space motion, while a skill-fail occurs when the robot grasps successfully but fails during post-grasp skill execution (e.g., handover, stacking, rotation). Pre -trained VLM Action Expert 
+
+V+L Tokens Noise 
+
+Actions 
+
+Denoising 
+
+Query 
+
+Stage 
+
+Head 
+
+Keyframe 
+
+Head 
+
+Predicted Current Stage 
+
+and Next Keyframe Extra 
+
+Auxiliary 
+
+Supervision 
+
+Fig. 2: Auxiliary supervision introduced by StaKe. Two learnable query tokens and their corresponding heads (highlighted) are added to a VLA model, providing stage classification and keyframe prediction signals during training without altering the action expert or inference loop. 
+
+uniformly over the entire trajectory [13], [14]. Yet a manip-ulation trajectory is not homogeneous, but typically consists of several structured stages, such as free-space motion to-ward an object and contact-constrained skill execution after grasping, with gripper-state transitions serving as critical stage boundaries. Despite this structure, the uniform action loss treats all timesteps equally and provides no structured supervision for either the current manipulation stage or the upcoming transition target, leaving the policy to discover this structure entirely on its own. As illustrated in Fig. 1, failures tend to concentrate around these stage boundaries, manifesting as either a motion-fail when the robot fails to reach and grasp the target during free-space motion, or a 
+
+skill-fail when it grasps successfully but errs during post-grasp execution such as handover, stacking, or rotation. To address this, we propose StaKe (Sta ge and Ke yframe supervision), a structured supervision framework for VLA fine-tuning (Fig. 2). StaKe introduces two auxiliary train-
+
+> arXiv:2606.26801v1 [cs.RO] 25 Jun 2026
+
+ing signals: Stage Supervision (SS) , which classifies each timestep into motion or skill stages, and Keyframe Supervi-sion (KS) , which predicts the joint action at the next gripper-transition keyframe. Both labels are derived automatically from demonstration gripper states without manual annota-tion, and the auxiliary heads are active only during training, leaving the inference loop entirely unchanged. We validate StaKe through extensive experiments on RoboTwin2.0 [15] dual-arm simulation tasks and real-world Franka single-arm tasks. Compared with the base VLA mod-els, StaKe consistently improves task success rates across both short-horizon and long-horizon manipulation scenarios. Ablation studies confirm the importance of each compo-nent, and detailed analysis of per-keyframe success rates and episode-level execution traces provides insight into the effectiveness and locality of the auxiliary supervision. Our primary contributions include:  
+
+> •
+
+We propose StaKe, a plug-in structured supervision framework for VLA fine-tuning that introduces two complementary signals—Stage Supervision (SS) and Keyframe Supervision (KS)—to improve fine-tuning performance while leaving the inference loop un-changed.  
+
+> •
+
+We design a fully automatic pipeline that extracts stage labels and keyframe targets from demonstration grip-per states, enabling structured supervision without any manual annotation.  
+
+> •
+
+We validate StaKe on bimanual simulation and single-arm real-robot tasks, demonstrating consistent success-rate improvements across diverse scenarios, with larger gains on longer-horizon tasks that involve more gripper-state transitions. II. RELATED WORKS 
+
+A. Vision-Language-Action Models 
+
+Vision-Language-Action (VLA) models map visual ob-servations and language instructions directly to executable robot actions by coupling pre-trained vision-language back-bones with action prediction modules. Early architectures such as RT-1 [4], RT-2 [5], and PaLM-E [6] established the paradigm of scaling Transformer-based models on large robotic datasets for multi-task generalization. A subsequent wave of open-source efforts [7], [8], [16], [17] broadened accessibility and demonstrated that adapting vision-language foundation models yields robust manipulation capabilities across diverse settings. More recently, the field has advanced along several axes: flow-matching and diffusion-based action generation [11], [12], [18], heterogeneous cross-embodiment pre-training [19], [20], and spatial-aware or hybrid architec-tures [21], [22]. Despite this progress, existing VLA fine-tuning pipelines rely on a uniform continuous action loss and do not explicitly encode the stage structure of manipulation trajectories. Our StaKe addresses this gap by augmenting the training loss with lightweight stage and keyframe supervi-sion, without modifying the policy architecture or inference procedure. 
+
+B. Fine-Tuning Strategies for VLA Models 
+
+Deploying VLA models on downstream tasks requires fine-tuning recipes balancing performance, efficiency, and generality. One line revisited action representations and de-coding within supervised fine-tuning: OpenVLA-OFT [13] optimized parallel decoding and continuous action regres-sion, while FAST [23] introduced frequency-space ac-tion tokenization for autoregressive policies. Concurrently, TinyVLA [24] and DeeR-VLA [25] reduced compute via lightweight backbones or dynamic inference depth. A sepa-rate line integrated reinforcement learning into fine-tuning: ConRFT [26] augmented behavior cloning with consistency-based RL, and iRe-VLA [27] adopted iterative RL up-dates for online adaptation. These methods primarily modify architecture, action parameterization, or the optimization objective. In contrast, StaKe adds stage- and keyframe-level auxiliary losses to a standard fine-tuning loop without modifying the policy architecture or inference procedure, and is therefore complementary to the improvements above. 
+
+C. Structured Supervision for Manipulation 
+
+A growing body of work improves manipulation poli-cies by learning attention toward temporally critical states rather than treating all timesteps uniformly. Along the tem-poral axis, one line predicts sparse keyframes or way-points capturing a trajectory’s decisive moments: PerAct [28] and RVT [29] predict 6-DoF keyposes from 3D observa-tions; Act3D [30] and Coarse-to-Fine 3D Keyframe Trans-porter [31] refine keyframe localization via hierarchical sam-pling; AWE [32] and PIVOT-R [33] extract or rank waypoints to shorten the decision horizon. Complementary to temporal selection, a spatial line operates in the keypoint domain, where KAT [34] represents manipulation via keypoint ac-tion tokens and ReKep [35] formulates relational keypoint constraints optimizable at inference. A third line exploits skill-level structure via task segmentation, semantic skill libraries, or auxiliary contrastive objectives [36], [37], [38], [39], [40]. While these approaches demonstrate the value of structured supervision, they generally rely on manually defined keyframes, task-specific annotations, or dedicated architectures. StaKe instead automatically derives all labels from demonstration gripper states and operates as lightweight auxiliary losses, preserving the pre-trained VLA backbone and inference procedure unchanged. III. METHOD In this section, we introduce the details of StaKe. We first present the base VLA architecture in Sec. III-A. Subse-quently, we describe the automatic extraction of stage labels and keyframe targets from demonstrations in Sec. III-B and Sec. III-C. Finally, we present the model architecture and implementation details in Sec. III-D. Fig. 3 provides an overview of the complete framework. 
+
+A. Preliminaries: π0.5 VLA Architecture 
+
+We build upon the π0.5 VLA architecture [12], which consists of a vision encoder fenc , a pre-trained language Pre -trained VLM            
+
+> head left -wrist right -wrist
+> Instruction: Hand
+> over the red block
+> to the right arm. Learnable query tokens
+> stage keyframe
+> Stage
+> Classification
+> Head
+> Keyframe
+> Prediction
+> Head
+> Current Stage Next Keyframe Action
+
+# StaKe 
+
+Training Only   
+
+> Action Expert
+> ViT
+> Noisy Actions
+> Denoised
+> Actions
+
+Binary Cross -Entropy loss 
+
+L1 loss    
+
+> Flow Matching
+> loss Fig. 3: Overview of the StaKe framework. Two learnable query tokens are appended to the pre-trained VLM backbone, each feeding a lightweight auxiliary head: a stage classification head trained with binary cross-entropy loss and a keyframe prediction head trained with L1 loss. Both heads are active only during training (marked “Training Only”) and jointly optimized with the flow-matching policy loss. At inference time, the query tokens remain in the sequence but the auxiliary heads are not invoked.
+
+model backbone, and a flow-matching action expert. At each timestep t, the model receives a visual observation 
+
+It and a language instruction l, and produces an action chunk ˆat:t+H−1 of horizon H in joint space. The vision encoder extracts visual tokens himg = fenc (It), and the language instruction is tokenized into hl. The language model backbone processes the concatenation of himg and hl
+
+to produce a latent representation zt, from which the flow-matching action expert generates the action chunk. 
+
+Training. The action expert is trained via flow matching [41]. Let a0 denote the ground-truth action chunk from a demon-stration and ϵ ∼ N (0 , I ) a noise sample. The forward process constructs a noised action aτ at noise level τ ∈ [0 , 1] :
+
+aτ = (1 − τ ) a0 + τ ϵ. (1) The target velocity field is defined as u = a0 − ϵ. A policy network ˆvθ is trained to predict this velocity, yielding the flow-matching loss: 
+
+Lpolicy = Eτ,ϵ ∥ˆvθ (aτ , τ, z t) − u∥2 . (2) 
+
+Inference. At test time, the action expert generates an action chunk by solving the reverse ODE from a1 ∼ N (0 , I ):
+
+aτ −∆τ = aτ + ∆ τ · ˆvθ (aτ , τ, z t), (3) iterating from τ = 1 to 0 with step size ∆τ . The final a0 is the predicted action chunk executed on the robot. 
+
+B. Stage Label Extraction 
+
+To provide the policy with structured supervision beyond the continuous action loss, we automatically extract two complementary signals from demonstration gripper states: stage labels that capture the stage-level structure of a trajec-tory, and keyframe targets that anchor the policy to critical gripper-transition frames. Both signals require no manual annotation. We describe the stage labeling procedure here and the keyframe extraction in Sec. III-C. A manipulation trajectory naturally alternates between free-space motion and contact-constrained skill execution, with gripper events marking the boundaries. We formalize this by parsing the gripper open/close sequence of each demonstration. Let M denote the number of arms ( M =1 
+
+for single-arm, M =2 for bimanual). A frame is considered closed whenever any of the M grippers is closed, since a closed gripper indicates that the robot is actively executing a contact skill. Let [t1, t 2] denote each such interval. To capture the pre-contact preparation and post-contact settling phases, we expand each interval by a margin of K frames: 
+
+a = max(1 , t 1 − K), b = min( T, t 2 + K). (4) All frames t ∈ [a, b ] are labeled as skill (st = 1 ), and the remaining frames as motion (st = 0). Algorithm 1 summarizes this procedure. The expansion margin K is a tunable hyperparameter whose sensitivity we study in the ablation experiments. 
+
+Algorithm 1 Stage Label Extraction 
+
+Require: Gripper states g(m) 
+
+> t
+
+for M ∈ { 1, 2} arms ( 1 ≤ t ≤
+
+T , 1 ≤ m ≤ M ), expansion margin K 
+
+> 1:
+
+Initialize st = 0 (motion) for t = 1 , . . . , T . 
+
+> 2:
+
+Identify all intervals [t1, t 2] where ∃ m : g(m) 
+
+> t
+
+= closed.  
+
+> 3:
+
+for each closed interval [t1, t 2] do  
+
+> 4:
+
+a = max(1 , t 1 − K), b = min( T, t 2 + K). 
+
+> 5:
+
+for t = a to b do  
+
+> 6:
+
+st ← 1 (skill).  
+
+> 7:
+
+end for  
+
+> 8:
+
+end for  
+
+> 9:
+
+return Stage labels s1: T .
+
+C. Keyframe Target Extraction 
+
+Complementary to the stage labels that provide stage-level supervision, keyframe targets offer frame-level goal signals anchored to gripper-transition events. The extraction proceeds in two steps. First, we scan the trajectory for frames where any of the M grippers changes state (open → closed or closed → open). When M =2 , transitions from both arms are detected independently and merged into a single ordered set, since the action vector covers both arms jointly (14 dimensions for two 7-DoF arms). We record the full joint configuration at each transition frame as a keyframe. Second, we assign a per-frame supervision target: for each timestep 
+
+t, we find the nearest upcoming transition frame tnext from the merged set and set qkf  
+
+> t
+
+= qtnext . We additionally include the terminal frame (T, q T ) as the final keyframe, so that timesteps after the last gripper transition point toward the task-completion configuration. In this way, every frame in the trajectory receives a keyframe label pointing toward its next critical gripper event, regardless of which arm triggers it. Algorithm 2 summarizes the complete procedure. 
+
+Algorithm 2 Keyframe Target Extraction 
+
+Require: Gripper states g(m) 
+
+> t
+
+for M ∈ { 1, 2} arms, joint states qt, t = 1 . . . T , 1 ≤ m ≤ M 
+
+> 1:
+
+Step 1: Identify transition frames (per-arm, then merge)  
+
+> 2:
+
+E ← []  
+
+> 3:
+
+for m = 1 to M do  
+
+> 4:
+
+for t = 1 to T − 1 do  
+
+> 5:
+
+if g(m)
+
+> t
+
+̸ = g(m) 
+
+> t+1
+
+then  
+
+> 6:
+
+Append (t + 1 , q t+1 ) to E. 
+
+> 7:
+
+end if  
+
+> 8:
+
+end for  
+
+> 9:
+
+end for  
+
+> 10:
+
+Sort E by frame index; remove duplicates.  
+
+> 11:
+
+Append (T, q T ) to E. ▷ terminal frame as final keyframe  
+
+> 12:
+
+Step 2: Assign per-frame keyframe labels  
+
+> 13:
+
+j ← 1 
+
+> 14:
+
+for t = 1 to T do  
+
+> 15:
+
+while j < |E| and E[j].frame < t do  
+
+> 16:
+
+j ← j + 1  
+
+> 17:
+
+end while  
+
+> 18:
+
+qkf  
+
+> t
+
+← E[min( j, |E|)] .joint  
+
+> 19:
+
+end for  
+
+> 20:
+
+return Per-frame keyframe targets qkf  
+
+> 1: T
+
+.The next gripper-transition keyframe serves as a seman-tically meaningful goal for each timestep, since the robot must achieve precise alignment at the moment of grasping or releasing. This event-driven definition is more task-relevant than a fixed-horizon target and generalizes across different manipulation scenarios. 
+
+D. Model Architecture and Implementation Details 
+
+Learnable Query Tokens. To extract auxiliary predictions without modifying the base architecture, we introduce two learnable query tokens, ess and ekf , which are appended to the input sequence of the language model backbone alongside 
+
+himg and hl (see Fig. 3). The backbone processes all tokens jointly, producing contextualized representations for both the original tokens and the two queries. Let ˜zss  
+
+> t
+
+and ˜zkf  
+
+> t
+
+denote the output representations corresponding to the stage and keyframe query tokens at timestep t, respectively. 
+
+Auxiliary Heads. The stage head is a small MLP that maps ˜zss  
+
+> t
+
+to a scalar prediction ˆst = MLP ss (˜ zss  
+
+> t
+
+) ∈ [0 , 1] ,representing the probability of the current timestep being in the skill stage. It is trained with binary cross-entropy: 
+
+Lstage = − 1
+
+T
+
+> T
+
+X
+
+> t=1
+
+[st log ˆ st + (1 − st) log(1 − ˆst)] . (5) The keyframe head is another MLP that maps ˜zkf  
+
+> t
+
+to a joint-space prediction ˆqkf  
+
+> t
+
+= MLP kf (˜ zkf  
+
+> t
+
+), trained with L1 loss against the extracted keyframe target: 
+
+Lkf = 1
+
+T
+
+> T
+
+X
+
+> t=1
+
+ˆqkf  
+
+> t
+
+− qkf   
+
+> t1
+
+. (6) 
+
+Training. The total training loss combines the flow-matching policy loss with the two auxiliary losses (Fig. 3): 
+
+L = Lpolicy + λsLstage + λkLkf , (7) where λs and λk are empirically set to 0.01 and 0.01 to balance the scale difference between the auxiliary losses and the flow-matching policy loss, and kept fixed across all tasks. Both auxiliary heads add negligible computation overhead. We normalize keyframe target actions per-dimension to sta-bilize training. 
+
+Inference. At test time, the auxiliary heads are not invoked (marked “Training Only” in Fig. 3), and the inference procedure remains identical to the base π0.5 policy: given observation It and instruction l, the action expert generates an action chunk ˆat:t+H−1 via iterative denoising as in Eq. (3). IV. EXPERIMENTS We conducted comprehensive experiments to answer the following questions: Q1. Does StaKe improve manipulation success rates compared with the base π0.5 policy and other strong baselines in bimanual simulation? Q2. How does each component of StaKe contribute, and how sensitive is performance to key design choices? Q3. Do the learned stage and keyframe predictions align with the intended trajectory structure? Q4. Do the gains transfer to real-robot tasks, and how does performance compare at each keyframe stage throughout the manipulation process? 
+
+A. Experimental Setup 
+
+Simulation environment. We evaluate on the RoboTwin 2.0 benchmark [15], a bimanual manipulation suite built on the SAPIEN simulator. We select 10 tasks spanning four levels of keyframe complexity: six 2-keyframe tasks ( Adjust Bottle , Click Alarmclock , Lift Pot , Move Can Pot , Open Laptop , Rotate Qrcode ), one 3-keyframe task ( Put Object Cabinet ), two 4-keyframe tasks (Handover Block , Place Burger Fries ), and one 5-keyframe task ( Stack Blocks Two ). TABLE I: Success rates (%) on 10 RoboTwin 2.0 bimanual tasks (Q1). Tasks are grouped by the number of keyframes (#KF). DP, ACT, and RDT results are from the official benchmark [15]. Best results per task are in bold .Task #KF DP [41] ACT [42] RDT [18] π0.5 [12] StaKe Adjust Bottle 2 97 97 81 90 96 Click Alarmclock 2 61 32 61 63 76                                                       
+
+> Lift Pot 239 88 72 22 36 Move Can Pot 239 22 25 42 46
+> Open Laptop 249 56 59 78 80
+> Rotate Qrcode 213 150 44 50
+> Put Object Cabinet 342 15 33 24 29 Handover Block 410 42 45 55 63
+> Place Burger Fries 472 49 50 64 76
+> Stack Blocks Two 5725 21 42 46
+> Average –42.9 42.7 49.7 52.4 59.8
+
+At each evaluation episode, a language instruction is sampled randomly from the task-specific instruction pool provided by the simulator. We use the demo clean setting with 50 demonstrations per task. 
+
+Training details. All models undergo full-model post-training (updating both the VLM backbone and the action expert) on 4 ×NVIDIA H20 GPUs for 20 000 steps with a batch size of 64 and a learning rate of 5 × 10 −5. The action chunk horizon is H=50 . For StaKe, the stage-label expansion margin is set to K=25 (about 1 s, covering the pre-grasp and object-alignment phase) and the auxiliary loss weights follow Eq. (7). 
+
+Evaluation protocol. Each task is evaluated over 100 episodes. We report the success rate determined by the benchmark’s built-in checker. 
+
+Baselines. Our primary baseline is π0.5 [12], a state-of-the-art VLA policy, fine-tuned with the same data and training recipe but without auxiliary losses. We additionally compare against three representative manipulation methods: Diffusion Policy (DP) [41], ACT [42], and RDT-1B [18], using results reported by the official RoboTwin 2.0 benchmark [15]. 
+
+B. Simulation Results ( Q1 )
+
+Table I reports success rates across all 10 tasks. We highlight three findings. 
+
+Overall performance. StaKe achieves the highest average success rate (59.8%) among all five methods, outperforming DP (42.9%), ACT (42.7%), RDT (49.7%), and π0.5 (52.4%). It obtains the best or tied-best result on 7 of the 10 tasks. On the three tasks where other methods lead, StaKe still improves over π0.5. These results confirm that the lightweight auxiliary losses strengthen the base VLA policy without sacrificing generality. 
+
+Effect of auxiliary supervision. Compared with π0.5, which shares the same architecture and training recipe, StaKe improves success on all 10 tasks ( +7 .4 pp on average). This gain arises solely from the auxiliary stage and keyframe losses, with no modification to model architecture or infer-ence cost. The improvement holds both where π0.5 already performs well (e.g., Adjust Bottle 90 →96 ) and where it struggles (e.g., Lift Pot 22 →36 ), confirming that the struc-                                                                 
+
+> TABLE II: Ablation studies (Q2). Top: removing each auxiliary loss. Bottom: alternative design choices for the keyframe target and the query token. Best results per task are in bold .Variant Stack Place Lift Click Avg Blocks Burger Pot Alarm
+> π0.5(baseline) 42 64 22 63 47.8 StaKe (full) 46 76 36 76 58.5
+> w/o Stage Supervision 39 70 30 74 53.3 w/o Keyframe Supervision 41 69 34 73 54.3 Keyframe Target: t+H35 75 25 65 50.0 Query: last VL-prefix token 32 72 30 69 50.8 TABLE III: Sensitivity of stage-label expansion margin K(Q2). K=25
+> yields the best average.
+> KPlace Burger Adjust Bottle Avg 073 93 83.0 15 68 94 81.0 20 72 95 83.5
+> 25 76 96 86.0
+> 30 73 94 83.5
+
+tured supervision effectively complements the base policy loss regardless of task difficulty. 
+
+Notable gains on multi-keyframe tasks. On the two 4-keyframe tasks, StaKe improves π0.5 by +8 and +12 points respectively. On the most complex 5-keyframe task ( Stack Blocks Two ), StaKe reaches 46% vs. 42% for π0.5 and substantially outperforms DP, ACT, and RDT. As the number of keyframes grows, each gripper-transition stage becomes a potential failure point; StaKe directly addresses this by anchoring the policy at every such stage. 
+
+C. Ablation Studies ( Q2 )
+
+We conduct ablation experiments on a subset of four representative tasks to isolate the contribution of each design choice. Results are summarized in Table II and Table III. 
+
+Both auxiliary losses are necessary. Removing either com-ponent degrades performance: dropping stage supervision re-duces the average from 58.5 to 54.3, and dropping keyframe supervision reduces it to 53.3. Neither alone recovers the full gain, confirming that the two losses provide complementary signals. Stage supervision captures the coarse motion/skill 1 2 3
+
+4 5 6
+
+1 2 3
+
+4 5 6
+
+1 2 3
+
+4 5 6
+
+1 2 3                                                                                                   
+
+>  
+> "
+> !$
+> 
+> 
+> 
+> %#""#
+> %#""#
+> %!& #'
+> '#
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+>   
+> "
+> !$
+>  
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> %#""#
+> %#""#
+> %!& #'
+> '#
+>   
+> "
+> !$
+> 
+> 
+> 
+> 
+> %#""#
+> %#""#
+> %!& #'
+> '#
+> Task execution sequence Ground -Truth Stage & Keyframe Labels Predicted Stage & Keyframe errors (per Action Chunk)
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+>     
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+>     
+> 
+
+Fig. 4: Qualitative analysis (Q3). Three tasks of increasing complexity (rows, top to bottom): Lift Pot (2 KF), Handover Block (4 KF), and Stack Blocks Two (5 KF). Left column: task execution RGB sequence. Middle column: ground-truth dual-arm gripper states with annotated stage boundaries (green dashed) and keyframe positions (gray dotted). Right column: per-action-chunk predicted stage label (bar color: blue = Motion, orange = Skill) and keyframe prediction L1 error (orange line), reported in normalized joint space relative to each joint’s feasible range ( < 2π). 
+
+stage structure, while keyframe supervision anchors the pol-icy to precise gripper-transition configurations. 
+
+Event-driven keyframe targets outperform fixed-horizon targets. Replacing the next-transition keyframe target with a fixed-horizon target at t+H (H=50 , the action chunk length) reduces the average to 50.0, only marginally above π0.5. This validates the event-driven design: gripper-transition frames carry richer supervisory information than an arbitrary future timestep, because they correspond to physically meaningful state changes. 
+
+Dedicated learnable tokens matter. Replacing the learnable query token with the last token of the vision-language prefix reduces the average to 50.8. The dedicated token allows the model to develop a specialized representation for auxiliary prediction without interfering with the features used for action generation. 
+
+Expansion margin K. Table III varies the stage-label expansion margin K on two tasks. K=0 (no expansion) misses the pre-contact preparation and post-contact settling phases, while overly large K (30) dilutes the skill label by incorporating irrelevant free-motion frames. K=25 provides the best balance, and performance remains stable across a reasonable range ( 20 –30 ), indicating that the method is not sensitive to precise tuning of this hyperparameter. 
+
+D. Qualitative Analysis ( Q3 )
+
+Fig. 4 visualizes the auxiliary predictions during success-ful rollouts on three tasks of increasing complexity. Each row presents one task: the left column shows the RGB execution sequence, the middle column displays ground-truth gripper states with stage and keyframe annotations, and the right column reports per-action-chunk stage predictions and keyframe L1 errors. We highlight three observations. 
+
+Stage predictions faithfully track manipulation phases. 
+
+Across all three tasks, the predicted stage label aligns with the ground-truth motion/skill boundary. In Lift Pot , the model correctly predicts Motion for the first two chunks and switches to Skill at the third, matching the transition at 
+
+t=53 . In Handover Block and Stack Blocks Two , the model identifies Skill from the second chunk onward, consistent with the early stage boundary in both tasks. This indicates that the stage head has learned to anticipate upcoming contact phases rather than merely reacting to gripper closure. 
+
+Keyframe predictions remain accurate throughout the rollout. The keyframe L1 error stays consistently low across all action chunks: on the order of 10 −5 for Lift Pot and Stack Blocks Two , and 10 −4 for Handover Block . Even on Stack Blocks Two , where the keyframe target shifts five times, the error does not diverge. This confirms that the keyframe head maintains a reliable estimate of the next gripper-transition configuration regardless of task length. 
+
+Consistent behavior across task complexity. Both patterns hold from the 2-keyframe to the 5-keyframe task, suggesting that the auxiliary representations scale gracefully with the number of manipulation stages. This corroborates the finding in Table I that StaKe yields larger gains on multi-keyframe tasks, as the stage and keyframe heads provide an internal anchor at every gripper-transition window. 
+
+Consistent behavior across task complexity. Both patterns hold from the 2-keyframe to the 5-keyframe task, suggesting the auxiliary representations scale gracefully with the number of manipulation stages. This corroborates the finding in 1 2 3           
+
+> 123
+> 123
+> 123
+> 4
+> 45Fig. 5: Real-robot experiments (Q4). Upper left: workspace with a Franka Research 3 arm and a front-view ZED 2i camera. Middle: start frame and keyframe snapshots for each task (top to bottom: Mug on Plate, Stack Bowls, Bowl in Drawer, Two Mugs in Basket). Right: cumulative success rate at each keyframe over 10 trials for π0.5and StaKe.
+
+Table I that StaKe yields larger gains on multi-keyframe tasks, as the heads provide an internal anchor at every gripper-transition window. 
+
+E. Real-Robot Experiments ( Q4 )
+
+System setup. We evaluate on a Franka Research 3 arm with a parallel-jaw gripper, observed by a front-view ZED 2i RGB camera (Fig. 5, upper left). Four tabletop tasks of increasing keyframe complexity are designed: put the white mug on the plate (Mug on Plate, 2 KF: grasp, place), stack the red bowl on the green bowl (Stack Bowls, 2 KF: grasp, place), 
+
+put the red bowl in the drawer and close the drawer (Bowl in Drawer, 3 KF: grasp, place, close), and put both the red mug and the blue mug in the basket (Two Mugs in Basket, 4 KF: grasp, place, grasp, place). We collect 50 teleoperated demonstrations per task and train under a multi-task setting with the same hyperparameters as in Sec. IV-A. Each task is evaluated over 10 trials, and we report the cumulative success rate at each keyframe, where success at keyframe k requires completing all preceding keyframes. 
+
+Quantitative results. Fig. 5 (right) reports the cumulative success rates at each keyframe. StaKe improves the final task success on all four tasks, raising the average from 40.0% (π0.5) to 62.5%. We highlight three findings. 
+
+Consistent improvement across all tasks. StaKe outper-forms π0.5 on every task, with gains ranging from +10% on the simpler 2-keyframe tasks to +30% on the more demand-ing 3- and 4-keyframe tasks. This trend suggests that the auxiliary supervision becomes increasingly valuable as task complexity grows, because longer manipulation sequences expose the policy to more gripper-event transitions where keyframe-aware guidance is most needed. 
+
+Gains concentrate at later keyframes. Both methods achieve comparable success at the initial grasp, but diverge at subsequent stages. For instance, in Bowl in Drawer , π0.5
+
+drops from 60% to 40% at the final close action, while StaKe retains 70%. This indicates that the stage head helps the policy recognize stage transitions such as placing-to-closing, where π0.5 tends to hesitate. 
+
+Robust to longer-horizon tasks. On Two Mugs in Basket 
+
+(4 KF), π0.5 degrades sharply beyond the second grasp-place keyframe, suggesting insufficient awareness of the current task stage. The keyframe head of StaKe addresses this by providing an explicit next-transition target at every action chunk, sustaining execution across successive stages. V. CONCLUSION This paper introduced StaKe, a plug-in auxiliary super-vision framework that improves VLA fine-tuning by in-jecting stage classification and keyframe prediction signals derived automatically from demonstrations, without modi-fying the inference loop. Experiments in both simulation and real-robot settings demonstrate consistent improvements across tasks of varying complexity, with ablation studies on auxiliary supervision and architectural design validating each component. Qualitative analysis further reveals that the learned representations faithfully track manipulation phases and provide accurate transition targets, explaining the source of performance gains. These results suggest that structured supervision is an effective and general strategy for enhancing VLA fine-tuning in long-horizon manipulation. 
+
+Limitations and Future Work. Stages and keyframes derive from binary gripper open/close events, so StaKe targets prehensile pick-and-place and does not directly extend to non-prehensile or dexterous manipulation. Future work will explore richer event definitions beyond binary gripper state and investigate leveraging the auxiliary representations at inference time. VI. ACKNOWLEDGEMENT This work was jointly supported by National Natural Science Foundation of China (62322607, 62236010 and 62276261), Beijing Natural Science Foundation (L252033). REFERENCES [1] Y. Ma, Z. Song, Y. Zhuang, J. Hao, and I. King, “A survey on vision-language-action models for embodied ai,” arXiv preprint arXiv:2405.14093 , 2024. [2] A. Awadalla, I. Gao, J. Gardner, J. Hessel, Y. Hanafy, W. Zhu, K. Marathe, Y. Bitton, S. Gadre, S. Sagawa, et al. , “Openflamingo: An open-source framework for training large autoregressive vision-language models,” arXiv preprint arXiv:2308.01390 , 2023. [3] H. Liu, C. Li, Q. Wu, and Y. J. Lee, “Visual instruction tuning,” 
+
+Advances in neural information processing systems , vol. 36, pp. 34 892–34 916, 2023. [4] A. Brohan, N. Brown, J. Carbajal, Y. Chebotar, J. Dabis, C. Finn, K. Gopalakrishnan, K. Hausman, A. Herzog, J. Hsu, et al. , “Rt-1: Robotics transformer for real-world control at scale,” arXiv preprint arXiv:2212.06817 , 2022. [5] A. Brohan, N. Brown, J. Carbajal, Y. Chebotar, X. Chen, K. Choro-manski, T. Ding, D. Driess, A. Dubey, C. Finn, et al. , “Rt-2: Vision-language-action models transfer web knowledge to robotic control, 2023,” URL https://arxiv. org/abs/2307.15818 , vol. 1, p. 2, 2024. [6] D. Driess, F. Xia, M. S. Sajjadi, C. Lynch, A. Chowdhery, B. Ichter, A. Wahid, J. Tompson, Q. Vuong, T. Yu, et al. , “Palm-e: An embodied multimodal language model,” arXiv preprint arXiv:2303.03378 , 2023. [7] M. J. Kim, K. Pertsch, S. Karamcheti, T. Xiao, A. Balakrishna, S. Nair, R. Rafailov, E. Foster, G. Lam, P. Sanketi, et al. , “Openvla: An open-source vision-language-action model, 2024,” URL https://arxiv. org/abs/2406.09246 , vol. 1, no. 2, p. 4, 2024. [8] O. M. Team, D. Ghosh, H. Walke, K. Pertsch, K. Black, O. Mees, S. Dasari, J. Hejna, T. Kreiman, C. Xu, et al. , “Octo: An open-source generalist robot policy,” arXiv preprint arXiv:2405.12213 , 2024. [9] Q. Vuong, S. Levine, H. R. Walke, K. Pertsch, A. Singh, R. Doshi, C. Xu, J. Luo, L. Tan, D. Shah, et al. , “Open x-embodiment: Robotic learning datasets and rt-x models,” 2023. [10] H.-S. Fang, H. Fang, Z. Tang, J. Liu, C. Wang, J. Wang, H. Zhu, and C. Lu, “Rh20t: A comprehensive robotic dataset for learning diverse skills in one-shot,” arXiv preprint arXiv:2307.00595 , 2023. [11] K. Black, N. Brown, D. Driess, A. Esmail, M. Equi, C. Finn, N. Fusai, L. Groom, K. Hausman, B. Ichter, et al. , “ π0: A Vision-Language-Action Flow Model for General Robot Control,” arXiv preprint arXiv:2410.24164 , 2024. [12] P. Intelligence, K. Black, N. Brown, J. Darpinian, K. Dhabalia, D. Driess, A. Esmail, M. Equi, C. Finn, N. Fusai, et al. , “ π0.5:A Vision-Language-Action Model with Open-World Generalization,” 
+
+arXiv preprint arXiv:2504.16054 , 2025. [13] M. J. Kim, C. Finn, and P. Liang, “Fine-tuning vision-language-action models: Optimizing speed and success,” arXiv preprint arXiv:2502.19645 , 2025. [14] H. Bharadhwaj, J. Vakil, M. Sharma, A. Gupta, S. Tulsiani, and V. Ku-mar, “Roboagent: Generalization and efficiency in robot manipulation via semantic augmentations and action chunking,” pp. 4788–4795, 2024. [15] T. Chen, Z. Chen, B. Chen, Z. Cai, Y. Liu, Z. Li, Q. Liang, X. Lin, Y. Ge, Z. Gu, et al. , “Robotwin 2.0: A scalable data generator and benchmark with strong domain randomization for robust bimanual robotic manipulation,” arXiv preprint arXiv:2506.18088 , 2025. [16] X. Li, M. Liu, H. Zhang, C. Yu, J. Xu, H. Wu, C. Cheang, Y. Jing, W. Zhang, H. Liu, et al. , “Vision-language foundation models as effective robot imitators,” 2023. [17] Q. Li, Y. Liang, Z. Wang, L. Luo, X. Chen, M. Liao, F. Wei, Y. Deng, S. Xu, Y. Zhang, et al. , “Cogact: A foundational vision-language-action model for synergizing cognition and action in robotic manipulation,” arXiv preprint arXiv:2411.19650 , 2024. [18] S. Liu, L. Wu, B. Li, H. Tan, H. Chen, Z. Wang, K. Xu, H. Su, and J. Zhu, “Rdt-1b: a diffusion foundation model for bimanual manipulation,” arXiv preprint arXiv:2410.07864 , 2024. [19] C.-L. Cheang, G. Chen, Y. Jing, T. Kong, H. Li, Y. Li, Y. Liu, H. Wu, J. Xu, Y. Yang, et al. , “Gr-2: A generative video-language-action model with web-scale knowledge for robot manipulation,” arXiv preprint arXiv:2410.06158 , 2024. [20] L. Wang, X. Chen, J. Zhao, and K. He, “Scaling proprioceptive-visual learning with heterogeneous pre-trained transformers,” vol. 37, 2024, pp. 124 420–124 450. [21] D. Qu, H. Song, Q. Chen, Y. Yao, X. Ye, Y. Ding, Z. Wang, J. Gu, B. Zhao, D. Wang, et al. , “Spatialvla: Exploring spatial representations for visual-language-action model,” arXiv preprint arXiv:2501.15830 ,2025. [22] J. Liu, H. Chen, P. An, Z. Liu, R. Zhang, C. Gu, X. Li, Z. Guo, S. Chen, M. Liu, et al. , “Hybridvla: Collaborative diffusion and au-toregression in a unified vision-language-action model,” arXiv preprint arXiv:2503.10631 , 2025. [23] K. Pertsch, K. Stachowicz, B. Ichter, D. Driess, S. Nair, Q. Vuong, O. Mees, C. Finn, and S. Levine, “Fast: Efficient action tokenization for vision-language-action models,” arXiv preprint arXiv:2501.09747 ,2025. [24] J. Wen, Y. Zhu, J. Li, M. Zhu, Z. Tang, K. Wu, Z. Xu, N. Liu, R. Cheng, C. Shen, et al. , “Tinyvla: Towards fast, data-efficient vision-language-action models for robotic manipulation,” IEEE Robotics and Automation Letters , 2025. [25] Y. Yue, Y. Wang, B. Kang, Y. Han, S. Wang, S. Song, J. Feng, and G. Huang, “Deer-vla: Dynamic inference of multimodal large language models for efficient robot execution,” vol. 37, 2024, pp. 56 619–56 643. [26] Y. Chen, S. Tian, S. Liu, Y. Zhou, H. Li, and D. Zhao, “Conrft: A reinforced fine-tuning method for vla models via consistency policy,” 
+
+arXiv preprint arXiv:2502.05450 , 2025. [27] Y. Guo, J. Zhang, X. Chen, X. Ji, Y.-J. Wang, Y. Hu, and J. Chen, “Improving vision-language-action model with online reinforcement learning,” pp. 15 665–15 672, 2025. [28] M. Shridhar, L. Manuelli, and D. Fox, “Perceiver-actor: A multi-task transformer for robotic manipulation,” pp. 785–799, 2023. [29] A. Goyal, J. Xu, Y. Guo, V. Blukis, Y.-W. Chao, and D. Fox, “Rvt: Robotic view transformer for 3d object manipulation,” pp. 694–710, 2023. [30] T. Gervet, Z. Xian, N. Gkanatsios, and K. Fragkiadaki, “Act3d: 3d feature field transformers for multi-task robotic manipulation,” 2023. [31] X. Zhu, D. Klee, D. Wang, B. Hu, H. Huang, A. Tangri, R. Walters, and R. Platt, “Coarse-to-fine 3d keyframe transporter,” arXiv preprint arXiv:2502.01773 , 2025. [32] L. X. Shi, A. Sharma, T. Z. Zhao, and C. Finn, “Waypoint-based imitation learning for robotic manipulation,” arXiv preprint arXiv:2307.14326 , 2023. [33] K. Zhang, P. Ren, B. Lin, J. Lin, S. Ma, H. Xu, and X. Liang, “Pivot-r: Primitive-driven waypoint-aware world model for robotic manipulation,” vol. 37, 2024, pp. 54 105–54 136. [34] N. Di Palo and E. Johns, “Keypoint action tokens enable in-context imitation learning in robotics,” arXiv preprint arXiv:2403.19578 , 2024. [35] W. Huang, C. Wang, Y. Li, R. Zhang, and L. R. Fei-Fei, “Spatio-temporal reasoning of relational keypoint constraints for robotic ma-nipulation,” arXiv preprint arXiv:2409.01652 , vol. 2, 2024. [36] L. Kou, F. Ni, Y. Zheng, J. Liu, Y. Yuan, Z. Dong, and J. Hao, “Kisa: A unified keyframe identifier and skill annotator for long-horizon robotics demonstrations,” in Forty-first International Conference on Machine Learning , 2024. [37] T. Gao, S. Nasiriany, H. Liu, Q. Yang, and Y. Zhu, “Prime: Scaffolding manipulation tasks with behavior primitives for data-efficient imitation learning,” IEEE Robotics and Automation Letters , vol. 9, no. 10, pp. 8322–8329, 2024. [38] Y. Zhu, W. Wang, S. Wu, Y. Shi, and J. Wang, “Learning semantic atomic skills for multi-task robotic manipulation,” arXiv preprint arXiv:2512.18368 , 2025. [39] X. Mao, G. Giudici, C. Coppola, K. Althoefer, I. Farkhatdinov, Z. Li, and L. Jamone, “Dexskills: Skill segmentation using haptic data for learning autonomous long-horizon robotic manipulation tasks,” in 
+
+2024 IEEE/RSJ international conference on intelligent robots and systems (IROS) . IEEE, 2024, pp. 5104–5111. [40] T. Ma, J. Zhou, Z. Wang, R. Qiu, and J. Liang, “Contrastive imitation learning for language-guided multi-task robotic manipulation,” arXiv preprint arXiv:2406.09738 , 2024. [41] C. Chi, Z. Xu, S. Feng, E. Cousineau, Y. Du, B. Burchfiel, R. Tedrake, and S. Song, “Diffusion policy: Visuomotor policy learning via action diffusion,” The International Journal of Robotics Research , vol. 44, no. 10-11, pp. 1684–1704, 2025. [42] T. Z. Zhao, V. Kumar, S. Levine, and C. Finn, “Learning fine-grained bimanual manipulation with low-cost hardware,” arXiv preprint arXiv:2304.13705 , 2023.

@@ -1,0 +1,1068 @@
+Title: SkyJEPA: Learning Long-Horizon World Models for Zero-Shot Sim-to-Real Control of Quadrotors
+
+URL Source: https://arxiv.org/pdf/2606.23444v2
+
+Published Time: Wed, 24 Jun 2026 00:33:18 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+> 1
+
+# SkyJEPA: Learning Long-Horizon World Models for Zero-Shot Sim-to-Real Control of Quadrotors 
+
+Pratyaksh Rao 1, Wancong Zhang 2, Randall Balestriero 3, Yann LeCun 2, Giuseppe Loianno 1
+
+Abstract —Accurate dynamics models are critical for informed decision-making in robotic systems, particularly for agile aerial vehicles operating under uncertainty. Neural network dynamics models are attractive for capturing complex nonlinear effects, but existing predictive approaches struggle with long-horizon forecasting because their autoregressive rollout mechanism ampli-fies errors over time. Joint Embedding Predictive Architectures (JEPAs) offer a compelling alternative by modeling dynamics in latent space, yet prior JEPA-style methods for robot navigation have been studied primarily for kinematic-level planning, with limited investigation in high-frequency control. In this work, we introduce the JEPA-style model for real-time quadrotor control. The proposed approach combines a latent dynamics model with a novel physics-inspired prober that maps frozen latents to interpretable state, enabling physically grounded long-horizon prediction. Additionally, we combine the learned model with a sampling-based optimal control solution to take advantage of its predictive capabilities for real-time control on embedded hardware. Finally, to reduce the dependence on expensive and unsafe real-world data collection, we develop a structured pipeline for automated dataset generation. Extensive open-loop and outdoor closed-loop experiments demonstrate accurate prediction, robust zero-shot sim-to-real transfer, and strong generalization across diverse operating conditions. 
+
+Index Terms —Model Learning for Control; Aerial Systems: Mechanics and Control; Learning and Adaptive Systems; Opti-mization and Optimal Control 
+
+I. I NTRODUCTION 
+
+# UNmanned Aerial Vehicles (UAVs) have become increas-ingly important in applications such as package delivery, infrastructure inspection, search and rescue, and environmental monitoring [1], [2]. These tasks require aerial robots to operate reliably in complex, uncertain, and often rapidly changing environments while executing agile maneuvers with limited onboard sensing and computation. Achieving this level of autonomy fundamentally depends on the ability to make accurate decisions. For this reason, model-based control has emerged as a particularly attractive paradigm for aerial robotics, as it explicitly reasons about future system evolution and can naturally incorporate task objectives, dynamical constraints, and robustness considerations [3]–[5]. A dynamics model, often referred to as predictive or world model, for aerial control should satisfy four key properties (see Figure 1). First, it should provide accurate long-horizon 
+
+> 1
+
+The authors are with the University of California Berkeley, Department of Electrical Engineering and Computer Sciences, Berkeley, CA 94720, USA. e-mail: pratyaksh10@berkeley.edu, loiannog@eecs.berkeley.edu 
+
+> 2
+
+The authors are with New York University, New York, NY, USA. e-mail: wz1232@nyu.edu, yann@cs.nyu.edu 
+
+> 3
+
+The author is with Brown University, Providence, RI, USA. e-mail: randall balestriero@brown.edu 
+
+Figure 1: Desirable properties of a quadrotor world model: accurate long-horizon prediction, interpretable, real-time infer-ence for closed-loop control, and zero-shot task generalization. 
+
+predictions . Its rollouts must remain accurate, stable, and physically plausible over the prediction horizons used for control. This requires capturing both the dominant rigid-body dynamics and difficult-to-model effects such as aerodynamic drag, actuator delay, propeller–airframe interactions, wind disturbances, and hardware variations. Second, it should be 
+
+interpretable . The model should be able physically to capture and expose meaningful quantities such as position, velocity, attitude, and angular velocity. This is essential for enforcing constraints, actuator limits, safety bounds, and task costs inside a controller. Third, it should be real-time . Real-time aerial control requires repeated high-frequency model evaluations inside resource-constrained onboard optimization loops. Finally, the last property is zero-shot task generalization . The same dynamics representation should be reusable across trajectories, controllers, objectives, and platform configurations. Classical first-principles models satisfy some of these re-quirements [6], but fall short in practice. They encode the known structure of quadrotor dynamics and are computationally efficient, yet real-world flight behavior is shaped by complex and platform-specific effects that are difficult to model exactly. Small changes such as payload attachment, propeller replace-ment, motor degradation, or sensor bias can significantly alter the system response. As a result, analytical models often require extensive system identification [7] and manual tuning, while still struggling to maintain accuracy across operating regimes. This limitation has motivated a large body of work on neural dynamics models [8]–[14]. These methods aim to learn unmodeled nonlinear effects directly from data and have been explored in both offline and online settings. Offline 
+
+> arXiv:2606.23444v2 [cs.RO] 23 Jun 2026 2
+
+methods train models from pre-collected trajectory datasets [8]– [10], [12]–[14], while online methods adapt the model during deployment to account for changing dynamics or distribution shift [15]–[20]. Despite these differences, most approaches share a common formulation: they learn a predictive encoder– decoder model that estimates the next state or observation and recursively feeds this prediction back as input during rollout. While intuitive, this autoregressive predictive formulation violates a central requirement for model-based control: long-horizon stability. Since the model is repeatedly conditioned on its own imperfect outputs, small one-step errors arising from uncertainty, approximation, or inaccuracies can accumulate over time, leading to drift, instability, and physically implausible trajectories. In practice, the error may easily compound and can severely degrade rollout fidelity as the prediction horizon increases [10]. Adding physics-inspired regularization [8], residual structures [9], or online adaptation [16] can improve local prediction accuracy, but does not remove the underlying autoregressive error accumulation mechanism. Moreover, recon-structing the full future state or observation at every step can force the representation to preserve nuisance factors such as sensor noise, bias, or task-irrelevant variation. This becomes es-pecially problematic for high-dimensional observations, where full observation prediction is computationally expensive. Model-Based Reinforcement Learning (MBRL) provides an alternative route by jointly learning a world model and a task-driven policy from interaction data [21]–[23]. Although such approaches can achieve strong task performance, the learned model is often coupled to a particular reward, policy, or visi-tation distribution. Consequently, the resulting representation hardly generalizes across controllers, reference trajectories, or downstream tasks. For aerial robotics, where the same dynamics model should ideally support different tasks, such task-coupled learning can be restrictive. A further obstacle is data collection. For any learned dynamics model, the quality of the dataset is as important as the choice of architecture. The data collection process must informative (e.g., efficiently covering the overall flight envelope) and sample efficient and therefore covering a diverse range of states, control inputs, speeds, accelerations, and operating conditions. However, for aerial robots, there is currently no systematic procedure for collecting such a dataset. In practice, data collection often relies on hand-designed trajectories, expert pilots, or task-specific flight logs. This makes the resulting dataset incomplete and biased toward a limited set of behaviors. Collecting broader real-world data is also expensive, risky, and labor-intensive. It often requires controlled environments and aggressive maneuvers, which increase the likelihood of crashes or hardware damage. Moreover, when the platform configuration changes, existing pipelines often require new data collection and retraining, limiting scalability. These limitations raise the central question of this work: 
+
+Can we learn an efficient dynamic model for aerial robots that provides accurate long-horizon prediction, physically interpretable rollouts, real-time control capability, and zero-shot generalization across tasks, while reducing dependence on risky real-world data collection? To address this question, we propose a domain-randomized simulation-to-real framework for training a JEPA-style latent dynamics model for real-time aerial control. Rather than reconstructing future states or observations autoregressively, our model learns to predict future representations in a structured latent space. This formulation encourages the model to capture control-relevant dynamics while avoiding unnecessary reconstruction of nuisance details. To make the learned representation usable for model-based control, we introduce a physics-inspired prober that maps frozen latent rollouts to physically meaningful state variables through a lightweight kinematic structure. By combining latent predictive representation learning, physical structure, and domain-randomized simulation, our approach enables accurate long-horizon prediction and real-time control while remaining reusable across tasks and platform variations. Our main contributions are summarized as follows:  
+
+> •
+
+We introduce a JEPA-styled latent dynamics model with a physics-inspired prober that maps frozen representations to physically meaningful state variables, enabling physically grounded long-horizon prediction for quadrotor control.  
+
+> •
+
+We demonstrate that by integrating the learned latent dynamics model within a sampling-based optimization framework, we exploit the predictive capabilities of the learned model for real-time control and robust zero-shot sim-to-real transfer on resource-constrained embedded platforms.  
+
+> •
+
+We propose a domain-randomized simulation pipeline for automated dataset generation, reducing the need for extensive and potentially unsafe real-world data collection.  
+
+> •
+
+We extensively evaluate the proposed framework against current dynamics learning baselines and key design choices through open-loop prediction, and outdoor closed-loop control experiments, demonstrating improved long-horizon accuracy, robust control, and generalization across trajectories and platform variations. II. R ELATED WORKS 
+
+A. Predictive Modeling 
+
+A large body of work has studied learning robot dynamics from data in both offline [12], [13], [24] and online set-tings. Prior offline approaches have explored residual learning over nominal models [9], [25], improved multi-step training objectives [10], and physics-inspired regularization [8]. On the other hand, online methods [15]–[20] adapt the model during deployment, typically by finetuning the last few layers of the neural dynamics model. Although these directions improve the ability to capture dynamics, each has an inherent limitation. Residual learning strongly depends on the fidelity of the nominal model. Physics-inspired regularization can guide training toward more plausible solutions, but it does not guarantee physically meaningful rollouts. Online adaptation adds deployment complexity because it requires continual on-robot data collection and model updates, along with extra compute and safeguards to prevent unstable intermediate models from degrading control. Moreover, all these approaches remain based on an autoregressive encoder–decoder paradigm, in which predicted states or observations are recursively reused as inputs for future prediction [8], [26]–[28]. As a result, small 3
+
+one-step errors are propagated forward and accumulate over time, leading to drift and degraded long-horizon fidelity. This compounding-error problem is intrinsic to predictive modeling and is not removed by better losses, residual corrections, or online updates alone, motivating the need for alternatives. In contrast, the proposed JEPA-styled approach produces more accurate long-horizon model predictions compared to these classic predictive models by properly capturing the temporal and spatial context of the problem using a compact abstract representation, avoiding reconstruction altogether. 
+
+B. Joint Embedding Predictive Architectures 
+
+JEPA-style methods offer an appealing alternative to pre-dictive encoder–decoder models by learning to predict future embeddings rather than reconstructing full future observations, yielding compact representations that are naturally scalable to high-dimensional inputs. This idea has shown promise in image representation learning [29], video prediction [30]– [32], and more recently in robotics [33]. However, most JEPA-style robotics works have focused on vision-centric settings such as manipulation [34] and navigation [35], with several demonstrated only on toy problems or in exocentric simulation without real-world validation [36]–[38]. Moreover, these methods are typically studied at the level of high-level kinematic planning, where abstract latent predictions are often sufficient. Their use for feedback control remains largely unexplored, particularly for aerial robots, where high-frequency inference of the system dynamics and real-time compute constraints make control-oriented latent modeling significantly more challenging. This is what we address in this work by proposing by proposing the first JEPA framework trained end-to-end for real-time quadrotor control. 
+
+C. Model-Based Reinforcement Learning 
+
+With the rise of deep Reinforcement Learning (DRL), a new class of controllers has emerged that leverage learned models of system dynamics to plan and act [3], [4], [21], [39], [40]. These approaches aim to improve data efficiency and generalization by explicitly reasoning about future system evolution, rather than relying solely on reactive, model-free policies. Early model-based RL methods primarily focused on learning dynamics in state space [41], and have since been extended to handle high-dimensional sensory inputs such as images [42]. However, predicting directly in observation space is often data-intensive and computationally expensive, particularly for vision-based inputs, and can lead to the learning of noisy features when the training data distribution is imperfect. Latent-space prediction offers a more compact alternative, but many existing approaches rely on reconstruction-based objectives [43], inheriting similar limitations associated with observation reconstruction. More-over, a large class of model-based RL methods incorporate reward prediction, either explicitly or as an auxiliary objective, when learning latent representations [44]–[47], which inherently couples the learned world model to a specific task. In contrast, in this work we, decouple task-dependent information from latent dynamics prediction to enable general-purpose, real-time quadrotor control without any task-specific reward conditioning. III. B ACKGROUND 
+
+A. Learning System Dynamics 
+
+We consider a discrete-time dynamical system with state 
+
+xt ∈ RDs and control action at ∈ RDa . The dynamics are described by a transition function f : RDs × RDa → RDs
+
+xt+1 = f (xt, at). (1) For a quadrotor, we define the state as 
+
+xt = p⊤ 
+
+> t
+
+v⊤ 
+
+> t
+
+r⊤ 
+
+> x,t
+
+r⊤ 
+
+> y,t
+
+r⊤ 
+
+> z,t
+
+ω⊤
+
+> t
+
+⊤ . (2) Here, pt ∈ R3 and vt ∈ R3 denote position and velocity in the inertial frame. The attitude is represented by the rotation matrix Rt = rx,t ry,t rz,t 
+
+ ∈ SO(3) , whose columns are rx,t , ry,t , rz,t ∈ R3. This rotation matrix represents the attitude of the body frame in the inertial frame. The angular velocity ωt ∈ R3 is expressed in the body frame. The action 
+
+at = [ f0,t , f 1,t , f 2,t , f 3,t ]⊤ ∈ R4 denotes the four motor forces. 
+
+B. Predictive Modeling 
+
+A common approach to learning dynamics is to train a predictive model on state-action transitions. Let D =
+
+{(xi, ai, xi+1 )}Ni=1 be a dataset of N transitions. The goal is to approximate the dynamics using a neural network h,parameterized by weights θ. Formally, the state at the next time index, i + 1 is given by 
+
+˜xi+1 = hθ (xi, ai). (3) The model is trained by minimizing the prediction loss 
+
+min 
+
+> θ
+
+1
+
+N
+
+> N
+
+X
+
+> i=1
+
+∥xi+1 − hθ (xi, ai)∥22 . (4) This objective encourages accurate local predictions. However, model-based control requires prediction over a sequence of future actions. Given an action sequence, the model is rolled out recursively 
+
+ˆxt+T = hθ (. . . h θ (hθ (xt, at), at+1 ) . . . , at+T ). (5) This recursive formulation introduces compounding error. Let the vector prediction error be ϵt+k = xt+k − ˜xt+k. During rollout, each prediction is used as the input to the next step, 
+
+˜xt+1 = hθ (xt, at),
+
+˜xt+2 = hθ (xt+1 − ϵt+1 , at+1 ),
+
+...
+
+˜xt+T = hθ (xt+T −1 − ϵt+T −1, at+T −1).
+
+(6) This makes the source of compounding explicit. At each step, the model is evaluated on a state that is shifted from the true trajectory by the accumulated prediction error. As the horizon increases, these errors alter the future inputs to the model. Thus, small one-step errors can grow into large rollout errors. This can lead to drift and physically implausible trajectories. 4Sim Data Synthesis    
+
+> Principled Data Generation
+> Latent Dynamics Model Physics-Inspired Prober Zero-Shot Sim2Real
+> Sampling-Based Control
+> DKI: Differentiable Kinematic
+> Integration JEPA-Style
+
+Figure 2: Overview of the proposed framework. We learn a JEPA-style latent dynamics model with a physics-inspired prober that maps abstract embeddings to physically meaningful states, enabling stable long-horizon quadrotor prediction. Trained entirely on domain-randomized simulation data and deployed within a sampling-based controller, the model achieves real-time execution and robust zero-shot sim-to-real transfer validated in outdoor flight experiments. IV. M ETHODOLOGY 
+
+In this section, we describe the methodology underlying our approach (see Figure 2). We first introduce our proposed JEPA-styled dynamics learning formulation. Next, we present the training objective for learning dynamics. We then describe a sampling-based optimization framework that leverages the learned model for optimal real-time quadrotor control. Lastly, we describe automated data collection framework, including trajectory generation, closed-loop control, and domain ran-domization strategy used to generate diverse trajectory-level data. 
+
+A. Problem Formulation 
+
+We seek to learn a dynamics model that supports long-horizon prediction for model-based quadrotor control. As discussed in Section III-B , directly predicting future states in an autoregressive manner can lead to compounding errors. Therefore, we formulate dynamics learning in a compact latent space. This follows the JEPA principle of predicting representations rather than reconstructing inputs [48]. The goal is to learn a representation that captures the evolution of the system while avoiding unnecessary reconstruction of task-irrelevant details. At each time step, the UAV receives an estimated full-state observation xt. To provide temporal context and promote better sim-to-real transfer, we condition the model on histories of states and actions over a window of length H. The state history and action history are defined as 
+
+Xt = x⊤ 
+
+> t−H
+
+· · · x⊤
+
+> t
+
+⊤ , At = a⊤ 
+
+> t−H
+
+· · · a⊤
+
+> t
+
+⊤ .
+
+(7) This history-based formulation gives the model access to recent motion and actuation trends. It also helps account for effects that are not fully captured by a single state, such as actuator delay, drag, sensor noise, and platform-dependent dynamics. The state and action histories are encoded into latent representations st = Enc θ (Xt) and zt = Enc ϕ(At). The latent dynamics predictor then estimates the next latent state as ˜st+1 = Pred φ(st, zt). For a prediction horizon of T , the predictor is recursively unrolled using the encoded actions 
+
+˜st+T = Pred φ(. . . Pred φ(Pred φ(st, zt), zt+1 ), . . . , zt+T −1).
+
+(8) Thus, the learning problem is to train the encoders and predictor so that the latent rollout {˜st+1 , . . . , ˜st+T } remains consistent with the encoded future trajectory {st+1 , . . . , st+T }. This formulation avoids direct reconstruction of future states while preserving the information needed for long-horizon dynamics. 
+
+B. Training Objective 
+
+The objective is to learn latent representations that support accurate multi-step dynamics prediction for long-horizon fore-casting (see Figure 3). The proposed loss contains two terms. The first term enforces predictive consistency between rolled-out latent predictions and encoded future states. The second term regularizes the latent space to prevent representation collapse. We define the multi-step latent prediction loss as 
+
+Lpred = 1
+
+T
+
+> T
+
+X
+
+> k=1
+
+∥˜st+k − st+k∥22. (9) This loss encourages the encoder and predictor to learn representations that remain predictive over the full rollout horizon. However, minimizing this term alone admits de-generate solutions. For example, the encoder could map all inputs to nearly constant embeddings, yielding low prediction error without preserving meaningful system dynamics. We therefore utilize an anti-collapse regularization term. We employ Sketched Isotropic Gaussian Regularization (SIGReg) [49], which encourages the latent embeddings to match an isotropic Gaussian distribution. This promotes diversity and isotropy in the representation space. To apply SIGReg over a rollout during training, we collect the predicted latent embeddings into a tensor S ∈ RT ×B×D ,where B is the training batch size during training, and D
+
+is the embedding dimension. Instead of matching the full 
+
+D-dimensional latent distribution directly, SIGReg compares random one-dimensional projections of the latent distribution 5Loss   
+
+> (Eq. 13)
+> Loss
+> (Eq. 17)
+> Action History
+> Replay Buffer
+> Dataset Latent Dynamics Model Physics-Inspired Latent Probing
+> (Eq. 15-16)
+> State History
+> Shared
+> Future States
+> Stop Grad
+> Latent Targets
+
+Figure 3: Two-stage training pipeline of our proposed approach. In the first stage, an encoder maps a history of past states into a latent representation, and a predictor propagates this latent forward in time conditioned on a sequence of control actions; in the second stage, a physics-inspired prober is trained on frozen latent embeddings to map them to physically grounded states. to a standard Gaussian. We sample M random unit vectors, where the directions are sampled uniformly on the hypersphere, 
+
+{ξm}Mm=1 ⊂ SD−1 and project the latent tensor along each direction h(m) = Sξm ∈ RT ×B . For each projection, we evaluate the univariate Epps–Pulley test statistic, measuring the distribution mismatch. Let 
+
+ϕN (t; h(m)) = 1
+
+B
+
+> B
+
+X
+
+> b=1
+
+eith (m) 
+
+> b
+
+, (10) denote the empirical characteristic function of the projected samples, and let ϕ0(t) denote the characteristic function of the standard Gaussian N (0 , 1) . The projected discrepancy is 
+
+T (m) =
+
+Z ∞−∞ 
+
+w(t) ϕB (t; h(m)) − ϕ0(t) 2
+
+dt, (11) where w(t) is a weighting function, typically chosen as a Gaussian kernel. The SIGReg penalty is then 
+
+LSIGReg = 1
+
+M
+
+> M
+
+X
+
+> m=1
+
+T (m). (12) By the Cram ´er–Wold theorem, matching all one-dimensional marginals is equivalent to matching the full joint distribution. Therefore, minimizing these projected discrepancies encourages the latent distribution to approach an isotropic Gaussian. In practice, the integral in T (m) is evaluated numerically using quadrature, following [49]. We average this SIGReg penalty across the temporal dimension. The final objective combines multi-step prediction consistency with SIGReg regularization 
+
+Ltotal = Lpred + λsig LSIGReg . (13) Here, λsig controls the strength of the anti-collapse regulariza-tion relative to the prediction objective. The SIGReg component introduces only two practical hyperparameters, M and λsig ,with λsig being the main parameter to tune. Following [49], we also find that performance is not highly sensitive to the number of random projections M . This is in contrast to many self-supervised representation learning objectives that require balancing several regularization terms [38], [50], stop-gradient [51] design choices, exponential moving averages, or reconstruction weights. 
+
+C. Physics-Inspired Probing Mechanism 
+
+For model-based control, latent predictions must be converted into physically meaningful quantities. This is necessary for evaluating tracking costs, enforcing state constraints, and respecting actuator limits. However, the JEPA-style dynamics model predicts future evolution in an abstract representation space. We therefore introduce a physics-inspired probing mechanism that maps latent rollouts to interpretable state trajectories through a differentiable kinematic model. After training the latent dynamics model with eq. (13), we perform a second training stage for metric-state recovery. During this stage, the encoders and predictor (Enc θ , Enc ϕ, Pred φ),are frozen and only the probing network is optimized. This separation prevents the supervised state-recovery objective from altering the learned latent dynamics, while allowing the prober to learn a physically grounded map from frozen latent rollouts to metric state trajectories. Given the predicted latent sequence {˜st+1 , . . . , ˜st+T },the current estimated state xt, and the control sequence 
+
+{at, . . . , at+T −1} used for latent rollout which in our specific case will be generated using the optimal control procedure presented in Section IV-D . The probing network ψ predicts residual correction terms 
+
+{∆ ˙vt+k, Kt+k} = ψ(˜ st+k). (14) Here, ∆ ˙vt+k ∈ R3 represents a residual translational ac-celeration, Kt+k ∈ R3×4 parameterizes residual angular acceleration, and k is the unroll index. The control input is the individual rotor forces as mentioned in Section III. The predicted state trajectory is obtained by integrating a residual-corrected kinematic model. At each step, the translational acceleration is given by the nominal thrust-induced acceleration plus the learned residual 
+
+˙vt =
+
+P3 
+
+> i=0
+
+fi,t 
+
+m Rte3 − g + ∆ ˙vt,
+
+∆τt = Ktat.
+
+(15) Here, e3 = [0 0 1] ⊤, and ∆τt+k denotes the latent-conditioned 6
+
+residual angular acceleration. The state is then propagated using 
+
+pt+1 = pt + vt∆t, 
+
+vt+1 = vt + ˙vt∆t, 
+
+Rt+1 = Rt exp([ ωt]×∆t) ,
+
+ωt+1 = ωt + ∆ τt∆t. 
+
+(16) This compact integrator preserves the geometric structure of the attitude dynamics through the SO(3) exponential map, while allowing the latent representation to correct for unmodeled translational and rotational dynamics effects. During prober training, a stop-gradient operation is applied to the predicted latent embeddings before they are passed to ψ.This prevents the supervised state-recovery loss from modifying the learned latent dynamics. Let ˜xt+k denote the state obtained by integrating eq. (16) . The probing network is optimized using the supervised rollout loss. 
+
+Lprober = 1
+
+T
+
+> T
+
+X
+
+> k=1
+
+∥˜xt+k − xt+k∥22. (17) By combining frozen latent predictions with a structured differentiable integrator, the probing mechanism converts abstract representations into physically meaningful rollouts suitable for control. 
+
+D. Sampling-Based Control with Learned Dynamics 
+
+We consider the problem of tracking a reference trajectory over a finite horizon T . At each control timestep t, given the current estimated state history Xt and action history At, the objective is to compute a sequence of future control inputs 
+
+{at, . . . , at+T −1} that minimizes a trajectory tracking cost with respect to desired reference states {xref 
+
+> t+1
+
+, . . . , xref  
+
+> t+T
+
+}.We integrate our learned dynamics model within a sampling-based optimization framework, MPPI, where future action sequences are optimized using Monte Carlo sampling. 
+
+Action Sampling . Let the current nominal action sequence be anom = {anom 0 , . . . , anom  
+
+> T−1
+
+}. We generate S candidate sequences by perturbing it 
+
+a(s) 
+
+> k
+
+= anom  
+
+> k
+
++ ϵ(s) 
+
+> k
+
+, ϵ(s) 
+
+> k
+
+∼ N (0 , Σ), (18) for s = 1 , . . . , S and k = 0 , . . . , T − 1, with covariance matrix 
+
+Σ. The admissible action set is defined element-wise as 
+
+A = a ∈ R4 amin ≤ a ≤ amax , (19) where amin and amax denote lower and upper limits. Each sampled action is projected onto A via element-wise clamping 
+
+a(s) 
+
+> k
+
+← ΠA
+
+
+
+a(s)
+
+> k
+
+
+
+, (20) where ΠA(·) denotes element-wise clamping. 
+
+Latent Rollout and State Prediction . For each sampled action sequence, we append these actions to the action history previously executed to construct the updated action sequence 
+
+{a(s) 
+
+> t−H
+
+, . . . , a(s) 
+
+> t
+
+, . . . , a(s) 
+
+> t+T−1
+
+}. The context states and actions are encoded using Enc θ and Enc ϕ, respectively. For each rollout sample s, the latent dynamics are recursively unrolled using Pred φ. The predicted latent sequence {˜s(s)
+
+> t+1
+
+, . . . , ˜s(s) 
+
+> t+T
+
+}
+
+is mapped to physically grounded states via the probing mechanism, eqs. (14)–(16), yielding predicted physical states 
+
+{˜x(s)
+
+> t+1
+
+, . . . , ˜x(s) 
+
+> t+T
+
+}.
+
+Trajectory Cost . Each sampled trajectory is evaluated using a running cost of the form 
+
+J (s) = 1
+
+T
+
+> T
+
+X
+
+> k=1
+
+ℓ
+
+
+
+˜x(s)
+
+> t+k
+
+, xref 
+
+> t+k
+
+, a(s)
+
+> t+k−1
+
+
+
+, (21) where the per-step cost consists of weighted quadratic tracking errors and control effort: 
+
+ℓ(.) = ∥˜x(s) − xref ∥2 
+
+> Qx
+
++ ∥a(s) − aref ∥2 
+
+> Qa
+
+, (22) where Qx and Qa are constant positive diagonal weight matrices for state and control, respectively. 
+
+Softmax Weighting and Control Update . Following the MPPI formulation [4], we compute importance weights 
+
+w(s) = exp  − 1 
+
+> λ
+
+(J (s) − J min )PSr=1 exp  − 1 
+
+> λ
+
+(J (r) − J min ) , (23) where Jmin = min s J (s) and λ > 0 is the temperature parameter. The nominal sequence is then updated as 
+
+anom  
+
+> k
+
+← anom  
+
+> k
+
++
+
+> S
+
+X
+
+> s=1
+
+w(s) δa(s) 
+
+> k
+
+, δa(s) 
+
+> k
+
+= a(s) 
+
+> k
+
+− anom  
+
+> k
+
+.
+
+(24) Only the first action anom 0 is executed, and the procedure is repeated in a receding-horizon fashion. 
+
+E. Automated Data Synthesis 
+
+The performance of a learned dynamics model is strongly determined by the data distribution used for training. In our case, we show a princpled procedure to synthetize data in simuation to effectively learn zero-shot sim2real transfer. A useful dataset should satisfy three requirements. First, it should be diverse to properly represent the overall flight envelope: the trajectories must cover a broad range of positions, velocities, accelerations, attitudes, angular velocities, and control inputs. Second, it should be dynamically feasible : the recorded transitions should arise from closed-loop execution of physically valid quadrotor dynamics, rather than from arbitrary state sampling. Third, it should be robust : the data should include variations in physical parameters so that the learned model does not overfit to a single nominal platform. 
+
+Reference Trajectory Generation . The first step in our data collection pipeline is to generate reference trajectories that excite diverse regions of the quadrotor state space. Manually designed trajectories, such as circles, figure-eights, or straight-line paths, cover only a narrow set of flight behaviors. They can also bias the learned model toward a small number of hand-selected motion patterns. To avoid this, we use Gaussian processes to automatically generate randomized, smooth, and diverse reference trajectories. For each trajectory, we sample the desired position independently along each spatial axis from a Gaussian process prior. A Gaussian process, denoted by 7
+
+GP (0 , k j ), defines a distribution over smooth functions with zero mean and covariance kernel kj (t, t ′). We write this as, 
+
+pj (t) ∼ GP (0 , k j (t, t ′)) , j ∈ { x, y, z }. (25) Each kernel is chosen as a sum of periodic kernels with different characteristic length scales and periods. This allows the sampled trajectories to contain both slow global motion and faster local variations. The generated references induce a broad range of velocities, accelerations, attitudes, and angular velocities during tracking. We compute the corresponding velocity and acceleration references by differentiation, and then use differential flatness [52] to obtain the full quadrotor reference. The resulting reference trajectories are randomized, smooth, and dynamically rich. They provide a systematic alternative to manually specified trajectory families and form the basis for collecting diverse state–action rollouts in simulation. 
+
+Closed-Loop Trajectory Tracking . The generated refer-ences are not used directly as training data. Instead, each reference is tracked in simulation to produce physically feasible state–action trajectories. At each time step, a tracking controller computes the action from the current state and a local refer-ence horizon xref  
+
+> t:t+T
+
+, at = πtrack 
+
+ xt, xref 
+
+> t:t+T
+
+ , where πtrack 
+
+is implemented using a combination of nominal Nonlinear Model Predictive Control (NMPC) and Model Predictive Path Integral (MPPI) [4]. The two controllers expose the dataset to complementary action distributions. NMPC generates smooth, optimized tracking commands around the nominal dynamics, while MPPI produces sampling-based action sequences with broader local variation. This diversity is important for learning a dynamics model that remains accurate under the control inputs encountered during real-time sampling-based optimization. At the same time, collecting data through closed-loop controllers ensures that the recorded trajectories respect actuator limits, dynamic feasibility, and realistic state–action correlations, unlike independent random sampling of states and controls. 
+
+Domain-Randomized Quadrotor Simulation . Data col-lection is performed in simulation using standard quadrotor rigid-body dynamics [53], with aerodynamic drag and first-order motor delay included. To improve robustness and sim-to-real transfer, we do not generate data from a single nominal simulator. Instead, each rollout is collected from a randomized quadrotor model using a similar ancestral sampling approach described in [54]. This sampling approach ensures that the parameter distribution is physical plausible. This allows the dataset to reflect not only the nominal platform, but also nearby systems that may arise from modeling errors, hardware variation, or changes in operating conditions. We define the simulator parameter set as 
+
+η = {m, D, J, α, k f , k τ , l } , (26) where m is the mass, D is the drag matrix, J is the inertia matrix, α is the motor time constant, kf and kτ are the thrust and torque coefficients, and l is the arm length. These parameters capture the main sources of mismatch between simulation and the real platform, including payload changes, actuator variation, and inertial differences. For each rollout r,we sample a randomized parameter set ηr from a bounded uniform distribution around the nominal parameter set ¯ηηr ∼ U ( ¯ η − ∆η, ¯η + ∆ η) , (27) where ∆η defines the randomization range for each parameter. Each generated reference trajectory is therefore tracked under a different plausible realization of the quadrotor dynamics. This exposes the learned model to a family of systems rather than a single nominal model. Consequently, the learned representation is encouraged to capture dynamics that remain consistent across variations in mass, drag, actuation, and inertial properties. V. I MPLEMENTATION DETAILS 
+
+A. Platform Setup 
+
+Our experiments are conducted on a 1.3-kg quadrotor with a thrust-to-weight ratio of 4:1 . The platform uses an NVIDIA Orin NX for onboard computation and a Pixracer Pro flight controller running PX4 [55] for low-level control, with the full software stack integrated through ROS2. A laptop ground station is used only to issue high-level commands such as takeoff, landing, and reference trajectory upload. State estimation is obtained from onboard GPS-based localization, and the we send collective thrust and body-rate commands to the low-level flight controller. We conducted closed-loop real-world evaluation (see Figure 4) under 3 trajectory tracking settings: (a) nominal trajectory tracking, (b) payload variation, and (c) propeller switching. All tests are conducted in a larger outdoor flying space 60 × 70 m2.
+
+B. Dataset Generation 
+
+To promote sim-to-real transfer, we construct the training dataset through automated trajectory generation and large-scale domain randomization in simulation. For each rollout, the quadrotor parameters are sampled independently from uniform distributions around the nominal platform values, as summarized in Table I. We sample 500 distinct domains, producing a diverse ensemble of dynamic models that span variations in inertial properties, actuation, motor response, and aerodynamic drag according to the procedure presented in Section IV-E . For each domain, we generate smooth randomized reference trajectories using Gaussian processes [56]. The desired position is sampled independently along the x, y,and z axes using sums of exponential sine-squared periodic kernels (see eq. (25)). Each axis uses three periodic components: the first has length scale 1.3, while the remaining two have length scales 3.0 and 4.0; the periodicities are chosen differently across axes to avoid repetitive motion patterns. Specifically, the x axis uses periodicities 37 , 61 , and 13 , the y axis uses 
+
+17 , 23 , and 52 , and the z axis uses 19 , 29 , and 53 . This multi-frequency GP sampling produces trajectories with both slow global motion and faster local variations, which helps excite a broad range of translational and rotational behaviors and properly explore the flight envelope. We generate 20 ,000 
+
+reference trajectories of 10 s duration, track them in simulation, and record the complete state–action time series. Finally, all trajectories are resampled using cubic splines at a discrete time step of 0.05 s, corresponding to 20 Hz, to match the temporal resolution used for multi-step dynamics learning and control. 8
+
+Figure 4: Closed-loop real-world evaluation settings under trajectory tracking. We test the proposed framework under three scenarios: (a) nominal trajectory tracking, (b) payload variation, and (c) propeller switching. Table I: Domain randomization parameters used for simulation data collection.                          
+
+> Parameter Randomization
+> Mass m(kg) ±50% nominal Inertia J(kg m 2)±30% nominal Motor time constant α(s) [0 .01 ,0.1]
+> Drag coefficients D[0 .1,0.5]
+> Thrust coefficient kf±50% nominal Torque coefficient km±50% nominal No. of domains 500 Total trajectories 20000 Trajectory duration (s) 10
+
+The resulting dataset is split into 80% for training, 10% for validation, and 10% for testing. 
+
+C. Network Architecture and Training 
+
+Both Enc θ and Enc ϕ are implemented as Temporal Con-volutional Networks (TCNs) [57] with channel sizes [8 , 8, 16] 
+
+and [4 , 4, 8] , respectively. Latent dynamics are modeled using a single-layer GRU predictor [58] with hidden dimension 24 and trained via recursive unrolling over T = 20 (1.0 s at 20 Hz) steps. The history length is set to H = 10 timesteps ( 0.5 s at 
+
+20 Hz). Training is performed for 50 epochs with batch size 
+
+2048 . We employ a SigReg objective with 17 spline knots and regularization coefficient λsigreg = 0 .02 . Optimization uses Adam with weight decay 10 −5 and gradient clipping at 0.5.The learning rate follows a linear warmup schedule from 0
+
+to 5 × 10 −3 over 4,000 steps, followed by cosine decay to 
+
+1 × 10 −4 over 20 ,000 steps. 
+
+D. MPPI Controller Parameters 
+
+The controller parameters of the proposed framework are summarized in Table II. To ensure real-time performance, the MPPI controller is implemented entirely in C++. The learned Table II: MPPI Parameters                         
+
+> Parameter Value
+> Prediction timestep ∆t0.05 s Horizon T15 Number of samples S512 Temperature λ10 −4
+> Action noise Σdiag(0 .60 ,0.15 ,0.15 ,0.05)
+> State cost Qdiag(400 ,40 ,20 ,20)
+> Control cost Rdiag(0 .01 ,0.05 ,0.05 ,0.10)
+
+PyTorch latent dynamics model is exported and optimized using NVIDIA TensorRT for accelerated inference on the NVIDIA Jetson Orin NX. This enables high-frequency rollout evaluation and closed-loop control on embedded hardware. We analyze the runtime performance of the proposed approach on an NVIDIA Jetson Orin, with all computation executed fully on-board. Figure 5 reports the end-to-end control time as a function of rollout horizon U and sample count S,where each timing includes repeated queries to the learned latent dynamics model within MPPI. Since 100 Hz is the minimum rate required for real-time onboard control, the 10 
+
+ms line defines the feasible operating boundary. As expected, runtime increases with both U and S, reflecting the higher cost of evaluating more candidate trajectories over longer horizons. The results show that U = 20 and S = 512 lies near this boundary, making it an effective operating point that maximizes controller lookahead and sample diversity while remaining close to the real-time budget. This trade-off is enabled by the lightweight latent dynamics model described in Section V-C ,which contains only about 9K parameters and allows the entire framework to run fully on-board on embedded hardware. VI. E XPERIMENTS 
+
+We evaluate the proposed world model along two com-plementary axes: (i) offline open-loop prediction, to measure predictive accuracy and long-horizon consistency, and (ii) real 95 10 15 20 25 30 Unroll length    
+
+> 6
+> 7
+> 8
+> 9
+> 10 Inference time [ms]  Real-time S=128 S=256 S=320 S=512
+
+Figure 5: Inference speed on NVIDIA Orin NX. Inference time increases with unroll length and number of MPPI rollouts 
+
+S; the selected horizon is chosen to remain below the 10 ms real-time control budget. time onboard closed-loop control on embedded hardware, to assess deployment performance under real-world conditions. Our experimental study is designed to answer the following questions: 1) Latent Dynamics Modeling: Does modeling dynamics in a latent space yield more informative and control-relevant representations than direct autoregressive prediction in state space? 2) Physics Interpretability: Does embedding kinematic structure enable latent rollouts to retain enough infor-mation for accurate recovery of metric-state trajectories in open loop? 3) Zero-Shot Sim-to-Real Transfer: Can a model trained entirely on domain-randomized simulation data transfer to real-world quadrotor navigation without any task-specific fine-tuning? 4) Robustness: Does the proposed framework remain effec-tive under changes in platform geometry, such as payload attachment or propeller replacement? 5) Data Quality: How does the quality of the training data distribution affect the predictive accuracy of learned quadrotor dynamics? 
+
+A. Latent Dynamics Modeling 
+
+Compounding Error Analysis . We first evaluate whether latent-space dynamics modeling is less susceptible to recursive error accumulation than direct autoregressive prediction in state space. To this end, we use two complementary metrics: the 
+
+compounding ratio (CR) and error rate (ER). The CR compares recursive open-loop rollout against teacher-forced prediction considering the same horizon. Let ex
+
+> k, TF
+
+denote the teacher-forced error, where the model is conditioned on the true past states from the dataset, and let ex 
+
+> k, rollout
+
+denote the open-loop rollout error, where the model is conditioned on its own past predictions. Let as previously defined the state prediction error at time step k as the root-mean-square error between the predicted state ˜xk and the ground-truth state xk
+
+ex 
+
+> k
+
+=
+
+r 1
+
+Ds
+
+∥˜xk − xk∥22, (28) where Ds denotes the dimensionality of the state vector. We then define the compounding ratio as 
+
+CR k = ex
+
+> k, rollout
+
+ex
+
+> k, TF
+
+. (29) This ratio isolates the excess error caused by recursive predic-tion. Values near 1 indicate that open-loop rollout remains close to teacher-forced performance, while larger values indicate stronger compounding effects. Values below 1 indicate that the rollout error is lower than the teacher-forced error at that horizon. This suggests that the model’s own predicted trajectory is locally easier to predict than the ground-truth trajectory, or that teacher-forced inputs introduce larger local inconsistencies. The second metric is defined as error growth, the expected increase in error between consecutive recursive predictions 
+
+ER k = E ex 
+
+> k
+
+− ex
+
+> k−1
+
+ . (30) This metric measures the amount of new error introduced at each rollout step. Lower values indicate slower error accumulation and better long-horizon stability. As shown in Fig. 6 on the left, our method has a higher CR than the predictive baseline for the first few rollout steps, particularly for k < 10 . This does not imply that the predictive baseline is better in this regime. At short horizons, both teacher-forced and recursive errors are small, so the ratio can be sensitive to small differences in the denominator of eq. (29). Moreover, values below 1 indicate that recursive rollout error is still lower than teacher-forced error at that horizon. Therefore, the early-horizon behavior mainly reflects local differences between teacher-forced and rollout trajectories, rather than meaningful long-horizon compounding. The long-horizon trend is more informative. The predictive baseline crosses CR k = 1 around 
+
+k ≈ 12 and then grows rapidly, reaching approximately 2.4 by 
+
+k = 60 . This indicates that its recursive rollout error becomes more than twice as large as its teacher-forced error. In contrast, our method remains close to 1 for a much longer portion of the horizon and increases more gradually, reaching only about 
+
+1.4 at k = 60 . This shows that the latent-space model remains closer to its teacher-forced behavior under open-loop rollout. The error growth plot in Fig. 6 on the right confirms this interpretation. The predictive baseline introduces larger new error at nearly every rollout step. Around k ≈ 30 , its error growth is approximately 0.14 , while ours is around 0.06 . By the end of the horizon, the predictive baseline reaches about 0.23 ,whereas our method remains near 0.11 . Therefore, our method not only has a lower long-horizon compounding ratio, but also injects less new error at each recursive step. These results show that latent-space dynamics modeling substantially mitigates recursive error accumulation compared to direct autoregressive prediction in state space.             
+
+> Takeaway: Latent-space dynamics modeling reduces compounding error and has a much smaller gap between teacher-forced and recursive rollout predictions. 10 10 20 30 40 50 60 Unroll Length
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5Compounding Ratio
+> 10 20 30 40 50 60 Unroll Length
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20 Error Rate
+> Pred. Ours
+
+Figure 6: Recursive rollout error analysis. The compounding ratio (left) compares open-loop prediction to teacher-forced prediction; values above 1 indicate error accumulation caused by recursion. The error growth rate (right) measures the additional pose error introduced at each rollout step. Our method stays closer to teacher-forced behavior and has lower error growth than the predictive baseline, showing that latent-space dynamics modeling mitigates long-horizon compounding error. −20 0 20 x [m]        
+
+> −20
+> 0
+> 20 y [m]
+> −10 −505PC1
+> −5
+> 0
+> 5PC2
+> Pred. Recon. Ours
+> −101Smoothness
+> Pred. Recon. Ours
+> (a) Trajectory (b) Latent trajectory (c) Temporal straightening
+
+Figure 7: Temporal straightening analysis of latent rollouts. (a) Example Cartesian trajectory, with shading indicating progression from earlier to later states. (b) PCA projection of the corresponding latent trajectories, showing how each model evolves in representation space over time. (c) Temporal straightening score; higher values indicate smoother and more directionally consistent latent evolution. Temporally straighter latent trajectories suggest that complex system dynamics are represented in a simpler geometry, making recursive prediction easier and reducing directional drift during rollout. 
+
+Temporal Straightening . We further analyze the geom-etry of the learned rollouts through the lens of temporal straightening , motivated by the hypothesis in [59], [60] that complex temporal dynamics can be represented as smoother, straighter trajectories in representation space. The intuition is that a NN model becomes easier to roll out when its internal representation space evolves in a consistent temporal direction: if consecutive latent displacements are well aligned, the trajec-tory unfolds smoothly over time and future states are easier to extrapolate recursively. In contrast, if the representation repeatedly bends, oscillates, or backtracks, then small local prediction errors can more easily deflect the rollout away from the true temporal progression. Following this idea, we evaluate temporal straightening over N trajectories. For the i-th trajectory, let the sequence of predicted latent representations be ˜s(i)1: T ∈ RT × ¯D , and define the temporal velocity vectors as 
+
+˙˜s(i) 
+
+> t
+
+= ˜ s(i) 
+
+> t+1
+
+− ˜s(i) 
+
+> t
+
+. The smoothness score for a single trajectory is computed as the mean pairwise cosine similarity between consecutive latent velocities 
+
+S(i) 
+
+> straight
+
+= 1
+
+T − 2 
+
+> T−2
+
+X
+
+> t=1
+
+D ˙˜s(i) 
+
+> t
+
+, ˙˜s(i)
+
+> t+1
+
+E
+
+∥ ˙˜s(i) 
+
+> t
+
+∥ ∥ ˙˜s(i)
+
+> t+1
+
+∥ .
+
+We then report the mean and variance across the N evaluated trajectories. A value close to 1 is ideal, since it indicates that successive latent displacements are highly aligned and the rollout follows a smooth, nearly straight path. Values near 
+
+0 indicate weak alignment and a more curved or wandering trajectory, while negative values indicate strong directional inconsistency, such as oscillation or backtracking. Figure 7 shows a clear separation between direct predictive modeling and the two latent-space approaches. Averaged over the 
+
+N evaluated trajectories, the predictive baseline attains a negative mean straightening score of roughly −0.4, with a large spread extending from about −1.0 to 0.2, indicating that its rollouts often change direction and evolve along a temporally inconsistent path. In contrast, both latent models remain strongly in the positive regime: the reconstruction-based latent model achieves the highest mean score, around 0.95 ,11 20 40 60         
+
+> Unroll Length
+> 0
+> 5
+> 10
+> 15
+> 20
+> 25
+> Position RMSE [m]
+> 20 40 60
+> Unroll Length
+> 0
+> 5
+> 10
+> 15
+> Velocity RMSE [m/s]
+> 20 40 60
+> Unroll Length
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> 120
+> Attitude RMSE [deg]
+> Ours + PI Prober Ours + Prober Recon + PI Prober Recon + Prober Predictive
+
+Figure 8: Open-loop rollout fidelity across dynamics models. Position, velocity, and attitude RMSE are shown versus unroll length, where lower error indicates more accurate long-horizon prediction. Direct predictive models accumulate error rapidly, especially in attitude, while latent dynamics models grow more slowly. The proposed physics-inspired prober substantially improves metric-state recovery, showing that structured physical decoding is critical for accurate state prediction. while our JEPA-based model attains a mean of about 0.75 .Thus, despite their different training objectives, both latent models produce substantially smoother and straighter temporal evolution than the predictive baseline. This suggests that an important emergent property of latent dynamics learning is temporal smoothness in representation space, which makes recursive rollouts easier to maintain over long horizons. In our setting, this result helps explain why both latent approaches outperform direct predictive modeling: by organizing tempo-ral evolution into smoother latent trajectories, they reduce directional drift under recursive rollout and are therefore less susceptible to compounding error. While the reconstruction model achieves the highest straightening score, our model remains strongly positive and, when interpreted together with the rollout-error results, indicates that latent-space modeling itself is a key ingredient for learning temporal representations.  
+
+> Takeaway: Both latent models learn temporally smoother latent tra-jectories than direct predictive modeling, suggesting that temporal smoothness is an important emergent property.
+
+Robustness to Noise . We next evaluate whether the learned dynamics remain reliable under corrupted sensing. To simulate observation noise, we perturb the input observation history with i.i.d. Gaussian noise before passing it to the proposed framework. The corruption is applied only to the model input. The reference ground-truth trajectory remains unchanged for evaluation. We then recursively unroll each model over the prediction horizon and compute the pose RMSE between the predicted trajectory, obtained through the latent dynamics model and physics-inspired prober, and the ground-truth trajectory. Figure 9 shows that our method remains consistently more robust than the predictive baseline as the observation noise increases. At zero noise, our method reduces the median state RMSE by approximately 55% compared to the predictive baseline. As the noise level increases, this advantage remains clear. At moderate noise levels, our method achieves roughly a 
+
+25 –30% reduction in median state RMSE. Even at the highest noise level, where both methods degrade, our method still 0.00 0.05 0.10 0.15 0.20 0.25 0.30 Noise level  
+
+> 0
+> 4
+> 8
+> 12
+> 16
+> ex
+> Pred. Ours
+
+Figure 9: Robustness to observation corruption. Pose RMSE under increasing i.i.d. Gaussian observation noise, showing that the JEPA model consistently outperforms the predictive baseline and remains more robust as corruption increases. maintains a lower median error, with an improvement of about 10% over the predictive baseline. The distributional trend is also important. The predictive baseline exhibits wider error distributions and heavier upper tails as noise increases, indicating more frequent high-error rollouts. In contrast, our method produces more concentrated distributions across noise levels. This suggests that the latent dynamics model, together with the physics-inspired prober, is less sensitive to input-level perturbations and yields more consistent long-horizon predictions under sensing corruption.  
+
+> Takeaway: Our JEPA-style approach remains more accurate under input corruption, indicating stronger robustness to corrupted inputs.
+
+B. Physics Interpretability 
+
+Baselines . To evaluate whether injecting physical structure improves the open-loop fidelity of mapping latent rollouts to metric state space, we compare six baselines. Predictive 
+
+is a direct autoregressive state-space predictor. Predictive + Physics Reg. augments this baseline with kinematic physics regularization loss during training. Recon + Prober is a latent 12 
+
+Table III: Open loop prediction analysis of different neural dynamics frameworks.                                
+
+> Approach Pos. RMSE [m] ↓Att. Err. [ ◦]↓
+> Mean Var. Mean Var.
+> Predictive 8.80 2.353 .414 .9
+> Predictive + Physics Reg. [8] 7.12 2.149 .113 .2
+> Reconstruction + Prober 6.82 1.645 .29.7
+> Reconstruction + PI Prober 1.53 0.13 5.28 0.70
+> Ours + Prober 5.56 1.31 40 .20 9.30
+> Ours + PI Prober 1.43 0.10 4.71 0.50
+
+dynamics model in which the embeddings are trained through a reconstruction: collapse is avoided by forcing the predicted embeddings to decode back the full recorded metric state and the prober is a 3-layed MLP. Recon + PI Prober replaces the unconstrained prober in this model with the proposed physics-inspired probing mechanism. Ours + Prober is our JEPA-based latent dynamics model with a 3-layered MLP prober. Finally, 
+
+Ours + PI Prober is the full method, combining JEPA latent dynamics with the proposed physics-inspired prober. Together, these baselines isolate three design choices: direct predictive versus latent-space dynamics modeling, reconstruction-based versus JEPA-based embedding learning, and unconstrained versus physics-grounded state. To evaluate the prediction accuracy of each baseline, we decompose the state error into position and attitude components. Let ˜pk, pk ∈ R3 denote the predicted and ground-truth positions at time step k, respectively, and let ˜Rk, Rk ∈ SO (3) 
+
+denote the corresponding predicted and ground-truth rotation matrices. The position error is defined as 
+
+ep 
+
+> k
+
+= ∥˜pk − pk∥2 . (31) The attitude error is computed using the relative rotation between the ground-truth and predicted orientations: 
+
+Rerr ,k = R⊤ 
+
+> k
+
+˜Rk. (32) We map this relative rotation to the Lie algebra so (3) using the logarithmic map: 
+
+ϕk = Log SO (3) 
+
+
+
+R⊤ 
+
+> k
+
+˜Rk
+
+∨
+
+∈ R3, (33) where (·)∨ converts a skew-symmetric matrix in so (3) to its corresponding vector representation. The scalar attitude error is then given in degrees as 
+
+eR 
+
+> k
+
+= 180 
+
+π ∥ϕk∥2 . (34) 
+
+Physics Structure in NN Design . Figure 8 and Table III first reveal a clear advantage of latent dynamics models over direct autoregressive prediction. The weakest performance is obtained by the predictive baseline, which reaches 8.80 mmean position RMSE and 53 .4◦ mean attitude error, with large rollout variance ( 2.3 m and 14 .9◦ respectively). Adding kinematic physics regularization improves this baseline only modestly, reducing the mean position RMSE to 7.12 m and the mean attitude error to 49 .1◦, corresponding to relative improvements of only 19% and 8% . This indicates that physics-inspired penalties help, but are insufficient to overcome the underlying instability of autoregressive prediction. In contrast, the latent baselines without PI probing already perform better: 
+
+Recon + Prober achieves 6.82 m position RMSE and 45 .2◦
+
+attitude error, while Ours + Prober improves further to 5.56 mand 40 .2◦. Relative to the predictive baseline, this corresponds to reductions of 22 .5% and 33 .8% in position error, and 15 .4% 
+
+and 24 .7% in attitude error, for Recon + Prober and Ours + Prober , respectively. Qualitatively, the rollout curves in Fig. 8 show the same trend: the predictive variants exhibit rapidly growing position, velocity, and especially attitude error, whereas the latent methods remain consistently lower across the horizon. These results suggest that latent dynamics modeling is already a better design choice than direct autoregressive prediction, and that simply adding physics regularization to a predictive model is not enough. 
+
+Training Objective . We next compare the two latent learning paradigms and the effect of injecting kinematic structure into state recovery. Without PI probing, Ours + Prober outperforms 
+
+Recon + Prober , reducing mean position RMSE from 6.82 to 
+
+5.56 m and mean attitude error from 45 .2◦ to 40 .2◦. This shows that JEPA-style latent training produces a stronger predictive representation than reconstruction-based training, where embeddings are optimized to reconstruct the recorded state and avoid collapse through decoder supervision. However, the largest gains appear only after introducing the PI Prober. For the reconstruction model, replacing the generic prober with the PI Prober reduces position RMSE from 6.82 to 1.53 
+
+m and attitude error from 45 .2◦ to 5.28 ◦, corresponding to roughly 4.5× and 8.6× improvements. For our JEPA model, the same replacement reduces position RMSE from 5.56 to 
+
+1.43 m and attitude error from 40 .2◦ to 4.71 ◦, i.e., about 
+
+3.9× and 8.5× improvements. Variance is reduced just as sharply, dropping from 1.31 to 0.10 in position and from 
+
+9.30 ◦ to 0.50 ◦ in attitude for the JEPA model. The qualitative rollout curves (see Figure 8) reinforce the same trend. This suggests that the proposed kinematic structure makes the state-recovery problem substantially easier: instead of learning metric dynamics entirely from scratch through a flexible decoder, the model only needs to predict structured corrections on top of a parameter-free prior. The PI Prober is not learning the full dynamics end-to-end. It rather learns the missing dynamics needed to complement the imposed kinematic structure and recover the full system evolution. Importantly, in our setup this structure can be imposed without requiring nominal parameter estimation. Overall, these results show that JEPA provides the stronger dynamics model, while the PI Prober is the key mechanism that converts embeddings into accurate and stable metric-state trajectories for control.  
+
+> Takeaway: Embedding kinematic structure enables high-fidelity metric-state recovery, showing that the latent rollouts retain sufficient information to reconstruct the full dynamics.
+
+C. Zero-Shot Sim-to-Real Transfer 
+
+We now evaluate how far the proposed framework performs when trained entirely on domain-randomized simulation data, 13 
+
+Table IV: Quantitative results of real-world trajectory tracking across reference trajectories. Each trajectory is executed 5 times. The mean and variance are reported.                                                                                                          
+
+> Trajectory ∥v∥max ∥˙v∥max Position RMSE [m] Attitude Error [ ◦]
+> [m s −1][m s −2]Ours MPPI (Pred.+Phy.) MPPI (Pred.) Ours MPPI (Pred.+Phy.) MPPI (Pred.) Mean Var. Mean Var. Mean Var. Mean Var. Mean Var. Mean Var.
+> Circle 2.45 1.40 0.24 0.010 0.36 0.022 0.39 0.024 7.87 0.82 10 .99 3.66 11 .95 3.81
+> Oval 4.50 3.78 0.33 0.018 0.44 0.083 0.48 0.096 9.11 1.06 15 .20 5.46 16 .53 5.68
+> Figure 8 5.20 5.44 0.35 0.022 0.47 0.041 0.51 0.044 9.25 1.18 17 .75 5.88 20 .20 6.10
+> Fish 5.70 7.68 0.40 0.031 0.54 0.056 0.59 0.061 10 .78 1.42 20 .95 6.85 22 .78 7.19
+> Lemniscate 7.20 12 .50.45 0.047 0.56 0.076 0.61 0.083 19 .43 2.65 26 .83 7.51 29 .16 7.90 34567x [m]
+> −1
+> 0
+> 1y [m]
+> 10 12 14 16 18 x [m]
+> 0
+> 2y [m]
+> 34567x [m]
+> 0
+> 1y [m]
+> 20 40 60 Tracking error [cm] Reference
+
+Figure 10: Real-world zero-shot trajectory tracking using the proposed controller. The plots show executed flight trajectories overlaid on the desired references. Color indicates tracking error in centimeters, with darker regions corresponding to lower error. The controller closely follows diverse real-world trajectories using a dynamics model trained only in simulation. with no task-specific fine-tuning on real-world trajectories. We compare three controllers in closed loop: Ours , which uses the proposed framework; MPPI (Predictive + Physics Regulariza-tion) , which uses a direct predictive state-space model trained with physics regularization; and MPPI (Predictive) , which uses a standard predictive state-space model without additional physical grounding. These experiments therefore test whether the benefits observed in open-loop prediction translate into real control performance under sim-to-real transfer. Each trajectory is executed 5 times and we report the mean and varience of the tracking performance. Table IV shows a consistent advantage of the proposed method across all reference trajectories. In terms of position tracking, Ours achieves the lowest mean RMSE on every trajectory, reducing the error from 0.39 to 0.24 m on the circle ( ≈ 38% improvement over MPPI (Predictive) ), from 
+
+0.48 to 0.33 m on the oval ( ≈ 31% ), from 0.51 to 0.35 m on the figure-8 ( ≈ 31% ), from 0.59 to 0.40 m on the fish trajectory (≈ 32% ), and from 0.61 to 0.45 m on the lemniscate ( ≈ 26% ). Similar gains are obtained relative to MPPI (Predictive + Physics Regularization) , with position-error reductions ranging from about 20% to 33% . The same trend appears in attitude tracking. Relative to MPPI (Predictive) , our method reduces mean attitude error from 11 .95 ◦ to 7.87 ◦ on the circle ( ≈ 34% ), from 16 .53 ◦ to 9.11 ◦ on the oval ( ≈ 45% ), from 20 .20 ◦ to 
+
+9.25 ◦ on the figure-8 ( ≈ 54% ), from 22 .78 ◦ to 10 .78 ◦ on the fish trajectory ( ≈ 53% ), and from 29 .16 ◦ to 19 .43 ◦ on the lemniscate ( ≈ 33% ). Variance is also consistently lower for our method in both position and attitude, indicating not only better average tracking but also more repeatable closed-loop behavior across trials. The qualitative tracking examples in Fig. 10 illustrate repre-sentative real-world tracking of the proposed method across multiple reference trajectories. These examples show that the controller is able to track diverse closed-loop paths in the real world using a dynamics model trained entirely in simulation, with the color-coded error remaining generally concentrated along the reference trajectory. The quantitative results in Table IV provide the stronger evidence: across all trajectories, our method consistently achieves lower position and attitude errors than both predictive baselines, and this advantage persists as the trajectories become faster and more aggressive. Overall, these results suggest that simulation alone can be sufficient for real-world control when the learned dynamics model is structured appropriately. A likely reason is that the proposed framework combines three complementary ingredients: latent dynamics modeling reduces the compounding effects of direct autoregressive state prediction, domain randomization broadens the training distribution to better capture real-world variability, and the physics-inspired prober grounds latent rollouts in metric state space so that the model remains useful for control. Together, these components enable more reliable zero-shot transfer from simulation to the real platform than purely predictive alternatives. 
+
+D. Robustness 
+
+We finally evaluate whether the proposed framework re-mains effective when the real platform deviates from its nominal training configuration. In particular, we consider two deployment scenarios that alter the vehicle dynamics without any retraining or task-specific adaptation: propeller 14 
+
+Table V: Quantitative results of closed-loop tracking under propeller switching and payload scenarios. All trajectories were executed at an average velocity of 2 ms −1 and executed 5 times. The table reports the mean and variance.                                                                                            
+
+> Scenario Trajectory Position RMSE [m] Attitude Error [ ◦]Ours MPPI (Pred. + Phy.) MPPI (Pred.) Ours MPPI (Pred. + Phy.) MPPI (Pred.) Mean Var. Mean Var. Mean Var. Mean Var. Mean Var. Mean Var. Propeller Switching
+> Circle 0.33 0.02 0.43 0.03 0.45 0.03 9.54 1.04 12 .40 1.35 12 .88 1.40
+> Figure 8 0.35 0.01 0.46 0.01 0.47 0.01 10 .21 0.98 13 .27 1.27 13 .78 1.32
+> Fish 0.39 0.02 0.51 0.03 0.53 0.03 10 .89 0.88 14 .16 1.14 14 .70 1.19
+> Payload Transportation
+> Circle 0.46 0.08 0.60 0.10 0.62 0.11 10 .11 1.43 13 .14 1.86 13 .65 1.93
+> Figure 8 0.49 0.07 0.64 0.09 0.66 0.09 9.44 1.37 12 .27 1.78 12 .74 1.85
+> Fish 0.53 0.08 0.69 0.10 0.72 0.11 11 .87 1.92 15 .43 2.50 16 .02 2.59
+
+5 6 7 8 9 10 x [m] 
+
+0
+
+1
+
+2y [m] 
+
+6 7 8 9 10 11 x [m] 
+
+0
+
+1
+
+2y [m] 
+
+20 40 60 Tracking error [cm] (a) Payload (b) Propeller Switching Reference 
+
+Figure 11: Real-world tracking under platform changes without retraining. (a) Payload transportation modifies the mass and inertial properties of the quadrotor. (b) Propeller switching changes the actuation characteristics. The executed trajectories remain close to the reference paths, with color indicating tracking error in centimeters. These rollouts show that the proposed framework remains effective under non-nominal deployment conditions. 
+
+switching , which changes the actuation characteristics, and 
+
+payload transportation , which modifies the vehicle mass and inertial properties. These scenarios were not covered during data collection. These experiments are significant because such changes are common in real deployments and can induce substantial model mismatch. All trajectories were executed at an average velocity of 2 ms −1 and executed 5 times. We compare the same three closed-loop controllers as before: Ours ,
+
+MPPI (Pred.+Phy.) , and MPPI (Pred.) . The goal is to assess whether latent-space dynamics modeling yields a controller that is more robust to platform variations than direct predictive baselines. Table V shows that our method achieves the best performance across both deployment scenarios. Under propeller switching ,our method consistently attains about 1.3× lower position RMSE than MPPI (Pred.) and about 1.2× lower error than 
+
+MPPI (Pred.+Phy.) across the evaluated trajectories. A similar trend appears in attitude tracking, where our method delivers roughly 1.3× lower error than the predictive baseline and about 1.25 × lower error than the physics-regularized variant. Under payload transportation , with a payload of 300 g the same pattern persists. Our method again achieves approximately 
+
+1.35 × lower position RMSE than MPPI (Pred.) and about 
+
+1.27 × lower error than MPPI (Pred.+Phy.) . Attitude error follows a nearly identical trend, with our method consistently providing about 1.4× lower error than the predictive baseline. Variance is also lower across both position and attitude metrics, indicating not only improved tracking accuracy but also more repeatable behavior under model mismatch. The qualitative examples in Fig. 11 illustrate representative tracking rollouts of our method under both propeller switch-ing and payload attachment. Even under these non-nominal conditions, the controller remains close to the reference path, with tracking error remaining concentrated along the trajectory rather than diverging in curved segments. When interpreted together with the quantitative results, these experiments suggest that the proposed latent dynamics model is more robust than predictive models because it captures a more compact and transferable representation of system evolution, rather than depending directly on precise next-state prediction under a fixed nominal configuration. As a result, when the platform dynamics shift due to changes in actuation or mass properties, the learned latent dynamics appear to degrade more gracefully than direct predictive state-space models. 15  
+
+> Takeaway: A well covered diverse domain-randomized simulation data is sufficient for zero-shot sim2real deployment.
+
+E. Data Quality 
+
+Trajectory Distribution Quality. The performance of a learned dynamics model depends strongly on the distribution of transitions used for training (see Section IV-E ). We therefore introduce a Trajectory Distribution Quality (TDQ) score to quantify whether D provides broad, dynamically informative, and robust coverage for learning the transition map. Since the relevant variables are continuous and high-dimensional, measuring coverage of the state–action space is difficult. Therefore, we discretize each normalized feature space using clustering, which provides an empirical partition of the data distribution into local regions. The occupancy of these regions can then be used to compute an entropy-based measure of distributional spread [61], [62], while the number of occupied regions measures coverage. This clustering-based discretization is similar in spirit to vector quantization and K-means-based density summarization [63], [64]. TDQ measures three properties that directly affect neural dynamics learning: state– action coverage, transition richness, and parameter robustness. Each trajectory in the dataset is obtained using a simulator parameter vector η (see eq. (26)), which specifies the physical parameters of the randomized quadrotor model. For each transition i, we define the augmented state–action feature vector 
+
+yi = v⊤ 
+
+> i
+
+r⊤ 
+
+> x,i
+
+r⊤ 
+
+> y,i
+
+r⊤ 
+
+> z,i
+
+ω⊤ 
+
+> i
+
+a⊤
+
+> i
+
+⊤ , (35) which includes the velocity, attitude, angular velocity, and motor forces. We omit absolute position from yi because the local quadrotor dynamics are primarily governed by velocity, attitude, angular velocity, and control input. To measure the diversity of local transitions, we define 
+
+gi = y⊤ 
+
+> i
+
+∆y⊤
+
+> i
+
+⊤ , ∆yi = yi+1 − yi. (36) The feature yi measures which regions of the state–action space are visited, while gi measures how the system locally evolves from those regions. After normalizing each feature space, we cluster the state– action features yi, transition features gi, and simulator param-eter vectors η using Ky , Kg , and Kη clusters, respectively. For a generic clustered feature space with K clusters, let qk
+
+denote the empirical occupancy probability of cluster k, and let nk denote the number of samples assigned to that cluster. We define the entropy–coverage score 
+
+S = − 1log K
+
+> K
+
+X
+
+> k=1
+
+qk log( qk)
+
+!
+
+1
+
+K
+
+> K
+
+X
+
+> k=1
+
+I[nk ≥ nmin ]
+
+!
+
+,
+
+(37) where the first term is a normalized Shannon entropy that measures how uniformly the data occupies the clustered feature space, and the second term measures the fraction of clusters that are sufficiently represented. The threshold nmin 
+
+prevents isolated or rarely visited regions from being counted as meaningfully covered. Applying eq. (37) to yi, gi, and η
+
+gives the state–action coverage score Scov , transition richness 0.00 0.20 0.40 0.60 0.80 TDQ 
+
+> 2.0
+> 3.0
+> 4.0
+> 5.0
+> ex
+> # of samples 1k 10k 100k 1.0M 1.5M
+
+Figure 12: As dataset size increases, TDQ rises from 0.01 to 
+
+0.94 , while state RMSE ex decreases from 5.4 to 1.4, showing that higher trajectory distribution quality correlates with better learned dynamics prediction. score Sdyn , and parameter robustness score Sη , respectively. The final TDQ score is defined as the harmonic mean 
+
+TDQ( D) = 3 
+
+> 1
+> Scov
+
++ 1 
+
+> Sdyn
+
++ 1
+
+> Sη
+
+. (38) The harmonic mean penalizes datasets that score poorly in any one component, ensuring that a high TDQ value requires broad state–action coverage, diverse local transition behavior, and sufficient coverage of the randomized simulator parameters. To evaluate whether the proposed TDQ score reflects the usefulness of a dataset for dynamics learning, we train the proposed latent dynamics framework using datasets of increasing size and compute the resulting state prediction error ex. For each dataset size, we compute TDQ from the corresponding training distribution and evaluate the trained model on the same held-out test set. Figure 12 shows a clear inverse relationship between TDQ and predictive error: as TDQ increases, the state RMSE ex decreases. With only 1k samples, the dataset has a very low TDQ of approximately 0.01 , and the model produces a large state error of about 5.4. Increasing the dataset to 10k samples improves TDQ to roughly 0.08 , reducing 
+
+ex to about 2.5. With 100k samples, TDQ further increases to approximately 0.25 , and the error decreases to about 1.9,indicating that additional data substantially improves state– action coverage, transition richness, and parameter robustness. Beyond this point, the curve begins to flatten: increasing the dataset size to 1.0M and 1.5M raises TDQ to approximately 
+
+0.91 and 0.94 , respectively, but only reduces ex from about 
+
+1.5 to 1.4. This saturation suggests that the dataset increasingly covers the relevant dynamics manifold, and that further gains are likely limited by model capacity, optimization, or residual dynamics complexity rather than data coverage alone.  
+
+> Takeaway: Higher TDQ leads to lower state prediction error, indicating that broader state–action coverage, richer transitions, and better parameter diversity improve learned dynamics prediction.
+
+VII. D ISCUSSION 
+
+The experimental results demonstrate that the proposed framework satisfies the four key properties of a useful world 16 
+
+model for quadrotor control. First, the model improves long-horizon prediction by reducing recursive error accumulation, as shown by the compounding ratio and error growth analysis in Fig. 6. Second, the physics-inspired prober makes the latent rollout interpretable by mapping learned representations back to physically meaningful state variables, which is essential for model-based control. This is supported by the open-loop prediction results in Fig. 8 and Table III, where the proposed PI Prober substantially improves metric-state recovery. Third, the resulting model is real-time for real-time control, since it is directly used inside an MPPI controller onboard an embedded device. Finally, the model can zero-shot generalize across tasks: the same learned model is used across multiple trajectories and deployment conditions without task-specific retraining or fine-tuning, as shown in Tables IV and V. A central result of this work is that a well-designed simulation data pipeline, combined with an appropriate learning framework, can be sufficient for zero-shot sim-to-real transfer. Rather than relying on accurate system identification or task-specific fine-tuning, our approach systematically collects diverse trajectories and exposes the model to a broad family of plausible quadrotor dynamics through domain randomization, as summarized in Fig. 12. The TDQ analysis in Fig. 12 further supports this design choice by showing that higher-quality training distributions consistently lead to lower state prediction error. This indicates that broader state–action coverage, richer transition behavior, and greater parameter diversity improve the usefulness of the dataset for learning dynamics. The improve-ment is most pronounced when moving from small, poorly covered datasets to larger datasets that better span the relevant dynamics distribution; as coverage increases, the gains begin to saturate, suggesting that further improvements are likely limited by model capacity, optimization, or residual dynamics complexity. The real-world tracking results in Table IV show that this data-generation strategy is sufficient to outperform predictive baselines across diverse reference trajectories. More importantly, the robustness experiments in Table V show that the same model remains effective under deployment changes such as propeller switching and payload transportation. This suggests that the learned representation captures dynamics that are not tied to a single nominal platform. While this work focuses on simulation-only training, the same framework could also be applied directly to real-world data to capture difficult-to-model nonlinear effects, especially at high speeds where aerodynamic and actuator effects become more pronounced. Another practical advantage of the proposed framework is the simplicity of the SIGReg training objective. Many representation learning methods require multiple carefully tuned loss terms [38], [50], target networks, stop-gradient choices [51], or reconstruction weights. In contrast, SIGReg introduces a compact anti-collapse mechanism with only one main regularization weight, λsig , to tune. This makes the objective easier to use in practice and more appealing for general-purpose dynamics representation learning. Combined with the physics-inspired prober, this leads to a framework that is both expressive and structured: the latent model learns temporally coherent predictive representations, while the prober converts them into interpretable rollouts suitable for control. VIII. C ONCLUSION AND FUTURE WORKS 
+
+In this work, we introduced the first JEPA-style latent dynamics framework for real-time quadrotor control. The proposed approach learns predictive representations of system evolution without directly reconstructing future states, and uses a physics-inspired prober to map frozen latent rollouts into physically meaningful metric states. This design addresses the four key requirements of a useful world model for aerial control. It improves long-horizon prediction by reducing recursive error accumulation, provides interpretable state-space rollouts for evaluating costs and constraints, remains computationally practical for real-time MPPI control, and is task-agnostic across trajectories and deployment conditions. To reduce reliance on costly and risky real-world data collection, we also developed a domain-randomized simulation pipeline for automated dataset generation. Across open-loop prediction, noise robustness, zero-shot sim-to-real transfer, and platform-variation experiments, the proposed framework consistently outperformed direct predictive baselines and demonstrated robust real-world deployment without task-specific fine-tuning. Future works will extend this framework from low-dimensional state inputs to high-dimensional observations such as RGB and RGB-D images. This setting is a natural fit for JEPA-style learning, since direct predictive reconstruction becomes increasingly expensive and often forces the model to preserve task-irrelevant visual details. Such an extension would open the door to a broad class of visual navigation tasks, including goal-directed flight from onboard camera observations, obstacle avoidance in cluttered environments, and navigation toward semantic targets. This direction is especially important for quadrotors, where observations compared to other domains like in robot manipulation, are egocentric and tightly coupled to the vehicle’s underactuated dynamics. A second direction is to incorporate safety more explicitly into the learned representation and planning objective. We would like to investigate how latent dynamics models can encode safety-relevant structures, such as obstacle proximity, visibility, uncertainty, and recoverability, to support reliable planning in cluttered and uncertain environments. REFERENCES [1] V. Kumar and N. Michael, “Opportunities and challenges with au-tonomous micro aerial vehicles,” The International Journal of Robotics Research , vol. 31, no. 11, 2012, pp. 1279–1291. [2] Y. Wang, Q. Lu, and B. Ren, “Wind turbine crack inspection using a quadrotor with image motion blur avoided,” IEEE Robotics and Automation Letters , vol. 8, no. 2, 2023, pp. 1069–1076. [3] K. Chua, R. Calandra, R. McAllister, and S. Levine, “Deep reinforcement learning in a handful of trials using probabilistic dynamics models,”       
+
+> Advances in Neural Information Processing Systems , vol. 31, 2018. [4] G. Williams, N. Wagener, B. Goldfain, P. Drews, J. M. Rehg, B. Boots, and E. A. Theodorou, “Information theoretic mpc for model-based reinforcement learning,” in IEEE International Conference on Robotics and Automation (ICRA) , 2017, pp. 1714–1721. [5] T. M. Moerland, J. Broekens, A. Plaat, and C. M. Jonker, “Model-based reinforcement learning: A survey,” Foundations and Trends in Machine Learning , vol. 16, no. 1, 2023, pp. 1–118. [6] G. Loianno, C. Brunner, G. McGrath, and V. Kumar, “Estimation, control, and planning for aggressive flight with a small quadrotor with a single camera and imu,” IEEE Robotics and Automation Letters , vol. 2, no. 2, pp. 404–411, 2017. 17
+
+[7] J. Eschmann, D. Albani, and G. Loianno, “Data-driven system identifica-tion of quadrotors subject to motor delays,” in IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , 2024, pp. 8095– 8102. [8] A. Saviolo, G. Li, and G. Loianno, “Physics-inspired temporal learning of quadrotor dynamics for accurate model predictive trajectory tracking,” 
+
+IEEE Robotics and Automation Letters , vol. 7, no. 4, 2022, pp. 10256– 10263. [9] L. Bauersfeld, E. Kaufmann, P. Foehn, S. Sun, and D. Scaramuzza, “Neurobem: Hybrid aerodynamic quadrotor model,” in Robotics: Science and Systems (RSS) , 2021. [10] P. P. Rao, A. Saviolo, T. C. Ferrari, and G. Loianno, “Learning long-horizon predictions for quadrotor dynamics,” in IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , 2024, pp. 12 758– 12 765. [11] A. Saviolo and G. Loianno, “Learning quadrotor dynamics for precise, safe, and agile flight control,” Annual Reviews in Control , vol. 55, 2023, pp. 45–60. [12] T. Duong and N. Atanasov, “Hamiltonian-based neural ode networks on the se(3) manifold for dynamics learning and control,” in Robotics: Science and Systems (RSS) , 2021. [13] A. Punjani and P. Abbeel, “Deep learning helicopter dynamics models,” in IEEE International Conference on Robotics and Automation (ICRA) ,2015, pp. 3223–3230. [14] L. Hewing, J. Kabzan, and M. N. Zeilinger, “Cautious model predictive control using gaussian process regression,” IEEE Transactions on Control Systems Technology , vol. 28, no. 6, 2019, pp. 2736–2743. [15] J. Fu, S. Levine, and P. Abbeel, “One-shot learning of manipulation skills with online dynamics adaptation and neural network priors,” in 
+
+IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , 2016, pp. 4019–4026. [16] A. Saviolo, J. Frey, A. Rathod, M. Diehl, and G. Loianno, “Active learning of discrete-time dynamics for uncertainty-aware model predictive control,” 
+
+IEEE Transactions on Robotics , vol. 40, 2023, pp. 1273–1291. [17] L. Wang, E. A. Theodorou, and M. Egerstedt, “Safe learning of quadrotor dynamics using barrier certificates,” in IEEE International Conference on Robotics and Automation (ICRA) , 2018, pp. 2460–2465. [18] T. Lew, A. Sharma, J. Harrison, A. Bylard, and M. Pavone, “Safe active dynamics learning and control: A sequential exploration–exploitation framework,” IEEE Transactions on Robotics , vol. 38, no. 5, 2022, pp. 2888–2907. [19] M. O’Connell, G. Shi, X. Shi, K. Azizzadenesheli, A. Anandkumar, Y. Yue, and S.-J. Chung, “Neural-fly enables rapid learning for agile flight in strong winds,” Science Robotics , vol. 7, no. 66, 2022, pp. eabm6597. [20] T. Z. Jiahao, K. Y. Chee, and M. A. Hsieh, “Online dynamics learning for predictive control with an application to aerial robots,” in Conference on Robot Learning , 2023, pp. 2251–2261. [21] J. Robine, M. H ¨oftmann, T. Uelwer, and S. Harmeling, “Transformer-based world models are happy with 100k interactions,” in International Conference on Learning Representations (ICLR) , 2023. [22] C. Finn and S. Levine, “Deep visual foresight for planning robot motion,” in IEEE International Conference on Robotics and Automation (ICRA) ,2017, pp. 2786–2793. [23] B. Wu, S. Nair, L. Fei-Fei, and C. Finn, “Example-driven model-based reinforcement learning for solving long-horizon visuomotor tasks,” in 
+
+Conference on Robot Learning (CoRL) , 2021. [24] S. L. Brunton, J. L. Proctor, and J. N. Kutz, “Discovering governing equations from data by sparse identification of nonlinear dynamical systems,” Proceedings of the National Academy of Sciences , vol. 113, no. 15, 2016, pp. 3932–3937. [25] G. Kulathunga, H. Hamed, and A. Klimchik, “Residual dynamics learning for trajectory tracking for multi-rotor aerial vehicles,” Scientific Reports ,vol. 14, no. 1, 2024, pp. 1858. [26] S. Bansal, A. K. Akametalu, F. J. Jiang, F. Laine, and C. J. Tomlin, “Learning quadrotor dynamics using neural network for flight control,” in IEEE 55th Conference on Decision and Control (CDC) , 2016, pp. 4653–4660. [27] N. Mohajerin and S. L. Waslander, “Multistep prediction of dynamic systems with recurrent neural networks,” IEEE Transactions on Neural Networks and Learning Systems , vol. 30, no. 11, 2019, pp. 3370–3383. [28] S. Looper and S. L. Waslander, “Temporal convolutions for multi-step quadrotor motion prediction,” in 2022 19th Conference on Robots and Vision (CRV) , 2022, pp. 32–39. [29] M. Assran, Q. Duval, I. Misra, P. Bojanowski, P. Vincent, M. Rabbat, Y. LeCun, and N. Ballas, “Self-supervised learning from images with a joint-embedding predictive architecture,” in Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2023, pp. 15 619–15 629. [30] A. Bardes, Q. Garrido, J. Ponce, X. Chen, M. Rabbat, Y. LeCun, M. Assran, and N. Ballas, “V-jepa: Latent video prediction for visual representation learning,” arXiv preprint arXiv:2312.14119 , 2023. [31] M. Assran, A. Bardes, D. Fan, Q. Garrido, R. Howes, M. Muckley, A. Rizvi, C. Roberts, K. Sinha, A. Zholus, et al. , “V-jepa 2: Self-supervised video models enable understanding, prediction and planning,” 
+
+arXiv preprint arXiv:2506.09985 , 2025. [32] A. Bardes, J. Ponce, and Y. LeCun, “Mc-jepa: A joint-embedding predictive architecture for self-supervised learning of motion and content features,” arXiv preprint arXiv:2307.12698 , 2023. [33] G. Zhou, H. Pan, Y. LeCun, and L. Pinto, “Dino-wm: World models on pre-trained visual features enable zero-shot planning,” in International Conference on Machine Learning (ICML) , 2025. [34] R. G. Goswami, A. Bar, D. Fan, T.-Y. Yang, G. Zhou, P. Krishnamurthy, M. Rabbat, F. Khorrami, and Y. LeCun, “World models for learning dexterous hand-object interactions from human videos,” arXiv preprint arXiv:2512.13644 , 2026. [35] A. Bar, G. Zhou, D. Tran, T. Darrell, and Y. LeCun, “Navigation world models,” in Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2025, pp. 15 791–15 801. [36] S. Yin, K. Yin, W. Chen, Y. Liu, G. Li, and L. Lin, “Ddp-wm: Disentangled dynamics prediction for efficient world models,” arXiv preprint arXiv:2602.01780 , 2026. [37] L. Maes, Q. L. Lidec, D. Scieur, Y. LeCun, and R. Balestriero, “Leworldmodel: Stable end-to-end joint-embedding predictive architecture from pixels,” arXiv preprint arXiv:2603.19312 , 2026. [38] V. Sobal, W. Zhang, K. Cho, R. Balestriero, T. G. J. Rudner, and Y. LeCun, “Learning from reward-free offline data: A case for planning with latent dynamics models,” arXiv preprint arXiv:2502.14819 , 2025. [39] N. O. Lambert, D. S. Drew, J. Yaconelli, S. Levine, R. Calandra, and K. S. J. Pister, “Low-level control of a quadrotor with deep model-based reinforcement learning,” IEEE Robotics and Automation Letters , vol. 4, no. 4, 2019, pp. 4224–4230. [40] C. Li, A. Krause, and M. Hutter, “Robotic world model: A neural network simulator for robust policy optimization in robotics,” in NeurIPS 2025 Workshop on Embodied World Models for Decision Making , 2025. [41] D. Hafner, T. Lillicrap, I. Fischer, R. Villegas, D. Ha, H. Lee, and J. Davidson, “Learning latent dynamics for planning from pixels,” in 
+
+International Conference on Machine Learning , 2019, pp. 2555–2565. [42] V. Micheli, E. Alonso, and F. Fleuret, “Transformers are sample-efficient world models,” in International Conference on Learning Representations (ICLR) , 2023. [43] D. Hafner, J. Pasukonis, J. Ba, and T. Lillicrap, “Mastering diverse control tasks through world models,” Nature , vol. 640, 2025, pp. 647–653. [44] A. Verraest, S. Bahnam, R. Ferede, G. de Croon, and C. De Wagter, “Skydreamer: Interpretable end-to-end vision-based drone racing with model-based reinforcement learning,” arXiv preprint arXiv:2510.14783 ,2025. [45] M. Krinner, E. Aljalbout, A. Romero, and D. Scaramuzza, “Accelerating model-based reinforcement learning with state-space world models,” 
+
+arXiv preprint arXiv:2502.20168 , 2025. [46] A. Romero, A. Shenai, I. Geles, E. Aljalbout, and D. Scaramuzza, “Dream to fly: Model-based reinforcement learning for vision-based drone flight,” in IEEE International Conference on Robotics and Automation (ICRA) ,2026. [47] F. Nan, H. Ma, Q. Guan, J. Hughes, M. Muehlebach, and M. Hutter, “Efficient model-based reinforcement learning for robot control via online learning,” arXiv preprint arXiv:2510.18518 , 2025. [48] Y. LeCun, “A path towards autonomous machine intelligence version 0.9.2,” Open Review , vol. 62, no. 1, 2022, pp. 1–62. [49] R. Balestriero and Y. LeCun, “Lejepa: Provable and scalable self-supervised learning without the heuristics,” arXiv preprint arXiv:2511.08544 , 2025. [50] A. Bardes, J. Ponce, and Y. LeCun, “Vicreg: Variance-invariance-covariance regularization for self-supervised learning,” in International Conference on Learning Representations (ICLR) , 2022. [51] J.-B. Grill, F. Strub, F. Altch ´e, C. Tallec, P. Richemond, E. Buchatskaya, C. Doersch, B. Avila Pires, Z. Guo, M. G. Azar, et al. , “Bootstrap your own latent: A new approach to self-supervised learning,” Advances in Neural Information Processing Systems , vol. 33, 2020, pp. 21271–21284. [52] D. Mellinger and V. Kumar, “Minimum snap trajectory generation and control for quadrotors,” in IEEE International Conference on Robotics and Automation (ICRA) , 2011, pp. 2520–2525. 18 
+
+[53] Y. Song, S. Naji, E. Kaufmann, A. Loquercio, and D. Scaramuzza, “Flightmare: A flexible quadrotor simulator,” in Conference on Robot Learning , 2021, pp. 1147–1157. [54] J. Eschmann, D. Albani, and G. Loianno, “Raptor: A foundation policy for quadrotor control,” Science Robotics , vol. 11, no. 114, p. eaec1481, 2026. [55] L. Meier, D. Honegger, and M. Pollefeys, “Px4: A node-based multi-threaded open source robotics framework for deeply embedded platforms,” in 2015 IEEE International Conference on Robotics and Automation (ICRA) , 2015, pp. 6235–6240. [56] N. Wiedemann, V. W ¨uest, A. Loquercio, M. M ¨uller, D. Floreano, and D. Scaramuzza, “Training efficient controllers via analytic policy gradient,” in IEEE International Conference on Robotics and Automation (ICRA) ,2023, pp. 1349–1356. [57] C. Lea, M. D. Flynn, R. Vidal, A. Reiter, and G. D. Hager, “Temporal convolutional networks for action segmentation and detection,” in 
+
+Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition , 2017, pp. 156–165. [58] J. Chung, C. Gulcehre, K. Cho, and Y. Bengio, “Gated feedback recurrent neural networks,” in Proceedings of the 32nd International Conference on Machine Learning , vol. 37, 2015, pp. 2067–2075. [59] O. J. H ´enaff, R. L. T. Goris, and E. P. Simoncelli, “Perceptual straightening of natural videos,” Nature Neuroscience , vol. 22, no. 6, 2019, pp. 984–991. [60] Y. Wang, O. Bounou, G. Zhou, R. Balestriero, T. G. Rudner, Y. LeCun, and M. Ren, “Temporal straightening for latent planning,” arXiv preprint arXiv:2603.12231 , 2026. [61] C. E. Shannon, “A mathematical theory of communication,” The Bell System Technical Journal , vol. 27, no. 3, pp. 379–423, 1948. [62] T. M. Cover and J. A. Thomas, Elements of Information Theory . Wiley, 1999. [63] S. P. Lloyd, “Least squares quantization in pcm,” IEEE Transactions on Information Theory , vol. 28, no. 2, pp. 129–137, 1982. [64] J. MacQueen, “Some methods for classification and analysis of multi-variate observations,” in Proceedings of the Fifth Berkeley Symposium on Mathematical Statistics and Probability , 1967, pp. 281–297.
