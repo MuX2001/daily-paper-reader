@@ -1,0 +1,886 @@
+Title: Continual Robot Policy Learning via Variational Neural Dynamics
+
+URL Source: https://arxiv.org/pdf/2606.27353v1
+
+Published Time: Fri, 26 Jun 2026 01:23:11 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# Continual Robot Policy Learning via Variational Neural Dynamics 
+
+Jiaxu Xing Zhiyuan Zhu Yunfan Ren Ismail Geles Yifan Zhai Rudolf Reiter Davide Scaramuzza 
+
+Robotics and Perception Group, University of Zurich 
+
+Abstract: Robots deployed in the real world rarely operate under a single fixed dynamics model: wind changes, payloads vary, batteries drain, contacts shift, and hardware wears. Yet most learning-based controllers are trained once and de-ployed as if learning were complete. This prevents the robot from using deploy-ment experience to further improve task performance. In this work, we propose a continual learning framework that uses real-world experience to improve robot policies under hidden and recurring dynamics. Our method learns a condition-aware dynamics model from real state-action trajectories by combining an ana-lytical physics prior with a neural residual for unmodeled effects. A recurrent en-coder infers the current hidden condition from recent interaction, and this estimate conditions both the residual model and the policy. Policy learning is performed via differentiable simulation using diverse learned dynamics sampled from the latent model. At deployment, these sampled conditions are replaced by condi-tions inferred online from recent real interaction, allowing the policy to recover recurring dynamics by recognition rather than residual re-fitting. Through ex-tensive simulation studies and real-world experiments, we demonstrate that the framework improves policy performance under diverse unobserved disturbances. On real quadrotor trajectory tracking under changing wind, the policy recovers from recurring disturbances in roughly 1 s, about 5× faster than online residual re-fitting. It also reduces large-disturbance hover and tracking errors by 65 .7% 
+
+and 53 .3% over the state-of-the-art online adaptation approaches. Videos of the experiments are available at https://youtu.be/t6NPMJzqOeE .
+
+Keywords: Continual Learning, Sim-to-Real, Differentiable Simulation 
+
+## 1 Introduction 
+
+Learning-based control has achieved remarkable performance across robotics domains, spanning agile quadrotor flight [1, 2, 3], legged locomotion [4, 5], and visuomotor manipulation [6]. These control policies are typically trained in simulation, transferred to hardware, and deployed with fixed parameters. This train-once, deploy-forever paradigm has enabled impressive demonstrations, but it treats deployment as the end of learning rather than the source of the most relevant data. Real-world dynamics are only partially specified before deployment and continue to vary afterward [7]. In aerial robotics, external wind, payload changes, battery state, and hardware degradation all affect the closed-loop system. The same issue arises in contact-rich control, where friction, contact com-pliance, and the unknown object mass can all alter the dynamics. These factors are often hidden and non-stationary: a robot may encounter one condition, adapt to another, and later return to the first. This makes one-shot adaptation inefficient: when a familiar condition reappears, the robot should recognize and reuse what it has already learned rather than adapt from scratch. Robustness should therefore include identifying the active dynamics from interaction history, reusing prior knowledge, and continually improving behavior.                 
+
+> arXiv:2606.27353v1 [cs.RO] 25 Jun 2026 Recurrent
+> Encoder Recurrent
+> Encoder
+> Latent Dynamics Space
+> Real World Trajectories Structured Latent Space
+> State-Action Pairs
+> Parallel Policy Learning
+> Reward
+> Policy
+> Policy
+> Rigid Body Prior Neural Residual
+> FiLM FiLM
+> Dynamics Conditioning Sample Latent Space
+> Real World Deployment
+> 50 Hz Control
+> Continual Refinement
+> Variational Dynamics Simulation Continual Learning in the Real World
+
+Figure 1: Method overview. Our framework learns latent-conditioned residual dynamics from real trajectories, augmenting a rigid-body prior with a FiLM-modulated neural residual inferred from recent state-action history. Sampled latents drive parallel differentiable policy training, while online inferred latents enable 50 Hz condition-aware deployment without privileged disturbance labels. Existing approaches only address parts of this problem. Domain randomization [8] improves ro-bustness by training over many simulated dynamics, but it usually produces a single policy that conservatively compromises across conditions. Real2Sim2Real and residual-identification methods improve sample efficiency by leveraging real interactions to update a simulator or a residual dy-namics model [1, 9, 10, 11]. Recent differentiable-simulation methods push this further by fitting quadrotor residual dynamics from real flight data within seconds [12, 9]. However, this adaptation is typically tied to the currently observed condition; when the dynamics change or a previous con-dition returns, the robot must relearn. As a result, adaptation is limited by the dynamics distribution specified during simulation [13]. In this work, we propose a continual policy-learning framework that learns a condition-aware dy-namics model from real trajectories and uses it to continually improve the policy. The model starts from an analytical physics model and learns a neural residual for the unmodeled effects. A recurrent encoder reads a short window of recent state-action history and outputs a latent embedding. This embedding serves as a conditioning signal for both the residual dynamics model and policy training. For policy training, we need to generate different hidden dynamics conditions in the simulation. We therefore regularize the latent space so that samples from a simple prior produce realistic residual dynamics. During training, sampled latents condition both the residual model and the policy in differentiable simulation; during deployment, they are replaced by latents inferred from recent real interaction. Our main contributions are: • We develop a continual policy learning pipeline that connects real-world dynamics learn-ing, differentiable policy optimization, and online deployment. The policy is trained under diverse learned dynamics and, at deployment, uses recent interaction to recover recurring conditions without re-fitting a new residual model. • We introduce a Variational Neural Dynamics model that learns latent-conditioned residual dynamics from state-action trajectories while preserving an analytical robot dynamics prior. • We validate the framework on real quadrotor tracking under changing wind and con-trolled simulation studies. On hardware, the policy recovers from recurring disturbances in roughly 1 s, about 5× faster than online residual re-fitting, and reduces large-disturbance hover and tracking errors by 65 .7% and 53 .3% over the state-of-the-art online residual adaptation baseline. 22 Related Work 
+
+Online Policy Adaptation in the Real World. A complementary line updates the policy or its dy-namics model during deployment. Classical adaptive control such as L1-MPC [14] offers fast dis-turbance rejection with stability guarantees but depends on predefined model structures. Model-free RL methods [15, 16] support online updates in principle but require sample budgets unaffordable on physical robots [17]. A recent line of work closes this gap via differentiable simulation: In [12], a residual dynamics model is fit from real flight and refines the policy in ∼5 s, reducing hovering error by 81% over L1-MPC, and in [9], the authors extend this toward sustained performance growth (1.9 to 7.3 m/s in ∼100 s). Both, however, fit a single residual to whichever condition is currently active and require fresh re-adaptation whenever conditions change. Our work avoids this by training a single condition-aware policy across a distribution of conditions inferred from real flight data. 
+
+Latent Conditioning on Unobserved Environmental Variables. History-based conditioning is widely used to adapt policies when dynamics are not directly observed. Early methods used recent interaction for online system identification or implicit adaptation in randomized dynamics [18, 19], while environment-probing and meta-RL approaches infer task or dynamics context from experi-ence [20, 21]. In robotics, RMA [22, 23, 24] popularized history-inferred latent conditioning for legged locomotion, and DATT [25] applied disturbance-aware conditioning to quadrotor tracking. These works show that inferred context is an effective policy input under hidden dynamics, but the latent space is typically learned in simulation, often with privileged parameters or teacher policies, and the deployed policy is fixed. Our work learns the latent dynamics representation from real state-action trajectories through residual dynamics prediction, then uses it to condition both the policy and a learned simulator for further policy optimization. 
+
+## 3 Methodology 
+
+Continual Learning System. As illustrated in Figure 1, our framework is an asynchronous loop that alternates between real-world interaction and differentiable policy improvement. The loop be-gins with a base policy trained in a simplified simulator. Its role is not to model the real dynamics perfectly, but to keep the robot near the task distribution so that useful trajectories can be collected safely. We store these real state-action-transition data in a growing buffer D and use them to train a variational neural dynamics model. The model keeps a known analytical dynamics prior and learns only a latent-conditioned neural residual for missing effects such as wind, payload changes, or hardware degradation. This residual is conditioned on a low-dimensional latent variable z, which is inferred from a short window of recent state-action history. Intuitively, z represents the hidden condition currently affecting the robot. The key design choice is that the same latent space is used in two ways. At deployment time, the encoder infers z from recent real interaction, allowing the policy to adapt its behavior to the active condition. After updating the latent dynamics model, we improve the policy by differentiating through simulated rollouts. During policy training, we sample zfrom a learned prior and use it as domain randomization within the differentiable simulator. Thus, the latent is not only an adaptation feature for the policy; it is also a sampleable interface for generating condition-consistent dynamics during policy optimization. 
+
+Problem Formulation. We model the robot as a partially observed Markov decision process 
+
+M = ( S, A, W, T, r, γ ). Here S, A, and W are the state, action, and hidden-condition spaces, 
+
+T is the transition kernel, r is the reward, and γ is the discount factor. At time t, the robot observes its state st ∈ S and applies an action at ∈ A , but the active condition w ∈ W is hidden. The tran-sition depends on this hidden condition: st+1 ∼ T (· | st, at, w). For the quadrotor experiments, we use st = ( pt, qt, vt) ∈ R10 , where pt is position, qt is orientation represented by a unit quaternion, and vt is linear velocity. The action is a⊤ 
+
+> t
+
+= [ Tt, ω⊤ 
+
+> t
+
+] ∈ R4, where Tt is collective thrust and ωt is the commanded body rate [26]. Because w is hidden, the optimal action generally cannot be chosen from st alone. The recent trajectory contains information about the active dynamics: for example, the same command may produce different accelerations depending on the wind direction. We there-3fore summarize recent interaction history with a learned latent code. Let Ht−C:t = {(si, ai)}t−1
+
+> i=t−C
+
+be a rolling context window of length C. A history encoder maps this context to a low-dimensional latent: zt = Eϕ(Ht−C:t) ∈ Rd. The policy is then conditioned on both the current task observation and the inferred latent: at = πθ (ot, zt).                                          
+
+> Algorithm 1: Continual Policy Learning via VND Require: fprior , buffer D, prior p(z)
+> Init. Eϕ, D ψ, π θ
+> REPEAT DURING DEPLOYMENT
+> 1. Collect and infer
+> zt←Eϕ(Ht−C:t)
+> at←πθ(ot,zt)
+> D ← D ∪ (st,at,st+1 )
+> 2. Learn latent dynamics
+> Update (ϕ, ψ )with
+> Lvnd =Ldyn +λrec Lrec +λmmd MMD( qϕ, p )
+> 3. Improve policy
+> Freeze Eϕ, D ψ; sample z∼p(z)
+> Roll out with
+> st+1 =fprior (st,at) + Dψ(st,at,z)
+> Update θby BPTT on
+> J(θ) = Ez,s0
+> PH−1
+> h=0 γhr(sh, π θ(oh,z),sh+1 )
+
+Variational Neural Dynamics Model. The latent code must be inferable from recent interaction at deployment and sampleable during policy learning. Our model is designed to make these two require-ments compatible in one latent space. It couples a GRU history encoder Eϕ, which maps recent state-action history to the active condition code, with a latent-conditioned residual dynamics model Dψ ,which corrects a known analytical prior. Given zt =
+
+Eϕ(Ht−C:t), the next state is predicted by augmenting a known nominal dynamics model fprior with a neural residual: ˆst+1 = fprior (st, at) + Dψ (st, at, zt). For the quadrotor, fprior is a rigid-body model without the hidden disturbance, integrated with RK4. The resid-ual model is a shared-backbone MLP with position, velocity, and orientation heads, Dψ (st, at, zt) = (∆ pres , ∆vres , ∆ξres ) , where ∆ξres ∈ R3 is a rotation-vector correction composed with the nominal orientation prediction through the exponen-tial map. This keeps the known robot structure in fprior while allowing the latent residual to capture condition-dependent effects such as wind, drag, payload changes, friction, or contact-induced de-viations. Because the residual is conditioned on zt, the same nominal transition can be corrected differently under different inferred dynamics, without fitting a separate model per environment. 
+
+Learning an Informative Latent Space. We train Eϕ and Dψ jointly from dynamics prediction, without privileged labels such as wind direction, payload mass, friction coefficient, or hardware state. The key idea is to make one inferred latent explain multiple transitions from the same tra-jectory context. Let rt = st+1 ⊖ fprior (st, at) denote the residual target, where ⊖ denotes the appropriate state difference, including the rotation-vector difference for orientation. The dynamics loss is Ldyn (ϕ, ψ ) = 1
+
+> B
+
+PBi=1 ℓδ
+
+ Dψ (si, ai, zk(i)) − ri
+
+ , where ℓδ is the Huber loss and k(i) maps transition i to the trajectory context that produced its latent. Sharing z across transitions forces the encoder to capture the common dynamics behind them, making residual prediction a self-supervised signal for the hidden condition. 
+
+Sampleable Latent Space for Policy Learning. The dynamics loss makes z informative on en-coded real trajectories: different hidden dynamics should require different residual corrections. However, policy learning also requires sampling hidden dynamics in simulation before observ-ing a trajectory. This creates a mismatch: during deployment, latents come from the encoder, while during policy training, latents are sampled from a prior. If encoded latents occupy an ar-bitrary region, prior samples may query the residual model off support and produce unrealis-tic dynamics. We therefore align the aggregated encoder distribution over N context windows, 
+
+qϕ(z) = 1
+
+> N
+
+PNn=1 δ(z − Eϕ(Hn, 0: C )) with the sampling prior p(z) = N (0, I) using maximum mean discrepancy (MMD) [27]: Lmmd (qϕ, p ) = ∥μk(qϕ) − μk(p)∥2 
+
+> Hk
+
+, where δ(·) is a Dirac mea-sure, μk(·) is the kernel mean embedding induced by an RBF kernel, and Hk is the corresponding RKHS. The Gaussian prior is only a convenient sampling space, not a physical disturbance model. Unlike a VAE, the objective has no per-sample KL term, ELBO, or trajectory reconstruction like-lihood. The latent is learned through residual dynamics prediction, while MMD only matches the aggregated set of encoded latents to the sampling prior. MMD alone does not make the la-tent identifiable or assign semantics to coordinates; the dynamics loss prevents collapsed codes by requiring incompatible residuals to be explained by different latents. Also, in practice, we 4find that an annealed schedule on the MMD loss can keep the stability of the learned embedding space. Further details can be found in our ablation studies. During policy learning, the encoder and dynamics model are frozen and all contexts in the replay buffer are re-encoded when updat-ing the latent model, which keeps old and new conditions in a common coordinate system and reduces latent drift across deployment rounds. The full variational neural dynamics objective is 
+
+Lvnd = Ldyn + λrec Lrec + λmmd MMD( qϕ, p ), where Lrec is an auxiliary L2 reconstruction loss from the latent code to the normalized state-action context window. We found this empirically help-ful for retaining trajectory information and training the dynamics model with higher accuracy. 
+
+Policy Learning with Sampled Latent Dynamics. After learning the variational neural dynamics model, we improve the current policy by sampling hidden conditions from the learned latent prior rather than manually choosing randomized physical parameters. At the beginning of each rollout, we sample z ∼ p(z) = N (0, I), and hold this latent fixed for the full episode. The same latent is provided to the policy and to the dynamics model. With Nenv parallel environments, we sample independent latents {z(j)}Nenv  
+
+> j=1
+
+and assign one to each environment. During BPTT, ¯ot = norm o(ot)
+
+denotes the normalized policy observation produced by the same task observation map Otask used at deployment. For a rollout horizon H, the policy produces at = πθ (¯ ot, z), and the learned dynamics produce st+1 = fprior (st, at) + Dψ (st, at, z).
+
+The dynamics parameters (ϕ, ψ ) are frozen, and the fixed sampled latent makes the rollout differ-entiable with respect to the policy parameters θ. Following differentiable policy learning [28, 29], we maximize max θ Ez∼p(z), s0∼ρ0
+
+hPH−1 
+
+> t=0
+
+γtr(st, at, st+1 )
+
+i
+
+. Here r is the task reward, γ is the discount factor, and ρ0 is the initial-state distribution. The expectation is estimated with parallel differentiable rollouts, and θ is updated with Adam [30]. 
+
+## 4 Experiments and Results 
+
+Our experiments are designed to evaluate whether the proposed framework enables continual policy learning in the real world. Following the method pipeline, we first introduce the hardware setup and baselines, then present the experimental results, and perform an analysis of the learned latent space. 
+
+Setup and Baselines. Hardware experiments use an Agilicious-based [31] quadrotor tracking figure-eight references at 50 Hz under controlled wind, with motion capture state estimates and off-board execution of the encoder, policy, and asynchronous learning loop. We evaluate hover and trajectory tracking under small and large disturbances, reporting position error over 5 repeated trials per setting. In simulation, we also evaluate landing and perceptive hovering, and two addi-tional manipulation tasks; the setup details are provided in the supplementary material. Baselines cover the main alternatives: Base DiffSim, L1-MPC [14], RMA [22], DATT [25], and LOTF [12]. For a fair comparison, all learned methods use the same state and action interfaces, reward, train-ing/evaluation splits, and disturbance settings; privileged quantities for RMA and DATT are used only during training and never at deployment. Also, we include a ground truth baseline called ”GT. Dist.” This represents a policy trained exactly to the disturbance conditions during the test time, which serves as an approximate upper bound under the test scenarios. Further details on the training hyperparameters and network architecture are available in the supplementary materials. 
+
+4.1 Real-World Flight Results 
+
+We evaluate our continual learning system in the setting that motivates our work: a real quadrotor repeatedly encountering hidden wind conditions. 
+
+Recovery under recurring wind. In this setting, we change the wind after the robot reaches steady tracking and measure how long it takes for the tracking error to return to its pre-switch level. For a wind direction already represented in the latent distribution, the proposed policy recovers within roughly 1 s by inference alone: the encoder updates z from the recent trajectory window, 5and the fixed policy changes its feedback behavior accordingly. The online residual baseline of [12] must instead re-fit a residual model for the new condition and takes approximately 5 s to recover. Across wind-shift directions, this gives a ∼5× improvement in recovery time and shows that recog-nizing a recurring condition is faster than relearning it. For more details, we refer the readers to the supplementary materials. 
+
+Revisiting a previous condition. We evaluate real-world policy refinement under intermittent wind disturbances. Starting from the base policy, we repeatedly collect flight data and update the policy while the quadrotor tracks the same figure-eight trajectory. Figure 2 shows that tracking er-ror decreases over wall-clock time, from about 41 cm initially to about 9 cm after refinement. This demonstrates the continual-learning role of our framework: deployment data are not only used to fit a short-lived correction, but are converted into policy improvement that persists across subsequent flights. The result shows that the learned dynamics model can support sustained policy refinement from real interaction under changing disturbance conditions. 
+
+Adaptation to Unmodeled Hardware Disturbances. We further evaluate an out-of-distribution hardware shift with a cut propeller, a setting that is difficult to anticipate through predefined domain randomization. Because the actuation residual must be learned from real flight, this experiment tests whether the framework can incorporate genuinely new dynamics online. Our method adapts within the first two refinement iterations (from 52 cm to 24 cm) and continues improving thereafter until 12 cm, showing that the same continual-learning loop can handle newly encountered residual dynamics beyond the nominal simulator. Further details are provided in the Supplementary Material. 0 10 20 30 40 50                 
+
+> Wall Time [s]
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> Tracking Error [m]
+> 41 cm
+> 9 cm
+> Policy Refinement
+> Convergence Trend (exp. fit)
+> 0123
+> X [m]
+> -0.5
+> 0.0
+> 0.5
+> Y [m]
+> Base Policy
+> 0123
+> X [m]
+> Continual Learning Policy
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30 t = 16s Adaptive Learning
+> t = 36s Continual Learning
+> t = 4s Base Policy
+> t = 24s Continual Learning
+> a. No Wind
+> c. No Wind
+> b. Wind On
+> d. Wind On
+
+Figure 2: Real-world policy refinement. On hardware, continual policy learning reduces figure-eight tracking er-ror from 41 cm for the base policy to 9 cm after refine-ment. The lower panels show representative xy tracking traces before and after refinement, illustrating improved trajectory tracking under the same deployment setup. 
+
+4.2 System Analysis Dynamics Learning and Latent Space Analysis. We next examine whether the learned model captures the hidden varying dynamics rather than only improving control performance. Figure 4 shows encoded trajectory win-dows for different wind conditions in the simulation. For the details on quadrotor models and wind simulation, we refer the readers to the Supplemen-tary Materials. As shown in Fig 4, al-though wind labels are never used for training, the latent embeddings form clear clusters by wind direction and magnitude, indicating that the recurrent encoder discovers a structured dynam-ics representation from the state-action history. The bottom plot in Fig 4 shows an open-loop rollout example, where the initial state and the action sequence are identical. The result shows that the latent-conditioned residual model accurately predicts condition-specific motion, matching the ground-truth trajectory below 0.1 m. These results support the two requirements needed for policy 6Full Model 
+
+> w/o FiLM
+> w/o Residual
+> w/o MMD
+> w/o Recon.
+> MLP Encoder
+> 10 -2
+> 10 -1
+> 10 0
+> Cumulative Dynamics Error [m]  Tracking
+> Hovering
+
+Figure 3: Dynamics-model ablations. The full model achieves the lowest cumulative rollout error on hover-ing and tracking, confirming the importance of latent-conditioned residual dynamics. Wind Magnitude [m/s²]        
+
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 3.0 Wind Direction [°]
+> -0.2 0.0 0.2 0.4 0.6
+> X [m]
+> 1.0
+> 0.5
+> Y [m]
+> GT
+> Ours
+> 40
+> 120
+> 200
+> 280
+> Wind (+2, -2, +0)
+
+Figure 4: Latent dynamics analysis. Unsupervised latents cluster by wind direction and magnitude, and the learned dynamics accurately reproduce a represen-tative wind-conditioned rollout. 
+
+learning: the hidden dynamics can be inferred from real trajectories, and the latent embedding can generate plausible condition-specific rollouts for training.                              
+
+> Method Hover Tracking
+> Small ↓Large ↓Small ↓Large ↓
+> Base DiffSim 0.328 1.228 0.492 1.363 RMA 0.132 0.641 0.195 0.258 L1-MPC 0.134 0.552 0.121 0.281 DATT [25] 0.009 0.231 0.082 crash
+> LOTF [12] 0.008 0.105 0.045 0.137
+> Ours 0.008 0.036 0.042 0.064
+
+Table 1: Benchmark Comparison . Errors are in meters. Baselines follow [12]. Best in green , second in orange . 
+
+Comparison with State-of-the-Art Controllers. Ta-ble 1 compares our method with fixed sim-trained con-trol, latent adaptation, classical adaptive control, and on-line residual fitting. Our method matches the best base-line on small-disturbance hovering and achieves the low-est error in the other three settings. Compared with LOTF [12], the strongest online residual-adaptation base-line, our method reduces large-disturbance hover error from 0.105 m to 0.036 m and large-disturbance tracking error from 0.137 m to 0.064 m, corresponding to improve-ments of 65 .7% and 53 .3% . It also slightly improves small-disturbance tracking over LOTF, while avoiding the crash observed for DATT under large-disturbance tracking. 
+
+Ablation Studies. Figure 3 evaluates how each modeling choice affects multi-step dynamics pre-diction on hovering and trajectory tracking. The full model gives the lowest cumulative error in both tasks. The “w/o Recon.” label in the plot refers to removing the auxiliary state-action context recon-struction term, while keeping the residual dynamics prediction loss. It is not a VAE-style trajectory likelihood. The annealed MMD schedule is also a stability safeguard: applying prior alignment before the dynamics loss has separated conditions can collapse the representation, while omitting it lets encoded latents drift away from the sampling prior. Removing FiLM conditioning, MMD alignment, or the reconstruction objective also increases error, indicating that the model needs both condition-specific residuals and a sampleable latent space. Replacing the recurrent encoder with an MLP further degrades performance, especially in hovering, confirming that recent history is impor-tant for inferring the hidden dynamics. Overall, the ablations show that the performance gain comes from the combination of residual dynamics, history-based condition inference, and latent-space reg-ularization, rather than from model capacity alone. 
+
+Comparisons of Learning Pipelines. We next evaluate whether the learned dynamics distribution improves downstream policies, not only dynamics prediction. Figure 5 compares our method with ground-truth disturbance conditioning, simple residual learning, single-disturbance training, and RMA-style latent adaptation across quadrotor and manipulation tasks. For the detailed setup, we refer the readers to the Supplementary Materials. Across quadrotor landing, hovering, and trajectory 7GT                                         
+
+> Dist. Ours
+> Quadrotor Landing Quadrotor Vision-based Hovering
+> Simple
+> Residual
+> Single
+> Dist. RMA GT
+> Dist. Ours Simple
+> Residual
+> Single
+> Dist. RMA
+> GT
+> Dist. Ours Simple
+> Residual
+> Single
+> Dist. RMA GT
+> Dist. Ours Simple
+> Residual
+> Single
+> Dist. RMA
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> Positional Error [m] Positional Error [m]
+> 0.045 0.057
+> 0.347 0.364
+> 0.190
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 0.044 0.070
+> 0.318
+> 0.564
+> 0.228
+> Quadrotor Hovering Quadrotor Trajectory Tracking
+> 0.012 0.045
+> 0.311 0.312
+> 0.215
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 0.065 0.091
+> 15.944
+> 1.238 1.200
+> 0.05 0.2 0.5 1.0 2.0 5.0 10.0
+> Box Mass [kg]
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Success Rate (%)
+> GT Dist. Ours Simple Residual RMA
+> Box-Pushing
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Payload mass [kg]
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> 70
+> 80
+> Tracking error [mm]
+> End-Effector Tracking
+
+Figure 5: Quantitative benchmark comparisons. Across quadrotor landing, vision-based hover-ing, trajectory tracking, and contact-rich manipulation, the proposed latent dynamics framework ap-proaches the ground-truth-disturbance oracle and outperforms residual, single-condition, and latent-adaptation baselines. Lower error is better except for box-pushing success rate. tracking, our method is consistently closest to the ground-truth oracle and substantially outperforms residual and single-condition baselines. For example, in quadrotor trajectory tracking, our method reduces position error from 0.311 –0.312 m for residual and single-disturbance baselines to 0.045 m, and improves over RMA from 0.215 m to 0.045 m. The manipulation results show the same trend: in box pushing and end-effector tracking, our method remains close to the oracle across changing object or payload masses, while residual and latent-adaptation baselines degrade under larger hidden dynamics shifts. These results indicate that sampling from the learned dynamics distribution exposes the policy to useful condition variation during training, leading to better generalization across both aerial and manipulation domains. 
+
+## 5 Conclusion and Limitations 
+
+We presented a continual policy learning framework for robots operating under hidden, changing dynamics. Rather than treating deployment as the end of learning, our approach uses real interac-tion to learn a condition-aware dynamics model and continually improve the policy. The frame-work combines an analytical physics prior with latent-conditioned neural residual dynamics, makes the learned dynamics distribution sampleable through prior alignment, and uses the same model for differentiable policy optimization and online condition inference. Across real quadrotor flights and controlled simulation studies, the method learns structured dynamics representations, improves tracking under wind disturbances, adapts to unmodeled residual effects, and recovers recurring con-ditions without repeatedly re-fitting a new residual model. 
+
+Limitations and future directions. The current hardware experiments rely on accurate low-dimensional state estimates from motion capture. In practice, onboard state estimates from visual-inertial odometry or SLAM will be noisy, delayed, and sometimes biased. This matters because the same state estimates are used to learn the residual dynamics model; sensor noise can therefore be mistaken for unmodeled dynamics and lead to incorrect policy updates. A possible direction is uncertainty-aware continual learning, where dynamics updates are weighted by state-estimation confidence and high-uncertainty transitions are filtered or modeled probabilistically. 8Acknowledgments 
+
+This work was supported by the European Union’s Horizon Europe Research and Innovation Pro-gramme under grant agreement No. 101120732 (AUTOASSESS) and the European Research Coun-cil (ERC) under grant agreement No. 864042 (AGILEFLIGHT). 
+
+## References 
+
+[1] E. Kaufmann, L. Bauersfeld, A. Loquercio, M. M¨ uller, V. Koltun, and D. Scaramuzza. Champion-level drone racing using deep reinforcement learning. Nature , 620(7976):982–987, Aug 2023. ISSN 1476-4687. [2] I. Geles, L. Bauersfeld, A. Romero, J. Xing, and D. Scaramuzza. Demonstrating agile flight from pixels without state estimation. Robotics: Science and Systems , 2024. [3] J. Xing, I. Geles, E. Aljalbout, and D. Scaramuzza. Multi-task reinforcement learning for quadrotor control. IEEE Robotics and Automation Letters , 9(10), 2024. [4] T. Miki, J. Lee, J. Hwangbo, L. Wellhausen, V. Koltun, and M. Hutter. Learning robust per-ceptive locomotion for quadrupedal robots in the wild. Science Robotics , 7(62), 2022. [5] J. Lee, J. Hwangbo, L. Wellhausen, V. Koltun, and M. Hutter. Learning quadrupedal locomo-tion over challenging terrain. Science Robotics , 5(47), 2020. [6] C. Chi, Z. Xu, S. Feng, et al. Diffusion policy: Visuomotor policy learning via action diffusion. 
+
+International Journal of Robotics Research , 2025. [7] E. Aljalbout, J. Xing, A. Romero, I. Akinola, C. R. Garrett, E. Heiden, A. Gupta, T. Hermans, Y. Narang, D. Fox, et al. The reality gap in robotics: Challenges, solutions, and best practices. 
+
+Annual Review of Control, Robotics, and Autonomous Systems , 9, 2025. [8] J. Tobin, R. Fong, A. Ray, J. Schneider, W. Zaremba, and P. Abbeel. Domain randomization for transferring deep neural networks from simulation to the real world. In Proc. IROS , 2017. [9] Y. Ren, Z. Zhu, J. Xing, and D. Scaramuzza. Learning agile quadrotor flight in the real world. In arXiv Preprint , 2026. [10] J. Hwangbo, J. Lee, A. Dosovitskiy, et al. Learning agile and dynamic motor skills for legged robots. Science Robotics , 4(26), 2019. [11] L. Bauersfeld, E. Kaufmann, P. Foehn, S. Sun, and D. Scaramuzza. NeuroBEM: Hybrid aero-dynamic quadrotor model. In Robotics: Science and Systems , 2021. [12] J. Pan*, J. Xing*, R. Reiter, Y. Zhai, E. Aljalbout, and D. Scaramuzza. Learning on the fly: Rapid policy adaptation via differentiable simulation. IEEE Robotics and Automation Letters ,2025. [13] H. Wang, J. Xing, N. Messikommer, and D. Scaramuzza. Environment as policy: Learning to race in unseen tracks. In 2025 IEEE International Conference on Robotics and Automation (ICRA) , pages 11333–11339. IEEE, 2025. [14] D. Hanover, P. Foehn, S. Sun, E. Kaufmann, and D. Scaramuzza. Performance, precision, and payloads: Adaptive nonlinear mpc for quadrotors. IEEE Robotics and Automation Letters , 7 (2):690–697, 2021. [15] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347 , 2017. [16] J. Schulman, S. Levine, P. Abbeel, M. Jordan, and P. Moritz. Trust region policy optimization. In International conference on machine learning , pages 1889–1897. PMLR, 2015. 9[17] N. Rudin, D. Hoeller, P. Reist, and M. Hutter. Learning to walk in minutes using massively parallel deep reinforcement learning. In Conference on robot learning , pages 91–100. PMLR, 2022. [18] W. Yu, J. Tan, C. K. Liu, and G. Turk. Preparing for the unknown: Learning a universal policy with online system identification. arXiv preprint arXiv:1702.02453 , 2017. [19] X. B. Peng, M. Andrychowicz, W. Zaremba, and P. Abbeel. Sim-to-real transfer of robotic control with dynamics randomization. In 2018 IEEE international conference on robotics and automation (ICRA) , pages 3803–3810. IEEE, 2018. [20] K. Rakelly, A. Zhou, C. Finn, S. Levine, and D. Quillen. Efficient off-policy meta-reinforcement learning via probabilistic context variables. In International conference on ma-chine learning , pages 5331–5340. PMLR, 2019. [21] M. O’Connell, G. Shi, X. Shi, K. Azizzadenesheli, A. Anandkumar, Y. Yue, and S.-J. Chung. Neural-fly enables rapid learning for agile flight in strong winds. Science Robotics , 7(66): eabm6597, 2022. [22] A. Kumar, Z. Fu, D. Pathak, and J. Malik. Rma: Rapid motor adaptation for legged robots. 
+
+Proceedings of Robotics: Science and Systems (RSS) , 2021. [23] H. Qi, A. Kumar, R. Calandra, Y. Ma, and J. Malik. In-hand object rotation via rapid motor adaptation. In Conference on Robot Learning , pages 1722–1732. PMLR, 2023. [24] A. Kumar, Z. Li, J. Zeng, D. Pathak, K. Sreenath, and J. Malik. Adapting rapid motor adapta-tion for bipedal robots. In 2022 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 1161–1168. IEEE, 2022. [25] K. Huang, R. Rana, A. Spitzer, G. Shi, and B. Boots. DATT: Deep adaptive trajectory tracking for quadrotor control. In Conference on Robot Learning , 2023. [26] E. Kaufmann, L. Bauersfeld, and D. Scaramuzza. A benchmark comparison of learned control policies for agile quadrotor flight. In 2022 International Conference on Robotics and Automa-tion (ICRA) , pages 10504–10510. IEEE, 2022. [27] A. Gretton, K. M. Borgwardt, M. J. Rasch, B. Sch¨ olkopf, and A. Smola. A kernel two-sample test. Journal of Machine Learning Research , 13(1):723–773, 2012. [28] C. D. Freeman, E. Frey, A. Raichuk, S. Girgin, I. Mordatch, and O. Bachem. Brax – a differ-entiable physics engine for large scale rigid body simulation. Advances in Neural Information Processing Systems (NeurIPS) , 2021. [29] Y. Song, S. Kim, and D. Scaramuzza. Learning quadrupedal locomotion via differentiable simulation. In Proc. Conference on Robot Learning , 2024. [30] D. P. Kingma and J. Ba. Adam: A method for stochastic optimization. In Y. Bengio and Y. LeCun, editors, 3rd International Conference on Learning Representations, ICLR 2015, San Diego, CA, USA, May 7-9, 2015, Conference Track Proceedings , 2015. [31] P. Foehn, E. Kaufmann, A. Romero, R. Penicka, S. Sun, L. Bauersfeld, T. Laengle, G. Cioffi, Y. Song, A. Loquercio, and D. Scaramuzza. Agilicious: Open-source and open-hardware agile quadrotor for vision-based flight. Science Robotics , 7(67), 2022. doi:10.1126/scirobotics. abl6259. 10 A Supplementary Materials 
+
+Our supplementary materials provide the implementation details, experimental protocols, baselines, and ablations supporting Continual Robot Policy Learning via Variational Neural Dynamics .
+
+A.1 Overview 
+
+The supplementary is organized into the following parts: • Experimental Setup & Environments: – Section A.2 (Simulation Experiment Setup) outlines the details in various simulation experiments. 
+
+– Section A.4 (Hardware Setup) introduces the real-world flight deployment infrastruc-ture and details. • Learning Objectives and Models: – Section A.3 (Task Rewards) defines the mathematical formulations of individual task rewards and hyperparameters. 
+
+– Section A.8 (Variational Neural Dynamics Details) formalizes the Variational Neural Dynamics learning objectives and some training details. 
+
+– Section A.9 (Policy Learning and Deployment) details the Backpropagation Through Time (BPTT) policy optimization objective. • Implementation, Parameters, & Benchmarks: – Section A.5 (Training Curves and Compute) documents baseline convergence proper-ties, wall-clock performance statistics, and hardware configurations. 
+
+– Section A.6 (Metrics and Statistical Reporting) defines the quantitative evaluation metrics of the experiments. 
+
+– Section A.7 (State, Action, and History Representation) lists the underlying hyper-parameters utilized across models. 
+
+A.2 Simulation Experiment Setup 
+
+All simulated tasks follow the same continual-learning template. A nominal controller or current policy collects state-action transitions under hidden dynamics. The accumulated buffer trains the latent-conditioned residual dynamics model, and the policy is then optimized with sampled latents before evaluation on held-out hidden conditions. The tasks differ only in the robot model, hidden condition, and metric. 
+
+Quadrotor dynamics model. The quadrotor state follows the main-paper convention s =(p, q, v) ∈ R10 , where q is a unit quaternion. We write R(q) for the rotation matrix induced by the quaternion when applying thrust in the world frame. The policy outputs collective thrust T
+
+and commanded body rates ω. The differentiable policy-learning model is 
+
+˙p = v, ˙v = g + Tm R(q)e3, qt+∆ t = qt ⊗ Exp H(∆ t ω), (1) where Exp H maps a rotation vector to a unit quaternion. Position and velocity are integrated with RK4, while attitude is updated by quaternion composition through the exponential map. In wind experiments, the hidden condition is implemented as a constant external acceleration in the transla-tional dynamics, 
+
+˙v = g + w + Tm R(q)e3, (2) with w fixed during an episode and unobserved by the deployed policy. The full-quadrotor con-figuration uses the Kolibri parameters: mass 0.192 kg and per-motor thrust limit 3.5 N. The arm offsets are (±0.041 , ±0.041 , 0) m, the inertia is (1 .42 , 1.65 , 2.13) ×10 −4 kg m 2, and the motor time constant is 0.0245 s. 11 Ours Avg. Error    
+
+> 7.72 mm
+> Simple
+> Residual
+> Avg. Error
+> 44.24 mm RMA Avg. Error
+> 77.88 mm
+> Single
+> Dist.
+> Avg. Error
+> 143.36 mm
+> Ours Simple
+> Residual
+> Success
+> Rate: 40%
+> Success
+> Rate: 70%
+> Success
+> Rate: 10%
+> Success
+> Rate: 0%
+> RMA Single
+> Dist.
+
+Figure 6: Manipulation simulation setup. We apply the same continual-learning pipeline to ma-nipulation domains with hidden object, payload, and contact dynamics. Deployment trajectories update a latent-conditioned residual model, and sampled latents expose the policy to recurring hid-den manipulation conditions during differentiable policy optimization. 
+
+Quadrotor wind model. To evaluate the system in controlled simulations, we use steady, hidden wind conditions that vary in direction and magnitude. The diagnostic data-generation scripts create 17 distinct wind conditions: 1 calm flight scenario and 8 horizontal (planar) wind directions tested at 2 speeds. Crucially, these wind labels are hidden from both the deployed flight policy and the self-supervised latent dynamics objective; they are utilized exclusively for simulation diagnostics and downstream evaluation plots. 
+
+Quadrotor Hovering. Hovering rollouts initialize the quadrotor around a fixed target with ran-domized position, velocity, and attitude perturbations. The dynamics model predicts conditioned position and velocity residuals. We report average position error under held-out wind conditions. 
+
+Quadrotor Trajectory tracking. Trajectory tracking uses a figure-eight reference. The data-generation controller randomizes initial states near the reference trajectory. The residual model predicts position, velocity, and orientation residuals. We report mean tracking error against the reference. 
+
+Landing and perceptive hovering. The additional quadrotor simulation tasks use the same pipeline. Landing is reported by terminal position and success criteria. Perceptive hovering is evaluated using position error via the feature-based observation interface without relying on explicit state estimation, and a pretraining strategy is adopted from [12]. 
+
+Manipulation tasks. The manipulation studies test whether the same loop extends beyond aerial robotics. The hidden condition is an unobserved object, payload, or contact parameter that changes the closed-loop dynamics. Starting from a nominal analytical model and a stabilizing policy, the robot collects transitions, updates the latent-conditioned residual model, and improves the policy using rollouts sampled from the learned latent condition distribution. In end-effector tracking, the hidden condition is a payload or object-mass change that alters the effective arm dynamics. The policy observes only the robot state and task reference. The encoder infers the active condition from recent state-action history, while sampled latents provide data-driven domain randomization over payload conditions. We report Cartesian tracking error in millimeters. In planar box pushing, the hidden condition is contact and object dynamics, including object mass and friction-induced deviations from the nominal model. Because the same regime can recur across deployment episodes, a residual model that only fits the current episode must be rediscovered after each change. Our latent dynamics model can instead reuse a previously inferred condition through the history encoder. The metric is task success rate. 12 Across both manipulation settings, the key comparison is how the deployment data are reused. Single-condition and simple residual baselines learn corrections tied to one observed regime. Our method converts the accumulated interaction buffer into a sampleable distribution of hidden manip-ulation conditions, giving the policy, a domain-randomization-like training interface learned from interaction data rather than privileged physical parameters. 
+
+A.3 Task Rewards 
+
+All methods within a task use the same reward. At each control step the policy outputs ut, and 
+
+u∆t = ut − ut−1 denotes the action change. The robot state uses position p (with height z), linear velocity v, body rate ω, linear acceleration a, and attitude R ∈ SO(3) . We write ∆t for the control timestep. The per-step reward is the negative time-weighted cost, r = −∆t c, where c is the task cost. Each cost is a fixed, hand-tuned linear combination of penalty terms c(·). Unless otherwise stated, every continuous term is a smooth-ℓ1 (Huber) penalty 
+
+ℓδ (e) = 
+
+( 12 e2, |e| ≤ δ, δ |e| − 12 δ, |e| > δ, (3) applied to the relevant error e (e.g. cv = ℓδ (∥v∥)), keeping gradients bounded for large errors while remaining quadratic near zero. 
+
+Quadrotor Hovering. The hovering cost penalizes target-height error ( cheight ), linear velocity ( cv ), body rate ( cω ), linear acceleration ( ca), attitude deviation from upright ( cR), action deviation from hover thrust ( cu), and collisions ( ccollision ). In total, 
+
+chover = cheight + 0 .1 cv + 0 .15 cω + 0 .1 ca + 0 .1 cR + cu + ccollision , (4) with reward r = −∆t c hover .
+
+Quadrotor Landing. Landing uses the hovering structure but replaces the constant-height ob-jective with a target landing position. Thus cheight becomes the position-error term cp, while all remaining terms and weights are unchanged: 
+
+cland = cp + 0 .1 cv + 0 .15 cω + 0 .1 ca + 0 .1 cR + cu + ccollision . (5) 
+
+Quadrotor Trajectory tracking. Trajectory tracking penalizes position, velocity, body-rate, ac-celeration, and attitude errors relative to the current reference waypoint, together with action smooth-ness and collision terms: 
+
+ctrack = cp + 0 .1 cv + 0 .01 cω + 0 .01 ca + cR + 0 .15 c∆u + ccollision . (6) All reported tracking methods use the same reference, action limits, reset distribution, and reward in simulation and hardware. 
+
+Franka end-effector tracking. Franka tracking uses Cartesian position error ( cp), orientation er-ror ( cR), action regularization ( cu), and joint-limit penalty ( clim ) over a 5 s episode. Continuous errors pass through exp( −βe ) with sharpness β = 5 .0. The weights are wp = 3 .0, wR = 0 .3,
+
+w ˙q = 0 , wu = 0 .01 , and wlim = 1 .0; the joint-limit term activates within 0.05 rad of a limit. These settings make Cartesian tracking dominate the gradient while avoiding unnecessary damping of sustained joint motion. 
+
+Box pushing. For box pushing, the PPO reward combines box–target progress, box orientation, gripper–box proximity, side-contact shaping, joint-velocity terms, robot target-posture, action regu-larization, success reward, and termination penalty: 
+
+cbox = cprog + cori + cprox + ccontact + c ˙q + c ˙q-lim + cposture + c∆u + cu + cterm − rsucc . (7) The logged setup uses ∆t = 0 .005 s, action repeat 4, observation history length 30 , action history length 5, and delayed noisy observations and actions during training. Reward scales are wprog = 8 .0,13 wori = 6 .0, wprox = 2 .0, wcontact = 1 .0, w ˙q = 1 .0, w ˙q-lim = 3 .0, wposture = 0 .75 , w∆u = −0.1, and 
+
+wu = −0.1. Success adds 500 .0 after 30 consecutive success steps, with a 3.0 success-wait reward; termination adds −50 .0. The shaped terms use a 0.005 m box-target tolerance with 0.4 m margin, a 0.2 rad orientation tolerance with π margin, and a 0.1 m gripper–box side-contact tolerance with 
+
+1.0 m margin. 
+
+A.4 Hardware Setup 
+
+The hardware setup matches the main real-world experiments. We use an Agilicious-based quadro-tor [31] tracking a figure-eight reference at 50 Hz, with motion-capture state estimates and off-board execution of the encoder, policy, and asynchronous learning process. Wind disturbances are con-trolled external conditions. Position error is reported over five repeated trials per setting with the same reference and evaluation window across methods. 
+
+Recurring-wind recovery. To evaluate the policy’s adaptability, we conduct a wind-switch recov-ery experiment. The quadrotor is initially flown under a constant wind condition until it achieves steady-state tracking. At time tswitch , the wind vector abruptly changes magnitude or direction. We define the Recovery Time (Trec ) as the time required for the tracking error to return and remain within the pre-switch steady-state envelope. Formally, let e(t) = ∥x(t) − xref (t)∥2 denote the Euclidean tracking error at time t. Let ϵ define the tracking envelope, computed as the maximum error during the steady-state phase prior to tswitch . The recovery metric is defined as: 
+
+Trec = inf {τ ≥ 0 | e(tswitch + τ + ∆ t) ≤ ϵ ∀∆t ≥ 0} (8) 0 500 1000 1500 2000 
+
+Epoch 
+
+-25 
+
+-20 
+
+-15 
+
+-10 
+
+-5 
+
+> Return
+> GT Disturbance
+> Ours
+> Simple Residual
+> Single Disturbance
+> RMA
+
+Figure 7: Training curves comparing return versus epoch across disturbance-modeling methods on the quadrotor task. 
+
+Revisiting previous conditions. 
+
+The revisit protocol exposes the robot to intermittent disturbances, including sequences in which aprevious wind condition returns. We measure the post-switch error spike, the time to return to nominal tracking, and the persistent tracking error after refinement. This separates condition recognition from continual policy improvement: a successful model should recover quickly when the condition is familiar and improve the policy over repeated deployment data. 
+
+Cut-propeller disturbance. The cut-propeller experiment tests a hardware disturbance not naturally covered by hand-designed wind randomization. Because the actuator asymmetry is observed only through flight data, the experiment evaluates whether the continual loop can absorb a genuinely new residual effect. The resulting performance improvement is from 52 cm to 24 cm in the first two refinement iterations, followed by continued improvement to 12 cm. 
+
+A.5 Training Curves and Compute 
+
+Figure 7 shows a representative training curve for the quadrotor trajectory-tracking task. We include it to document the optimization behavior of one BPTT policy run; the evaluation metrics in the main paper are computed separately on held-out disturbance conditions. 14 Ablation Question answered            
+
+> w/o residual prior Does the model benefit from predicting only the correction to a physics prior, rather than relearning the full transition? w/o FiLM Is latent feature-wise modulation useful beyond simple concatenation of z
+> and the state-action vector? w/o MMD Can the encoder learn predictive latents that are also safe to sample from
+> N(0,I)without aggregate prior alignment? w/o reconstruction Does the auxiliary context reconstruction term help retain trajectory infor-mation and improve multi-step prediction? MLP encoder Is a temporal recurrent encoder necessary, or can a non-recurrent history summary identify the active dynamics? Latent-dimension sweep How sensitive is dynamics prediction and policy learning to the size of z?
+
+Table 2: Ablation map. The full model combines a physics prior, latent-conditioned residual dy-namics, recurrent history encoding, context regularization, and annealed MMD prior alignment. 
+
+Training time and hardware. Policy training was run on a single NVIDIA RTX 4090 GPU. Quadrotor hovering and landing policies use 512 parallel environments, 1500 epochs, and 250 sim-ulator steps per epoch, corresponding to 1.92 ×10 8 differentiable transition evaluations and 5 s roll-outs at ∆t = 0 .02 s. The trajectory-tracking policy uses the same environment count and epoch count with 125 -step rollouts, corresponding to 9.6×10 7 transition evaluations and 2.5 s rollouts. All three use a policy MLP with hidden sizes (512 , 512) and a four-dimensional thrust/body-rate action. Saved feature-hovering logs provide representative single-GPU timings: 1000 epochs with 512 en-vironments train in 130 .6 s for the simple-quadrotor wind run, 158 .3 s for the full-quadrotor wind run, and 188 .5 s for the latent-conditioned feature-hovering run. A Franka BPTT base policy trains in about 10 minutes, and a warm-started refined policy in about 5 minutes. The logged box-pushing PPO policies use 8192 parallel environments and 1.8×10 9 simulator steps; one policy takes about 
+
+2.8–2.9 hours, with about 45 seconds of JIT compilation before training. The Franka residual model fit is shorter, about 15 –20 seconds for the logged 50 k-transition datasets. 
+
+A.6 Metrics and Statistical Reporting 
+
+For hardware experiments, the primary metric is position tracking error in meters over repeated tri-als. Recovery time is reported in seconds and is computed from the time at which the error returns to the pre-switch tracking envelope. For simulation benchmarks, quadrotor tasks report mean position error, landing additionally reports terminal success criteria, end-effector tracking reports Cartesian tracking error, and box pushing reports success rate. When aggregate statistics are reported, each method uses the same seed set, disturbance split, and evaluation horizon within the corresponding task. 
+
+A.7 State, Action, and History Representation 
+
+For the quadrotor experiments, the physical state is 
+
+st = ( pt, qt, vt) ∈ R10 , (9) where pt is position, qt is a unit quaternion, and vt is linear velocity. The action follows the main-paper formulation, 
+
+at = ( Tt, ω x,t , ω y,t , ω z,t ) ∈ R4, (10) where Tt is collective thrust and the remaining entries are commanded body rates. The task obser-vation additionally includes recent actions, allowing command delay and smoothness to be repre-sented. Hovering observations contain the current position, quaternion, velocity, and a short action history. Trajectory-tracking observations use the same state-action interface and compute the task error against the current reference waypoint. 15 The latent encoder consumes a rolling state-action context window 
+
+Ht−C:t = {(si, ai)}t−1 
+
+> i=t−C
+
+. (11) Unless otherwise stated, C = 20 controller steps, corresponding to 0.4 s at the 
+
+50 Hz hardware control rate. The final configuration uses z ∈ R12 ; simulation-only diagnostic sweeps vary this dimension to test sensitivity. Input channels are normalized with statistics computed from the training buffer, and the same normalization is reused across our method and the history-conditioned baselines.                                                                
+
+> Parameter Quad. VND Franka VND Push PPO
+> State-action dim. 13–14 21 state hist. Residual output 6–9 14 policy only Context length 20 20 obs hist. 30 Latent dim. 12 4–Encoder GRU GRU –Encoder hidden 128 256 –Residual hidden 256 256 –Residual blocks 23–Conditioning FiLM FiLM –Classes wind 11 masses –VND epochs per-task cfg. 5000 –VND batch per-task cfg. 2048 –VND LR per-task cfg. 3×10 −4–Policy hidden 256, 256 256, 256 64 ×4Policy optimizer Adam/BPTT Adam/BPTT PPO Policy epochs per-task cfg. 500 –Policy LR per-task cfg. 3×10 −36×10 −4
+> Horizon per-task cfg. 250 3000 Parallel envs per-task cfg. 256 8192 Control step 0.02 s 0.02 s 0.005 s
+
+Table 3: Model and training parameters. “Quad. VND” lists the architecture shared by the quadrotor latent dynamics experiments; training-loop values are task specific. “Franka VND” comes from the manip-ulation tracking logs, and “Push PPO” lists the logged box-pushing policy settings. 
+
+A.8 Variational Neural Dynamics Details Recurrent trajectory encoder. The encoder 
+
+Eϕ is a recurrent network. Each state-action vec-tor is first projected through a dense layer with a GELU nonlinearity. A GRU aggregates the con-text window, and the final hidden state is pro-jected to the latent code. The recurrent encoder is important because one transition often contains too little evidence to identify the active distur-bance; wind, for example, appears through accu-mulated changes in acceleration and attitude over multiple control steps. 
+
+Physics prior and residual head. The tran-sition model keeps a known rigid-body prior and learns only the missing condition-dependent component: 
+
+ˆst+1 = fprior (st, at) + Dψ (st, at, zt). (12) For quadrotors, fprior integrates nominal thrust and body-rate dynamics with timestep ∆t =0.02 s. The residual network predicts corrections to position, velocity, and orientation. Orientation residuals are represented as rotation vectors and composed with the nominal orientation prediction through the exponential map, keeping the correction local on the rotation manifold. To evaluate the performance, we also include a rollout of the learned variational dynamics model under various wind conditions, as shown in Fig. 8 and Fig. 9. 
+
+Training objective. For a transition (si, ai, si+1 ) and a context index k(i), the residual target is 
+
+ri = si+1 ⊖ fprior (si, ai), (13) where ⊖ denotes Euclidean subtraction for position and velocity and a rotation-vector difference for orientation. The dynamics loss is a Huber or mean-squared residual-prediction loss over transitions: 
+
+Ldyn = 1
+
+B
+
+> B
+
+X
+
+> i=1
+
+ℓ  Dψ (si, ai, E ϕ(Hk(i))) − ri
+
+ . (14) One inferred latent is shared by many transitions from the same context. This forces the code to explain the common hidden dynamics rather than memorize a single transition. The full objective used in the main paper is 
+
+Lvnd = Ldyn + λrec Lrec + λmmd Lmmd . (15) 16 -0.1 0.0 0.1 0.2 
+
+X [m] 
+
+> 0.20
+> 0.15
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> Y [m]
+
+Wind (+1.5, +0.0) |1.5|     
+
+> Context
+> Ground truth
+> Predicted
+> Rollout start
+> -0.2 -0.1 0.0 0.1 0.2
+
+X [m] 
+
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+
+Wind (+0.0, +1.5) |1.5|       
+
+> -0.10 -0.05 0.00 0.0 0.1 -0.1 0.2 -0.2 0.3
+
+X [m] 
+
+> 0.075
+> 0.050
+> 0.025
+> 0.000
+> 0.025
+> 0.050
+> 0.075
+> 0.100
+
+Wind (-1.5, +0.0) |1.5| 
+
+X [m] 
+
+> 0.20
+> 0.15
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+
+Wind (-0.0, -1.5) |1.5|      
+
+> 0.1 0.0 0.1 0.2 0.3 0.4
+
+X [m] X [m] X [m] X [m] 
+
+> 0.1
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> Y [m]
+
+Wind (+2.1, +2.1) |3.0|    
+
+> 0.4 0.2 0.0 0.2
+> 0.4
+> 0.3
+> 0.2
+> 0.1
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+
+Wind (-2.1, +2.1) |3.0|     
+
+> 0.4 0.2 0.0 0.2 0.4
+> 0.5
+> 0.4
+> 0.3
+> 0.2
+> 0.1
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+
+Wind (-2.1, -2.1) |3.0|     
+
+> 0.2 0.0 0.2 0.4 0.6
+> 0.8
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> 0.2
+
+Wind (+2.1, -2.1) |3.0| Figure 8: Experiments on Learned Dyanmics. Our learned Variational Dynamics Model is able to capture diverse disturbance conditions with very low open-loop cumulative errors. 1.0 0.5 0.0 0.5 1.0 
+
+X [m] 
+
+1.0 
+
+0.5 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Y [m]
+
+Wind (+1.5, +0.0) |1.5| err 0.02 m 
+
+> Reference
+> Flown
+
+1.0 0.5 0.0 0.5 1.0 
+
+X [m] 
+
+1.0 
+
+0.5 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Y [m]
+
+Wind (+0.0, +1.5) |1.5| err 0.02 m 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X [m] 
+
+1.0 
+
+0.5 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Y [m]
+
+Wind (-1.5, +0.0) |1.5| err 0.02 m 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X [m] 
+
+1.0 
+
+0.5 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Y [m]
+
+Wind (-0.0, -1.5) |1.5| err 0.01 m 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X [m] 
+
+1.0 
+
+0.5 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Y [m]
+
+Wind (+2.1, +2.1) |3.0| err 0.03 m 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X [m] 
+
+1.0 
+
+0.5 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Y [m]
+
+Wind (-2.1, +2.1) |3.0| err 0.01 m 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X [m] 
+
+1.0 
+
+0.5 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Y [m]
+
+Wind (-2.1, -2.1) |3.0| err 0.02 m 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X [m] 
+
+1.0 
+
+0.5 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Y [m]
+
+Wind (+2.1, -2.1) |3.0| err 0.02 m 
+
+Figure 9: Policy performance in diverse disturbance conditions. Our learned policy through the continual learning framework is able to capture diverse external conditions. The reconstruction term decodes the latent back to the normalized context sequence, 
+
+Lrec = 1
+
+N
+
+NX
+
+n=1 
+
+∥Gη (Eϕ(Hn)) − norm( Hn)∥22 , (16) where Gη is the auxiliary decoder and norm( ·) applies the training-buffer input normalization. This term is an auxiliary context regularizer, not a VAE likelihood, and it does not introduce a per-sample KL term. The MMD term aligns the aggregated encoder distribution qϕ(z) with the sampling prior p(z) = 
+
+N (0, I). For encoded latents {zi}Ni=1 and prior samples {˜zj }Nj=1 , we use the biased finite-sample estimator 
+
+Lmmd = 1
+
+N 2
+
+X
+
+i,j 
+
+k(zi, zj ) + 1
+
+N 2
+
+X
+
+i,j 
+
+k(˜ zi, ˜zj ) − 2
+
+N 2
+
+X
+
+i,j 
+
+k(zi, ˜zj ), (17) 17 with RBF kernel 
+
+k(x, y) = exp 
+
+
+
+− ∥x − y∥22
+
+2σ2
+
+
+
+. (18) The quadrotor latent-dynamics scripts use σ = 2 .0 for this kernel. As in the main paper, the Gaussian prior is only a convenient sampling space, not a physical wind or payload model. 
+
+MMD schedule. The MMD weight is annealed: 
+
+λmmd (e) = λmax mmd min 
+
+
+
+1, max 
+
+
+
+0, e − E0
+
+Eramp 
+
+ 
+
+, (19) where e is the latent-dynamics update index, E0 is the dynamics-only warmup, and Eramp is the ramp length. This schedule addresses the failure mode described in the main text. If prior alignment is applied before the dynamics loss has separated incompatible conditions, the latent space can collapse. If MMD is removed, encoded latents may be predictive on the buffer but unsafe to sample during policy learning. 
+
+A.9 Policy Learning and Deployment 
+
+During differentiable policy optimization, the dynamics model and encoder are frozen. At the start of each simulated rollout, a latent is sampled from the prior and held fixed: 
+
+z(j) ∼ N (0, I) for environment j. (20) The same latent conditions both the residual model and the policy. The policy is optimized by backpropagation through time over parallel rollouts. We write 
+
+¯ot = norm o(Otask (st, rt, at−K:t−1)) (21) for the normalized task observation given to the policy, where Otask selects the task-specific state, reference, and action-history features and norm o applies the observation normalization used for policy training. The latent-dynamics encoder input remains the separate context window Ht−C:t.The BPTT objective is 
+
+max  
+
+> θ
+
+Ez,s0
+
+"H−1X
+
+> t=0
+
+γtr(st, π θ (¯ ot, z), st+1 )
+
+#
+
+. (22) At deployment, the sampled latent is replaced by the live encoder output zt = Eϕ(Ht−C:t). Thus, the policy interface is the same in simulation and on the robot, but the source of the latent changes from prior samples during policy training to inferred recent interaction during execution. 18

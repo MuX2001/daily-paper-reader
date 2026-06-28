@@ -1,0 +1,658 @@
+Title: Do Rigid-Body Simulators Dream of Soft Robots? Learning Contact-Rich Manipulation for Tendon-Driven Continuum Robots
+
+URL Source: https://arxiv.org/pdf/2606.22397v1
+
+Published Time: Tue, 23 Jun 2026 02:29:03 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+# Do Rigid-Body Simulators Dream of Soft Robots? Learning Contact-Rich Manipulation for Tendon-Driven Continuum Robots 
+
+Chengnan Shentu, Nicholas Baldassini, Tongjia Zheng, Priyanka Rao, Jessica Burgner-Kahrs 
+
+University of Toronto, Canada 
+
+Project Page: https://continuumroboticslab.github.io/opencr-mujoco/ Grasping    
+
+> Flip Switch
+> zero -shot
+> sim -to -real
+> IL policy (sim)
+> MuJoCo model
+> (native tendon
+> & contact)
+> continuum -mechanics -
+> informed discretization
+> Physical TDCR
+> (material properties
+> +sysid )
+
+Figure 1: Sim-to-real pipeline for contact-rich manipulation with tendon-driven continuum robots. A continuum-mechanics-informed discretization places the TDCR natively inside MuJoCo, unifying tendon forces, body contact, and dynamics in a single physics pipeline. Policies are trained from teleoperated demonstrations in simulation and deployed zero-shot to the real robot. 
+
+Abstract: Learning contact-rich, whole-body manipulation for soft continuum robots is held back by the lack of simulation infrastructure that has accelerated rigid-robot manipulation. Existing soft robot simulators are physically grounded but lack the contact handling, actuation support, or learning integration needed for contact-rich manipulation; rigid-body approximations offer these capabilities but sacrifice physical grounding. We bridge this gap for tendon-driven continuum robots (TDCRs) by deriving a continuum-mechanics-informed discretization that places the soft robot natively inside MuJoCo, unifying tendon forces, body con-tact, and dynamics in a single physics pipeline. We validate the simulator against a Cosserat rod reference (static and dynamic) and real TDCR hardware. We then train state-based imitation learning policies via teleoperation in simulation and de-ploy them zero-shot to a physical 3-segment TDCR on a 7-DoF Franka arm across two contact-rich manipulation tasks. To our knowledge, this is the first demonstra-tion of sim-to-real transfer for contact-rich manipulation with continuum robots. 
+
+Keywords: Simulation, Soft Robotics, Sim-to-Real Transfer. 
+
+## 1 Introduction 
+
+Contact-rich manipulation has seen rapid progress driven in part by mature simulation infrastruc-ture [1, 2, 3]. Compliance is ubiquitous in this success: from rubber-padded fingertips, to compliant parallel jaw grippers, to deformable tactile sensors, compliance at the point of contact is consis-tently critical for robust manipulation. Soft continuum robots take this principle further, distributing 
+
+> arXiv:2606.22397v1 [cs.RO] 21 Jun 2026
+
+active compliance along the entire body. Despite this, progress toward whole-body soft manipula-tion remains limited. Soft continuum robots face several challenges for learning in the real world: their high-dimensional configuration spaces demand careful calibration and extensive demonstration data, iterating on physical hardware is slow and resource-intensive, and their full shape is difficult to observe. Simulation can address all three, yet no simulator combines the capabilities needed for contact-rich manipulation learning: physical grounding in continuum mechanics, a contact solver, faithful actuation modeling, computational efficiency, and learning pipeline integration (Table 1). Existing continuum-mechanics simulators [4, 5, 6] are physically grounded and some achieve ro-bust contact resolution [6], but they are specialized frameworks designed for modeling and analysis: actuation is modeled abstractly (e.g., as distributed loads or natural curvature changes) rather than at the level of physical inputs like tendons, leaving the user to derive a command mapping and omitting the inter-tendon coupling and tension-induced stiffness that physical tendons contribute to system dynamics. There is also no support for complex multi-object scenes or learning pipelines. Coupling a continuum solver with an existing rigid-body engine [7] addresses some of these gaps, but current implementations only handle known external loads on the soft body, not contacts that emerge from interaction with the environment. Pseudo-rigid-body models [8] sidestep these issues by placing the soft robot directly inside a physics engine, gaining native contact and interaction with rigid robots and objects. However, model parameters are empirically calibrated rather than derived from physics, with no convergence guarantee and no assurance that the resulting simulation gener-alizes beyond the calibration conditions. We show that the pseudo-rigid-body approach can be made physically grounded: joint stiffnesses are derived analytically from the rod’s material properties, and the discretization provably converges to the continuous rod at second order. Our contributions are: 
+
+Simulation: We derive a continuum-mechanics-informed discretization that places tendon-driven continuum robots (TDCRs) natively inside MuJoCo with no engine modifications, achieving phys-ical grounding, contact resolution, native tendon actuation, computational efficiency, and learning pipeline integration. We validate against a Cosserat rod reference and real hardware (Sec. 4.1–4.2). 
+
+System: We show this simulation approach unlocks the standard sim-to-real imitation learning workflow (teleoperated data collection, imitation learning, and zero-shot policy deployment) on a 9-tendon, 3-segment TDCR mounted on a 7-DoF Franka arm. To our knowledge, this is the first sim-to-real transfer of contact-rich manipulation policies for soft continuum robots. 
+
+## 2 Related Work 
+
+Table 1: Comparison of soft continuum robot simulators across the five capabilities required for learning contact-rich manipulation.                                                            
+
+> SOFA Shooting SoRoSim Elastica DisMech SoftManiSim SoMo Ours
+> [9] [10] [4] [11] [6] [7] [12]
+> Modeling basis FEM Cosserat Cosserat Cosserat Kirchhoff Cosserat △Empirical Kirchhoff
+> Contact solver ✓××△a✓×b✓✓
+> Actuation modeling ✓△c△c✓×d△c×e✓
+> Computational efficiency ×✓✓△f✓✓✓✓
+> Learning integration △g××✓×✓✓✓
+> aPenalty-based; explicit integration limits stability for stiff rods. bContact must be specified as known external loads, not resolved by a contact solver. cTendons modeled as user-supplied distributed loads. dPrescribed as changes to the rod’s rest curvature, no physical actuator is modeled. eFixed moment at each joint, independent of configuration. fExplicit time integration limits real-time performance for stiff materials. gSofaGym; computational cost limits interactive use.
+
+Soft robot simulation spans a wide range of methods (see [13] for a review), which we organize by their relationship to the requirements in Table 1. Approaches based on the finite element method (FEM), such as SOFA [9] provide high-fidelity deformation and contact modeling [14] but re-main too costly for real-time use despite model-order reduction advances [15]. For slender robots, Cosserat rod models [16] reduce the representation from 3D to 1D while remaining geometrically 2exact, with various strategies achieving real-time free-space dynamics [10, 17, 18, 19, 4]. However, these are specialized frameworks designed for modeling and analysis: contact on the soft body must be specified as known external loads [20, 21], tendons are approximated as distributed loads rather than discrete forces through tendon paths, and there is no support for complex multi-object scenes or learning pipelines. DisMech [6] provides physically grounded Kirchhoff rod simulation with ro-bust implicit contact handling and order-of-magnitude speed improvements over Elastica [5], but actuation is limited to natural curvature changes and the framework remains standalone. Recent work has taken two opposite approaches to bridge this gap. SoftManiSim [7] couples a Cosserat solver with PyBullet, providing physical grounding and learning integration but requiring contact forces on the soft body to be specified as solver inputs rather than discovered by the engine; demonstrated tasks are accordingly limited to trajectory tracking and reaching. SoMo [12] instead places soft robots as rigid-link chains directly inside PyBullet, gaining native contact resolution and learning integration, but its parameters are empirically calibrated without continuum-mechanics grounding and its constant-moment actuation assumption breaks down under external loads [16, 22]. As a result, learning demonstrations with these tools remain narrow: free-space reaching for con-tinuum bodies [7] or simple in-hand motions for soft grippers [8], neither approaching the contact-rich whole-body manipulation we target. Our approach inherits the architectural advantages of the pseudo-rigid-body approach while restoring physical grounding through continuum-informed pa-rameter derivation, enabling sim-to-real learning for contact-rich manipulation. 
+
+## 3 Continuum-Informed Rigid-Body Simulation 
+
+We model the TDCR as a Kirchhoff rod (Section 3.1), develop a discretization that places it natively inside MuJoCo (Section 3.2), and outline the sim-to-real pipeline this enables (Section 3.3). Interpretability and     
+
+> convergence
+> across N
+> tendons
+> collision
+> geometry
+> obstacle
+> MuJoCo
+> mjlab
+> TDCR hardware Kirchhoff rod discretization Native MuJoCo Integration
+
+Figure 2: Method overview. Our discretization places a physical TDCR natively inside MuJoCo, with rigid links and elastic joints whose stiffness is derived analytically from material properties. The approximation converges at O(1 /N 2). The resulting chain directly leverages MuJoCo’s tendon model and contact solver for object interaction. Because the model is encoded in standard MJCF, it is portable across MuJoCo-based engines including parallelized GPU simulation in mjlab; we focus on single-instance MuJoCo simulation in this work. 
+
+3.1 Continuum Mechanics Primer 
+
+We model a TDCR as a Kirchhoff rod, a special case of the Cosserat rod model [16, 13] for thin elastic rods. The Cosserat model describes a 3D deformable body as a 1D centerline with a moving cross-section that bends, twists, shears, and stretches along arc length; the Kirchhoff specialization keeps only bending and twisting, which is appropriate for thin TDCRs, whose backbones bend much more easily than they shear or extend (axial and shear stiffnesses EA, GA ≫ bending stiffness EI ). We verify this assumption against a full Cosserat reference in Section 4.1. 3A Kirchhoff rod at each arc-length point s ∈ [0 , l ] has three internal degrees of freedom: bending curvatures (ux, u y ) and torsion uz . These relate to internal elastic moments through the constitutive law Λa = Ka(u − uo), where uo is the rest curvature and Ka = diag (EI, EI, GJ ) packages the rod’s bending and torsional stiffnesses from elastic moduli ( E, G) and cross-sectional moments ( I,
+
+J). The full Cosserat formulation and Kirchhoff specialization are in Appendix A. 
+
+3.2 Discretization 
+
+We approximate the Kirchhoff rod as a serial chain of rigid links with elastic joints whose parameters are derived from the rod’s material properties. The rod is divided into N segments of length li,each treated under a piecewise constant strain (PCS) approximation [18]: curvatures and torsion are constant within a segment, so under Kirchhoff each segment traces a circular arc. We place a 3-DOF elastic spherical joint at the center of each segment, yielding N joints connected by N −1 full-length links plus two half-length links at the base and tip (Figure 2). Because each joint sits at its segment’s midpoint, the adjacent links are tangent to the circular arc, avoiding the angle compensation and cumulative error propagation seen in other pseudo-rigid-body models [23, 24]. This construction has two key properties (derived in Appendix B): 
+
+Physical interpretability: Applying the constitutive law to each segment gives joint stiffnesses: 
+
+kxi = EI/l i, kyi = EI/l i, kzi = GJ/l i. (1) These values follow directly from the rod’s material and geometric properties. This is in contrast to pseudo-rigid-body models where parameters must be empirically calibrated [8]. 
+
+Convergence: The discretization level N is the single free parameter, controlling a direct trade-off between accuracy and computational cost. We fix link lengths to Li = li/2 and show in Appendix C that the static approximation error decreases as O(1 /N 2). In practice we use N = 30 –50 , where the discretization closely tracks a Cosserat reference at real-time rates (Section 4.1). 
+
+3.3 Sim-to-Real Pipeline Overview 
+
+The discretization above enables us to follow the standard sim-to-real imitation learning workflow for TDCRs: given physical parameters, we generate a MuJoCo model with stiffnesses set by Eq. 1; system-identify uncertain parameters against real hardware; collect demonstrations via real-time teleoperation; and train policies for zero-shot deployment. Because the TDCR is a native rigid-body chain, it composes with rigid robots, objects, and environments in a single MuJoCo scene using stan-dard workflows. This is particularly valuable for soft robots: real-time contact simulation supports interactive teleoperation, provides full observability of robot state and contact, and avoids the time and hardware cost of trial-and-error on compliant hardware. We detail each step in Sections 4.1–4.3. Because the model is encoded in standard MJCF, it is portable to other MuJoCo-based simulators in-cluding mjlab [25] for parallelized GPU simulation (Figure 2), although we focus on single-instance MuJoCo in this work. 
+
+## 4 Evaluation 
+
+We evaluate our approach at three levels, finding strong agreement at each: (i) against a Cosserat rod reference, with sub-percent error in statics and dynamics; (ii) against real hardware after sys-tem identification, with 4.1% mean tip tracking error; (iii) and through zero-shot sim-to-real policy deployment, where real-world success rates meet or exceed simulation. 
+
+4.1 Simulation Validation 
+
+We compare our MuJoCo discretization against SoRoSim [4], a well-established Cosserat rod solver based on the geometric variable strain approach. Since SoRoSim solves the full Cosserat model including shear and extension, this comparison simultaneously validates our discretization and the 4Kirchhoff assumption for the rod parameters we consider. We test on two materials representing the stiffness range of common TDCRs (Table 2), under both static and dynamic loading, across five discretization levels N ∈ { 25 , 35 , 50 , 70 , 100 }.Table 2: Simulation validation setup. Two materi-als spanning three orders of magnitude in stiffness are tested under randomized loading. 
+
+Spring Steel Thermoplastic Polyurethane (TPU) Length l 0.6 m 0.4 m 
+
+Radius r 0.8 mm 5 mm 
+
+Young’s mod. E 200 GPa 70 MPa 
+
+Poisson’s ratio ν 0.33 0.4 Density ρ 7870 kg m −3 1200 kg m −3
+
+Static loading (random mid/tip wrench) 
+
+Force (mid/tip) 0.20 N 0.30 N 
+
+Moment (mid/tip) 0.08 N m 0.06 N m 
+
+Dynamic (random mid/tip wrench and release at t=0) 
+
+Force (mid/tip) 0.40 N 0.30 N 
+
+Moment (mid/tip) 0 0.08 N m 
+
+Damping ratio 0.002–0.005 Gravity 9.81 m s −2, random direction per test 0.2 
+
+> 0.0
+> 0.2
+> X (m)
+> 0.2
+> 0.0
+> 0.2
+> Y (m)
+> 0.00
+> 0.15
+> 0.30
+> 0.45
+> 0.60
+> Z (m)
+> Sorosim Ref.
+> MuJoCo
+> Applied wrench
+
+Figure 3: Representative static test shapes with N = 50 . MuJoCo (dot-ted) closely matches the SoRoSim ref-erence (solid) under randomized gravity and applied wrenches (red arrows). 25 35 50 70 100 
+
+> N (links)
+> 0.1
+> 0.2
+> 0.5
+> 1
+> 2
+> Tip error (% of rod length)
+> Steel L=0.60 m, TPU L=0.40 m
+> Steel mean
+> Steel 95%
+> Steel max
+> TPU mean
+> TPU 95%
+> TPU max
+
+Figure 4: Static tip error vs. discretiza-tion level. Mean (solid), 95th percentile (dashed), and maximum (dotted) tip er-ror as a percentage of rod length, over 500 tests per material. 
+
+Static validation. For each material, we evaluate on 500 equilibrium shapes under randomized loading: gravity, midpoint wrenches, and tip wrenches are all applied with random 3D directions at fixed magnitudes (Table 2). Fig-ure 4 confirms that mean tip error decreases consistently with N for both materials, reaching 0.20% of rod length at N =50 with worst-case errors at 1% . The two materials track closely despite spanning three orders of magnitude in mechanical stiffness. 
+
+Dynamic validation. We evaluate dynamic behavior us-ing a tip-release protocol: the rod stabilizes under gravity and applied wrenches, which are then suddenly released at t = 0 , and the rod swings in a damped oscillation until it stabilizes to its rest shape. Across the two materials, we compare 20 such trajectories against SoRoSim. Given the same physical param-eters, MuJoCo recovers SoRoSim’s oscillation frequency and damping decay exactly (Figure 5a); this agreement is consistent across physics rates. Dynamic tip error stays below 0.5% of rod length for steel and 1% for TPU across all N (Figure 5b)—lower than in the static case as errors average over the oscillation cycle. TPU’s higher residual reflects its more complex loading (force + moment, vs. force-only). Figure 5c stress-tests computational performance across N up to 100 and simula-tion rates up to 1000 Hz on unoptimized MuJoCo. Our practical operating regime ( N = 30 –50 
+
+at ≤ 500 Hz , shaded) sits at the accuracy-cost sweet spot: static and dynamic errors are below 1% 
+
+while real-time is maintained with substantial margin. 
+
+4.2 Hardware Validation 
+
+The simulation validation in Section 4.1 establishes that our discretization accurately approximates Cosserat rod theory for material commonly used in TDCRs. Here, we verify that it can also represent a physical TDCR after system identification, bridging the gap from theory to real hardware. 
+
+System identification. We validate against a TDCR with 3 segments actuated by 9 tendons (3 per segment), mounted on a 7-DoF Franka arm. We generate a MuJoCo model with N =30 segments 50.25                 
+
+> 0.00
+> 0.25
+> 0.50
+> position (m)  x / roll
+> y / pitch
+> z / yaw
+> Sorosim Ref.
+> MuJoCo
+> 0246810
+> time (s)
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> orientation (rad)
+> Steel test 4, N=50, 200 Hz
+> 25 35 50 70 100
+> N (links)
+> 0.5
+> 1
+> 2
+> Tip error (% of rod length)
+> 200 Hz
+> Steel mean
+> Steel 95%
+> Steel max
+> TPU mean
+> TPU 95%
+> TPU max
+> 25 35 50 70 100
+> N (links)
+> 0.5
+> 1
+> 2
+> 5
+> 10
+> 20
+> 50
+> Realtime factor (sim / wall)
+> 200 Hz
+> 500 Hz
+> 1000 Hz
+> Practical operating regime
+> (a) Tip trajectory position and orientation (b) Tip-position error (c) Realtime factor
+
+Figure 5: Dynamic validation against SoRoSim. (a) Tip position and orientation over 10 seconds of free oscillation after wrench release (spring steel, N =50 , 200 Hz). (b) Mean tip error vs. N for both materials, with 95th percentile and maximum. (c) Real-time factor on unoptimized MuJoCo across discretization levels N and simulation rates up to 1000 Hz. The shaded region marks the practical operating regime ( N = 30 –50 , ≤ 500 Hz ); dashed line marks real-time (RTF=1). and initialize joint stiffness from the backbone’s nominal material properties (Eq. 1). We then col-lect a calibration dataset tracking tendon configurations and measure the resulting TDCR tip position using an optical tracker (0.2 mm rated RMSE, Lyra, NDI), followed by Bayesian optimization over stiffness, tendon stiffness, and tendon pre-tension to minimize the discrepancy between simulated and measured tip positions. Because the model starts from physically grounded parameters, the op-timization converges from a reasonable initialization and the identified values remain interpretable. 
+
+Results. After system identification, the simulator achieves a mean tip tracking error of ∼7.7 mm 
+
+(4.1% of the TDCR length of 186 .5 mm ) across a held-out test set despite various unmodeled effects (e.g., tendon friction, hysteresis, assembly tolerances). Figure 6 shows sim-vs-real tip trajectory comparisons under varied tendon inputs. Grasping 
+
+Figure 6: Hardware validation. After system identification, the MuJoCo model tracks the physical TDCR with 7.7 mm mean tip error ( 4.1% of robot length). Left: TDCR prototype and simulation. Centre: Sim-vs-real tip trajectory. Right: Tendon actuation and error distribution across trajectory. 
+
+4.3 Learning Contact-Rich Manipulation 
+
+Our simulation combines real-time performance with both tendon actuation and contact resolution, capabilities not previously available together for soft continuum robots. This allows us to apply the sim-to-real imitation learning workflow (teleoperated data collection, imitation learning, and zero-shot deployment) to a continuum robot, and to test whether the simulator is realistic enough for transfer to succeed. A 9-tendon, 3-segment TDCR is mounted on a 7-DoF Franka arm, with the Franka providing global positioning and the TDCR providing compliant whole-body manipulation. We demonstrate two contact-rich tasks (Figures 7, 8), both requiring the TDCR to make distributed, unpredictable body contact with the environment to succeed. We use a state-based ACT policy [26] to isolate the contribution of the physics simulation from other factors in sim-to-real transfer (e.g., image-based domain gap). 6Figure 7: Grasping task in MuJoCo. 
+
+Task 1: Whole-body grasping (Figure 7). The TDCR must pick up a cylindrical object and drop it into a bin using whole-body contact, wrapping its compliant body around the object rather than grasping with a rigid end-effector. The policy must coordinate tendon inputs to ap-proach the cylinder from multiple directions in a balanced manner; un-even contact causes the cylinder to tilt or fall before a secure grasp is achieved. Contact is distributed along the body and shifts continuously as the TDCR conforms to the object geometry, an interaction that must be resolved at each timestep and cannot be pre-specified. 
+
+Figure 8: Switch task in MuJoCo. 
+
+Task 2: Flip switch from behind (Figure 8). The TDCR must flip a wall-mounted light switch ( ∼7 × 10 mm contact area, ∼0.9 N required force) by approaching from behind the wall and pressing downward on the toggle. Soft and compliant robots have traditionally struggled with such precision tasks [27] because their distributed flexibility makes it difficult to localize forces accurately on a small target. Compliance itself becomes the solution here: the TDCR braces against the surrounding switch panel to stabilize the body before applying force on the toggle in the correct direction. Failures arise primarily from missing the toggle (misalignment) or applying force at an angle (slipping). 
+
+4.3.1 Data Collection and Training in the Simulator Observations and actions. The policy observes a 19-dimensional state vector: the Franka’s 7 joint positions, the TDCR’s 9 tendon displacements, and the 3D position of the task target. It outputs a 16-dimensional command of absolute Franka joint and tendon positions. The same I/O is used in simulation and on hardware: at deployment, Franka joint positions are read from FCI, tendon displacements from motor encoders mapped through the drum geometry, and the target position from an NDI Lyra optical tracker with markers attached to the object (Appendix D.4). All observations are normalized before inference. 
+
+Demonstrations. For each task, 50 successful demonstrations are collected via human keyboard teleoperation in MuJoCo. All demonstrations start from the same home configuration (Franka home pose, TDCR with zero tendon displacement; Appendix E); only the target object’s pose varies be-tween episodes (Table 5). After removing consecutive duplicate frames produced by the keyboard interface (44.4% and 43.3% of raw frames for the two tasks), demonstrations average ∼9 s for Task 1 and ∼8 s for Task 2 ( ∼500 frames each at 60 Hz). 
+
+Imitation learning. We use a state-based variant of ACT [26], trained for 50,000 iterations with the AdamW optimizer (full hyperparameters in Appendix E). We do not domain-randomize the simulator’s physical parameters: TDCR stiffness, damping, and tendon properties are held fixed at the system-identified values (Section 4.2), and object physics (cylinder mass and friction, switch geometry and force) are manually tuned to real-world values. Randomization is limited to the target object’s pose between episodes (Table 5) and Gaussian noise added to observations during training to match real-world sensor noise (Table 4). This minimal randomization lets sim-to-real success be attributed to the simulator’s underlying fidelity rather than to randomization compensating for it. 
+
+4.3.2 Sim-to-Real Transfer Results 
+
+Table 3: Success rates. Policies trained in simulation, deployed zero-shot on the real system.      
+
+> Sim Real Grasping 73% (73/100) 76% (16/21) Switch 73% (73/100) 78% (18/23)
+
+Both tasks were evaluated over 100 randomized episodes in simulation and over 20 trials on real hardware (Ta-ble 3). Real-world success rates slightly exceed simu-lation rates, a notable outcome for sim-to-real transfer where performance typically degrades from sim to real due to unmodeled physics. We interpret this as evidence that our continuum-informed discretization captures the 7Figure 9: Real-world policy rollouts. All policies trained in simulation and deployed zero-shot. Each task requires emergent whole-body contact: the contact locations and forces arise from the interaction between the policy’s actions, the robot’s compliance, and the environment geometry. TDCR’s interactions with high enough fidelity. The TDCR’s distributed compliance further accom-modates small residual errors and environmental variation, an advantage widely noted in the soft robotics literature [28, 29, 30]. Both tasks achieve near-identical success rates despite stressing different capabilities of the simu-lator: Task 1 stresses distributed compliant contact while Task 2 stresses precise force application. The consistency across these regimes indicates that performance is bottlenecked by factors common to both (demonstration quality, policy capacity) rather than by deficiencies in the simulator’s contact or deformation modeling. Both rollouts qualitatively display the contact-rich manipulation behavior our pipeline is designed to capture (Figure 9). 
+
+## 5 Conclusion 
+
+We show that a continuum-mechanics-informed discretization is sufficient to place soft continuum robots natively inside rigid-body simulators like MuJoCo, enabling a complete sim-to-real pipeline for contact-rich, whole-body manipulation. The discretization is grounded in Kirchhoff rod theory, so we gain contact resolution, tendon routing, and learning integration from existing infrastructure without sacrificing physical interpretability. Building on this, we establish a complete workflow from model generation through teleoperated data collection to zero-shot policy deployment, with real-world success rates that meet simulation across two contact-rich tasks. This brings soft contin-uum robotics into the simulation-driven learning paradigm that has accelerated rigid-robot manipu-lation, opening data collection, scaling, and benchmarking workflows that the field has lacked. 
+
+## 6 Limitations and Future Work 
+
+Scope of validation. Our discretization and pipeline are validated on slender, thin-backbone TDCRs where the Kirchhoff assumption holds. Extending beyond Kirchhoff to other soft-robot morpholo-gies, and characterizing MuJoCo’s integrator stability and tendon/contact fidelity for soft robotics, are beyond the scope of this work but represent important future directions. 
+
+Closed-loop shape feedback. Although the policy closes the loop on tendon positions, the TDCR’s full shape (the curvature along its length) is not observed at runtime. Adding such shape feedback would improve robustness under unexpected contact, but real-time shape sensing for TDCRs re-mains challenging. Vision-based policies that infer shape from observations are a natural next step. 
+
+Learning approach. Our work focuses on establishing simulation and system infrastructure rather than advancing the learning algorithm itself. We employ an ACT policy without comparison to alternative architectures or training strategies. Benchmarking against alternative imitation and rein-forcement learning methods is an important next step to characterize how learning algorithm choice interacts with simulation fidelity for this robot class. 8References 
+
+[1] E. Todorov, T. Erez, and Y. Tassa. Mujoco: A physics engine for model-based control. In 
+
+2012 IEEE/RSJ International Conference on Intelligent Robots and Systems , pages 5026– 5033. IEEE, 2012. [2] I. Akkaya, M. Andrychowicz, M. Chociej, M. Litwin, B. McGrew, A. Petron, A. Paino, M. Plappert, G. Powell, R. Ribas, et al. Solving rubik’s cube with a robot hand. arXiv preprint arXiv:1910.07113 , 2019. [3] B. Tang, M. A. Lin, I. Akinola, A. Handa, G. S. Sukhatme, F. Ramos, D. Fox, and Y. Narang. Industreal: Transferring contact-rich assembly tasks from simulation to reality. arXiv preprint arXiv:2305.17110 , 2023. [4] A. T. Mathew, I. B. Hmida, C. Armanini, F. Boyer, and F. Renda. Sorosim: A matlab toolbox for hybrid rigid–soft robots based on the geometric variable-strain approach. IEEE Robotics & Automation Magazine , 30(3):106–122, 2022. [5] M. Gazzola, L. H. Dudte, A. G. McCormick, and L. Mahadevan. Forward and inverse problems in the mechanics of soft filaments. Royal Society open science , 5(6):171628, 2018. [6] A. Choi, R. Jing, A. P. Sabelhaus, and M. K. Jawed. Dismech: A discrete differential geometry-based physical simulator for soft robots and structures. IEEE Robotics and Automation Letters ,9(4):3483–3490, 2024. [7] M. Kasaei, H. Kasaei, and M. Khadem. Softmanisim: A fast simulation framework for multi-segment continuum manipulators tailored for robot learning. In 8th Annual Conference on Robot Learning , 2024. [8] M. A. Graule, T. P. McCarthy, C. B. Teeple, J. Werfel, and R. J. Wood. Somogym: A toolkit for developing and evaluating controllers and reinforcement learning algorithms for soft robots. 
+
+IEEE Robotics and Automation Letters , 7(2):4071–4078, 2022. [9] F. Faure, C. Duriez, H. Delingette, J. Allard, B. Gilles, S. Marchesseau, H. Talbot, H. Courte-cuisse, G. Bousquet, I. Peterlik, and S. Cotin. Sofa: A multi-model framework for interac-tive physical simulation. Soft Tissue Biomechanical Modeling for Computer Assisted Surgery ,pages 283–321, 2012. [10] J. Till, V. Aloi, and C. Rucker. Real-time dynamics of soft and continuum robots based on cosserat rod models. The International Journal of Robotics Research , 38(6):723–746, 2019. [11] N. Naughton, J. Sun, A. Tekinalp, T. Parthasarathy, G. Chowdhary, and M. Gazzola. Elastica: A compliant mechanics environment for soft robotic control. IEEE Robotics and Automation Letters , 6(2):3389–3396, 2021. [12] M. A. Graule, C. B. Teeple, T. P. McCarthy, G. R. Kim, R. C. S. Louis, and R. J. Wood. Somo: Fast and accurate simulations of continuum robots in complex environments. In 2021 IEEE/RSJ International Conference on Intelligent Robots and Systems , pages 3934–3941. IEEE, 2021. [13] C. Armanini, F. Boyer, A. T. Mathew, C. Duriez, and F. Renda. Soft robots modeling: A structured overview. IEEE Transactions on Robotics , 39(3):1728–1748, 2023. [14] C. Duriez. Control of elastic soft robots based on real-time finite element method. In 2013 IEEE International Conference on Robotics and Automation , pages 3982–3987. IEEE, 2013. [15] O. Goury, S. M. Youssef, S. Le Berre, and C. Duriez. Towards real-time simulation of soft robots with contacts using a method of hybrid hyper-reduction. In IEEE ROBOSOFT 2025 ,2025. 9[16] D. C. Rucker and R. J. Webster III. Statics and dynamics of continuum robots with general tendon routing and external loading. IEEE Transactions on Robotics , 27(6):1033–1044, 2011. [17] F. Renda, M. Giorelli, M. Calisti, M. Cianchetti, and C. Laschi. Dynamic model of a multi-bending soft robot arm driven by cables. IEEE Transactions on Robotics , 30(5):1109–1122, 2014. [18] F. Renda, F. Boyer, J. Dias, and L. Seneviratne. Discrete cosserat approach for multisection soft manipulator dynamics. IEEE Transactions on Robotics , 34(6):1518–1533, 2018. [19] F. Renda, C. Armanini, V. Lebastard, F. Candelier, and F. Boyer. A geometric variable-strain approach for static modeling of soft manipulators with tendon and fluidic actuation. IEEE Robotics and Automation Letters , 5(3):4006–4013, 2020. [20] M. Wiese, R. Berthold, M. Wangenheim, and A. Raatz. Describing and analyzing mechani-cal contact for continuum robots using a shooting-based cosserat rod implementation. IEEE Robotics and Automation Letters , 9(2):1668–1675, 2023. [21] L. Xun, G. Zheng, and A. Kruszewski. Cosserat-rod based dynamic modeling of soft slender robot interacting with environment. IEEE Transactions on Robotics , 2024. [22] D. B. Camarillo, C. F. Milne, C. R. Carlson, M. R. Zinn, and J. K. Salisbury. Mechanics modeling of tendon-driven continuum manipulators. IEEE Transactions on Robotics , 24(6): 1262–1273, 2008. [23] L. L. Howell. Compliant Mechanisms . John Wiley & Sons, 2001. [24] C. Della Santina, R. K. Katzschmann, A. Bicchi, and D. Rus. Model-based dynamic feedback control of a planar soft robot: trajectory tracking and interaction with the environment. The International Journal of Robotics Research , 39(4):490–513, 2020. [25] K. Zakka, Q. Liao, B. Yi, L. L. Lay, K. Sreenath, and P. Abbeel. mjlab: A lightweight framework for gpu-accelerated robot learning, 2026. URL https://arxiv.org/abs/2601. 22074 .[26] T. Z. Zhao, V. Kumar, S. Levine, and C. Finn. Learning fine-grained bimanual manipulation with low-cost hardware. Proceedings of Robotics: Science and Systems , 2023. doi:10.15607/ RSS.2023.XIX.016. [27] C. Della Santina, C. Duriez, and D. Rus. Model-based control of soft robots: A survey of the state of the art and open challenges. IEEE Control Systems Magazine , 43(3):30–65, 2023. [28] R. Deimel and O. Brock. A novel type of compliant and underactuated robotic hand for dex-terous grasping. The International Journal of Robotics Research , 35(1-3):161–185, 2016. [29] M. R. Montero, E. Shahabi, G. Franzese, J. Kober, B. Mazzolai, and C. Della Santina. Mas-tering contact-rich tasks by combining soft and rigid robotics with imitation learning. arXiv preprint arXiv:2410.07787 , 2024. [30] Z. Chen, D. Wu, Q. Guan, D. Hardman, F. Renda, J. Hughes, T. G. Thuruthel, C. Della Santina, B. Mazzolai, H. Zhao, et al. A survey on soft robot adaptability: Implementations, applications, and prospects. IEEE Robotics & Automation Magazine , 2025. [31] F. Boyer, V. Lebastard, F. Candelier, and F. Renda. Dynamics of continuum and soft robots: A strain parameterization based approach. IEEE Transactions on Robotics , 37(3):847–863, 2020. [32] M. Tummers, V. Lebastard, F. Boyer, J. Troccaz, B. Rosa, and M. T. Chikhaoui. Cosserat rod modeling of continuum robots from newtonian and lagrangian perspectives. IEEE Transactions on Robotics , 39(3):2360–2378, 2023. 10 [33] K. Lee, C. Shentu, C. Pogue, and J. Burgner-Kahrs. Automating tension calibration for tendon-driven continuum robots: A low-cost approach towards consistent teleoperation. In 2025 IEEE International Conference on Robotics and Automation , pages 14008–14014. IEEE, 2025. 11 A Full Cosserat Rod Equations 
+
+We present the Cosserat rod model in the Lie group formulation following [18, 31]. A Cosserat rod is a one-dimensional continuum whose configuration is described by a field g(s, t ) ∈ SE (3) 
+
+parameterized by arc length s ∈ [0 , l ] and time t, where l is the rod length in its undeformed state. 
+
+Kinematics. The spatial and temporal evolution of the configuration are governed by: 
+
+gs = gξ ∧, (2) 
+
+gt = gη ∧, (3) where (·)s and (·)t denote partial derivatives with respect to arc length and time, (·)∧ : R6 → se (3) 
+
+is the hat map from vectors to Lie algebra elements, ξ(s, t ) ∈ R6 is the strain twist , and η(s, t ) ∈ R6
+
+is the body velocity twist . The strain twist decomposes as ξ = ( uT , vT )T , where u = ( ux, u y , u z )
+
+contains the bending curvatures (about x and y) and torsion (about z), and v = ( vx, v y , v z ) contains the shear strains (along x and y) and axial extension (along z). The reference strain for a straight, undeformed rod is ξo = (0 , 0, 0, 0, 0, 1) T .
+
+Compatibility. The strain and velocity fields are related by the compatibility equation: 
+
+ξt = ηs + ad ξη, (4) where ad is the adjoint map of se (3) , defined for a = ( aT 
+
+> 1
+
+, aT 
+
+> 2
+
+)T ∈ R6 as: 
+
+ad a =
+
+[a1]× 0
+
+[a2]× [a1]×
+
+
+
+, (5) with [·]× the skew-symmetric matrix operator such that [a]×b = a × b.
+
+Dynamics. The balance of momentum along the rod is: 
+
+M η t − ad T 
+
+> η
+
+M η = Λs − ad T 
+
+> ξ
+
+Λ + F , (6) where Λ(s, t ) ∈ R6 is the internal wrench (combining moment and force resultants), F (s, t ) ∈ R6
+
+is the external wrench density (e.g., gravity), and M (s) ∈ R6×6 is the cross-sectional inertia matrix. 
+
+Constitutive law. A linear constitutive relation relates the internal wrench to strain deviation from the reference configuration: 
+
+Λ = K(ξ − ξo), (7) where K(s) ∈ R6×6 is the cross-sectional stiffness matrix. 
+
+Material matrices for a uniform circular cross-section. For a rod of radius r, material density 
+
+ρ, Young’s modulus E, and shear modulus G (with G = E/ [2(1 + ν)] for Poisson’s ratio ν), the inertia and stiffness matrices decompose as M = diag (Ma, Ml) and K = diag (Ka, Kl), with: 
+
+Ma = diag 
+
+ ρπr 4
+
+4 , ρπr 4
+
+4 , ρπr 4
+
+2
+
+
+
+, Ml = diag  ρπr 2, ρπr 2, ρπr 2 , (8) 
+
+Ka = diag (EI, EI, GJ ) , Kl = diag (GA, GA, EA ) , (9) where I = πr 4/4 is the second moment of area, J = πr 4/2 is the polar moment, and A = πr 2 is the cross-sectional area. 
+
+Kirchhoff specialization. The Kirchhoff rod assumes no shear or axial elongation: v = (0 , 0, 1) T ,i.e., vx = vy = 0 and vz = 1 . This constrains the strain twist to: 
+
+ξ = ( ux, u y , u z , 0, 0, 1) T , (10) reducing the independent strain components to three: bending curvatures (ux, u y ) and torsion uz .The arc-length parameter s equals the physical length along the rod (since there is no extension), 12 and each cross-section remains perpendicular to the centerline tangent (since there is no shear). The internal wrench adopts a decomposition: Λ = [ Λa, Λl]T . The internal moment Λa satisfies a reduced constitutive law based on Eq. (7): 
+
+Λa = Ka(u − uo), (11) where u = ( ux, u y , u z )T , and uo = (0 , 0, 0) T if the reference configuration is straight. The internal force Λl enforces the Kirchhoff constraints and no longer appears as an independent state. This assumption is appropriate when EA ≫ EI and GA ≫ EI , which holds for thin rods: 
+
+EA/EI = 4 /r 2, exceeding 10 6 for sub-millimeter backbones typical of TDCRs. 
+
+Tendon actuation. For tendon-driven continuum robots, tendon forces can be incorporated in two equivalent ways [16, 31, 32]. In particular, the effect of multiple tendons can either be modeled as a density of external wrenches Ftendon and added to F [16], or be modeled as a density of internal wrenches Λtendon and added to Λ [31]. In both formulations, the tendon forces are distributed along the rod and depend on the local tendon routing geometry and tendon tension. This is in contrast to the constant-moment assumption used in some pseudo-rigid-body models [8], where a fixed torque is applied at each joint regardless of configuration. In our approach, we do not use either continuum tendon formulation. Instead, we leverage Mu-JoCo’s native tendon model, which routes tendons as spatial paths through discrete sites on rigid bodies, with configuration-dependent moment arms and force distribution. This is a natural match for the physical design of TDCRs, where tendons are routed through discrete spacer disks rather than continuously distributed along the backbone. 
+
+## B Full Discretization Derivation 
+
+We derive the rigid-body approximation of a Kirchhoff rod described in Section 3.2. The rod is divided into N segments along arc length, each of length li with PNi=1 li = l. Within each segment, the strain is assumed constant (PCS approximation). 
+
+B.1 Geometric Construction 
+
+Under the Kirchhoff assumption with constant strain, each segment traces a circular arc in 3D char-acterized by the segment’s bending curvature κi = p(uxi )2 + ( uyi )2 and torsion uzi . We separate the bending and torsion components: the bending defines a planar circular arc, and the torsion defines a rotation about the tangent axis. For the bending component, consider segment i with constant curvature κi and arc length li. The segment subtends an angle ϕi = liκi at the center of curvature. We place a 3-DOF elastic joint at the midpoint of the arc. Two rigid links extend from this joint: one toward the proximal endpoint and one toward the distal endpoint of the segment, each tangent to the arc at the respective endpoint. By symmetry, each link has equal length Li. From the geometry of a circular arc with radius 
+
+Ri = 1 /κ i and subtended half-angle ϕi/2, the link length is: 
+
+Li = Ri tan 
+
+ ϕi
+
+2
+
+
+
+= tan( liκi/2) 
+
+κi
+
+. (12) This can equivalently be written using trigonometric identities as: 
+
+Li = sin( liκi)
+
+κi[1 + cos( liκi)] . (13) In the limit κi → 0 (straight segment), Li → li/2.13 The joint angle at the midpoint equals the total bending angle of the segment. Since the two links are tangent to the arc at the endpoints, the angle between them is: 
+
+ϕi = liκi. (14) Decomposing into the two bending directions and torsion: 
+
+θi = liui = ( liuxi , l iuyi , l iuzi ). (15) 
+
+B.2 Joint Stiffness Derivation 
+
+The elastic moments at the joint approximate the internal bending and torsional moments of the rod segment. From the constitutive law (Eq. 7), the bending moment about x in the segment is: 
+
+Λxa,i = Kxa uxi = EI u xi . (16) The corresponding joint torque is τ xi = kxi θxi , where kxi is the joint stiffness and θxi = liuxi is the joint angle. Equating: 
+
+kxi θxi = EI u xi =⇒ kxi li uxi = EI u xi =⇒ kxi = EI li
+
+. (17) By the same argument for the y-bending and torsion: 
+
+kxi = EI li
+
+, kyi = EI li
+
+, kzi = GJ li
+
+. (18) The inverse scaling k ∝ 1/l i ensures that shorter segments (finer discretization) have stiffer individ-ual joints, maintaining the correct total elastic response across the rod. This is a direct consequence of the constitutive law and distinguishes our approach from pseudo-rigid-body models where stiff-nesses are empirically chosen. 
+
+B.3 Link Length Mismatch Analysis 
+
+The link length Li (Eq. 13) differs from li/2 when the segment has nonzero curvature. We analyze this mismatch. The derivative of Li with respect to κi is: 
+
+L′
+
+> i
+
+(κi) = liκi − sin( liκi)
+
+κ2 
+
+> i
+
+(1 + cos( liκi)) ≥ 0, (19) confirming that Li increases monotonically with curvature: the link must be longer than li/2 to remain tangent to a curved arc. The mismatch is: 
+
+Li − li
+
+2 = sin( liκi) − liκi 1+cos( liκi)2
+
+κi(1 + cos( liκi)) , (20) which converges to 0 as li → 0 or N → ∞ .There are two approaches to handle this mismatch: 1. Passive prismatic joint: Add a prismatic joint to each link whose extension depends on κi
+
+through Eq. 13. This introduces coupling between joint angles and link lengths. 2. Fix Li = li/2 and increase N : Accept the mismatch and rely on convergence as N
+
+increases. We adopt the second approach to maintain compatibility with standard rigid-body simulation tools, which efficiently handle large numbers of fixed-length links. The accumulated mismatch over all links is found to be O(1 /N 2), which quickly becomes negligible as N increases (see Section C for the convergence analysis). 14 B.4 Comparison with Prior Discretizations Discrete Cosserat approach [18]. This method also adopts the PCS assumption but constructs the exact geometry of each constant-strain segment through spatial integration of the exponential map on SE (3) . While this achieves higher geometric accuracy per segment, it requires specialized simulation algorithms (spatial integration at each timestep) and cannot be directly implemented in off-the-shelf rigid-body physics engines. Our approach trades per-segment geometric accuracy for compatibility with general-purpose engines, relying on increased N to recover accuracy. 
+
+Augmented rigid-robot model [24]. This method also uses rigid links to approximate continuum robots but is based on the constant-curvature assumption (a special case of PCS without torsion) and enforces only positional matching at segment endpoints. Our PCS-based method additionally captures torsional deformation and matches both position and orientation at segment boundaries through the tangency construction. 
+
+## C Convergence Analysis 
+
+We analyze the convergence of our rigid-body discretization to the exact Kirchhoff rod solution as the number of segments N increases. The analysis considers uniform segmentation with li = h =
+
+l/N .
+
+C.1 Error Sources 
+
+The total approximation error has two sources: 
+
+Source 1: Piecewise constant strain (PCS) approximation. The continuous strain field ξ(s) is approximated by a piecewise constant function ξh(s) that takes value ξi on each segment [si, s i+1 ],where h = si+1 − si. For a smooth strain field ξ ∈ C1([0 , l ]) , this approximation satisfies 
+
+∥ξ − ξh∥∞ = O(h), (21) which is the standard approximation order for piecewise constant interpolation. The rod configuration g(s) ∈ SE (3) satisfies the kinematic equation 
+
+gs = gξ (s)∧, g(0) = g0. (22) Over each segment [si, s i+1 ], the exact solution can be written in exponential form using the Magnus expansion: 
+
+g(si+1 ) = g(si) exp(Ω i), (23) where 
+
+Ωi =
+
+Z si+1 
+
+> si
+
+ξ(s)∧ ds − 12
+
+Z si+1 
+
+> si
+
+Z σ1
+
+> si
+
+[ξ(σ1)∧, ξ(σ2)∧] dσ 2 dσ 1 + · · · . (24) If ξ is sufficiently smooth, then the commutator term is O(h3), so that 
+
+Ωi =
+
+Z si+1 
+
+> si
+
+ξ(s)∧ ds + O(h3). (25) In the midpoint PCS approximation, the segment strain is chosen as 
+
+ξi := ξ
+
+
+
+si + h
+
+2
+
+
+
+. (26) By midpoint quadrature, assuming ξ ∈ C2([0 , l ]) ,
+
+Z si+1 
+
+> si
+
+ξ(s)∧ ds = h ξ∧ 
+
+> i
+
++ O(h3). (27) 15 Combining Eqs. (25) and (27) yields: 
+
+Ωi = h ξ∧ 
+
+> i
+
++ O(h3). (28) The PCS integration on segment i is therefore 
+
+gh(si+1 ) = gh(si) exp( h ξ∧ 
+
+> i
+
+) , (29) which has local truncation error O(h3). Over N = l/h segments, this yields the global tip error 
+
+d(g(l), gh(l)) = O(h2) = O(1 /N 2), (30) where d(·, ·) is a left-invariant metric on SE (3) . This is the standard second-order convergence of midpoint Lie group integration [18]. 
+
+Source 2: Chord-arc (link length) mismatch. Our discretization fixes Li = li/2 = h/ 2 rather than using the curvature-dependent expression (Eq. 13). Taylor expansion of length mismatch per segment (Eq. 20) gives: 
+
+Li − h
+
+2 = κ2 
+
+> i
+
+h3
+
+24 + O(h5). (31) Over N segments: Total chord-arc error = O(N κ 2 
+
+> i
+
+h3) = O(κ2 
+
+> i
+
+h2) = O(1 /N 2). (32) For bounded curvature ( κi ≤ κmax ), this error is of the same order as the PCS error. 
+
+C.2 Combined Error Bound 
+
+Combining both sources (Eqs. 30 and 32), the total static approximation error satisfies: 
+
+d (g(l), ˆgh(l)) ≤ C · h2 = C · l2
+
+N 2 , (33) where ˆgh denotes the configuration from our rigid-link discretization (with fixed link lengths) and 
+
+C is a constant depending on the strain field smoothness and maximum curvature. In terms of the tip position error: 
+
+∥p(l) − ˆph(l)∥ = O(1 /N 2). (34) 
+
+C.3 Numerical Verification 
+
+We verify the convergence rate empirically using the static validation setup described in Section 4.1. Figure 4 plots the mean tip position error against N on a log-log scale. The observed slope is approximately −2, confirming the theoretical O(1 /N 2) rate. At N = 70 , the mean tip error is 
+
+3 mm (0.5% of rod length l = 0 .6 m ), demonstrating that the discretization achieves high accuracy at practical levels. 
+
+C.4 Note on Extension to General Cosserat Rods 
+
+The convergence analysis above relies on two properties specific to Kirchhoff rods: 1. The arc-length parameter s equals the physical length along the rod (no extension), so segment boundaries are fixed in the material frame. 2. Each constant-strain segment traces a circular arc, enabling the tangent link construction. For general Cosserat rods with shear and extension ( v̸ = (0 , 0, 1) T ), neither property holds: the physical length changes with deformation, and constant-strain segments trace more general curves (not circular arcs). Extending the discretization to this case would require: (a) a modified geometric construction that accommodates non-circular segment shapes, and (b) additional translational joints to capture shear and extension, with stiffnesses kvx 
+
+> i
+
+= GA/l i, kvy 
+
+> i
+
+= GA/l i, kvz 
+
+> i
+
+= EA/l i derived from Kl. While the stiffness derivation generalizes directly, the geometric construction is a direction for future work. 16 D Hardware System Overview 
+
+The hardware platform combines a Franka Panda 7-DoF arm with a custom 3-segment, 9-tendon tendon-driven continuum robot (TDCR) end-effector (Figure 10). The Franka provides global posi-tioning while the TDCR provides distributed compliance for whole-body contact. - Franka Panda (7 DOF)       
+
+> -TDCR
+> (6 DOF, 9 tendons)
+> -3D printed
+> mounting frame
+> -tendons driven
+> by servos
+> -NiTi backbone
+> with 30 spacer disks
+> -3 segments, with
+> 3 tendons each
+
+Figure 10: Hardware overview. (Left) A 9-tendon, 3-segment TDCR mounted at the end-effector of a 7-DoF Franka Panda arm. The Franka provides global positioning while the TDCR provides distributed compliance for whole-body contact. (Right) Close-up of the tendon actuation assembly: nine motors (three per segment) drive tendons routed through spacer disks along the 186 .5 mm backbone. The actuation housing mounts directly to the Franka flange. 
+
+D.1 Franka Panda 
+
+We use a Franka Panda arm controlled via a custom Python wrapper built on top of libfranka ’s Franka Control Interface (FCI). The wrapper accepts joint position commands at 100 Hz and linearly interpolates between successive commands to produce the 1 kHz reference trajectory required by FCI. Safety limits and reachable workspace are configured to match the MuJoCo scene. 
+
+D.2 TDCR Mechanical Design Backbone. The TDCR has a total length of 186 .5 mm divided into three equal length segments. The backbone is a NiTi rod of diameter 1 mm. These values serve as the starting point for system identification. 
+
+Spacer disks and tendons. 30 spacer disks of diameter 10 mm and height 5 mm are distributed uniformly along the backbone, 10 per segment. Each disk is 3D-printed in PLA with a central hole for the backbone and peripheral holes routing tendons. Tendons are braided Dyneema of diameter 0.5 mm. Each segment is actuated by three tendons spaced 120 ◦ around the backbone. Tendons are anchored at the distal disk of their target segment and routed through the spacer disks back to the actuation housing. 
+
+Actuation. Each of the nine tendons is driven by a Dynamixel XL430-W250-T servo. Tendons are wound onto a drum of diameter 10 mm fixed to the motor shaft. Motor zero/home positions are calibrated as needed using an optical tracker at the tip and the method described in [33], then commanded with absolute tendon positions relative to home. 17 Mounting and Interface. The actuation housing is rigidly mounted to the Franka flange via a custom 3D-printed adapter plate. The full assembly (housing + TDCR) adds a mass of ∼1 kg, within the Franka’s payload limit. 
+
+D.3 Electronics and Control 
+
+The nine motors are daisy-chained over RS485 at 3 Mbps and interfaced to a host PC. The TDCR control loop runs at 100 Hz, commanding absolute motor positions. The TDCR and Franka are coor-dinated at the policy level: at each policy step, the network outputs a 7-DoF Franka joint command and a 9-DoF tendon position command, which are communicated to the respective controllers and tracked independently between policy queries. 
+
+D.4 Sensing 
+
+At runtime, the policy observation consists of three components: (i) 7 Franka joint positions from FCI, (ii) 9 motor positions mapped to tendon displacements through the drum geometry, and (iii) the 3D position of the task target, measured by an NDI Lyra optical tracker with markers attached to the manipulated object (cylinder or switch). The TDCR’s own shape is not measured at runtime. The same Lyra tracker is also used offline for system identification and validation (Section 4.2), with markers placed at the TDCR tip rather than on the target object. 
+
+## E Imitation Learning Details 
+
+The policy used in Section 4.3 is a modified ACT architecture [26]. While the original ACT is designed to accept multiple camera viewpoints, joint positions, and style variables as input, our variant is conditioned solely on joint positions with sensor noise added during training (Table 4). Hyperparameters are available in Table 6. 
+
+E.1 Demonstration Success Criteria 
+
+50 successful demonstrations are collected to form the dataset for each task. In all demonstrations the Franka arm begins in the home position specified by Table 7 and with the TDCR in its home position. A successful demonstration is defined differently per task. The criteria for a successful demonstration of Task 1: Whole-body grasping (Figure 7) is defined as: 1. The cylinder spawns in a random location (Table 5) on the table. 2. The TDCR unit mounted to the Franka end effector is moved near the cylinder on the table. 3. The TDCR wraps around the cylinder. 4. The cylinder is lifted off the table by actuating the Franka arm while the TDCR continues to grasp the cylinder. 5. The cylinder is moved towards the target bin location by actuating the Franka arm while the TDCR continues to grasp the cylinder. 6. The cylinder is hovering over the target bin and the Franka arm stops actuating. 7. The TDCR uncurls and releases the cylinder from its grasp. 8. The cylinder falls into the target bin. The criteria for a successful demonstration of Task 2: Flip switch from behind (Figure 8) is defined as: 1. The switch spawns in a random position in the workspace (Table 5). The switch is mounted on a plate facing away from the robot. The switch starts in the on position pointing upwards. 18 2. The TDCR unit mounted to the Franka end effector approaches the wall from behind. 3. The TDCR bends towards the switch and makes contact with the plate. 4. The TDCR bends downwards applying force to the switch lever. 5. The switch lever is flicked, pointing downwards into the off position. 6. The TDCR and Franka retract from the switch plate. 7. The demonstration completes when the tip position of the TDCR is behind the wall. For a demonstration to be considered successful, the operator must perform the above steps in order. For example, if the operator drops the cylinder while transporting it to the target bin, retrieves the fallen cylinder and still drops it into the bin, this demonstration is discarded and not considered suc-cessful. If the operator attempts to flick the light switch by applying downward force with the TDCR but misses the switch, the demonstration is discarded and not considered successful. Demonstrations are verified to be successful qualitatively by the operator. 
+
+E.2 Demonstration Statistics 
+
+After 50 demonstrations are collected for each task, the demonstrations are sanitized to remove con-secutive duplicate frames prior to training the ACT policy. Two consecutive frames are considered to be duplicates if robot states are identical within a tolerance of 1×10 −9. Sanitizing demonstrations was empirically found to greatly improve the policy behavior during inference by avoiding freezing behavior mid-task. A frame is defined as an observation and action pair. Frames are saved at 60 frames per second while the operator records the demonstration in simulation. In total for Task 1 , 49,658 frames were recorded by the operator. 44.4% of consecutive frames across all 50 observations were duplicates and sanitized, resulting in a final frame count of 27,632. Similarly for Task 2 , 44,100 frames were recorded, 43.3% were found to be consecutive duplicates bringing the final count to 25,003. Most of these duplicates arise from the keyboard teleoperation interface: while the operator pauses between keystrokes (switching between Franka and TDCR or simply to plan the next motion), the full system state holds constant. Collecting 50 demonstrations took approximately 12-20 minutes wall-clock time for the operator, after some practice. This time includes delays between demonstrations when the simulation resets, completing the task, discarding failed demonstrations and saving data. The 50 demonstrations per task are comparable to those used in the original ACT paper [26] on rigid bimanual tasks, despite our 16-DoF hybrid system and contact-rich task requirements. We interpret this as evidence that high-fidelity simulation reduces the data burden for soft-robot policy learning: the simulator provides clean, fully observable demonstrations without sensor noise or partial observability that physical teleoperation would introduce. Table 4: Gaussian noise added to each item in the observation vector prior to training to match hardware noise. Units are radian for Franka joints and meters for other quantities. Observation Noise Standard Deviation Franka Arm Joint 1-7 0.01 rad TDCR Tendons 1-9 0.0005 rad Object position X/Y/Z 0.002 m 19 Table 5: Randomized target object position during data collection, chosen to span the reachable workspace on the physical test table used at deployment. X [m] Y [m] Z [m] Cylinder [0.47, 0.72] [-0.2, 0.2] {0.24 }
+
+Switch [0.66, 0.78] [-0.06, 0.24] [0.475, 0.55] Table 6: ACT policy hyperparameters. Where applicable, we note deviations from the original ACT paper [26]. 
+
+Parameter Value Notes 
+
+Architecture 
+
+Hidden dimension 512 Same as paper Attention heads 8 Same as paper Feedforward dimension 2048 Paper: 3200 Encoder layers 4 Same as paper Decoder layers 1 Same as paper Latent (VAE) dimension 32 Dropout 0.1 Same as paper 
+
+Training 
+
+Learning rate 1 × 10 −5 Same as paper Weight decay 1 × 10 −4 Same as paper KL weight 10.0 Same as paper 
+
+Inference 
+
+Chunk size 75 Action steps per query 1 Full temporal ensembling Temporal ensemble coeff. 0.01 Exponential weighting Table 7: Absolute joint values of the home position of the Franka Panda arm 
+
+Joint number Value (rad) 
+
+1 0
+
+2 − π
+
+> 4
+
+3 0
+
+4 − 3π
+
+> 4
+
+5 0
+
+6 π
+
+> 2
+
+7 π
+
+> 4
+
+20

@@ -1,0 +1,1659 @@
+Title: AdaReP:Adaptive Re-Planning under Model Mismatch for Neural World-Model Predictive Control
+
+URL Source: https://arxiv.org/pdf/2606.23079v1
+
+Published Time: Tue, 23 Jun 2026 03:39:05 GMT
+
+Number of Pages: 32
+
+Markdown Content:
+# AdaReP: Adaptive Re-Planning under Model Mismatch for Neural World-Model Predictive Control 
+
+Yutian Cheng 1,2∗, Xiaojian Ma 2∗, Xianhao Wang 2,3, Min Yang 2,3,Rongpeng Su 2,3, Hangxin Liu 2, Xi Chen 2, Shuai Li 1+ , and Qing Li 2+  
+
+> 1
+
+Shanghai Jiao Tong University  
+
+> 2
+
+Beijing Institute for General Artificial Intelligence (BIGAI)  
+
+> 3
+
+University of Science and Technology of China 
+
+Abstract. Neural world models coupled with model predictive control (MPC) replan at every environment step to bound accumulated predic-tion error, but this incurs substantial computational overhead. Reusing a cached plan reduces this overhead, yet its effectiveness depends on how prediction mismatch propagates through the local dynamics. We analyze this trade-off with a perturbation-based dynamic-regret framework and show that stale-plan penalties scale with the reuse tolerance, the accu-mulated mismatch since the last replanning step, and the local dynamics sensitivity. Based on this structure, we propose AdaReP, a training-free wrapper that adapts the replanning tolerance online using the current de-viation from the cached rollout and a local sensitivity estimate, without modifying the learned world model or planner. Across image-space plan-ning, latent-space control, and real-world robotic manipulation, AdaReP substantially reduces planner-side computation while maintaining com-parable task performance, including over 80% fewer queries on a 50-trial physical robot study. 
+
+Keywords: Adaptive replanning · Neural world models · Model predic-tive control · Neurorobotics · Online control. 
+
+## 1 Introduction 
+
+Neural world models provide a predictive interface for control in robotics. Re-cent systems plan in image space [20], latent space [5,4,6,8,7], or other learned state spaces [25,28] using large neural networks as predictors. These systems typ-ically replan at every environment step to bound accumulated prediction error, but each replanning call requires many queries to the large world model, re-sulting in substantial computational overhead, which is further exacerbated by  
+
+> ∗
+
+These authors contributed equally.  
+
+> +
+
+Corresponding authors. Accepted at ICANN 2026. This arXiv version contains supplementary materials and appendices that are omitted from the conference version due to space limitations.   
+
+> arXiv:2606.23079v1 [cs.RO] 22 Jun 2026 2Y. Cheng et al.
+> Fig. 1. AdaReP addresses the computational efficiency–control performance trade-off in MPC. Traditional solvers replan frequently to bound cumulative prediction error, incurring substantial computational overhead. AdaReP adjusts replanning frequency on-the-fly using online estimates of prediction error and local dynamics sensitivity, thereby reducing computation while preserving control performance.
+
+modern large-scale, large-parameter world models. Intuitively, when execution closely tracks the predicted rollout, reusing the cached plan can save compu-tation without sacrificing performance, but continued reuse risks degradation when execution drifts [18] or local dynamics are highly sensitive [9]. We therefore study replanning cadence as a control variable for neural world-model predictive control. Specifically, we do not modify the learned world model, retrain the policy, or redesign the MPC solver. Instead, given an existing predictive controller, we address the question: at what point during execution should the current plan be refreshed? Using perturbation-style dynamic-regret arguments for predictive control under model mismatch [12,13], we show that stale-plan penalties grow with three quantities: the reuse tolerance, the accumu-lated prediction mismatch since the last replanning step, and the local dynamics sensitivity along the executed trajectory. This structure explains why a single fixed reuse schedule rarely transfers across tasks or even across phases of the same task. Motivated by this analysis, we develop AdaReP, a training-free replanning layer for neural world-model MPC. AdaReP monitors the current deviation from the cached rollout together with a simple local-sensitivity estimate, converts these signals into a time-varying reuse tolerance, and replans only when the cached plan has become unreliable. The same mechanism wraps image-space planners, latent-space planners, or real-world state-space controllers without modification. We evaluate AdaReP on VP2/RoboDesk [20], TD-MPC2 on the 30-task DeepMind Control suite [7,21], and real-world Franka manipulation. Across all three settings, AdaReP reduces planner-side model queries while maintaining comparable task performance. On Franka, AdaReP achieves aggregate success 
+
+36 /50 versus 34 /50 for step-wise replanning while cutting planner-side queries by more than 80%. The experiments further reveal why fixed reuse schedules are hard to tune globally: the preferred replanning cadence varies across backbones, tasks, and even across different stages of the same physical trajectory. Our contributions are as follows: AdaReP for Neural World-Model Predictive Control 3
+
+– We derive dynamic-regret bounds for fixed-step, fixed-threshold, and adaptive replanning under model mismatch, identifying the mismatch and sensitivity terms that motivate adaptive thresholding. 
+
+– We propose AdaReP, a training-free adaptive replanning rule that lever-ages online deviation and a local sensitivity proxy to determine when a cached plan should be refreshed. 
+
+– We evaluate AdaReP on image-space, latent-space, and real-robot control benchmarks, demonstrating substantial reductions in world-model queries while requiring only backbone-level tuning .
+
+## 2 Related Work 
+
+Neural world models and predictive control. Neural world-model methods cover latent-dynamics planning in PlaNet, Dreamer, and DreamerV3 [5,4,6], latent MPC in TD-MPC and TD-MPC2 [8,7], recurrent or object-centric video pre-diction for manipulation [22,16,1,20,19], and recent transformer, diffusion, and multimodal predictors [25,28,3]. Most of this literature improves the predictive backbone, representation, or planning objective. Our focus is complementary: we keep the learned model and planner fixed and instead study the execution-time policy that decides when replanning is necessary. 
+
+Online control, regret, and computation-aware updates. A second line of work connects predictive control to online learning and analyzes regret under forecasts or model mismatch [23,11,26,27,12,13,17]. These works study the performance of online or predictive control policies, often in linear or structured time-varying settings. Classical event-triggered and self-triggered control [18,9], as well as warm-start or fast MPC variants [10,15,14], also reduce update frequency by linking refreshes to state-dependent conditions. We borrow the structural insight from these literatures, namely that stale updates should be penalized according to local mismatch and sensitivity, but target a different regime: learned neural predictive control, where the trigger is built from discrepancy signals in state or feature space rather than from a known control-theoretic model. This separation lets the same adaptive rule transfer across image-space, latent-space, and real-robot control with backbone-level tuning instead of task-specific redesign. 
+
+## 3 Problem Setup 
+
+We consider a finite-horizon control problem over horizon T . The planning state and action are denoted xt ∈ X and ut ∈ U , respectively. The environment evolves according to the true dynamics 
+
+xt+1 = gt(xt, u t), (1) and incurs cumulative cost 
+
+cost( x0: T , u 0: T −1) :=  
+
+> T−1
+
+X
+
+> t=0
+
+ft(xt, u t) + FT (xT ). (2) 4 Y. Cheng et al. 
+
+At time t, the controller plans with a learned predictive model ˆgt and an MPC solver over a horizon k. We write the resulting planning map as 
+
+(yt:t+k, v t:t+k−1) = ψkt (xt),
+
+where yt:t+k is the model-predicted rollout and vt:t+k−1 is the corresponding action sequence. In practice, ψkt may be instantiated by a sampling-based MPC routine such as CEM [2] or MPPI [24] on top of an image-space, latent-space, or state-space predictor. The controller’s planning and execution operate on a representation zt := 
+
+ϕ(xt), which is the monitored quantity for the trigger. In image-space controllers, 
+
+zt is a frozen image-feature embedding [20]; in latent-space controllers, the plan-ner latent serves both roles [8,7]; and in physical-state controllers, zt coincides with the raw state xt (i.e., ϕ is the identity). We define the corresponding pre-dicted representation as ˆzt := ϕ(yt). The monitored discrepancy is 
+
+dt := ∥zt − ˆzt∥2 . (3) We write MPC 1 
+
+> k
+
+for the standard receding-horizon controller that replans at every step. We compare against two reduced-frequency baselines. The fixed-step controller MPC mk replans every m steps and executes the cached suffix in between refreshes. The fixed-threshold controller MPC k,ϵ replans whenever the discrep-ancy between execution and the cached rollout exceeds a constant tolerance ϵ.Our analysis assumes that the true dynamics are locally Lipschitz around the executed and comparator trajectories: for each t there exists Lt > 0 such that 
+
+∥gt(x, u ) − gt(x′, u ′)∥2 ≤ Lt
+
+  ∥x − x′∥2 + ∥u − u′∥2
+
+. (4) The coefficient Lt is the local dynamics sensitivity at time t: it quantifies how strongly one-step state or action perturbations are amplified by the true dynam-ics. We also write L := max 0≤t<T Lt and L(m) := max 0≤t≤T −k max 0≤i≤m−1
+
+Qt+is=t Ls,
+
+so that L captures worst-case single-step sensitivity and L(m) captures the worst cumulative sensitivity over an m-step reuse block. In particular, L(m) ≤ Lm.Following the online-control viewpoint in predictive control [23,11,12,13], we measure control quality by dynamic regret, 
+
+Regret(ALG) := cost(ALG) − cost( OPT ),
+
+where OPT is the clairvoyant optimum that minimizes (2) under the true dy-namics (1). Computation is measured by the number of function evaluations (NFE), namely the total number of world-model queries issued by the planner during one episode. 
+
+## 4 Adaptive Replanning under Model Mismatch 
+
+This section presents the key analytical results and insights behind our trigger design. Due to page limits, we focus on the distilled conclusions that are essential for the algorithmic interpretation; complete derivations, assumptions, and proofs are deferred to the supplementary material. AdaReP for Neural World-Model Predictive Control 5
+
+Algorithm 1 AdaReP: deployment-time adaptive replanning (practical version) 
+
+Require: Base threshold ϵ0, weights αδ , α L, smoothing window W , stabilizer γ > 0,and base planner 1: Replan at t = 0 to obtain an active trajectory (y0: k , v 0: k−1)
+
+2: for t = 0 , 1, . . . , T − 1 do 
+
+3: Execute the current control ut and observe xt+1 
+
+4: Compute deviation dt+1 and sensitivity estimate bLt via (3) and (7) 5: Update sliding-window averages ¯dt+1 and ¯Lt over the last W values 6: Set ϵt+1 via (9) 7: if dt+1 > ϵ t+1 or t + 1 reaches the end of the cached plan then 
+
+8: Replan and refresh the active trajectory for step t + 1 
+
+9: else 
+
+10: Reuse the remaining plan suffix 
+
+4.1 Regret structure under fixed-step and fixed-threshold reuse 
+
+To understand when replanning is needed, we first identify the core quantities that govern the error incurred by reusing a cached plan under model mismatch. Our derivation adapts the perturbation-based dynamic-regret analysis of [12,13] to cached-plan reuse. We record only the resulting dependence on reuse length, tolerance, mismatch, and local sensitivity. 
+
+Theorem 1 (Fixed-step and fixed-threshold regret bounds). Under the local perturbation assumptions of [12,13] and the small-error condition that keeps the trajectory inside the local tube around the clairvoyant optimum, 
+
+Regret( MPC mk ) = O
+
+q 
+
+m(L(m))2cost( OPT ) E + m(L(m))2E
+
+
+
+, (5) 
+
+Regret( MPC k,ϵ ) = O
+
+p L2cost( OPT ) ( E + ϵE + ϵ2T )+ L2(E + ϵE + ϵ2T ) , (6) 
+
+where E denotes the total cumulative prediction error over all reused segments in an episode. 
+
+For fixed-step reuse, the extra term m(L(m))2E exposes the core difficulty: mismatch accumulates throughout the reuse block, and that accumulated mis-match is then amplified by the multi-step sensitivity factor L(m). Since L(m) ≤
+
+Lm, the penalty can grow exponentially with the reuse length. For fixed-threshold reuse, the additional dependence is ϵL 2E + ϵ2L2T. The mixed term couples tolerated deviation with the cumulative mismatch budget accumulated under stale reuse, while the quadratic term penalizes maintaining a nonzero tolerance throughout the episode. A single fixed threshold is therefore 
+
+brittle whenever mismatch and sensitivity vary over time. 
+
+4.2 Adaptive thresholded replanning 
+
+The fixed-threshold bound points to the core design principle: the reuse tolerance should contract when stale mismatch or local sensitivity grows. Inspecting the 6 Y. Cheng et al. 
+
+proof more closely, the threshold-dependent regret contribution appears through per-step terms of the form L2 
+
+> t
+
+ϵ2 
+
+> t
+
+and L2 
+
+> t
+
+ϵtst, where st is a stale-mismatch statistic capturing multi-step prediction errors along the cached rollout. This term is, however, not available at deployment time since it requires access to the full cached trajectory. Motivated by this structure, we seek a deployable algorithm that adapts the reuse tolerance online as shown in algorithm 1. AdaReP tracks two execution-time quantities: the current deviation from the cached rollout, 
+
+dt+1 = ∥zt+1 − ˆzt+1 ∥2 ,
+
+and a finite-difference sensitivity proxy computed in the same monitored space, 
+
+bLt := ∥zt+1 − zt∥2
+
+∥ut∥2 + γ , (7) with a small stabilizer γ > 0 to avoid spurious inflation when ∥ut∥2 is close to zero and bLt indicates how strongly that staleness is likely to be amplified by the local dynamics. Consider the threshold ˜ϵt = ϵ0 exp( −αδ dt) exp( −αL bLt). the exponential form directly controls the two threshold-dependent penalties above: 
+
+L2 
+
+> t
+
+˜ϵ2 
+
+> t
+
+≲ ϵ20
+
+α2
+
+> L
+
+, L2 
+
+> t
+
+˜ϵtst ≲ ϵ0
+
+α2
+
+> L
+
+αδ
+
+. (8) These inequalities follow from the elementary bounds xe −ax ≤ (ea )−1 and 
+
+x2e−ax ≤ 4( e2a2)−1. Exponential decay is therefore not an arbitrary model-ing choice: it is the simplest way to convert the sensitivity-amplified terms L2 
+
+> t
+
+ϵ2
+
+> t
+
+and L2 
+
+> t
+
+ϵtst into uniform contributions controlled by (ϵ0, α δ , α L).In deployment we apply a short smoothing window W for numerical stability and set 
+
+ϵt+1 = ϵ0 exp( −αδ ¯dt+1 ) exp( −αL ¯Lt). (9) This keeps ϵt+1 ∈ (0 , ϵ 0] and reduces the allowed reuse whenever either the current deviation or the local sensitivity estimate increases. Finally we give theoretical gaurantee for our proposed algorithm. Applying the same perturbation-to-regret reduction with the idealized threshold (9) yields an adaptive bound with explicit dependence on (ϵ0, α δ , α L).
+
+Theorem 2. Under the local perturbation assumptions of [12,13], AdaReP with threshold (9) satisfies 
+
+Regret( AdaReP ) = O
+
+s
+
+cost( OPT )
+
+
+
+L2E + ϵ0
+
+α2
+
+> L
+
+
+
+ϵ0 + 1
+
+αδ
+
+
+
+T
+
+
+
++ L2E + ϵ0
+
+α2
+
+> L
+
+
+
+ϵ0 + 1
+
+αδ
+
+
+
+T
+
+
+
+. (10) Larger αL more strongly suppresses the quadratic sensitivity term, while larger αδ more strongly suppresses the mixed mismatch term. AdaReP for Neural World-Model Predictive Control 7
+
+## 5 Experimental Evaluation 
+
+We evaluate AdaReP across three experimental domains of increasing realism to answer: Can AdaReP reduce computational cost while maintaining task perfor-mance across diverse world models and physical platforms? 
+
+1. Simulation with Image-space World Models. We first evaluate on the VP2 benchmark [20] using the RoboDesk manipulation environment with two predictive models: SVG [22] and Struct-VRNN [16]. This covers 7 ma-nipulation tasks including button pushing, drawer opening, and block ma-nipulation. 2. Simulation with Latent-space World Models. We further test on the DeepMind Control Suite [21] using TD-MPC2 [7], a SOTA model-based RL agent that plans in learned latent spaces across 30 continuous control tasks. 3. Physical Real-world Deployment. Finally, we validate on a real Franka Emika Panda arm performing door opening and T-block rearrangement using a state-based world model, to assess whether simulation gains transfer to physical robotics. 
+
+5.1 Main Results                
+
+> Fig. 2. VP2 results on RoboDesk with SVG and Struct-VRNN under the matched-performance protocol. AdaReP achieves the lowest NFE on both backbones, reducing NFE by 59.2% (SVG) and 34.9% (VRNN) with wall-clock reductions of 57.8% and
+> 31.5% .8Y. Cheng et al.
+> Fig. 3. DeepMind Control results with TD-MPC2. AdaReP reduces average NFE by
+> 54.5% and wall-clock time by 50.3% while closely matching the mean normalized score of step-wise replanning across 30 tasks.
+> Fig. 4. Real-world Franka results. AdaReP achieves comparable success while cutting planner-side NFE by over 80% across both articulation and rearrangement tasks.
+
+On VP2 (Fig. 2), we tune hyperparameters for all methods to ensure success rates drop no more than 0.02 compared to the standard MPC 1 
+
+> k
+
+baseline. Under the matched-performance protocol, AdaReP achieves the lowest NFE on both, reducing NFE by 59.2% (SVG) and 34.9% (Struct-VRNN) with wall-clock reductions of 57.8% and 31.5% respectively. On DeepMind Control with TD-MPC2 (Fig. 3), AdaReP reduces average NFE by 54.5% and wall-clock time by 50.3% while matching the mean nor-malized score of step-wise replanning across 30 tasks. On physical hardware (Fig. 4), AdaReP cuts planner-side queries by over 
+
+80% while achieving comparable success (36/50 vs. 34/50). State-based world models are more explicit than vision-based ones, which explains the stronger NFE gains on the real robot than in simulation. AdaReP for Neural World-Model Predictive Control 9
+
+5.2 Analysis and Discussion 
+
+AdaReP adapts to prediction accuracy. To test how prediction quality affects AdaReP, we introduce controlled Gaussian noise on state components (robot position/velocity, object position/velocity, end-effector position) in a disturbed simulator. As shown in Fig. 5, the prediction discrepancy signal dt grows with noise, the sensitivity estimate bLt adapts accordingly, and the algorithm natu-rally triggers more frequent replanning. Crucially , AdaReP never degrades be-low step-wise replanning success rates; it gracefully falls back toward step-wise replanning in the limit of large mismatch.      
+
+> Fig. 5. Online monitors used by AdaReP. Top: prediction discrepancy dtbetween execution and the cached rollout; highlighted regions mark when the cached plan has become stale. Bottom: local sensitivity estimate bLtalong a door-opening trajectory; sensitivity rises near the hinge, where stale plans are most dangerous.
+
+AdaReP adapts to intra-trajectory dynamics sensitivity. The effective sensitivity of the dynamics varies within a single episode. In the door-opening task, dy-namics are highly sensitive near the hinge axis—small end-effector motions in-duce large angular changes—while interactions far from the hinge are smoother. AdaReP adapts by shortening reuse near the hinge and extending it in smoother phases (Fig. 6), a capability unattainable with a fixed cadence. This behavior aligns precisely with the regime dependence identified in (6). 
+
+AdaReP maintains performance in worst-case conditions. Real-world applica-tions often present challenges such as large, unexpected prediction errors or highly sensitive dynamics. As shown in Fig. 5 (top), the prediction discrepancy signal dt grows with state disturbance, prompting more frequent replanning; and as shown in Fig. 7, AdaReP’s success rate is preserved across all disturbance levels. In such adverse conditions, AdaReP automatically reduces its reuse toler-ance, falling back toward step-wise replanning. This graceful degradation ensures that performance never drops below the step-wise replanning baseline, at the cost of reduced NFE savings in demanding regimes. 10 Y. Cheng et al.   
+
+> Fig. 6. Dynamics sensitivity varies within a single door-opening episode. Far from the hinge (left), motion is smooth and reuse can be extended. Near the hinge (right), small end-effector motions cause large state changes, and reuse must be shortened.
+> Fig. 7. Impact of state disturbance, visual noise, and visual blurriness on the NFE reduction of AdaReP relative to step-wise replanning. Success rates are maintained across all conditions. Visual corruption notably diminishes the NFE advantage, high-lighting the importance of robust feature extractors.
+
+Robust visual features remain a challenge. Even with a perfectly accurate un-derlying state predictor, corrupting images with Gaussian noise or blur degrades the DINO-based feature signal, causing the discrepancy monitor to trigger un-necessary replanning and reducing NFE savings. The robustness analysis (Fig. 7) confirms this sensitivity: under visual corruption, the NFE advantage of AdaReP narrows substantially. Developing more robust visual feature extractors is a valu-able direction for extending AdaReP to noisy vision-based settings. 
+
+AdaReP is robust to the smoothing window. The choice of smoothing window W
+
+affects estimate stability. Small W (e.g., 1–5) yields noisy estimates and erratic replanning; large W (e.g., >15) makes the system sluggish. As shown in Fig. 9, AdaReP performs well across a wide range ( W ∈ [8 , 16] ). 
+
+## 6 Conclusion 
+
+We presented AdaReP, an adaptive replanning layer for neural world-model pre-dictive control. By dynamically contracting the reuse threshold based on model mismatch and local sensitivity, AdaReP achieves substantial planner-side com-putation reduction while maintaining task performance across image-based and latent planning, as well as real-world experiments with a Franka robot. These AdaReP for Neural World-Model Predictive Control 11 
+
+Fig. 8. Physical evaluation platform. The Franka Emika Panda is used for artic-ulation tasks (door opening) and long-horizon rearrangement tasks (T-block manipulation). 
+
+Fig. 9. Sensitivity analysis on window W .Small W (1–5) leads to erratic replanning; large W (>15) makes the system sluggish. A wide range ( W ∈ [8 , 16] ) yields strong and stable performance. 
+
+findings position replanning cadence as a critical deployment decision rather than a static parameter. 
+
+## References 
+
+1. Babaeizadeh, M., Saffar, M.T., Nair, S., Levine, S., Finn, C., Erhan, D.: FitVid: High-capacity pixel-level video prediction. In: International Conference on Learn-ing Representations (2022) 2. De Boer, P.T., Kroese, D.P., Mannor, S., Rubinstein, R.Y.: A tutorial on the cross-entropy method. Annals of Operations Research 134 , 19–67 (2005) 3. Ding, J., Zhang, Y., Shang, Y., Zhang, Y., Zong, Z., Feng, J., Yuan, Y., Su, H., Li, N., Sukiennik, N., et al.: Understanding world or predicting future? a compre-hensive survey of world models. ACM Computing Surveys 58 (3), 1–38 (2025) 4. Hafner, D., Lillicrap, T., Ba, J., Norouzi, M.: Dream to control: Learning behaviors by latent imagination. In: International Conference on Learning Representations (2020) 5. Hafner, D., Lillicrap, T., Fischer, I., Villegas, R., Ha, D., Lee, H., Davidson, J.: Learning latent dynamics for planning from pixels. In: International Conference on Machine Learning. pp. 2555–2565 (2019) 6. Hafner, D., Pasukonis, J., Ba, J., Lillicrap, T.: Mastering diverse control tasks through world models. Nature 640 , 647–653 (2025) 7. Hansen, N., Su, H., Wang, X.: TD-MPC2: Scalable, robust world models for con-tinuous control. In: International Conference on Learning Representations (2024) 8. Hansen, N., Wang, X., Su, H.: Temporal difference learning for model predictive control. In: International Conference on Machine Learning (2022) 9. Heemels, W.P.M.H., Johansson, K.H., Tabuada, P.: An introduction to event-triggered and self-triggered control. In: IEEE Conference on Decision and Control. pp. 3270–3285 (2012) 10. Jackson, B.E., Punnoose, T., Neamati, D., Tracy, K., Jitosho, R., Manchester, Z.: ALTRO-C: A fast solver for conic model-predictive control. In: IEEE International Conference on Robotics and Automation. pp. 7357–7364 (2021) 11. Li, Y., Chen, Y., Li, N.: Online optimal control with linear dynamics and predic-tions: Algorithms and regret analysis. In: Advances in Neural Information Process-ing Systems. vol. 32 (2019) 12 Y. Cheng et al. 12. Lin, S., Bansal, N., Yu, C., Wierman, A., Yue, Y.: Perturbation-based regret anal-ysis of predictive control in linear time varying systems. In: Advances in Neural Information Processing Systems. vol. 34 (2021) 13. Lin, Y., Hu, Y., Qu, G., Li, T., Wierman, A.: Bounded-regret MPC via pertur-bation analysis: Prediction error, constraints, and nonlinearity. In: Advances in Neural Information Processing Systems. vol. 35 (2022) 14. Ma, A., Liu, K., Zhang, Q., Liu, T., Xia, Y.: Event-triggered distributed MPC with variable prediction horizon. IEEE Transactions on Automatic Control 66 (10), 4873–4880 (2020) 15. Marcucci, T., Tedrake, R.: Warm start of mixed-integer programs for model pre-dictive control of hybrid systems. IEEE Transactions on Automatic Control 66 (6), 2433–2448 (2020) 16. Minderer, M., Sun, C., Villegas, R., Cole, F., Murphy, K.P., Lee, H.: Unsuper-vised learning of object structure and dynamics from videos. Advances in Neural Information Processing Systems 32 (2019) 17. Muthirayan, D., Yuan, J., Khargonekar, P.P.: Online learning for predictive con-trol with provable regret guarantees. IEEE Control Systems Letters 6, 3472–3477 (2022) 18. Tabuada, P.: Event-triggered real-time scheduling of stabilizing control tasks. IEEE Transactions on Automatic Control 52 (9), 1680–1685 (2007) 19. Tian, S., Cai, Y., Yu, H.X., Zakharov, S., Liu, K., Gaidon, A., Li, Y., Wu, J.: Multi-object manipulation via object-centric neural scattering functions. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 9021–9031 (2023) 20. Tian, S., Finn, C., Wu, J.: A control-centric benchmark for video prediction. In: International Conference on Learning Representations (2023) 21. Tunyasuvunakool, S., Muldal, A., Doron, Y., Liu, S., Bohez, S., Merel, J., Erez, T., Lillicrap, T., Heess, N., Tassa, Y.: dm_control: Software and tasks for continuous control. Software Impacts 6, 100022 (2020) 22. Villegas, R., Pathak, A., Kannan, H., Erhan, D., Le, Q.V., Lee, H.: High fidelity video prediction with large stochastic recurrent neural networks. Advances in Neu-ral Information Processing Systems 32 (2019) 23. Wagener, N., Cheng, C.A., Sacks, J., Boots, B.: An online learning approach to model predictive control. In: Robotics: Science and Systems (2019) 24. Williams, G., Wagener, N., Goldfain, B., Drews, P., Rehg, J.M., Boots, B., Theodorou, E.A.: Information theoretic MPC for model-based reinforcement learn-ing. In: IEEE International Conference on Robotics and Automation. pp. 1714– 1721 (2017) 25. Wu, J., Yin, S., Feng, N., He, X., Li, D., Hao, J., Long, M.: iVideoGPT: Interactive VideoGPTs are scalable world models. Advances in Neural Information Processing Systems 37 , 68082–68119 (2024) 26. Yu, C., Shi, G., Chung, S.J., Yue, Y., Wierman, A.: The power of predictions in online control. In: Advances in Neural Information Processing Systems. vol. 33 (2020) 27. Zhang, Y., Li, Y., Li, N.: On the regret analysis of online LQR control with pre-dictions. In: American Control Conference. pp. 697–703 (2021) 28. Zhao, W., Chen, J., Meng, Z., Mao, D., Song, R., Zhang, W.: VLMPC: Vision-language model predictive control for robotic manipulation. In: Robotics: Science and Systems (2024) AdaReP for Neural World-Model Predictive Control 13 
+
+## A Overview 
+
+This supplementary material is organized to keep the mathematical develop-ment contiguous and to move all empirical setup and figures after the theory. Section B first collects the shared predictive-control preliminaries, controller pseudocodes, and detailed theoretical results. Section C then summarizes the benchmark setup, transfer protocol, real-world state-based modeling, and cor-ruption settings. Section D finally gathers the additional empirical figures and the exact per-task real-world outcomes underlying the aggregate summaries in the main text. 
+
+## B Theory and Algorithm Pseudocodes 
+
+This section gathers the notation, pseudocodes, and proofs in one place. 
+
+B.1 Predictive-control Preliminaries 
+
+This section makes the supplementary material self-contained by recording the shared finite-horizon planning problem, replanning notation, and online quanti-ties used throughout the algorithms and proofs. 
+
+True system and cumulative cost. For the detailed analysis we make explicit the exogenous parameter sequence hidden inside the compact main-text notation. The executed system evolves as 
+
+xt+1 = gt(xt, u t; ξ∗ 
+
+> t
+
+), cost( x0: T , u 0: T −1) :=  
+
+> T−1
+
+X
+
+> t=0
+
+ft(xt, u t; ξ∗ 
+
+> t
+
+) + FT (xT ; ξ∗ 
+
+> T
+
+).
+
+(11) The main text suppresses the parameter arguments and writes the same true dynamics and cumulative cost more compactly. In that notation, the learned predictive model ˆgt is the planner-side realization of the same parameterized family: execution uses the realized parameters ξ∗ 
+
+> t
+
+, whereas planning uses pre-dicted parameters ξτ |t.
+
+Finite-horizon planning problem. For any interval [t1, t 2], initial state z, model-side parameter sequence ξt1:t2−1, terminal parameter ζt2 , and terminal objective 
+
+F , the planner solves 
+
+min  
+
+> yt1:t2, v t1:t2−1
+> t2−1
+
+X 
+
+> τ=t1
+
+fτ (yτ , v τ ; ξτ ) + F (yt2 ; ζt2 ) (12) s.t. yτ +1 = gτ (yτ , v τ ; ξτ ), t1 ≤ τ < t 2,yt1 = z. 14 Y. Cheng et al. 
+
+Path constraints can be included in the feasible set or absorbed into indicator costs without changing the notation below. We write 
+
+ψt2 
+
+> t1
+
+(z, ξ t1:t2−1, ζ t2 ; F ) = ( yt1:t2 , v t1:t2−1)
+
+for any optimal solution, and abbreviate the argument list to ψt2 
+
+> t1
+
+(z, ξ ; F ) when the terminal parameter is implicit from context. When the shortened-horizon planner uses the same target-conditioned terminal objective family but with different terminal targets, we keep the family symbol F fixed and vary only the terminal parameter ζt2 .
+
+Receding-horizon execution and cached plans. At online time t, the controller solves (12) on [t, t +] with t+ = min( t + k, T ) from the current state xt using the current model-side prediction sequence ξt:t+−1|t. The resulting plan is denoted by 
+
+(yt:t+|t, v t:t+−1|t). Standard step-wise MPC executes only the first action ut = vt|t
+
+and replans at the next step. If a plan is reused, p(t) denotes the most recent replanning time, and ˆyt ≡ yt|p(t) is the cached nominal state aligned with the current execution step. When t + k < T , the terminal objective may encode an intermediate target; the corresponding model-selected terminal state is denoted by ¯y(ξt+k|t). When the shortened horizon reaches T , the planner uses the episode terminal cost FT .
+
+Predictions and the clairvoyant comparator. The symbol ξτ |t denotes the quan-tity predicted at planning time t for stage τ , whereas ξ∗ 
+
+> τ
+
+is its realized counter-part. The clairvoyant optimum OPT is the full-horizon solution of (12) under the true parameter sequence ξ∗ 
+
+> 0: T
+
+. Starting from a current state xt, we write 
+
+(x∗ 
+
+> t:T|t
+
+, u ∗ 
+
+> t:T−1|t
+
+) := ψTt (xt, ξ ∗ 
+
+> t:T−1
+
+, ξ ∗ 
+
+> T
+
+; FT ).
+
+The first action on this continuation is u∗
+
+> t|t
+
+. If a proof conditions on the most recent replanning time t′, we write 
+
+u∗ 
+
+> t|t′
+
+:= ψTt′ (xt′ , ξ ∗ 
+
+> t′:T−1
+
+, ξ ∗ 
+
+> T
+
+; FT )ut ,
+
+for the stage-t action of that continuation. 
+
+Monitored representation and online quantities. The runtime trigger may be evaluated in a monitored representation rather than directly in the physical state. We write 
+
+zt := ϕ(xt), ˆzt := ϕ(ˆ yt), dt := ∥zt − ˆzt∥2 .
+
+The practical controller also forms the online sensitivity proxy 
+
+bLt := ∥ϕ(xt+1 ) − ϕ(xt)∥2
+
+∥ut∥2 + γ , (13) using the same monitored representation as the trigger. The planner state xt and monitored representation zt = ϕ(xt) need not coincide: in VP2, xt is image-space while zt is a frozen image-feature embedding; in TD-MPC2 the planner latent is used for both; and in Franka both coincide with the physical state space. AdaReP for Neural World-Model Predictive Control 15 
+
+Algorithm 2 Model predictive control with step-wise replanning ( MPC 1
+
+> k
+
+)
+
+Require: Prediction horizon k, initial state x0, predictive model, planner, terminal cost rule 1: for t = 0 , 1, . . . , T − 1 do 
+
+2: Observe the current state xt
+
+3: Solve the horizon-k planning problem to obtain (yt:t+k , v t:t+k−1)
+
+4: Execute the first action ut ← vt|t
+
+Algorithm 3 Model predictive control with fixed-step reuse ( MPC mk )
+
+Require: Prediction horizon k, reuse interval m, initial state x0, predictive model, planner 1: t ← 0
+
+2: while t < T do 
+
+3: Observe the current state xt
+
+4: Solve the horizon-k planning problem to obtain (yt:t+k , v t:t+k−1)
+
+5: Execute the first mcommit = min( m, T − t) actions of the current plan 6: t ← t + mcommit 
+
+Controller family and performance metrics. All four controllers in this paper solve the same horizon-k planning problem (12); they differ only in the replanning schedule. MPC 1 
+
+> k
+
+replans every step, MPC mk commits a fixed number of actions before refreshing, MPC k,ϵ replans whenever dt > ϵ or the cached suffix expires, and AdaReP uses the same trigger with a time-varying threshold ϵt. The main text abbreviates the standard step-wise controller as MPC k ≡ MPC 1
+
+> k
+
+. We evalu-ate these controllers by dynamic regret Regret(ALG) = cost(ALG) − cost( OPT )
+
+and by the number of function evaluations (NFE), namely the total number of world-model queries issued by the planner during one episode. 
+
+B.2 Algorithm Pseudocodes 
+
+All three algorithms below invoke the same horizon-k planning problem from Section B.1; only the rule that refreshes the current plan changes across con-trollers. 
+
+B.3 Detailed Theoretical Results Assumptions and notation The detailed theory follows a simple chain. Lem-mas 1 to 3 derive the fixed-step regret bound in Theorem 3. Lemma 4 and corol-lary 1 summarize threshold-based stale-plan error in the compact form used in the main text. Theorems 4 and 5, proposition 1, and corollary 2 then specialize this picture to the fixed-threshold and adaptive controllers. Our analysis follows the perturbation framework used in regret analyses of predictive control under model mismatch [13,12]. We reuse the common planner notation from Section B.1 and introduce only the additional regularity, pertur-bation, and proof-only mismatch objects needed for the detailed regret bounds. 16 Y. Cheng et al. 
+
+Algorithm 4 Model predictive control with fixed-threshold reuse ( MPC k,ϵ )
+
+Require: Prediction horizon k, threshold ϵ, initial state x0, predictive model, planner 1: t ← 0, tplan ← 0
+
+2: while t < T do 
+
+3: if t = tplan then 
+
+4: Solve the horizon-k planning problem and cache (ˆ yt:t+k , v t:t+k−1)
+
+5: Execute the current suffix action ut ← vt|tplan and observe xt+1 
+
+6: Compute the next-step deviation dt+1 ← ∥ ϕ(xt+1 ) − ϕ(ˆ yt+1 )∥2
+
+7: if dt+1 > ϵ or t + 1 reaches the end of the cached plan then 
+
+8: tplan ← t + 1 
+
+9: t ← t + 1 
+
+Standard regularity assumptions. We assume throughout that: 
+
+– Bounded clairvoyant optimum. The clairvoyant optimum is bounded: there exists Dx∗ > 0 with ∥x∗ 
+
+> t
+
+∥ ≤ Dx∗ for all t.
+
+– Lipschitz dynamics. The ground-truth dynamics gt(·, ·; ξ∗ 
+
+> t
+
+) are Lipschitz in state and action: there exists Lt > 0 such that 
+
+∥gt(xt, u t; ξ∗ 
+
+> t
+
+) − gt(x′
+
+> t
+
+, u ′
+
+> t
+
+; ξ∗ 
+
+> t
+
+)∥ ≤ Lt
+
+  ∥xt − x′
+
+> t
+
+∥ + ∥ut − u′
+
+> t
+
+∥ . (14) Below, we suppress the realized parameter ξ∗ 
+
+> t
+
+inside gt whenever no ambi-guity arises. 
+
+– Smooth costs. Each stage cost and the terminal cost are non-negative and 
+
+ℓ-smooth in their arguments [12,13]. We also write 
+
+L := max  
+
+> 0≤t<T
+
+Lt, L(m) := max   
+
+> 0≤t≤T−k
+
+max 
+
+> 0≤i≤m−1
+> t+i
+
+Y
+
+> s=t
+
+Ls,
+
+so that L captures the largest single-step local sensitivity and L(m) captures the largest cumulative sensitivity over an m-step reuse block. In particular, L(m) ≤
+
+Lm.
+
+Perturbation bounds. Let ψt2 
+
+> t1
+
+(z, ξ ; F ) denote the finite-horizon optimal-control solution from (12), initialized at state z with prediction sequence ξ and terminal objective F . We assume the planner admits the standard local perturbation bounds used in predictive-control regret analyses. For parameter perturbations with fixed initial state, 
+
+ψt2 
+
+> t1
+
+(z, ξ ; F )vt − ψt2 
+
+> t1
+
+(z, ξ ′; F )vt ≤
+
+ t2X
+
+> s=t1
+
+q1(s − t1)δs
+
+
+
+∥z∥ +
+
+> t2
+
+X
+
+> s=t1
+
+q2(s − t1)δs,
+
+(15) where δs := ∥ξs − ξ′
+
+> s
+
+∥, and the decay kernels satisfy P 
+
+> t≥0
+
+qi(t) ≤ Ci for i ∈{1, 2}.For initial-state perturbations with fixed parameters, 
+
+ψt2 
+
+> t1
+
+(z, ξ ; F )yt/v t − ψt2 
+
+> t1
+
+(z′, ξ ; F )yt/v t ≤ q3(t − t1) ∥z − z′∥ , (16) where P 
+
+> t≥0
+
+q3(t) ≤ C3.AdaReP for Neural World-Model Predictive Control 17 
+
+Local validity region. As in the original analysis, we only require these perturba-tion bounds to hold inside a tube around the clairvoyant optimum. Concretely, there exists R1 > 0 such that (15) and (16) hold whenever the relevant initial states remain in B(x∗ 
+
+> t
+
+, R 1) and the terminal target chosen by the planner stays in a comparable neighborhood of the optimal terminal state. This is the detailed form of the “local perturbation assumptions” referred to in the main text. 
+
+Prediction parameters and terminal targets. We follow the prediction notation from Section B.1. The only additional convention needed in the proofs is that 
+
+¯y(ξt+k|t) denotes the terminal state selected by the planner’s terminal objective at planning time t; by assumption it lies inside the local perturbation tube around the corresponding clairvoyant terminal state. 
+
+Monitored representation and trigger space. The online trigger and sensitivity proxy from Section B.1 may be evaluated in a monitored representation z = ϕ(x)
+
+rather than directly in the physical state. To connect dt = ∥ϕ(xt) − ϕ(ˆ yt)∥2 to the state-deviation terms used by the perturbation lemmas, we assume that inside the local tube there exist constants 0 < c ϕ ≤ Cϕ such that 
+
+cϕ ∥x − x′∥ ≤ ∥ ϕ(x) − ϕ(x′)∥ ≤ Cϕ ∥x − x′∥ (17) for all relevant state pairs. Equivalently, one may read the theory below as stated directly in the monitored planning space. When ϕ is the identity, (17) is imme-diate with cϕ = Cϕ = 1 .
+
+Prediction error and per-step errors. The prediction error made at time t for lead time τ is 
+
+ρt,τ := ξt+τ |t − ξ∗ 
+
+> t+τ
+
+. (18) Building on the comparator notation from Section B.1, the per-step control error of an online controller is 
+
+et := ut − u∗ 
+
+> t|t
+
+, (19) and for fixed-step reuse it is convenient to condition on the most recent replan-ning time t′, in which case 
+
+et|t′ := ut − u∗ 
+
+> t|t′
+
+. (20) 
+
+Mismatch statistic used in the condensed bounds. We summarize the weighted lead-time mismatch since the last replanning step by 
+
+st := 
+
+> k−1
+
+X 
+
+> τ=0
+
+ωτ ρ2 
+
+> p(t),τ
+
++ c2
+
+> k
+
+!1/2
+
+, (21) and define the threshold-analysis shorthand 
+
+E :=  
+
+> T−1
+
+X
+
+> t=0
+
+ st + s2
+
+> t
+
+. (22) 18 Y. Cheng et al. 
+
+The linear part is convenient because the fixed-threshold derivation contains the mixed term ϵ P 
+
+> t
+
+st, while the quadratic part is the natural mismatch energy. The coefficients ωτ and the terminal term ck are fixed constants induced by the perturbation decomposition for the chosen horizon; they are not algorithmic parameters and are never tuned in deployment. Their role is only to compress the multi-step mismatch terms into a single shorthand. When a plan is cached at time t′, we write ξt:t′+k−1|t′ for the model-side parameter sequence reused by that cached plan, and ¯y(ξt′+k|t′ ) for the terminal target predicted by that cached rollout. These quantities appear only in the perturbation lemmas below; the practical controller itself monitors only the online signals dt and bLt.
+
+Proof strategy and relation to the online trigger. The proofs below adapt the perturbation-based dynamic-regret route of [12,13] to cached-plan reuse. Reusing a plan with tolerance εt incurs per-step execution error of order O(εt + st),where st summarizes the mismatch accumulated under the cached plan. Those per-step deviations are then passed through the same regret reduction used in prior predictive-control analyses. Because st depends on the cached rollout’s multi-step prediction errors ρp(t),τ and on fixed constants folded into its defi-nition, the controller does not evaluate it directly; it monitors the observable deviation dt instead. Once stale-plan error is propagated through the dynam-ics, the threshold-dependent regret terms take the form L2 
+
+> t
+
+εtst and L2 
+
+> t
+
+ε2 
+
+> t
+
+. The exponential threshold is chosen because the elementary bounds xe −ax ≤ (ea )−1
+
+and x2e−ax ≤ 4( e2a2)−1 convert these terms into uniform bounds controlled by 
+
+(ϵ0, α δ , α L).
+
+Detailed theorem statements Lemma 1 (Conditional per-step error bound for fixed-step reuse). 
+
+Assume the local perturbation bounds hold and let t′ = mn ≤ t < m (n + 1) .Suppose the state at the last replanning time satisfies xt′ ∈ B (x∗ 
+
+> t′
+
+, R 1), and the terminal target used inside the planner lies in B(x∗
+
+> t′+k
+
+, R 2) for some R2 ≥ R1.Then the conditional per-step error of MPC mk satisfies 
+
+et|t′ ≤
+
+> k−1
+
+X 
+
+> τ=0
+
+ (R1 + Dx∗ )q1(τ ) + q2(τ )ρt′,τ + 2 R2
+
+ (R1 + Dx∗ )q1(k) + q2(k). (23) 
+
+Proof. For t′ = mn ≤ t < m (n + 1) , the conditional error can be written as the difference between the action supplied by the plan optimized at time t′
+
+and the clairvoyant action for the same stage. By the principle of optimality, the relevant portion of the clairvoyant plan is a sub-trajectory of the horizon-k
+
+planning problem anchored at t′. Applying the parameter-perturbation bound therefore yields 
+
+et|t′ ≤
+
+> k−1
+
+X 
+
+> τ=0
+
+  ∥xt′ ∥ q1(τ ) + q2(τ )ρt′,τ 
+
++   ∥xt′ ∥ q1(k) + q2(k) ¯y(ξt′+k|t′ ) − x∗ 
+
+> t′+k|t′
+
+. (24) AdaReP for Neural World-Model Predictive Control 19 
+
+Because ∥xt′ ∥ ≤ R1 + Dx∗ and both terminal states lie in the radius-R2 tube around x∗
+
+> t′+k
+
+, the final term is bounded by the constant term in (23). This proves the claim. 
+
+Lemma 2 (State deviation bound). Let t′ = mn ≤ t < m (n + 1) and let 
+
+x∗  
+
+> τ|t′
+
+denote the state at time τ on the clairvoyant optimal trajectory starting from xt′ . Under the Lipschitz dynamics assumption, 
+
+xt − x∗ 
+
+> t|t′
+
+≤
+
+> t−1
+
+X 
+
+> τ=t′
+
+eτ |t′
+
+> t−1
+
+Y 
+
+> s=τ+1
+
+Ls. (25) 
+
+Proof. The claim is proved by induction. For t = t′ + 1 ,
+
+xt′+1 − x∗ 
+
+> t′+1 |t′
+
+= gt′ (xt′ , u t′ ) − gt′ (xt′ , u ∗ 
+
+> t′|t′
+
+) ≤ Lt′ et′|t′ .
+
+Assume the result holds at time t − 1. Then, using (14), 
+
+xt − x∗ 
+
+> t|t′
+
+= gt−1(xt−1, u t−1) − gt−1(x∗ 
+
+> t−1|t′
+
+, u ∗ 
+
+> t−1|t′
+
+) (26) 
+
+≤ Lt−1
+
+
+
+xt−1 − x∗ 
+
+> t−1|t′
+
++ ut−1 − u∗
+
+> t−1|t′
+
+
+
+(27) 
+
+≤
+
+> t−1
+
+X 
+
+> τ=t′
+
+eτ |t′
+
+> t−1
+
+Y 
+
+> s=τ+1
+
+Ls. (28) This completes the induction. 
+
+Lemma 3 (Regret from conditional per-step errors). Assume first that 
+
+T = mN and define 
+
+Sm :=  
+
+> N−1
+
+X
+
+> i=0
+> m(i+1) −1
+
+X 
+
+> τ=mi
+
+e2 
+
+> τ|mi
+
+.
+
+Then the dynamic regret of MPC mk is bounded by 
+
+cost( MPC mk ) − cost( OPT ) ≤
+
+s ℓ
+
+2 · 2m L(m)2C23
+
+
+
+cost( OPT ) pSm
+
++
+
+ ℓ
+
+2 · 2m L(m)2C23
+
+
+
+Sm. (29) 
+
+Proof. Combine lemmas 1 and 2 to bound the state and action deviations relative to the clairvoyant optimum by weighted sums of conditional per-step errors. After squaring and summing over time, one obtains 
+
+A := 
+
+> T
+
+X
+
+> t=1
+
+∥xt − x∗ 
+
+> t
+
+∥2 + 
+
+> T−1
+
+X
+
+> t=0
+
+∥ut − u∗ 
+
+> t
+
+∥2 ≤ 2m L(m)2C23 
+
+> N−1
+
+X
+
+> i=0
+> m(i+1) −1
+
+X 
+
+> τ=mi
+
+e2 
+
+> τ|mi
+
+.20 Y. Cheng et al. 
+
+For nonnegative ℓ-smooth stage and terminal costs, the standard smoothness-based dynamic-regret inequality [12, Lemma 1] gives 
+
+cost( MPC mk ) − cost( OPT ) ≤
+
+r ℓ
+
+2 cost( OPT )A + ℓ
+
+2 A. 
+
+Substituting the bound on A yields (29). If T is not divisible by m, the same argu-ment is applied to the final partial block of length smaller than m; that remainder contributes only lower-order terms absorbed into the same big-O constants used later in theorem 3. 
+
+Theorem 3 (Regret bound for fixed-step reuse). Under the assumptions above, if the prediction errors are sufficiently small and the planning horizon is sufficiently long so that the executed trajectory remains in the local tube B(x∗ 
+
+> t
+
+, R 1)
+
+for all t, then 
+
+cost( MPC mk ) − cost( OPT ) = O
+
+q 
+
+m L(m)2cost( OPT )Em + m L(m)2Em
+
+
+
+,
+
+(30) 
+
+where 
+
+Em = O
+
+> k−1
+
+X 
+
+> τ=0
+
+ (R1 + Dx∗ )q1(τ ) + q2(τ )2 N −1X
+
+> n=0
+
+mρ 2
+
+> mn,τ
+
++  (R1 + Dx∗ )q1(k) + q2(k)2T
+
+!
+
+. (31) 
+
+Proof. The proof combines lemmas 1 and 3. The small-error condition ensures inductively that the trajectory never leaves the local tube around the clairvoyant optimum, so the perturbation bounds remain valid at every replanning epoch. Squaring (23) yields mismatch terms proportional to ρ2 
+
+> mn,τ
+
+together with a ter-minal constant. Summing those terms over all steps executed after replanning time mn produces the stated expression for Em. Substituting this bound into (29) gives the theorem. 
+
+Lemma 4 (Per-step error for threshold-based reuse). Suppose the cur-rent state satisfies xt ∈ B (x∗ 
+
+> t
+
+, R 1) and the terminal target used by the planner lies in B(x∗
+
+> t+k
+
+, R 2). Let t′ denote the most recent planning time, and let εt denote a generic nonnegative reuse tolerance. Then the per-step error of both MPC k,ϵ 
+
+and the idealized controller underlying AdaReP is bounded, after absorbing the fixed representation-equivalence constant from (17) when ϕ̸ = I, by 
+
+et ≤ q3(0) εt +
+
+> k−1
+
+X 
+
+> τ=0
+
+ (R1 + Dx∗ )q1(τ ) + q2(τ )ρt′,τ + 2 R2
+
+ (R1 + Dx∗ )q1(k) + q2(k).
+
+(32) 
+
+Proof. Let t′ = p(t) denote the most recent replanning time. The action executed at time t is taken from the plan computed at t′, whereas the comparator action AdaReP for Neural World-Model Predictive Control 21 
+
+is the clairvoyant optimum from the current state. Writing the two quantities explicitly and inserting the cached nominal state ˆyt|t′ gives 
+
+et = ψt′+kt′ (xt′ , ξ t′:t′+k−1|t′ , ¯y(ξt′+k|t′ ); F )vt − ψTt (xt, ξ ∗ 
+
+> t:T
+
+; FT )vt
+
+≤ ψt′+kt (ˆ yt|t′ , ξ t:t′+k−1|t′ , ¯y; F )vt − ψt′+kt (xt, ξ t:t′+k−1|t′ , ¯y; F )vt
+
+| {z }
+
+> state-deviation term
+
++ ψt′+kt (xt, ξ t:t′+k−1|t′ , ¯y; F )vt − ψt′+kt (xt, ξ ∗
+
+> t:t′+k−1
+
+, x ∗
+
+> t+k|t
+
+; F )vt
+
+| {z }
+
+> prediction-mismatch term
+
+. (33) The first term is bounded by the initial-state perturbation bound (16): 
+
+ψt′+kt (ˆ yt|t′ , ·)vt − ψt′+kt (xt, ·)vt ≤ q3(0) ˆyt|t′ − xt .
+
+Because threshold-based reuse continues only while the monitored deviation stays below the active tolerance, ϕ(ˆ yt|t′ ) − ϕ(xt) ≤ εt. If the theory is read directly in the monitored planning space this is exactly ˆyt|t′ − xt ≤ εt; oth-erwise, the local compatibility condition (17) implies ˆyt|t′ − xt ≤ εt/c ϕ. This fixed factor is absorbed into the leading tolerance coefficient, contributing the term q3(0) εt up to constants. For the second term, apply the parameter-perturbation bound (15) exactly as in lemma 1. Using ∥xt∥ ≤ R1 + Dx∗ inside the local tube and the terminal-target assumption ¯y(ξt+k|t) ∈ B (x∗
+
+> t+k
+
+, R 2) gives 
+
+ψt′+kt (xt, ξ t:t′+k−1|t′ , ¯y; F )vt − ψt′+kt (xt, ξ ∗
+
+> t:t′+k−1
+
+, x ∗
+
+> t+k|t
+
+; F )vt
+
+≤
+
+> k−1
+
+X 
+
+> τ=0
+
+ (R1 + Dx∗ )q1(τ ) + q2(τ )ρt′,τ + 2 R2
+
+ (R1 + Dx∗ )q1(k) + q2(k).
+
+Combining the two pieces yields (32). 
+
+Corollary 1 (Compact per-step stale-plan form). Under the assumptions of lemma 4, the stale-plan error of both MPC k,ϵ and the idealized controller underlying AdaReP satisfies 
+
+et = O(εt + st), (34) 
+
+where the hidden constants depend only on the perturbation kernels and local-tube radii defined above. Proof. The term q3(0) εt in lemma 4 is linear in the active tolerance, while the weighted mismatch sum together with the terminal-target term is exactly what is summarized by the mismatch statistic st. Absorbing the kernel-dependent constants into the O(·) notation gives the compact form. 22 Y. Cheng et al. 
+
+Theorem 4 (Regret bound for fixed-threshold reuse). Under the same assumptions, if the threshold ϵ and prediction errors are sufficiently small to keep the trajectory inside the local perturbation tube, then 
+
+cost( MPC k,ϵ ) − cost( OPT ) = O
+
+p L2cost( OPT )( E + ϵE + ϵ2T )+L2(E + ϵE + ϵ2T ) , (35) 
+
+where E is the cumulative mismatch budget defined in (22) .Proof. Starting from corollary 1 with the constant tolerance εt = ϵ, squaring the per-step error gives 
+
+e2 
+
+> t
+
+= O(ϵ2) + O(ϵs t) + O(s2 
+
+> t
+
+).
+
+Summing over time gives  
+
+> T−1
+
+X
+
+> t=0
+
+e2 
+
+> t
+
+= O ϵ2T + ϵ 
+
+> T−1
+
+X
+
+> t=0
+
+st + 
+
+> T−1
+
+X
+
+> t=0
+
+s2
+
+> t
+
+!
+
+.
+
+By the definition (22), both P 
+
+> t
+
+st and P 
+
+> t
+
+s2 
+
+> t
+
+are bounded by E, so  
+
+> T−1
+
+X
+
+> t=0
+
+e2 
+
+> t
+
+= O(E + ϵE + ϵ2T ).
+
+Applying the same smoothness-based dynamic-regret inequality as above with 
+
+A = O(E + ϵE + ϵ2T ) gives the theorem. 
+
+Monitor conditions for adaptive thresholding. The practical controller does not observe Lt or st directly. To make the analytical motivation explicit, we there-fore impose idealized monitor-dominance conditions [13, Section 3.2]: the online monitors dominate the unobserved quantities up to constants λ, μ > 0, namely 
+
+bLt ≥ λL t and dt ≥ μs t. These constants quantify monitor quality and appear only inside the hidden constants of the final adaptive regret bound. 
+
+Proposition 1 (Exponential thresholding bounds the stale-plan penal-ties). Assume there exist constants λ, μ > 0 such that bLt ≥ λL t and dt ≥ μs t.Then the instantaneous threshold 
+
+˜ϵt = ϵ0e−αδ dt e−αL bLt
+
+implies 
+
+L2 
+
+> t
+
+˜ϵ2 
+
+> t
+
+≤ ϵ20
+
+e2λ2α2
+
+> L
+
+, (36) 
+
+L2 
+
+> t
+
+˜ϵtst ≤ 4ϵ0
+
+e3λ2μα 2
+
+> L
+
+αδ
+
+. (37) AdaReP for Neural World-Model Predictive Control 23 
+
+Proof. Using e−x ≤ 1/(ex ) for x > 0,
+
+Lt˜ϵt ≤ ϵ0Lte−αL bLt ≤ ϵ0
+
+Lt
+
+eα L bLt
+
+≤ ϵ0
+
+eλα L
+
+, (38) which gives the first claim after squaring. For the mixed term, use both e−x ≤
+
+1/(ex ) and e−x ≤ 4/(e2x2):
+
+L2 
+
+> t
+
+˜ϵtst ≤ ϵ0
+
+ L2 
+
+> t
+
+e−αL bLt   e−αδ dt st
+
+ (39) 
+
+≤ ϵ0
+
+4L2
+
+> t
+
+e2α2 
+
+> L
+
+bL2
+
+> t
+
+!  st
+
+eα δ dt
+
+
+
+≤ 4ϵ0
+
+e3λ2μα 2
+
+> L
+
+αδ
+
+. (40) This proves the proposition. 
+
+Theorem 5 (Adaptive regret with time-varying thresholds). Under the assumptions of theorem 4, if the idealized controller underlying AdaReP executes with the instantaneous threshold ˜ϵt while the trajectory remains inside the local perturbation tube, then 
+
+cost( AdaReP ) − cost( OPT ) = O
+
+vuutcost( OPT )
+
+
+
+L2E + 
+
+> T−1
+
+X
+
+> t=0
+
+L2 
+
+> t
+
+˜ϵtst + 
+
+> T−1
+
+X
+
+> t=0
+
+L2 
+
+> t
+
+˜ϵ2
+
+> t
+
+
+
++ L2E + 
+
+> T−1
+
+X
+
+> t=0
+
+L2 
+
+> t
+
+˜ϵtst + 
+
+> T−1
+
+X
+
+> t=0
+
+L2 
+
+> t
+
+˜ϵ2
+
+> t
+
+!
+
+, (41) 
+
+where E is the cumulative mismatch budget defined in (22) .Proof. Apply corollary 1 with the time-varying tolerance εt = ˜ ϵt. Squaring the resulting per-step bound gives three contributions: a pure mismatch term, a pure threshold term, and a mixed term, 
+
+e2 
+
+> t
+
+= O(s2 
+
+> t
+
+) + O(˜ ϵ2 
+
+> t
+
+) + O(˜ ϵtst).
+
+When the state-deviation inequality is propagated through the Lipschitz dy-namics, the last two contributions inherit the same local-sensitivity factors that appear in the main-text statement. Consequently,  
+
+> T−1
+
+X
+
+> t=0
+
+e2 
+
+> t
+
+= O E + 
+
+> T−1
+
+X
+
+> t=0
+
+L2 
+
+> t
+
+˜ϵtst + 
+
+> T−1
+
+X
+
+> t=0
+
+L2 
+
+> t
+
+˜ϵ2
+
+> t
+
+!
+
+,
+
+because the pure mismatch contribution P 
+
+> t
+
+s2 
+
+> t
+
+is dominated by the budget E
+
+from (22). Substituting this expression into the same smoothness-based dynamic-regret inequality used for theorem 4 with A = O E + P 
+
+> t
+
+L2 
+
+> t
+
+˜ϵtst + P 
+
+> t
+
+L2 
+
+> t
+
+˜ϵ2
+
+> t
+
+
+
+gives the stated adaptive regret bound. 24 Y. Cheng et al. 
+
+Corollary 2 (Monitor-controlled adaptive regret). Under the assump-tions of theorem 5 and proposition 1, the regret of AdaReP satisfies 
+
+cost( AdaReP ) − cost( OPT ) = O
+
+s
+
+cost( OPT )
+
+
+
+L2E + ϵ0
+
+α2
+
+> L
+
+
+
+ϵ0 + 1
+
+αδ
+
+
+
+T
+
+
+
++L2E + ϵ0
+
+α2
+
+> L
+
+
+
+ϵ0 + 1
+
+αδ
+
+
+
+T
+
+
+
+. (42) 
+
+Proof. Invoke proposition 1 inside theorem 5. This replaces the two threshold-dependent sums by terms of order O(ϵ0T /α 2
+
+> L
+
+αδ ) and O(ϵ20T /α 2
+
+> L
+
+), respectively. Collecting these contributions yields the stated closed form. The practical con-troller uses the smoothed threshold as a stabilized implementation of the same monotone update. AdaReP for Neural World-Model Predictive Control 25 
+
+## C Experimental Details 
+
+C.1 Real-World Experiments Setup 
+
+Real-world Franka manipulation. The physical experiments use a Franka Emika Panda arm equipped with a cubic pusher end-effector and a Vicon motion-capture system (Fig. 10). Door opening is represented with a 6-dimensional state containing the hinge, handle, and end-effector keypoints; the correspond-ing learned world model is a 3-layer MLP. T-block manipulation is represented with an 8-dimensional state containing three object keypoints together with the end-effector; the corresponding world model is a 6-layer MLP. We report bi-nary task success and NFE for two task families: door opening to 90 ◦ and 180 ◦,and T-block translation, rotation, and combined translation-plus-rotation. Each physical task instance is evaluated for 10 trials, yielding 20 articulation trials and 30 rearrangement trials, for 50 physical trials in total.  
+
+> Fig. 10. Real-world Franka experimental platform used for the articulation and T-block manipulation tasks. The robot is equipped with a cubic pusher end-effector and tracked with a Vicon motion-capture system.
+
+C.2 State-based World Modeling for Real-World Tasks 
+
+Real-world state representation and training. The state-based Franka models are learned as one-step predictors xt+1 = f (xt, u t) with ut ∈ R2 the planar pusher command. For door opening, the state comprises the 2D hinge, handle, and end-effector keypoints. For T-block manipulation, the state contains three object keypoints together with the end-effector (Fig. 11). Training data are collected from a mixture of successful demonstrations and random exploration trajectories. The state-based models are trained with Adam, learning rate 5 × 10 −6, batch size 16, for 300 epochs, and multi-step rollouts are obtained autoregressively at deployment time. The optimizer settings are therefore fixed across the two physical backbones; only the learned predictor differs between the door and T-block state representations. 26 Y. Cheng et al. 
+
+Fig. 11. State representations used for the real-world Franka experiments. Panel (a) shows the door-opening representation with hinge, handle, and end-effector keypoints. Panel (b) shows the T-block representation with three object keypoints and the end-effector. 
+
+Table 1. Standard deviations of Gaussian noise applied to state components in the disturbed-simulator experiments. Component Level 1 Level 2 Level 3 Robot position 0.001 0.005 0.010 
+
+Robot velocity 0.001 0.005 0.010 
+
+Object position 0.000 0.001 0.005 
+
+Object velocity 0.000 0.001 0.005 
+
+End-effector position 0.001 0.005 0.010 
+
+C.3 Disturbed Simulators and Visual Corruptions 
+
+Disturbed simulator configuration. For the disturbance study, Gaussian noise with mean zero is added to selected state components. The standard deviations used for the three disturbance levels are listed in table 1. 
+
+Visual corruption parameters. For the image-space corruption study, we apply additive Gaussian noise or Gaussian blur to the predicted images before fea-ture extraction. The parameter settings are summarized in tables 2 and 3, and representative examples are shown in Fig. 12. AdaReP for Neural World-Model Predictive Control 27           
+
+> Table 2. Gaussian-noise parameters for predicted images. Noise level std Level 1 0.1 Level 2 0.2 Level 3 0.5
+> Table 3. Gaussian-blur parameters for predicted images. Blur level sigma Level 1 0.1 Level 2 0.5 Level 3 1.0
+> Fig. 12. Representative visual corruptions used in the image-space robustness study. The left panel shows additive Gaussian noise applied at increasing levels, and the right panel shows increasing Gaussian blur.
+
+## D More Experimental Results 
+
+This section groups the additional empirical material after the setup section. It contains the raw fixed-baseline sweeps used to define the operating range, the diagnostics that motivate the adaptive rule, and the exact per-task real-world outcomes underlying the aggregate summaries in the main text. 
+
+D.1 Experimental Results for MPC mk and MPC k,ϵ 
+
+We first show the raw fixed-baseline sweeps for the VP2 benchmark. Keeping these plots together makes the operating-range story easier to follow: different tasks and backbones prefer different fixed reuse settings, which is exactly the variability that motivates an adaptive replanning rule. Taken together, Figs. 13 to 16 demonstrate that no single fixed m or fixed ϵ is uniformly preferred across tasks and backbones. Some tasks tolerate aggressive plan reuse with little performance loss, while others degrade sharply once the reuse interval or deviation tolerance becomes too large. 28 Y. Cheng et al. 
+
+Fig. 13. VP2 fixed-threshold sweeps for the SVG world model. Left: task-wise success versus the deviation threshold ϵ. Right: the corresponding NFE versus ϵ.
+
+Fig. 14. VP2 fixed-threshold sweeps for the Struct-VRNN world model. Left: task-wise success versus ϵ. Right: the corresponding NFE versus ϵ.
+
+Fig. 15. VP2 fixed-step sweeps for the SVG world model. Left: task-wise success versus the reuse interval m. Right: the corresponding NFE versus m.
+
+Fig. 16. VP2 fixed-step sweeps for the Struct-VRNN world model. Left: task-wise success versus m. Right: the corresponding NFE versus m.AdaReP for Neural World-Model Predictive Control 29 
+
+D.2 Trajectory Visualization of Real-World Experiments 
+
+We next visualize representative physical trajectories before reporting the exact per-task real-world counts used to form the aggregate summary in the main text.    
+
+> Fig. 17. Real-robot door-opening trajectories. Rows correspond to door opening to 90 ◦
+> and 180 ◦, and columns compare step-wise MPC with AdaReP. Different colors indicate trajectory segments executed under different cached plans, so fewer color transitions visually indicate reduced replanning.
+
+The door tasks already exhibit the intended qualitative effect: the adaptive controller executes longer contiguous trajectory segments under the same cached plan. We subsequently visualize the longer-horizon T-block tasks, where the same reduction in plan switches is visible across translation, rotation, and the combined task. 30 Y. Cheng et al.  
+
+> Fig. 18. Real-robot T-block trajectories. Rows correspond to translation, rotation, and the combined task, and columns compare step-wise MPC with AdaReP. The qualitative reduction in plan switches mirrors the NFE savings reported quantitatively in the main text.
+
+D.3 Visual Demonstrations from Physical Rollouts 
+
+In addition to the traced state-space trajectories above, we include representative frame sequences from the physical rollouts to show the robot–object interaction directly in image space (Figs. 19 and 20). These strips cover the same five real-world task instances summarized later in table 4: door opening to 90 ◦ and 180 ◦,T-block translation, T-block rotation, and the combined translation-and-rotation task. AdaReP for Neural World-Model Predictive Control 31 
+
+Top: opening the door to 90 ◦
+
+Bottom: opening the door to 180 ◦
+
+Fig. 19. Representative frame sequences from the real-robot door-opening tasks. Each strip shows selected frames from a physical rollout and complements the state-space trajectory visualizations in Fig. 17. 
+
+Top: translating the T-block 
+
+Middle: rotating the T-block 
+
+Bottom: translating and rotating the T-block 
+
+Fig. 20. Representative frame sequences from the real-robot T-block tasks. These strips show the translation, rotation, and combined manipulation behaviors corresponding to the trajectory plots in Fig. 18. 
+
+D.4 Per-task Real-World Results 
+
+Table 4 records the exact task-instance counts and episode-level mean NFE values used to form the aggregate Franka summaries in the main text. 
+
+Table 4. Exact task-instance outcomes for the Franka evaluation. Each task instance is evaluated for 10 trials. NFE values are the episode-level means used to compute the aggregate summaries in the main text. Task instance MPC 1
+
+> k
+
+success AdaReP success 
+
+MPC 1
+
+> k
+
+NFE AdaReP NFE Open door 90 ◦ 9/10 9/10 159K 14K 
+
+Open door 180 ◦ 6/10 7/10 198K 24K 
+
+Translate T 8/10 8/10 345K 60K 
+
+Rotate T 6/10 7/10 407K 64K 
+
+Combination 5/10 5/10 834K 115K 32 Y. Cheng et al. 
+
+Aggregate summary. Aggregated over the 50 physical trials, the step-wise baseline achieves 34 successes out of 50 trials (success rate 0.68 ) and AdaReP achieves 
+
+36 successes out of 50 trials (success rate 0.72 ); the corresponding Wilson 95% intervals are approximately [0 .54 , 0.79] and [0 .58 , 0.83] . As noted in the main text, these counts should be read as descriptive evidence of a stable computation– performance trade-off rather than as a high-powered significance test.

@@ -1,0 +1,513 @@
+Title: USS: Unified Spatial-Semantic Prompts for Embodied Visual Tracking with Latent Dynamics Learning
+
+URL Source: https://arxiv.org/pdf/2606.25880v1
+
+Published Time: Thu, 25 Jun 2026 01:21:15 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# USS: Unified Spatial-Semantic Prompts for Embodied Visual Tracking with Latent Dynamics Learning 
+
+Yuchen Xie 1,∗, Xinyu Zhou 1,∗, Kuangji Zuo 1, Yanshuo Lu 1, Fengrui Huang 1, Boyu Ma 1, Jianfei Yang 1,†
+
+> 1
+
+Nanyang Technological University 
+
+> ∗
+
+Equal Contribution , †Corresponding Author 
+
+Embodied Visual Tracking (EVT) requires an agent to continuously follow a specified target while actively moving through dynamic environments. However, prevailing EVT paradigms predominantly rely on language-based target indication. While language is expressive and convenient, cluttered scenes often contain multiple objects that satisfy the same semantic description, leading to ambiguous target grounding. We therefore propose a paradigm shift, reframing target indication in EVT from text-only specification to unified spatial-semantic prompting. Based on this paradigm, we introduce Unified Spatial-Semantic Prompts for Embodied Visual Tracking with Latent Dynamics Learning, 
+
+USS , an end-to-end embodied tracking framework that supports text, point, bounding box, and mask prompts within a unified architecture. USS encodes heterogeneous prompts with modality-specific encoders, fuses prompt tokens with visual features through hybrid attention, and decodes compact prompt-conditioned representations into egocentric waypoints. To further improve temporal robustness, USS incorporates a latent world model that predicts future representations through self-supervised alignment. Real-robot experiments demonstrate that explicit spatial target cues yield higher success rates than text-only prompts, particularly in scenarios involving similar distractors and longer-horizon tracking where maintaining instance-level target identity is critical. In the simulation benchmark, USS also achieves state-of-the-art performance among non-MLLM-based methods and competitive results against recent MLLM-based approaches with faster inference speed. Our findings reveal that spatial-semantic prompting provides a more precise and flexible target indication interface for embodied visual tracking. Project site: https://arescheah.github.io/uss-project-page/ . 
+
+> Correspondence:
+
+Jianfei Yang at jianfei.yang@ntu.edu.sg 
+
+# 1 Introduction 
+
+Embodied Visual Tracking (EVT) aims to enable an embodied agent to follow a specified target in dynamic environments through its visual observations (Zhong et al., 2024; Wang et al., 2025; Luo et al., 2019; Zhong et al., 2019; Zhang et al., 2018; Liu et al., 2024b; Zhong et al., 2023). It is a fundamental capability for mobile robots, guide assistants, and other embodied systems that must maintain target awareness while actively moving in the scene. Unlike passive visual tracking, EVT requires closed-loop perception and control, where the agent’s actions continuously change its future observations. Prior EVT methods have progressed from classical visual servoing (Chaumette and Hutchinson, 2006) to increasingly capable learning-based systems. Early learning-based trackers use end-to-end reinforcement learning to jointly learn recognition and planning (Luo et al., 2019; Zhong et al., 2019; Zhang et al., 2018), while later modular RL systems improve target perception by incorporating visual foundation models before downstream control (Zhong et al., 2024; Liu et al., 2024b; Zhong et al., 2023; Zeng et al., 2024). These modular designs improve visual recognition, but their decoupled perception-control pipeline can still suffer from error accumulation and the instability of RL-based policies. Most recently, end-to-end MLLM-based methods have achieved the strongest performance by using large-scale imitation learning to strengthen semantic recognition, target reasoning, and action generation (Wang et al., 2025; Zhang et al., 2025, 2024; Black et al., 2025; Kim et al., 2024; Black et al., 2024). Together, these advances have substantially improved the robustness of embodied tracking systems and expanded the range of targets that can be followed. 1  
+
+> arXiv:2606.25880v1 [cs.CV] 24 Jun 2026 Figure 1 Motivations of unified spatial-semantic prompting for embodied visual tracking. Language-only target indication can be ambiguous in cluttered scenes, making it difficult for the tracker to identify the intended target. By incorporating spatial prompts such as points, bounding boxes, and masks, USS provides instance-level target cues that reduce grounding ambiguity and enable more precise target following.
+
+Despite this progress, current EVT research largely follows a language-centric target indication paradigm. Language is expressive and convenient, but it is not always the most reliable interface for instance-level tracking. EVT requires the agent to follow a particular physical target, whereas language often specifies targets through category-level or attribute-level semantics. When several candidate objects satisfy the same language description simultaneously, a text prompt may describe the scene correctly but still leave the intended instance ambiguous. Recent MLLM-based methods have significantly strengthened semantic reasoning and action generation capabilities for EVT, but they mainly improve the model that consumes the prompt rather than the prompt interface itself. This reveals an underexplored direction: beyond scaling language-conditioned policies, EVT also needs more precise and flexible ways to indicate the target. We therefore propose to move EVT from language-only target indication toward unified spatial-semantic prompting . The feasibility of this paradigm is supported by the great success of promptable vision models, where points, bounding boxes, and masks can induce strong object-level priors for segmentation (Kirillov et al., 2023; Zou et al., 2023; Ravi et al., 2025), while grounding and tracking models further demonstrate that explicit visual prompts can improve target localization and temporal association (Li et al., 2022; Yang et al., 2023b,c; Chen et al., 2025; Zhu et al., 2023). These spatial prompts provide different forms of instance evidence: a bounding box localizes it with compact spatial support, a point selects a visible target with minimal annotation efforts, and a mask describes its fine-grained shape and boundary. For EVT, such spatial prompts are especially useful because they reduce ambiguity at the initial grounding stage, where errors can influence all subsequent closed-loop decisions. However, prior EVT methods have not treated spatial prompts as a general target specification interface. We take this step and introduce spatial prompt indication into embodied visual tracking, not as a replacement for language, but as a complementary paradigm that unifies semantic flexibility with spatial precision. Based on this paradigm, we present USS, an end-to-end EVT framework that supports language, bounding boxes, points, and masks as target specifications within a single architecture. The design principles of USS include using precise prompts to ground the target, preserving the prompt-relevant visual evidence, and distilling it into compact representations for control. To this end, our method designs dedicated lightweight encoding paths for different prompt types and projects them into the visual embedding space. The prompt representations are then fused with dense visual features through a hybrid attention module. A subsequent 2transformer module further distills the prompt-conditioned visual representations into sparse encodings via learnable queries, keeping trajectory generation computationally lightweight and memory-efficient under multi-view input settings. Beyond reactive perception, USS also incorporates a latent world model (Assran et al., 2023; Bardes et al., 2024; Assran et al., 2025; Mur-Labadia et al., 2026) as an auxiliary training objective. Instead of reconstructing future pixels, which may allocate capacity to task-irrelevant appearance details, the model predicts compact future target representations through self-supervised latent alignment. This objective encourages the tracker to encode motion-sensitive and action-aware cues, improving stability under occlusion, viewpoint change, and dynamic target motion. Our contributions are summarized as follows: 
+
+• A new prompting paradigm for EVT. We formally propose and define unified spatial-semantic prompting as a target-specification paradigm for embodied visual tracking, moving beyond language-only indication by treating text, point, bounding box, and mask prompts as first-class inputs for closed-loop target following. 
+
+• A unified spatial-semantic tracking framework. We propose USS, the first end-to-end framework that enables embodied agents to track targets specified by heterogeneous spatial and semantic prompts within a single architecture. 
+
+• Strong empirical validation. Through real-robot deployment, we show that explicit spatial prompts enable more reliable instance-level target following than language-only prompts, particularly under similar distractors and longer-horizon tracking. In simulation, USS further achieves state-of-the-art performance among non-MLLM-based methods and competitive performance against recent MLLM-based methods with faster inference. 
+
+# 2 Related Work  
+
+> Human-Robot Interaction.
+
+Although natural language has dominated embodied AI interfaces, a growing body of work demonstrates that language is not the only effective medium for human-robot interaction (HRI) (Saran et al., 2018; Bar et al., 2022; Campagna et al., 2025; Green and Iqbal, 2025; Park et al., 2024). To resolve referential and spatial ambiguity, several frameworks have integrated non-verbal, multimodal cues to provide precise grounding (Yang et al., 2023a). For direct human-in-the-loop control, architectures like NMM-HRI, FAM-HRI, and GesVLA fuse spoken instructions in parallel with human physical inputs, such as deictic forearm postures, eye-gaze trajectories, and hand-pointing gestures (Lai et al., 2025, 2026; Guo et al., 2026; Choi et al., 2024). Concurrently, in autonomous policy design, models like VP-VLA, MOKA, and TraceVLA employ visual prompting—such as system-generated crosshairs, coordinate marks, or motion traces—as intermediate spatial-temporal interfaces to guide downstream execution (Wang et al., 2026; Liu et al., 2024a; Zheng et al., 2025; Nasiriany et al., 2024). However, these multimodal and prompt-conditioned paradigms are almost exclusively confined to tabletop manipulation or generalist vision-language-action (VLA) control. In this work, we bring this interactive paradigm to embodied visual tracking, leveraging multimodal target indications to establish and maintain robust target lock-on under dynamic ego-motion.  
+
+> Embodied Visual Tracking.
+
+Embodied visual tracking requires an agent to continuously identify and follow a specified target from egocentric visual observations, coupling target recognition with closed-loop motion control. Early EVT methods mainly relied on end-to-end RL, sometimes with adversarial multi-agent training (Luo et al., 2019; Zhong et al., 2019; Zhang et al., 2018), but learned visual representations were often insufficient for robust target identity preservation. Later modular systems improved perception by pairing visual foundation models with downstream planners (Zhong et al., 2024; Liu et al., 2024b; Zhong et al., 2023), yet this decoupling introduces error accumulation and inherits the instability and sample inefficiency of RL-based control. Recent VLA trackers (Wang et al., 2025; Zhang et al., 2025, 2024) reduce the perception-control interface mismatch through large-scale imitation learning on top of MLLM backbones, but their computational cost and inference latency limit real-time deployment. They also typically rely on language-only target descriptions, which can be ambiguous when multiple similar instances appear. USS instead uses an end-to-end policy that supports 3language, box, point, and mask prompts in a unified framework, improving target specification while preserving real-time efficiency.  
+
+> Figure 2 The pipeline of USS: Given RGB observations and a spatial or semantic target prompt, USS predicts future egocentric waypoints for the tracker. During training, an action-conditioned latent world model further regularizes future state prediction to improve temporal consistency.
+
+# 3 Method 
+
+USS maps temporal observations and a target prompt to future egocentric waypoints. Its core design is a lightweight vision-prompt encoder with temporal memory, a sparse waypoint decoder, and an auxiliary action-conditioned latent world model that improves temporal feature learning without adding inference cost. 
+
+3.1 Problem Formulation 
+
+At time t, the robot receives a synchronized multi-view RGB image window It−S+1: t = {I(n) 
+
+> τ
+
+| τ = t − S +1, . . . , t ; n = 1 , . . . , N } and a raw target prompt G, where S is the temporal window length, N is the number of camera views, and I(n) 
+
+> τ
+
+denotes the image from camera n at time τ . The prompt G can be language, a box, a point, or a mask, and is encoded into a prompt representation Y γ , where γ denotes the prompt modality. The policy predicts M future egocentric waypoints ˆWt = π(It−S+1: t, Y γ , Pt), where Wt = [ wt, . . . , w t+M −1],
+
+wt = ( xt, y t) ∈ R2, and optional multi-view camera poses Pt ∈ RN ×7 provide 7D pose calibration for the N
+
+views. The objective is to preserve the prompted target identity and maintain a following distance of d ∈ [1 , 3] 
+
+meters. 
+
+3.2 Vision-Prompt Encoder 
+
+Visual Encoder with Temporal Memory. The visual encoder processes each camera stream independently before cross-view aggregation. For image I(n) 
+
+> t
+
+, a pretrained PE-Spatial encoder (Bolya et al., 2026) produces dense patch tokens V (n) 
+
+> t
+
+= Evis (I(n) 
+
+> t
+
+) ∈ RP ×Cv , where P is the number of image patches and Cv is the visual feature dimension. All but the last two encoder blocks are frozen. To provide short-term temporal context, each view keeps a sliding memory bank M(n) 
+
+> t
+
+of recent visual tokens. We add a sinusoidal time encoding (Vaswani et al., 2017), concatenate the encoded memory tokens as K(n) 
+
+> t
+
+,4and let the current tokens attend to them: 
+
+Z(n) 
+
+> t
+
+= FFN 
+
+
+
+CrossAttn(SelfAttn( V (n) 
+
+> t
+
+), K (n) 
+
+> t
+
+)
+
+
+
+. (1) A mask prompt additionally stores the first-frame mask-enhanced feature from the prompted view as a persistent target anchor in this memory. 
+
+Prompt Encoder. The prompt encoder maps heterogeneous target specifications into prompt representations compatible with the visual feature space. We use Y γ to denote the representation produced for prompt type γ ∈ { text , box , point , mask }. For language prompts, let s1: L denote the L input word tokens. A frozen PE-Core text encoder (Bolya et al., 2026) Etext outputs text-token embeddings hcls , h 1, . . . , h L, where hcls 
+
+is the global [CLS] embedding and hi is the embedding of word token si. We retain the [CLS] token and nominal tokens indexed by Jnom as text prompt tokens: 
+
+Y text = [ hcls ; {hi}i∈J nom ], [hcls , h 1, . . . , h L] = Etext (s1: L). (2) For spatial prompts specified in view n, the prompt encoder directly uses the current visual tokens V (n)
+
+> t
+
+from the same view because these prompts specify an image region in that view. Let Rg denote the prompt region in view n for prompt type g, where g ∈ { box , point }; for a point prompt, Rg is a fixed-size pseudo box centered at the clicked point. Both box and point prompts are encoded by applying RoIAlign (He et al., 2017) over the spatial token grid of V (n) 
+
+> t
+
+, followed by a prompt-specific pooling/projection head ψg and a learnable grid embedding Eg :
+
+Y g = ψg (RoIAlign( V (n) 
+
+> t
+
+, R g )) + Eg , g ∈ { box , point }. (3) For mask prompts, let m1 denote the first-frame binary target mask in the prompted view n. A lightweight mask encoder ϕmask converts m1 into a dense spatial prior Bmask , which is flattened and added to the first-frame visual tokens V (n)1 :
+
+Bmask = ϕmask (m1), Y mask = V (n)1 + Flatten( Bmask ). (4) Here Y text , Y box , and Y point are explicit prompt-token sequences, while Y mask is a dense mask-enhanced visual anchor stored in memory as described above. Language, box, and point prompt tokens are projected into the visual embedding space with an MLP before fusion. 
+
+Vision-Prompt Fusion. The fusion encoder is the main place where prompt information and visual evidence interact. For each view, let Y (n) 
+
+> t
+
+denote the projected prompt-token sequence used at time t for that view; for mask prompts, the prompt information enters through the memory anchor Y mask . We introduce Kq learnable abstraction queries q(n) ∈ RKq ×Cv and concatenate them with the prompt tokens as u(n) 
+
+> t
+
+= [ q(n); Y (n) 
+
+> t
+
+], where the queries are responsible for distilling a compact target-conditioned representation for control. We first apply self-attention over these prompt/query tokens so that prompt evidence and abstraction queries can exchange information before reading from the image: 
+
+u′(n) 
+
+> t
+
+= SelfAttn 
+
+
+
+u(n)
+
+> t
+
+
+
+. (5) The fusion encoder then performs bidirectional attention between the compact prompt/query tokens and the dense visual tokens. It follows a read-write-read pattern: the prompt/query tokens first read relevant evidence from Z(n) 
+
+> t
+
+, the updated prompt tokens then write target-conditioned information back to the visual stream to emphasize prompted regions and suppress distractors, and finally the queries read the updated visual representation again to produce sparse tokens: 
+
+ur(n) 
+
+> t
+
+= FFN 
+
+
+
+CrossAttn u←Z
+
+
+
+u′(n) 
+
+> t
+
+, Z (n)
+
+> t
+
+ 
+
+, (6) 
+
+Zf (n) 
+
+> t
+
+= CrossAttn Z←u
+
+
+
+Z(n) 
+
+> t
+
+, u r(n)
+
+> t
+
+
+
+, (7) 
+
+ˆu(n) 
+
+> t
+
+= CrossAttn u←Z
+
+
+
+ur(n) 
+
+> t
+
+, Z f (n)
+
+> t
+
+
+
+. (8) Here ur(n) 
+
+> t
+
+and ˆu(n) 
+
+> t
+
+are intermediate prompt/query tokens, and Zf (n) 
+
+> t
+
+is the fused dense visual token sequence. We retain the first Kq query outputs, Q(n) 
+
+> t
+
+= ˆu(n) 
+
+> t
+
+[1 :Kq ], as the sparse prompt-conditioned representation passed to the waypoint head. 53.3 Waypoint Prediction Head 
+
+Before decoding waypoints, we optionally add a 3D positional encoding to the fused visual tokens. Following PETR (Liu et al., 2022), we lift image tokens into a camera-aware 3D reference space using calibration information and encode the resulting geometry with a small MLP. This provides tokens from different cameras with a shared robot-frame spatial prior. When camera poses are unavailable, we simply use the original fused visual tokens. We denote the resulting dense token sequence as ˜Z(n) 
+
+> t
+
+. A shared transformer decoder then maps the sparse query tokens Q(n) 
+
+> t
+
+and a learnable presence query q(n)pres to a view-level state ˆS(n) 
+
+> t
+
+and a view-wise visibility prediction ˆv(n) 
+
+> t
+
+:
+
+[ ˆS(n) 
+
+> t
+
+; ˆ v(n) 
+
+> t
+
+] = Dec([ Q(n) 
+
+> t
+
+; q(n)pres ], ˜Z(n) 
+
+> t
+
+). (9) All view-level states are concatenated into St ∈ RN K q ×Cv , from which a waypoint decoder predicts the future trajectory { ˆwt+i}M −1 
+
+> i=0
+
+. With ground-truth waypoints w∗
+
+> t+i
+
+, binary view-wise visibility labels v∗(n) 
+
+> t
+
+, and binary cross entropy BCE( ·), the supervised losses are: 
+
+Lwp = 12M 
+
+> M−1
+
+X
+
+> i=0
+
+∥ ˆwt+i − w∗
+
+> t+i
+
+∥1, Lpres = BCE( {ˆv(n) 
+
+> t
+
+}Nn=1 , {v∗(n) 
+
+> t
+
+}Nn=1 ). (10) 
+
+3.4 Action-Conditioned World Model 
+
+Following V-JEPA 2-AC, we train an auxiliary action-conditioned latent world model that predicts the next sparse state rather than reconstructing pixels. We flatten predicted waypoints into an action vector 
+
+at = vec ( ˆWt), repeat it across the N K q sparse tokens, and use an action-fusion MLP MLP a to produce the action-conditioned state Gt:
+
+Gt = MLP a(Concat( St, Repeat( at, N K q ))) , eSt+1 = Fϕ(Gt). (11) The predictor Fϕ maps Gt to the next sparse state prediction eSt+1 . To stabilize targets, we maintain an EMA copy of the representation pathway with parameters θema , updated from online parameters θ using momentum μ as θema ← μθ ema + (1 − μ)θ. We denote this EMA representation encoder by Eθema , and use its detached next-step sparse state Sema  
+
+> t+1
+
+= Eθema ({I(n)
+
+> t+1
+
+}Nn=1 ) as the target. The latent prediction loss is a normalized SmoothL1 alignment: 
+
+Lwm = 1
+
+N K q CvN K q
+
+X
+
+> i=1
+> Cv
+
+X
+
+> c=1
+
+ρβ
+
+
+
+LN( eSt+1 )i,c − sg(LN( Sema  
+
+> t+1
+
+)i,c )
+
+
+
+, (12) where LN is per-token layer normalization, sg is stop-gradient, and ρβ is SmoothL1 with transition parameter 
+
+β.
+
+3.5 Overall Training Objective 
+
+The full model is trained end-to-end with trajectory imitation, view-wise visibility prediction, and latent dynamics modeling. The scalar weights λpres and λwm balance the visibility and world-model losses: 
+
+L = Lwp + λpres Lpres + λwm Lwm . (13) The EMA pathway and world-model predictor are used only during training; inference uses only prompt-conditioned perception and the waypoint head, so the auxiliary branch adds no runtime overhead. 
+
+# 4 Experimental Results 
+
+We conduct experiments to evaluate USS along three axes. We first test USS on a physical robot to examine prompt flexibility and closed-loop robustness under real sensing and control noise. We then evaluate standardized simulation performance on EVT-Bench to compare against existing EVT systems under the same protocol. Finally, we conduct controlled simulation ablations to isolate the effects of temporal memory, latent dynamics learning, and action decoding. 6Figure 3 Real-world tracking rollouts across four indoor scenes. Each scene is shown as a 1 × 3 frame sequence, ordered chronologically from left to right. 
+
+4.1 Real-World Experiments                 
+
+> Table 1 Real-world success rate (SR). Each scene is evaluated over 20 trials.
+> Scene Text BBox Point Mask Narrow corridor 100% 100% 100% 100%
+> Ped. distractor 75% 85% 85% 80% Long route 70% 85% 80% 80% Similar people 45% 90% 80% 70%
+
+We deploy USS on a Unitree G1 robot in indoor tracking scenes that cover narrow-space following, obstacle-rich navigation with unrelated pedestrians, longer routes with turns, and a semantically ambiguous setting where mul-tiple people have similar appearance or language descrip-tions. These scenes test whether spatial prompts can specify the intended person more precisely than language-only prompts while the robot operates under real camera noise, target motion, and closed-loop control latency. Fig-ure 3 shows representative rollouts, and Table 1 summarizes the trial success rates. 
+
+4.2 Simulation Benchmark Comparison 
+
+We evaluate simulation performance of USS on EVT-Bench introduced by TrackVLA (Wang et al., 2025), which contains three progressively harder tasks: Single-Target Tracking (STT), Distracted Tracking (DT), and Ambiguity Tracking (AT). STT measures basic following, DT introduces distractors that test target identity persistence, and AT further stresses ambiguous natural-language target specifications. Following the benchmark protocol, we report success rate (SR), tracking rate (TR), collision rate (CR), and inference speed (FPS). SR measures final episode success, TR measures the fraction of timesteps with a valid following relationship, and CR measures collision-terminated episodes. Table 2 compares USS with representative EVT methods on EVT-Bench. For USS, we report language prompts and three spatial prompt types using the same framework. We use the standard benchmark initialization for language prompts. For spatial prompts, however, the target must be visible at the beginning of an episode, since a point, box, or mask can only be specified on an observed target instance. This does not change the core objective of EVT, which is to maintain closed-loop tracking after the target has been specified, rather than to search for an initially unobserved target. Therefore, spatial-prompt variants are evaluated with a visible-target initialization. To avoid an overly favorable setup and better reflect realistic deployment, we additionally perturb the robot heading within ±20 ◦, so the target is visible but not perfectly centered or aligned. Since DT and AT mainly differ in whether the language instruction is ambiguous, AT is not directly comparable for spatial prompts, where the target identity is already grounded by a point, box, or mask. We therefore evaluate spatial prompts on STT and DT. As shown in Table 2, USS achieves state-of-the-art performance among non-MLLM methods, competitive performance against MLLM-based methods with real-time inference efficiency. These results indicate that USS provides a practical accuracy-efficiency trade-off for closed-loop EVT, especially when precise spatial target cues are available. 
+
+4.3 Ablation Studies in Simulations 
+
+7Table 2 Performance on EVT-Bench. STT, DT, and AT denote Single-Target, Distracted, and Ambiguity Tracking. Results are reported as SR/TR/CR, where SR and TR are higher, and CR is lower. Red and blue indicate the best result in each metric within the Non-MLLM-based and MLLM-based groups, respectively. †: uses GroundingDINO. ‡:uses SoM+GPT-4o. §: FPS is measured on an RTX 4090 unless otherwise specified; EVT is measured on an RTX 3090 and Uni-NaVid on an NVIDIA A100.                                                                                                                               
+
+> Methods STT DT AT FPS §↑
+> SR ↑TR ↑CR ↓SR ↑TR ↑CR ↓SR ↑TR ↑CR ↓
+> Non-MLLM-based methods
+> IBVS †(Gupta et al., 2016) 42.9 56.2 3.75 10.6 28.4 6.14 15.2 39.5 4.90 6.0 PoliFormer †(Zeng et al., 2024) 4.67 15.5 40.1 2.62 13.2 44.5 3.04 15.4 41.5 –EVT (Zhong et al., 2024) 24.4 39.1 42.5 3.23 11.2 47.9 17.4 21.1 45.6 15.0 EVT ‡(Zhong et al., 2024) 32.5 49.9 40.5 15.7 35.7 53.3 18.3 21.0 44.9 –
+> USS (language) 70.8 72.1 3.13 49.8 54.6 9.89 34.2 35.8 28.2 37.0
+> USS (point) 83.4 86.8 3.02 79.8 80.2 2.92 –––68.0
+> USS (mask) 81.3 80.8 6.65 75.8 76.3 3.04 –––72.0
+> USS (box) 86.7 92.2 2.73 83.6 81.5 2.93 –––65.0
+> MLLM-based methods
+> Uni-NaVid (Zhang et al., 2024) 25.7 39.5 41.9 11.3 27.4 43.5 8.26 28.6 43.7 5.0 NavFoM (Zhang et al., 2025) 85.0 80.5 –61.4 68.2 ––––2.0 TrackVLA (Wang et al., 2025) 85.1 78.6 1.65 57.6 63.2 5.80 50.2 63.7 17.1 10.0
+> Table 3
+
+Component ablation on EVT-Bench DT.                                
+
+> Variant WM Mem. Action SR ↑TR ↑CR ↓
+> Full USS Yes 16 Ours 83.6 81.5 2.9
+> w/o WM No 16 Ours 80.4 79.2 3.0 Mem.: 0 Yes 0Ours 72.2 73.3 3.4 Mem.: 32 Yes 32 Ours 84.1 82.3 2.9
+> Flow-match Yes 16 FM 78.8 79.9 3.6 DDIM Yes 16 DDIM 75.8 76.4 4.7
+
+We conduct ablations on the DT split of EVT-Bench using bounding-box prompts, be-cause this setting requires both accurate target grounding and persistent identity maintenance under distractors. Table 3 isolates three design factors: the action-conditioned latent world-model objective (WM), memory-bank length (Mem.), and waypoint decoder types. As shown in Table 3, each component con-tributes to the final performance. Temporal memory is important for maintaining target identity under distractors, and the latent world-model objective brings additional gains by encouraging action-aware temporal features. The comparison with flow-matching and DDIM heads (Chi et al., 2025; Bjorck et al., 2025) further suggests that direct waypoint prediction is better suited to low-latency closed-loop tracking than heavier generative action decoders. 
+
+# 5 Conclusion 
+
+In this work, we formally define and advocate a paradigm shift for embodied visual tracking: from language-only target indication to unified spatial-semantic prompting. Based on this paradigm, we propose USS, an end-to-end framework that encodes heterogeneous prompts, fuses them with visual observations, and predicts future waypoints with an auxiliary latent dynamics objective. Real-world and simulation experiments show that spatial prompts reduce target ambiguity and achieve strong accuracy-efficiency trade-offs for closed-loop embodied tracking. 
+
+Limitations. Although USS demonstrates the effectiveness of unified spatial-semantic prompting for embodied visual tracking, two limitations remain. First, the current model is trained with relatively well-formed spatial prompts. Integrating prompt-noise augmentation or lightweight prompt refinement could mitigate this issue. Second, the current locomotion policy is still simple, which mainly supports flat-ground walking and does not include low-level obstacle avoidance or terrain-aware control. Incorporating a stronger low-level controller would extend USS to more complex deployment environments without changing the proposed spatial-semantic tracking framework. 8References 
+
+Mahmoud Assran, Quentin Duval, Ishan Misra, Piotr Bojanowski, Pascal Vincent, Michael Rabbat, Yann LeCun, and Nicolas Ballas. Self-supervised learning from images with a joint-embedding predictive architecture. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 15619–15629, 2023. Mido Assran, Adrien Bardes, David Fan, Quentin Garrido, Russell Howes, Matthew Muckley, Ammar Rizvi, Claire Roberts, Koustuv Sinha, Artem Zholus, et al. V-jepa 2: Self-supervised video models enable understanding, prediction and planning. arXiv preprint arXiv:2506.09985 , 2025. Amir Bar, Yossi Gandelsman, Trevor Darrell, Amir Globerson, and Alexei Efros. Visual prompting via image inpainting. 
+
+Advances in neural information processing systems , 35:25005–25017, 2022. Adrien Bardes, Quentin Garrido, Jean Ponce, Xinlei Chen, Michael Rabbat, Yann LeCun, Mahmoud Assran, and Nicolas Ballas. Revisiting feature prediction for learning visual representations from video. arXiv preprint arXiv:2404.08471 ,2024. Johan Bjorck, Fernando Castañeda, Nikita Cherniadev, Xingye Da, Runyu Ding, Linxi Fan, Yu Fang, Dieter Fox, Fengyuan Hu, Spencer Huang, et al. Gr00t n1: An open foundation model for generalist humanoid robots. arXiv preprint arXiv:2503.14734 , 2025. Kevin Black, Noah Brown, Danny Driess, Adnan Esmail, Michael Equi, Chelsea Finn, Niccolo Fusai, Lachy Groom, Karol Hausman, Brian Ichter, et al. π0: A vision-language-action flow model for general robot control. arXiv preprint arXiv:2410.24164 , 2024. Kevin Black, Noah Brown, James Darpinian, Karan Dhabalia, Danny Driess, Adnan Esmail, Michael Robert Equi, Chelsea Finn, Niccolo Fusai, Manuel Y Galliker, et al. π0.5: A vision-language-action model with open-world generalization. In 9th Annual Conference on Robot Learning , 2025. Daniel Bolya, Po-Yao Huang, Peize Sun, Jang Hyun Cho, Andrea Madotto, Chen Wei, Tengyu Ma, Jiale Zhi, Jathushan Rajasegaran, Hanoona Bangalath, et al. Perception encoder: The best visual embeddings are not at the output of the network. Advances in Neural Information Processing Systems , 38:60884–60937, 2026. Giulio Campagna, Christoph Frommel, Tobias Haase, Alberto Gottardi, Enrico Villagrossi, Dimitrios Chrysostomou, and Matthias Rehm. Fostering trust through gesture and voice-controlled robot trajectories in industrial human-robot collaboration. In 2025 IEEE International Conference on Robotics and Automation (ICRA) , pages 11853–11859. IEEE, 2025. François Chaumette and Seth Hutchinson. Visual servo control. i. basic approaches. IEEE robotics & automation magazine , 13(4):82–90, 2006. Shih-Fang Chen, Jun-Cheng Chen, I-Hong Jhuo, and Yen-Yu Lin. Improving visual object tracking through visual prompting. IEEE Transactions on Multimedia , 27:2682–2694, 2025. Cheng Chi, Zhenjia Xu, Siyuan Feng, Eric Cousineau, Yilun Du, Benjamin Burchfiel, Russ Tedrake, and Shuran Song. Diffusion policy: Visuomotor policy learning via action diffusion. The International Journal of Robotics Research ,44(10-11):1684–1704, 2025. Sunwoong Choi, Zaid Abbas Al-Sabbag, Sriram Narasimhan, and Chul Min Yeum. Gaze-based human-robot interaction system for infrastructure inspections. In 2024 IEEE International Conference on Robotics and Automation (ICRA) ,pages 9571–9577. IEEE, 2024. Haley N Green and Tariq Iqbal. Using physiological measures, gaze, and facial expressions to model human trust in a robot partner. In 2025 IEEE International Conference on Robotics and Automation (ICRA) , pages 11868–11875. IEEE, 2025. Wenxuan Guo, Ziyuan Li, Meng Zhang, Yichen Liu, Yimeng Dong, Chuxi Xu, Yunfei Wei, Ze Chen, Erjin Zhou, and Jianjiang Feng. Gesvla: Gesture-aware vision-language-action model embedded representations. arXiv preprint arXiv:2605.22812 , 2026. Meenakshi Gupta, Swagat Kumar, Laxmidhar Behera, and Venkatesh K Subramanian. A novel vision-based tracking algorithm for a human-following mobile robot. IEEE Transactions on Systems, Man, and Cybernetics: Systems , 47 (7):1415–1427, 2016. Kaiming He, Georgia Gkioxari, Piotr Dollár, and Ross Girshick. Mask r-cnn. In Proceedings of the IEEE international conference on computer vision , pages 2961–2969, 2017. 
+
+9Moo Jin Kim, Karl Pertsch, Siddharth Karamcheti, Ted Xiao, Ashwin Balakrishna, Suraj Nair, Rafael Rafailov, Ethan Foster, Grace Lam, Pannag Sanketi, et al. Openvla: An open-source vision-language-action model. arXiv preprint arXiv:2406.09246 , 2024. Alexander Kirillov, Eric Mintun, Nikhila Ravi, Hanzi Mao, Chloe Rolland, Laura Gustafson, Tete Xiao, Spencer Whitehead, Alexander C Berg, Wan-Yen Lo, et al. Segment anything. In Proceedings of the IEEE/CVF international conference on computer vision , pages 4015–4026, 2023. Yuzhi Lai, Shenghai Yuan, Youssef Nassar, Mingyu Fan, Atmaraaj Gopal, Arihiro Yorita, Naoyuki Kubota, and Matthias Rätsch. Natural multimodal fusion-based human–robot interaction: Application with voice and deictic posture via large language model. IEEE robotics & automation magazine , 2025. Yuzhi Lai, Shenghai Yuan, Peizheng Li, Boya Zhang, Benjamin Kiefer, Tianchen Deng, and Andreas Zell. Fam-hri: Foundation-model assisted multimodal human-robot interaction combining gaze and speech. IEEE Transactions on Automation Science and Engineering , 2026. Liunian Harold Li, Pengchuan Zhang, Haotian Zhang, Jianwei Yang, Chunyuan Li, Yiwu Zhong, Lijuan Wang, Lu Yuan, Lei Zhang, Jenq-Neng Hwang, et al. Grounded language-image pre-training. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 10965–10975, 2022. Fangchen Liu, Kuan Fang, Pieter Abbeel, and Sergey Levine. Moka: Open-world robotic manipulation through mark-based visual prompting. arXiv preprint arXiv:2403.03174 , 2024a. Xin Liu, Jie Tan, Xiaoguang Ren, Weiya Ren, and Huadong Dai. Kurl: A knowledge-guided reinforcement learning model for active object tracking. In Asian conference on machine learning , pages 818–833. PMLR, 2024b. Yingfei Liu, Tiancai Wang, Xiangyu Zhang, and Jian Sun. Petr: Position embedding transformation for multi-view 3d object detection. In European conference on computer vision , pages 531–548. Springer, 2022. Wenhan Luo, Peng Sun, Fangwei Zhong, Wei Liu, Tong Zhang, and Yizhou Wang. End-to-end active object tracking and its real-world deployment via reinforcement learning. IEEE transactions on pattern analysis and machine intelligence , 42(6):1317–1332, 2019. Lorenzo Mur-Labadia, Matthew Muckley, Amir Bar, Mido Assran, Koustuv Sinha, Mike Rabbat, Yann LeCun, Nicolas Ballas, and Adrien Bardes. V-jepa 2.1: Unlocking dense features in video self-supervised learning. arXiv preprint arXiv:2603.14482 , 2026. Soroush Nasiriany, Fei Xia, Wenhao Yu, Ted Xiao, Jacky Liang, Ishita Dasgupta, Annie Xie, Danny Driess, Ayzaan Wahid, Zhuo Xu, et al. Pivot: Iterative visual prompting elicits actionable knowledge for vlms. arXiv preprint arXiv:2402.07872 , 2024. Jeongeun Park, Taemoon Jeong, Hyeonseong Kim, Taehyun Byun, Seungyoun Shin, Keunjun Choi, Jaewoon Kwon, Taeyoon Lee, Matthew Pan, and Sungjoon Choi. Towards embedding dynamic personas in interactive robots: Masquerading animated social kinematic (mask). IEEE Robotics and Automation Letters , 9(10):8826–8833, 2024. Nikhila Ravi, Valentin Gabeur, Yuan-Ting Hu, Ronghang Hu, Chaitanya Ryali, Tengyu Ma, Haitham Khedr, Roman Rädle, Chloe Rolland, Laura Gustafson, et al. Sam 2: Segment anything in images and videos. In International Conference on Learning Representations , volume 2025, pages 28085–28128, 2025. Akanksha Saran, Srinjoy Majumdar, Elaine Schaertl Short, Andrea Thomaz, and Scott Niekum. Human gaze following for human-robot interaction. In 2018 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) ,pages 8615–8621. IEEE, 2018. Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. Advances in neural information processing systems , 30, 2017. Shaoan Wang, Jiazhao Zhang, Minghan Li, Jiahang Liu, Anqi Li, Kui Wu, Fangwei Zhong, Junzhi Yu, Zhizheng Zhang, and He Wang. Trackvla: Embodied visual tracking in the wild. arXiv preprint arXiv:2505.23189 , 2025. Zixuan Wang, Yuxin Chen, Yuqi Liu, Jinhui Ye, Pengguang Chen, Changsheng Lu, Shu Liu, Bei Yu, and Jiaya Jia. Vp-vla: Visual prompting as an interface for vision-language-action models. arXiv preprint arXiv:2603.22003 , 2026. Jianwei Yang, Hao Zhang, Feng Li, Xueyan Zou, Chunyuan Li, and Jianfeng Gao. Set-of-mark prompting unleashes extraordinary visual grounding in gpt-4v. arXiv preprint arXiv:2310.11441 , 2023a. Jinyu Yang, Mingqi Gao, Zhe Li, Shang Gao, Fangjing Wang, and Feng Zheng. Track anything: Segment anything meets videos. arXiv preprint arXiv:2304.11968 , 2023b. 
+
+10 Lingfeng Yang, Yueze Wang, Xiang Li, Xinlong Wang, and Jian Yang. Fine-grained visual prompting. Advances in Neural Information Processing Systems , 36:24993–25006, 2023c. Kuo-Hao Zeng, Zichen Zhang, Kiana Ehsani, Rose Hendrix, Jordi Salvador, Alvaro Herrasti, Ross Girshick, Aniruddha Kembhavi, and Luca Weihs. Poliformer: Scaling on-policy rl with transformers results in masterful navigators. 
+
+arXiv preprint arXiv:2406.20083 , 2024. Jiazhao Zhang, Kunyu Wang, Shaoan Wang, Minghan Li, Haoran Liu, Songlin Wei, Zhongyuan Wang, Zhizheng Zhang, and He Wang. Uni-navid: A video-based vision-language-action model for unifying embodied navigation tasks. arXiv preprint arXiv:2412.06224 , 2024. Jiazhao Zhang, Anqi Li, Yunpeng Qi, Minghan Li, Jiahang Liu, Shaoan Wang, Haoran Liu, Gengze Zhou, Yuze Wu, Xingxing Li, et al. Embodied navigation foundation model. arXiv preprint arXiv:2509.12129 , 2025. Wei Zhang, Ke Song, Xuewen Rong, and Yibin Li. Coarse-to-fine uav target tracking with deep reinforcement learning. 
+
+IEEE Transactions on Automation Science and Engineering , 16(4):1522–1530, 2018. Ruijie Zheng, Yongyuan Liang, Shuaiyi Huang, Jianfeng Gao, Hal Daumé III, Andrey Kolobov, Furong Huang, and Jianwei Yang. Tracevla: Visual trace prompting enhances spatial-temporal awareness for generalist robotic policies. In International Conference on Learning Representations , volume 2025, pages 54277–54296, 2025. Fangwei Zhong, Peng Sun, Wenhan Luo, Tingyun Yan, and Yizhou Wang. Ad-vat: An asymmetric dueling mechanism for learning visual active tracking. In International Conference on Learning Representations , 2019. Fangwei Zhong, Xiao Bi, Yudi Zhang, Wei Zhang, and Yizhou Wang. Rspt: reconstruct surroundings and predict trajectory for generalizable active object tracking. In Proceedings of the AAAI Conference on Artificial Intelligence ,volume 37, pages 3705–3714, 2023. Fangwei Zhong, Kui Wu, Hai Ci, Churan Wang, and Hao Chen. Empowering embodied visual tracking with visual foundation models and offline rl. In European Conference on Computer Vision , pages 139–155. Springer, 2024. Jiawen Zhu, Simiao Lai, Xin Chen, Dong Wang, and Huchuan Lu. Visual prompt multi-modal tracking. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 9516–9526, 2023. Xueyan Zou, Jianwei Yang, Hao Zhang, Feng Li, Linjie Li, Jianfeng Wang, Lijuan Wang, Jianfeng Gao, and Yong Jae Lee. Segment everything everywhere all at once. Advances in neural information processing systems , 36:19769–19782, 2023. 
+
+11 Appendix 
+
+# A Data Collection 
+
+Training data and trajectory labels. We construct the simulation training set from the training branch of EVT-Bench introduced by TrackVLA (Wang et al., 2025). The humanoid assets, URDF models, target identities, and route specifications are inherited from EVT-Bench. We select the first 800 episodes with the longest target routes and replay them in Habitat. For each episode, the target humanoid follows the provided start and goal waypoints on the navigation mesh, while distractor humanoids, when present, follow their corresponding benchmark routes. The simulator is rendered with three egocentric cameras at 10 Hz and 
+
+512 × 512 resolution. The waypoint supervision is generated by a teacher tracker in the same simulator. At each frame, the teacher estimates a following point slightly behind the target according to the target position and walking direction, then rolls out a short-horizon path from the current tracker pose toward this point on the navigation mesh. The rollout uses velocity matching with a catch-up term when the tracker falls behind, and applies simple collision-aware steering around other humanoids. The planned future tracker positions are stored in world coordinates and then transformed into the current tracker-centric frame to obtain the ground-truth waypoint sequence used by Lwp . We also record view-wise target visibility labels for the auxiliary presence loss. A view is marked visible if at least one of seven approximate humanoid keypoints is inside the camera frustum and passes an occlusion check. These keypoints cover the head, shoulders, torso, hips, and lower body. For each candidate keypoint, we cast a ray from the camera to the keypoint in Habitat and reject it if scene geometry intersects the ray before the target. 
+
+Prompt annotation. For language-prompt training, the robot start pose and text instruction are read directly from the original TrackVLA episode annotations. For spatial-prompt training, the initial robot pose is adjusted to ensure the target is visible in the tracker’s views at the beginning of the episode, with a heading perturbation to avoid a perfectly centered view. We provide visualizations of the training data for spatial prompts, shown section D. The point and bounding-box prompts are generated by projecting the target humanoid state into the image. The bounding box is computed by projecting the eight corners of a coarse upright 3D cuboid around the humanoid. The point prompt is obtained by sampling a conservative 3D point around the humanoid torso, relative to the humanoid base position, and projecting that point into the camera image using the same camera intrinsics and sensor pose. This gives stable first-frame spatial prompts without requiring per-frame manual annotation. The mask prompt is obtained by applying SAM2 to the first-frame target region and is used as the first-frame target mask. These first-frame annotations are kept fixed as the target specification throughout the rollout. 
+
+# B Training Details 
+
+Optimization. USS is trained by imitation losses on future waypoints, view-wise target visibility, and the latent dynamics objective described in the main paper. The PE-Spatial-B16-512 image encoder and PE-Core-B16-224 text encoder are initialized from pretrained weights, the text encoder is frozen, and only the last image-transformer block is fine-tuned. We train with AdamW for 12 epochs using a learning rate of 
+
+5 × 10 −5, weight decay 0.01 , and the default AdamW momentum parameters β1 = 0 .9, β2 = 0 .999 , and 
+
+ϵ = 10 −8. Backbone parameters use a 0.1 learning-rate multiplier. We use a cosine learning-rate schedule, batch size 1 per GPU, and gradient clipping with norm 35. After the supervised training stage, we further collect model-driven rollouts and relabel them with the same teacher planner in a DAgger-style stage. This exposes the policy to states induced by its own actions and reduces the distribution shift of pure imitation learning. The main model hyperparameters are summarized in Table 4. 12 Table 4 Main model hyperparameters for USS.                                              
+
+> Model hyperparameter Value Model hyperparameter Value Input views N3Sparse queries per view Kq10 Future waypoint horizon M10 Planner hidden dimension Cv256 PE-Spatial token dimension 768 Prompt embedding dimension 256 Prompt-fusion depth 2BBox ROIAlign size 7×7
+> BBox prompt tokens 9Point pseudo-box side length 160 px Point ROIAlign size 5×5Point prompt tokens 4Memory-bank length 16 frames Memory-bank layers / heads 2 / 8 World-model layers / heads 2 / 8 World-model FFN dimension 1024 Presence loss weight λpres 0.05 World-model loss weight λwm 0.2 3D position depth bins 64 Input resolution 512 ×512
+
+# C Inference Details 
+
+Inference. The model predicts a future waypoint sequence in the tracker-centric ground-plane frame and view-wise target-presence logits. We execute only the first predicted waypoint at each control step. This waypoint is transformed from the tracker frame to world coordinates, snapped to the navigation mesh through Habitat, and applied with the same safe tracker-motion routine used by the rollout runner. When all predicted view-wise presence probabilities are below 0.5, evaluation optionally falls back to the next waypoint from the previous predicted world trajectory, which stabilizes short target disappearances without changing the initial prompt. 
+
+# D Real-World Deployment Details  
+
+> Figure 4
+
+Real-world deployment platform. 
+
+Robot platform. We deploy USS on a Unitree G1 humanoid robot for real-world embodied visual tracking. The robot uses an Intel RealSense D455 camera mounted on its chest to capture egocentric RGB observations. Given the current visual observation and a target prompt, USS predicts the motion commands required for target following, enabling the robot to continuously track and follow the specified target in real-world indoor environments. 
+
+Real-world system deployment. In our real-world experiments, USS runs on a remote server equipped with an NVIDIA RTX 4090 graphics processing unit (GPU). The Unitree G1 robot communicates with the server through Ethernet. At each control step, the robot first captures the current egocentric RGB image using the chest-mounted RealSense D455 camera and transmits the visual observation to the server. The server then receives the image and the target prompt, performs USS inference, and generates the motion command for target following. The predicted command is transmitted back to the robot through Ethernet and executed by the low-level controller, forming a closed-loop target-following system. 13 Control and execution. USS is responsible for high-level target perception and following decision-making, rather than joint-level control or low-level gait generation. Specifically, the server-side model predicts a robot-frame waypoint trajectory, which is converted into a velocity command by using the first waypoint displacement over a fixed time horizon for linear velocities (vx, v y ) and the heading direction to the final waypoint over the same horizon for yaw rate vω . The resulting command (vx, v y , v ω ) is sent to the robot-side low-level controller for gait generation and execution. This design decouples target specification, visual perception, and high-level following decisions from low-level motion execution, allowing our method to focus on target identity preservation and closed-loop tracking under different prompt types. The latent dynamics branch used during training is removed during deployment, so it introduces no additional computational overhead during real-world inference. 
+
+Real-world scenes. We evaluate USS in four indoor real-world scenes: a narrow corridor, a pedestrian-distractor scene, a long-route scene, and a similar-person scene. These scenes cover different levels of difficulty, ranging from basic closed-loop following to challenging target identity preservation. The narrow-corridor scene evaluates basic following ability in a constrained space. The pedestrian-distractor scene introduces unrelated pedestrians and tests whether the model can maintain the intended target identity in a dynamic environment. The long-route scene includes a longer trajectory with turns, testing temporal stability and accumulated control errors during real-world closed-loop execution. The similar-person scene contains multiple people with similar appearance or similar semantic descriptions, making language-based target specification more ambiguous and highlighting the value of bounding-box prompts for instance-level target indication. 
+
+Prompt protocol. In the real-world experiments, we evaluate four types of target prompts: language, bounding-box, point, and mask prompts. For language prompts, the target is specified by a natural-language description. For the three spatial prompts, the target is specified on the first-frame image: a bounding box drawn around the target, a single point on the target, or a segmentation mask of the target. The prompt is provided only once at the beginning of each trial. After initialization, no additional human correction, target re-specification, or prompt update is provided. The robot must rely on its continuous visual observations, server-side USS inference, and low-level controller execution to follow the initially specified target. 
+
+Evaluation protocol. For each scene and each prompt type, we conduct 20 real-world trials. A trial is considered successful if the robot continuously follows the intended target until the end of the route without switching to a distractor, losing the target for a prolonged period, or producing unsafe following behavior. A trial is considered a failure if the robot locks onto the wrong person, fails to recover the target after occlusion, stops tracking before route completion, or substantially deviates from the expected following behavior. We report the success rate for each scene and each prompt type to compare the real-world tracking performance of language and spatial (bounding-box, point, and mask) target specification. 
+
+Practical observations. We observe that spatial prompts are particularly effective when multiple similar target candidates are present. In such scenarios, a language description may correctly describe several people but still fail to uniquely identify the intended physical instance. In contrast, a spatial prompt provides explicit instance-level visual evidence at the beginning of the trial, helping the robot preserve the intended target identity during subsequent closed-loop tracking. This effect is especially clear in the similar-person scene, where language prompts are more likely to cause target confusion. 14 E Visualization Of Training Data 
+
+(a) Spatial prompts 1 (b) Spatial prompts 2  
+
+> Figure 5
+
+Examples of spatial prompts used in the training data. Each group shows bounding-box, point, and mask annotations from left to right. 
+
+(a) Front-view observation 1. 
+
+(b) Left-view observation 1. 
+
+(c) Right-view observation 1.  
+
+> Figure 6
+
+Temporal observations from the tracker (training episode 1). 
+
+15 (a) Front-view observation 2. 
+
+(b) Left-view observation 2. 
+
+(c) Right-view observation 2.  
+
+> Figure 7
+
+Temporal observations from the tracker (training episode 2). 
+
+16
