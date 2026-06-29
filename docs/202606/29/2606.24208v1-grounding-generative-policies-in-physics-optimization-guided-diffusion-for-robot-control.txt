@@ -1,0 +1,1008 @@
+Title: Grounding Generative Policies in Physics: Optimization-Guided Diffusion for Robot Control
+
+URL Source: https://arxiv.org/pdf/2606.24208v1
+
+Published Time: Wed, 24 Jun 2026 00:40:01 GMT
+
+Number of Pages: 26
+
+Markdown Content:
+# Grounding Generative Policies in Physics: Optimization-Guided Diffusion for Robot Control 
+
+Sabrina Bodmer ∗
+
+ETH Zurich 
+
+René Zurbrügg ∗
+
+ETH Zurich 
+
+Tifanny Portela 
+
+ETH Zurich 
+
+Hao Ma 
+
+ETH Zurich 
+
+Alexandre Didier 
+
+ETH Zurich 
+
+Marco Hutter 
+
+ETH Zurich 
+
+Colin Jones †
+
+EPFL 
+
+Melanie Zeilinger †
+
+ETH Zurich ∗
+
+Abstract: Diffusion models sample effectively from high-dimensional, multimodal distributions, but their outputs may violate deployment constraints. For task-space robot policies, generated grasps, waypoints, or trajectories can be distributionally valid yet infeasible, violating reachability, collision-avoidance, or closed-loop executability requirements. This embodiment gap limits zero-shot deployment across robots, even when the task-space behavior itself is transferable. We propose an inference-time optimization framework that couples the behavior generation to physical feasibility by formulating diffusion guidance as a constrained optimization problem. Our key insight is to replace the sampling perturbation in the backward process with an optimized correction, allowing hard constraints or soft penalties to be imposed during sampling without the need to retrain the diffusion model, while keeping samples close to the learned prior. We evaluate the method on dexterous grasp synthesis with reachability and collision-avoidance constraints, and dynamic manipulation with controller-level trackability constraints. Across settings and robot embodiments, optimization-guided denoising matches the feasibility of projection- and gradient-guidance baselines while better preserving grasp quality, and improving controller-level executability and task success, with task success improving by up to 20pp. on dexterous grasping and 23pp. on visuomotor manipulation over the best baseline. 
+
+Keywords: Diffusion Policies, Optimization-Constrained Denoising, Dynamic Feasibility, Robot Manipulation, Cross-Embodiment Adaptation 
+
+## 1 Introduction 
+
+Diffusion models provide a flexible generative framework for robotics, capturing high-dimensional and multimodal distributions over actions, trajectories, or behaviors [ 1 , 2 ]. Recent diffusion-based policies increasingly operate in task space rather than a specific robot’s joint or motor space, predicting end-effector poses, waypoints, grasp candidates, or reference trajectories [ 3, 4, 5]. This abstraction is attractive because it separates high-level behavior generation from robot-specific realization, including morphology, actuation, and low-level control. By providing a common interface, this approach allows policies to be transferred across entirely different embodiments without the costly need to collect new data or retrain models for each platform. However, task-space sampling only ensures training data consistency, not embodiment feasibility; predictions can violate kinematic reachability, joint/torque 
+
+> ∗
+
+These authors contributed equally to this work. † Denotes equal supervision. Corresponding authors: sabodmer@ethz.ch, zrene@ethz.ch 
+
+> arXiv:2606.24208v1 [cs.RO] 23 Jun 2026
+
+limits, collision-avoidance, or closed-loop execution constraints, transferring intent but failing on a specific physical robot. Several lines of work have explored how diffusion-model outputs can be guided toward deployment constraints, including projection layers [ 6], differentiable barriers [ 7], constraint-aware training [ 8], gradient guidance [ 9], and post-hoc projections [ 10 ]. However, these approaches often require retraining, task-specific tuning, or setting-specific constraint formulations, and strong guidance can pull samples away from the learned prior. Cross-embodiment learning aims to share policies across robots through unified action spaces [ 11 , 12 ] or morphology-aware encoders [ 13 ], but typically lacks an explicit inference-time mechanism for ensuring that sampled task-space predictions are executable on the target robot. This leaves open the need for a unified inference-time mechanism that keeps the generative prior fixed while applying minimal, structured corrections for embodiment, environment, and closed-loop execution constraints. Our method is based on a structural property of DDIM sampling [ 14 ]: each reverse update separates the model-predicted denoising direction from a sampling perturbation. This separation provides a principled interface for constrained generation. Rather than modifying the pretrained score model or applying external gradients directly to the sample, we replace the perturbation with an optimization variable and regularize its magnitude, which keeps each step close to the pretrained sampling trajectory. The final denoising step can therefore satisfy user-defined constraints while preserving the behavior encoded by the pretrained prior. In this paper, we instantiate this principle for robot task-space policies, where the constraints encode reachability, collision avoidance, or controller-level executability. The resulting optimization-constrained denoising process injects information the diffusion model does not encode, without retraining or fine-tuning the model. As a result, the same task-space generative prior can be transferred zero-shot to different manipulator arms and environments by changing only the objectives of the optimization problem. Concretely, our contributions are: • Optimization-constrained denoising: an inference-time framework that replaces the DDIM sam-pling perturbation with a constrained optimization variable, enabling small, structured corrections to a frozen diffusion prior. • Unified feasibility interface: a formulation that can be solved either as a constrained nonlin-ear program or as a differentiable least-squares relaxation, with instantiations for reachability, collision avoidance, and controller-level executability. • Cross-embodiment generalization without retraining: an evaluation showing that the same task-space diffusion prior can be reused across different simulated manipulator embodiments by changing only the inference-time optimization problem, improving grasp quality, task success, and controller-level executability. 
+
+## 2 Related Work 
+
+Cross-embodiment adaptation in diffusion policies. Cross-embodiment learning aims to reduce the need for large-scale, embodiment-specific demonstrations. One line of work learns from multi-robot datasets or shared action spaces: Open X-Embodiment aggregates demonstrations across robots to train RT-X models [ 11 ], Octo trains a transformer-based generalist policy with a diffusion action head on such aggregated data [ 15 ], and UMI collects human demonstrations in an embodiment-agnostic end-effector space [ 12 ]. Another line explicitly encodes morphology through hardware-conditioned, graph-based, modular, or transformer-based representations [ 16 , 17 , 18 , 13 ]. These methods primarily address policy transfer, leaving embodiment-specific feasibility to be learned implicitly or handled by a downstream controller. UMI-on-Air is closest to our setting, guiding an embodiment-agnostic diffusion policy via low-level tracking costs [ 9 ]. In contrast, we treat the diffusion model as a fixed embodiment-agnostic prior and plug embodiment-specific feasibility into each reverse step through a replaceable constrained optimization module. 2Constraints in diffusion policies. Diffusion policies generally do not guarantee that generated predictions are executable for a specific embodiment or environment. Existing constraint-aware methods fall into two categories. The first targets environment-level safety or geometric feasibility, such as obstacle avoidance, collision avoidance, or path constraints. Projected diffusion models reformulate sampling as a constrained projection to enforce physical or geometric constraints [ 6], while other approaches penalize violations during training or employ barrier functions at inference [ 8,7]. Compositional methods such as Diffusion-CCSP and potential-based motion planning combine constraint energies to satisfy multiple task and environment constraints jointly [ 19 , 20 ]. These methods improve task-level feasibility but typically do not capture embodiment dynamics, actuation limits, or controller response. The second category targets dynamic or control feasibility for a specific embodiment. DPCC combines model-based projection and constraint tightening during denoising to generate dynamically feasible control trajectories [ 10 ], while UMI-on-Air incorporates low-level controller tracking cost into sampling to favor trajectories that are easier to track [ 9 ], and DynaGuide steers a frozen diffusion policy at inference by injecting the gradient of a learned latent dynamics model into each DDIM step, biasing samples toward outcomes that match user-provided goal images [ 21 ]. These methods rely on soft guidance: feasibility is encouraged through denoising gradients, but corrections are not explicitly constrained, satisfaction can’t be guaranteed and/or strong guidance can pull samples away from the learned prior. Multi-objective settings further rely on ad-hoc gradient aggregation, which can destabilize sampling when feasibility terms conflict. These limitations are shared by the broader family of gradient-based guidance, including classifier and classifier-free guidance, posterior sampling, and plug-and-play priors [ 22 , 23 , 24 ], in which a cost gradient is added to each denoising step: feasibility is only encouraged rather than enforced, the guidance strength trades feasibility against fidelity, and constraint satisfaction cannot be guaranteed. In contrast, we replace the stochastic perturbation of each reverse step with a constrained optimization variable, so that feasibility is imposed as an explicit hard or soft constraint over the reverse process rather than as a soft gradient, while a regularizer on the correction keeps the sample close to the pretrained prior. This lets us enforce inverse-kinematic, joint-velocity, and controller-level feasibility. 
+
+## 3 Background 
+
+Our method modifies the reverse sampling process of a pretrained diffusion model. We briefly review the DDIM sampler [ 14 ], focusing on the stochastic perturbation that will later be replaced by an optimization variable. A diffusion model [25] corrupts a clean sample x0 ∼ pdata as 
+
+xk = √αk x0 + √1 − αk ε, ε ∼ N (0 , I ), (1) and trains a denoising network ˆεθ (xk, k ) with the standard diffusion loss (Appendix 8.1). Given 
+
+xk, DDIM forms the clean-sample estimate ˆx0 = ( xk − √1 − αk ˆεθ (xk, k )) /√αk and performs the reverse update 
+
+xk−1 = √αk−1 ˆx0 +
+
+q
+
+1 − αk−1 − σ2 
+
+> k
+
+ˆεθ (xk, k )
+
+| {z }
+
+μθ (xk, k )+σk ω, ω ∼ N (0 , I ), (2) with σk given in Appendix 8.1. This update separates the deterministic model prediction μθ (xk, k )
+
+from the stochastic perturbation ω. We exploit this separation by replacing ω with an optimization variable that enforces feasibility constraints during sampling. 
+
+## 4 Method 
+
+We present an inference-time framework to optimally guide a pretrained diffusion model. The key idea is to replace the stochastic perturbation in each DDIM reverse step with an optimized correction term. This preserves the nominal denoising direction predicted by the pretrained model, while using the correction term to enforce robot-, environment-, or task-specific feasibility. We use 
+
+k = K, . . . , 0 to denote the diffusion denoising steps, where the subscripts k = K and k = 0 refers 3Compute minimal   
+
+> pertubation such
+> that task costs
+> are minimized and
+> problem is feasible
+> Grasp Prediction
+> (Sec. 5.1)
+> Task Space Diffusion Prior
+> Visuomotor Control
+> (Sec. 5.2)
+> Kinematic Grounding
+> 7 DoF 6 DoF
+> Collision
+> Avoidance
+> Optimization Guided Pertubation
+> DDIM Sampling
+> Visuomotor Control
+> Dynamic
+> Feasability
+> Task Objectives
+> Dexterous Grasping
+
+Figure 1: Optimization-guided diffusion. A task-space diffusion prior generates an initial reverse denoising step. Instead of sampling the standard DDIM perturbation ωk , we replace it with a structured correction δk
+
+obtained from a constrained optimization problem. The objective minimizes the perturbation magnitude while incorporating embodiment- and environment-specific costs and constraints, such as J, Xtarget , and Xinit . By changing only this constraint module, the same frozen prior can be reused across different manipulators. 
+
+to the noisy sample and the clean prediction, respectively. Each diffusion variable xk denotes an entire candidate output, such as a grasp or a reference trajectory, in which case xk = [ x0|k, . . . , x N |k],where n = 0 , . . . , N denotes the physical execution time along that trajectory. 
+
+4.1 Optimization-Constrained Denoising 
+
+The DDIM reverse update in (2) decomposes into a nominal prediction μθ (xk, k ) and a perturbation 
+
+σkω. We replace the random variable ω with an optimization variable δk, such that 
+
+xk−1 = μθ (xk, k ) + σkδk. (3) The optimized perturbations {δk}Kk=1 guide the reverse trajectory toward feasible outputs while regularizing deviations from the pretrained sampler. Let J : Rd → R≥0 be a feasibility cost, such as, e.g., a distance to the kinematically reachable set. We formulate optimization-guided sampling as 
+
+min    
+
+> xK,{δk}Kk=1
+
+12
+
+> K
+
+X
+
+> k=1
+
+∥δk∥22 +
+
+> K
+
+X
+
+> k=0
+
+βkJ(xk)
+
+s.t. xk−1 = μθ (xk, k ) + σkδk, k = K, . . . , 1,x0 ∈ X target ,xK ∈ X init .
+
+(4) Problem (4) admits a MAP interpretation in which 12 ∥δk∥22 is the negative log-density of a standard normal prior on δk and βkJ(xk) plays the role of a Boltzmann pseudo-likelihood on feasibility; we defer the derivation to Appendix 8.2. The terminal set Xtarget is typically chosen as a sublevel set of the feasibility cost, Xtarget = {x ∈ Rd : J(x) ≤ εtol }, enforcing the desired tolerance at the clean sample; Xinit optionally restricts the initial noisy sample, with Xinit = Rd by default. The scaling by σk matches the correction scale to the stochastic term in the original DDIM sampler, so together with the Gaussian prior on δk this encourages small, structured corrections from the learned reverse process. In practice, we evaluate feasibility costs only at denoising states close enough to the data manifold, since the cost gradients are often not meaningful for nearly Gaussian intermediate samples. This is done by increasing the penalty βk on the feasibility cost. 
+
+4.2 Encoding Feasibility through J
+
+Problem (4) is independent of the concrete feasibility model. Different robot-, environment-, or task-specific requirements can therefore be incorporated by changing J and the associated terminal set Xtarget , while keeping the diffusion prior fixed. We consider three instantiations: kinematic 4reachability, collision avoidance, and controller-level executability. Platform-specific implementations are given in Appendix 8.5.2. 
+
+Kinematic Reachability. Kinematic reachability captures whether a task-space output can be realized by the target embodiment within its admissible configuration space. Let XIK ⊆ Rd be the set of reachable task-space outputs. We define the ideal reachability cost as 
+
+JIK (x) = min 
+
+> y∈X IK
+
+∥x − y∥2. (5) This cost vanishes on the reachable set and increases with distance from it. Using J = JIK in (4) therefore guides sampling toward outputs that satisfy the kinematic limits of the target embodiment. The corresponding terminal set 
+
+X IK target = { x ∈ Rd : JIK (x) ≤ εIK } (6) is a sublevel set of the cost JIK and recovers exact reachability in the limit εIK → 0. The framework does not assume a particular representation of XIK . The cost may be computed using an analytical IK solver, a distance model, a projection operator, or a learned differentiable surrogate. Alternatively, the cost could also be computed implicitly through a kinematic model constraint, i.e., using additional optimization variables. 
+
+Collision Avoidance. A kinematically reachable output must additionally remain collision-free with respect to the environment and the robot itself. We encode collision avoidance through a signed distance function (SDF) s : Rm → R, with s(p) > 0 on free space and s(p) ≤ 0 inside obstacles. For a trajectory xk = [ x0|k, . . . , x N |k], and safety margin dsafe ≥ 0, we define 
+
+Jcoll (x) = 
+
+> N
+
+X
+
+> n=0
+
+max  0, d safe − s(rn)2. (7) The term Jcoll enforces the safety margin: it vanishes in free space beyond dsafe and grows quadrat-ically with the depth of any violation. Using J = Jcoll in (4) therefore guides sampling toward collision-free outputs. The framework does not assume a particular representation of s. It may be obtained from an analytical scene description, a precomputed voxel grid, a mesh-based query, or a learned neural SDF; gradient-based solvers additionally require s to be differentiable. Our implementation is described in Appendix 8.5.2. 
+
+Controller-Level Executability. Kinematic reachability and collision-avoidance alone do not ensure that a generated reference can be executed by the target robot under its low-level controller. We therefore also consider controller-level executability. Here, each diffusion variable represents a complete task-space reference trajectory, xk = [ x0|k, . . . , x N |k], where n = 0 , . . . , N indexes physical execution time. Let ϕ(x; q0; κ) denote the closed-loop trajectory realizable when the robot starts from joint state q0 and tracks the reference x using a feasible task space controller κ. We define 
+
+Jdyn (x) = ∥x − ϕ(x; q0; κ)∥22. (8) This cost penalizes references whose commanded trajectory differs from what the closed-loop system can realize. Using J = Jdyn in (4) therefore guides sampling toward references that are executable by the target controller. The rollout map ϕ depends on the low-level controller κ, reference-hold behavior, control frequency, and horizon. Our framework only requires that the cost can be evaluated or implicitly represented through additional optimization variables. The rollout model used in our dynamic manipulation experiments is described in Appendix 8.5.2. 
+
+Differentiable NLS (relaxation). When differentiability or runtime is critical, we relax (4) into a nonlinear least-squares problem over z = {xK , . . . , x 0, δ K , . . . , δ 1}. The reverse-step equalities become squared consistency residuals, and the terminal feasibility constraint is replaced by a hinge penalty βterm [J(x0) − εtol ]2+. We solve the NLS problem with Theseus [ 26 ] in a fixed small number of Levenberg-Marquardt iterations. The relaxation enforces feasibility only softly, but is differentiable and lightweight, which makes it easier to embed in learning-based pipelines. The full objective and weight choices are given in Appendix 8.3. 55 Results 
+
+We evaluate our method on two settings. The first, dexterous grasping on two manipulator arms with a shared diffusion prior (Section 5.1), demonstrates gain over baselines, transfer across manip-ulator arms, and composition with collision constraints. The second, image-conditioned dynamic manipulation on two tasks (Section 5.2), tests extension from single-pose synthesis to controller-level trackability of full trajectories. 
+
+Implementation Details. The optimization interface in (4) decouples the diffusion prior from the particular feasibility model and numerical solver used at inference time. We use three solver instantiations across our experiments: IPOPT for strict terminal feasibility, Theseus for a differ-entiable nonlinear least-squares relaxation, and L-BFGS for lightweight online replanning in the image-conditioned manipulation setting. The corresponding feasibility costs, closed-loop rollout approximations, solver settings, and relaxed objectives, as well as the hyperparameters for all baseline methods are given in Appendix 8.5.2. 
+
+5.1 Dexterous grasping across manipulator arms 
+
+Table 1: G RASP PREDICTIONS : Comparison of methods across evaluation metrics, averaged over 30 objects, 8 grasps per object, and 5 base poses. DDIM † is the raw diffusion model output with no IK checks or projection applied.                                                          
+
+> Arm Run Success Rate Kinematics Grasp
+> SR (1) [%] ↑SR IK [%] ↑Efc (×10 3)↓Q1 ( ×10 −3)↑
+> DDIM †75 .0N/A 0.01 16 .0
+> Dynaarm  DDIM [27] 27 .054 .62.37 6.5
+> Projection Guidance 23 .799 .90.72 6.8
+> Gradient Guidance 58 .899 .30.97 12 .80
+> Ours (Theseus) 63 .595 .80.26 14 .5
+> Ours (IPOPT) 69 .896 .40.20 15 .2
+> Franka Arm  DDIM [27] 33 .783 .72.02 7.1
+> Projection Guidance 37 .4100 .01.19 8.1
+> Gradient Guidance 50 .997 .91.04 11 .1
+> Ours (Theseus) 61 .098 .30.23 14 .1
+> Ours (IPOPT) 71 .099 .80.06 15 .7
+
+We evaluate the framework on dexter-ous grasp synthesis with a 5-fingered XHand gripper. Each grasp is rep-resented as a 21-dimensional config-uration consisting of the wrist pose and 12 finger joints. A single task-space diffusion model from [ 27 ] is used unchanged across all experi-ments; embodiment-specific informa-tion enters only through the feasibil-ity cost JIK . We deploy this prior on two manipulator arms with substan-tially different workspaces and joint limits, the Franka Panda [ 28 ] and the Dynaarm [ 29 ]. We predict 8 grasps per object for 30 objects across 5 randomized base poses spanning easy and hard reach configurations for a total of 1200 grasps. 
+
+Baselines. DDIM † reports the diffusion prior evaluated with no embodiment at all (floating gripper), serving as an upper bound on what the generative model alone can produce when arm-reachability is removed from the problem. DDIM [ 27 ] takes the raw diffusion output and solves for the closest IK-reachable grasp pose using cuRobo 2 [30 ], representing a decoupled snap-to-feasibility baseline. 
+
+Gradient Guidance [ 9] applies classifier-style gradient updates of an IK cost along the reverse process; 
+
+Projection Guidance [ 10 ] projects each denoising step onto the IK-feasible set during sampling. Our variants solve either the constrained problem (4) (IPOPT ) or its differentiable relaxation (21) (Theseus ). 
+
+Metrics. SR (1) reports per-(object, pose) success rates in simulation; SR IK is the fraction of kine-matically reachable predictions; Efc , and Q1 capture force-closure violation, and grasp wrench quality [31], respectively. Full definitions are given in Appendix 8.6. 
+
+5.1.1 Cross-embodiment performance 
+
+Table 1 shows that without guidance, inverse-kinematic feasibility ( SR IK ) is low on the tightly constrained Dynaarm workspace ( 54 .6% ) and only moderate on the Panda ( 83 .7% ). All guidance methods, including both baselines, raise SR IK above 95% . The differences appear in task success and grasp quality. On task success, projection guidance attains high feasibility but does not convert it into 
+
+> 2
+
+For SR IK , we report the fraction of poses that are reachable before projection; after projection, this metric would be trivially 100%. 
+
+6Clutter Obstacle  Walls Figure 2: Collision-Aware Grasping. Grasp poses for different environments. IPOPT respects collision constraints while preserving grasp quality; Gradient Guidance degrades the grasp. 
+
+success ( SR (1) of 23 .7% and 37 .4% on the Dynaarm and Panda), whereas gradient guidance is the strongest baseline ( 58 .8% and 50 .9% ). Our optimization-constrained approaches reach 63 .5–69 .8% 
+
+on the Dynaarm and 61 .0–71 .0% on the Panda, exceeding gradient guidance by up to 11 points on the Dynaarm and 20 points on the Panda. The pattern carries over to grasp quality: the cuRobo-snap DDIM baseline preserves feasibility by construction but collapses Q1 (≤ 7.1 vs. ≥ 14 for our methods), and projection guidance similarly degrades Efc and Q1, consistent with the structural concern that projecting intermediate denoising states drags samples off the grasp manifold before the prediction becomes semantically meaningful. The optimization-constrained approaches, by contrast, maintain Q1 values approaching DDIM †, showing that enforcing feasibility need not sacrifice grasp quality. The hard-constrained formulation using IPOPT achieves slightly higher success rates compared to the relaxed Theseus formulation, but at the cost of runtime: on the Dynaarm, DDIM denoising takes 79 .3 ± 1.3ms per trajectory and gradient and projection guidance add negligible overhead ( 84 .2 ± 0.9 and 84 .1 ± 1.9ms ), whereas Theseus and IPOPT require 3.63 ± 0.03s and 
+
+5.47 ± 0.6s , roughly 46 × and 69 × slower than DDIM. We further provide evaluations broken down by base pose difficulty in Appendix 8.5.3, Figure 6. 
+
+5.1.2 Composing kinematic and collision constraints 
+
+We next add an environment-level collision cost Jcoll to the feasibility module and evaluate our method in different constrained environments. The diffusion model and arm configurations remain unchanged; only the feasibility term is extended from JIK to include Jcoll in the cost and/or constraint formulation. Figure 2 illustrates qualitative failure modes: Gradient Guidance often produces collision-free grasps that fail to grasp the object, whereas our optimization-guided variants preserve stable grasps. Quantitative evaluations, including per-environment results, are provided in Appendix 8.7. 
+
+5.2 Image-Conditioned Manipulation with a Floating-Gripper Prior 
+
+Table 2: T RAJECTORY PREDICTIONS : Comparison of methods across evaluation metrics, evaluated on 100 environments with statistics reported over 4 runs. DDIM † denotes the raw diffusion model output deployed on a floating gripper without an arm. We compare ( xk )-nudging, which directly shifts the diffusion model output using the cost gradient, ( σk )-guidance, which injects the gradient through the DDIM perturbation term (σk ωk ), and our optimization-based guidance.                                                   
+
+> Task Method Dynaarm Franka
+> SR task [%] ↑SR sub [%] ↑SR task [%] ↑SR sub [%] ↑
+> Drawer  DDIM †99.5 ±1.0 100.0 ±0.0 99.5 ±1.0 100.0 ±0.0
+> DDIM [27] 79.5 ±1.9 84.0 ±0.8 57.8 ±2.2 66.3 ±3.1
+> Gradient Guidance ( σ)79.8 ±1.7 85.0 ±1.6 57.8 ±7.8 66.8 ±6.8
+> Gradient Guidance ( xt-nudge) 79.8 ±3.3 83.8 ±3.0 58.0 ±2.4 67.0 ±2.8
+> Ours (L-BFGS) 81.8 ±2.9 87.3 ±2.9 60.0 ±3.4 70.0 ±1.6
+> Pick and Place  DDIM †62.5 ±6.2 95.3 ±2.1 62.5 ±6.2 95.3 ±2.1
+> DDIM [27] 26.0 ±2.0 63.3 ±3.3 44.0 ±4.5 89.0 ±3.4
+> Gradient Guidance ( σ)29.3 ±4.3 69.3 ±4.6 41.0 ±1.4 92.3 ±1.3
+> Gradient Guidance ( xt-nudge) 26.3 ±3.4 63.3 ±5.0 43.3 ±1.7 90.3 ±3.8
+> Ours (L-BFGS) 41.8 ±3.8 66.0 ±3.6 67.0 ±3.4 98.3 ±1.3
+
+We next test whether optimization-guided denoising can make an image-conditioned floating-gripper policy exe-cutable on embodied robot arms. Unlike the grasping experiments, this setting requires steering short-horizon trajectories that are repeatedly replanned from visual observations. We train a Diffusion Transformer on demonstrations collected with a simulated, modified Hoi! [ 32 ] two-finger gripper in the Drawer Opening and Pick-and-Place environments from [ 33 ] (Appendix Fig. 4). The policy predicts task-space trajectories of horizon length N = 6 from image observations. After execution, a new trajectory is generated based on the updated camera view. At deployment, the policy is grounded to the Dynaarm or Franka Panda through the controller-level executability cost 
+
+Jdyn from Section 4.2. The cost compares the predicted reference trajectory to a differentiable approximation of the closed-loop trajectory under the low-level controller. We use a Cartesian 7impedance controller as it provides passive compliance and admits an efficient differentiable closed-loop approximation. While MPC could improve tracking performance as in [ 9], solving an MPC problem at each control step would dominate the inference budget. For online replanning, we optimize an additive trajectory offset during the final denoising steps using L-BFGS as a lightweight backend; implementation details are provided in Appendix 8.5.2. We compare against unguided DDIM and two gradient-guidance variants: an xk-nudging variant similar to Gupta et al. [9] , and a sigma-guidance variant that replaces the sampling perturbation ω with a weighted gradient of the cost. Sigma guidance is the natural single-gradient analogue of our method: it occupies the same reverse-step slot that we instead fill with an optimized correction, so the gap between the two isolates the benefit of optimizing the correction rather than merely injecting a gradient. DDIM †
+
+denotes the raw floating-gripper policy without embodiment-level trackability constraints and serves as an unembodied upper bound. We report task and subtask success rates on both arms in Table 2. On Drawer Opening, the methods are closely matched and the differences fall within run-to-run variation: L-BFGS guidance moves task success from 79 .5% to 81 .8% on the Dynaarm and from 
+
+57 .8% to 60 .0% on the Franka, comparable to the gradient-guidance baselines, with subtask success at 87 .3% and 70 .0% respectively. The gains are substantial on Pick and Place, where task success improves from 26 .0% to 41 .8% on the Dynaarm and from 44 .0% to 67 .0% on the Franka, while subtask success on the Franka approaches the unembodied upper bound at 98 .3% . On this harder task our method clearly outperforms unguided DDIM and both gradient-guidance baselines on both embodiments, while sharing a single floating-gripper prior. These gains show that controller-level guidance corrects visually plausible floating-gripper trajectories that are difficult for the embodied controller to track. The improvement comes at a moderate runtime cost: guided inference takes 
+
+0.28 –0.32 s compared to 0.02 –0.07 s for unguided DDIM. Overall, the results show that the same image-conditioned floating-gripper prior can be deployed on embodied robot arms by changing only the inference-time feasibility module, without retraining the policy. 
+
+## 6 Limitations 
+
+Our framework has several limitations that suggest natural directions for future work. First, the constrained nonlinear program introduces non-trivial per-sample runtime, exceeding the gradient-guidance baselines; the Theseus and L-BFGS relaxations reduce this overhead but replace hard constraint satisfaction with soft penalties. Second, the problem in (4) is generally nonconvex, so neither solver provides global feasibility or optimality guarantees, and we observed occasional convergence failures on poorly conditioned instances. Third, our main evaluation is conducted in simulation; we report preliminary hardware experiments in Appendix 8.7.1 as initial evidence that the same corrections transfer to physical deployment. Finally, our dynamic tracking cost assumes a Cartesian impedance controller and kinematic rollouts, an intentionally lightweight choice that shows the guidance mechanism helps even with a simple low-level controller. Replacing this approximation with a higher-fidelity model, such as an MPC or a differentiable physics simulator like Newton, is a promising direction but introduces additional design and numerical-conditioning challenges. 
+
+## 7 Conclusion 
+
+We presented an inference-time framework to steer pretrained diffusion policies toward embodiment-and task-specific feasibility requirements. The key idea is to replace the reverse-step sampling perturbation with an optimization variable, allowing feasibility constraints to be imposed during denoising while leaving the generative model unchanged. By formulating diffusion guidance as a constrained optimization problem, our approach couples embodiment-agnostic behavior generation to physical feasibility at inference time, enabling a single diffusion prior to be reused across platforms by swapping only the optimization module. We instantiated this interface for two complementary settings: kinematic reachability in dexterous grasp generation and controller-level trackability in dynamic manipulation. Across two manipulator arms, optimization-guided denoising achieved a better feasibility–success trade-off compared to 8projection- and gradient-guidance baselines, without retraining the diffusion model. These benefits come at a cost: the approach inherits the computational overhead of inference-time optimization, and the resulting nonconvex problems carry no global optimality guarantees. Promising directions include reducing the solver runtime, extending the interface to richer contact and force constraints, and integrating optimization-guided denoising with large vision-language-action policies, where embodiment-specific retraining is particularly costly. 9References 
+
+[1] C. Chi, Z. Xu, S. Feng, E. Cousineau, Y. Du, B. Burchfiel, R. Tedrake, and S. Song. Diffusion policy: Visuomotor policy learning via action diffusion. The International Journal of Robotics Research , 44(10-11):1684–1704, 2025. [2] M. Janner, Y. Du, J. B. Tenenbaum, and S. Levine. Planning with Diffusion for Flexible Behavior Synthesis. arXiv preprint arXiv:2205.09991 , 2022. [3] M. J. Kim, K. Pertsch, S. Karamcheti, T. Xiao, A. Balakrishna, S. Nair, R. Rafailov, E. Foster, G. Lam, P. Sanketi, et al. OpenVLA: An Open-Source Vision-Language-Action Model. arXiv preprint arXiv:2406.09246 , 2024. [4] H. Ha, Y. Gao, Z. Fu, J. Tan, and S. Song. UMI on Legs: Making Manipulation Policies Mobile with Manipulation-Centric Whole-body Controllers. arXiv preprint arXiv:2407.10353 , 2024. [5] R. Punamiya, S. Kareer, Z. Liu, J. Citron, R.-Z. Qiu, X. Cai, A. Gavryushin, J. Chen, D. Liconti, L. Y. Zhu, et al. EgoVerse: An Egocentric Human Dataset for Robot Learning from Around the World. arXiv preprint arXiv:2604.07607 , 2026. [6] J. K. Christopher, S. Baek, and F. Fioretto. Constrained Synthesis with Projected Diffusion Models. Advances in Neural Information Processing Systems , 37:89307–89333, 2024. [7] H. Ma, S. Bodmer, A. Carron, M. Zeilinger, and M. Muehlebach. Constraint-Aware Diffusion Guidance for Robotics: Real-Time Obstacle Avoidance for Autonomous Racing. In Proceedings of the Conference on Robot Learning , pages 1756–1776, 2025. [8] A. Li, Z. Ding, A. B. Dieng, and R. Beeson. Constraint-Aware Diffusion Models for Trajectory Optimization. In International Conference on Dynamic Data Driven Applications Systems ,pages 308–316, 2024. [9] H. Gupta, X. Guo, H. Ha, C. Pan, M. Cao, D. Lee, S. Scherer, S. Song, and G. Shi. UMI-on-Air: Embodiment-Aware Guidance for Embodiment-Agnostic Visuomotor Policies, 2025. [10] R. Römer, A. v. Rohr, and A. Schoellig. Diffusion Predictive Control with Constraints. In 
+
+Proceedings of Machine Learning Research , pages 1–13, 2025. [11] A. O’Neill, A. Rehman, A. Maddukuri, A. Gupta, A. Padalkar, A. Lee, A. Pooley, A. Gupta, A. Mandlekar, A. Jain, et al. Open X-Embodiment: Robotic Learning Datasets and RT-X Models. In Proceedings of the International Conference on Robotics and Automation , pages 6892–6903, 2024. [12] C. Chi, Z. Xu, C. Pan, E. Cousineau, B. Burchfiel, S. Feng, R. Tedrake, and S. Song. Universal Manipulation Interface: In-The-Wild Robot Teaching Without In-The-Wild Robots, 2024. [13] A. Patel and S. Song. GET-Zero: Graph Embodiment Transformer for Zero-shot Embodiment Generalization. In Proceedings of the International Conference on Robotics and Automation ,pages 14262–14269, 2025. [14] J. Song, C. Meng, and S. Ermon. Denoising Diffusion Implicit Models. arXiv preprint arXiv:2010.02502 , 2020. [15] O. M. Team, D. Ghosh, H. Walke, K. Pertsch, K. Black, O. Mees, S. Dasari, J. Hejna, T. Kreiman, C. Xu, et al. Octo: An Open-Source Generalist Robot Policy. arXiv preprint arXiv:2405.12213 ,2024. [16] T. Chen, A. Murali, and A. Gupta. Hardware Conditioned Policies for Multi-Robot Transfer Learning. 31:1–12, 2018. 10 [17] T. Wang, R. Liao, J. Ba, and S. Fidler. NerveNet: Learning Structured Policy with Graph Neural Networks. In Proceedings of the International Conference on Learning Representations , pages 1–26, 2018. [18] W. Huang, I. Mordatch, and D. Pathak. One Policy to Control Them All: Shared Modular Policies for Agent-Agnostic Control. In Proceedings of the International Conference on Machine Learning , pages 4455–4464, 2020. [19] Z. Yang, J. Mao, Y. Du, J. Wu, J. B. Tenenbaum, T. Lozano-Pérez, and L. P. Kaelbling. Compo-sitional Diffusion-Based Continuous Constraint Solvers. In Proceedings of the Conference on Robot Learning , pages 3242–3265, 2023. [20] Y. Luo, C. Sun, J. B. Tenenbaum, and Y. Du. Potential Based Diffusion Motion Planning. arXiv preprint arXiv:2407.06169 , 2024. [21] M. Du and S. Song. Dynaguide: Steering Diffusion Polices with Active Dynamic Guidance. 
+
+Advances in Neural Information Processing Systems , 38:44192–44221, 2026. [22] A. Graikos, N. Malkin, N. Jojic, and D. Samaras. Diffusion models as plug-and-play priors. 35: 14715–14728, 2022. [23] H. Chung, J. Kim, M. T. Mccann, M. L. Klasky, and J. C. Ye. Diffusion Posterior Sampling for General Noisy Inverse Problems. arXiv preprint arXiv:2209.14687 , 2022. [24] A. Bansal, H.-M. Chu, A. Schwarzschild, R. Sengupta, M. Goldblum, J. Geiping, and T. Gold-stein. Universal Guidance for Diffusion Models. In Proceedings of the International Conference on Learning Representations , pages 51304–51323, 2024. [25] J. Ho, A. Jain, and P. Abbeel. Denoising Diffusion Probabilistic Models. Advances in neural information processing systems , 33:6840–6851, 2020. [26] L. Pineda, T. Fan, M. Monge, S. Venkataraman, P. Sodhi, R. T. Chen, J. Ortiz, D. DeTone, A. Wang, S. Anderson, J. Dong, B. Amos, and M. Mukadam. Theseus: A Library for Differ-entiable Nonlinear Optimization. Advances in Neural Information Processing Systems , pages 3801–3818, 2022. [27] R. Zurbrügg, A. Cramariuc, and M. Hutter. DexEvolve: Evolutionary Optimization for Robust and Diverse Dexterous Grasp Synthesis. arXiv preprint arXiv:2602.15201 , 2026. [28] Franka Robotics. Franka Panda robot arm. https://franka.de/ , 2024. Accessed: 2026-05-26. [29] Duatic AG. DynaArm: Ultra-lightweight robotic arm. https://www.duatic.com/ dynaarm , 2024. Accessed: 2026-05-26. [30] B. Sundaralingam, S. K. S. Hari, A. Fishman, C. Garrett, K. Van Wyk, V. Blukis, A. Millane, H. Oleynikova, A. Handa, F. Ramos, et al. cuRoBo: Parallelized Collision-Free Minimum-Jerk Robot Motion Generation. arXiv preprint arXiv:2310.17274 , 2023. [31] R. Zurbrügg, A. Cramariuc, and M. Hutter. GraspQP: Differentiable Optimization of Force Closure for Diverse and Robust Dexterous Grasping. In Proceedings of the Conference on Robot Learning , pages 2583–2602, 2025. [32] T. Engelbracht, R. Zurbrügg, M. Wohlrapp, M. Büchner, A. Valada, M. Pollefeys, H. Blum, and Z. Bauer. Hoi!–A Multimodal Dataset for Force-Grounded, Cross-View Articulated Manipulation. arXiv preprint arXiv:2512.04884 , 2025. [33] R. Zurbrugg, T. Portela, A. Bhardwaj, A. E. Vijayan, M. Wilder-Smith, and M. Hutter. VR-DAgger: Immersive VR for Dexterous Data Collection and Uncertainty-Guided On-Policy Correction. arXiv preprint arXiv:2605.27114 , 2026. 11 [34] B. L. Wächter A. On the implementation of an interior-point filter line-search algorithm for large-scale nonlinear programming. 106(1):25–57, 2006. 12 8 Supplementary Material 
+
+# Contents 
+
+8 Supplementary Material 13 
+
+8.1 Denoising Diffusion Implicit Models . . . . . . . . . . . . . . . . . . . . . . . . . 13 8.1.1 Diffusion Models Implementation Details . . . . . . . . . . . . . . . . . . 13 8.2 Bayesian interpretation of optimization-constrained denoising . . . . . . . . . . . 14 8.2.1 MAP Derivation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 14 8.2.2 Connection to DDIM . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 14 8.3 Nonlinear Least-Squares Relaxation . . . . . . . . . . . . . . . . . . . . . . . . . 15 8.4 Visuomotor manipulation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15 8.5 Optimization Modules . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15 8.5.0 Kinematic Feasibility Surrogate . . . . . . . . . . . . . . . . . . . . . . . 16 8.5.1 Closed-Loop Rollout Model . . . . . . . . . . . . . . . . . . . . . . . . . 18 8.5.2 Implementation Details . . . . . . . . . . . . . . . . . . . . . . . . . . . . 20 8.5.3 Base-pose difficulty stratification . . . . . . . . . . . . . . . . . . . . . . 22 8.6 Evaluation Metrics . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 23 8.7 Collision-environment results . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 24 8.7.1 Real-World Deployment . . . . . . . . . . . . . . . . . . . . . . . . . . . 25 
+
+8.1 Denoising Diffusion Implicit Models 
+
+The following is based on the formulations of [ 14 ]. We consider a data distribution q(x0) and a model distribution pθ (x0), which approximates the data distribution and is easy to sample from. From pθ (x)
+
+a sample xk−1 can be generated from the previous sample xk
+
+xk−1 = √αk−1
+
+xk − √1 − αk ˆε(k) 
+
+> θ
+
+(xk)
+
+√αk
+
+!
+
++
+
+q
+
+1 − αk−1 − σ2 
+
+> k
+
+ˆε(k) 
+
+> θ
+
+(xk) + σkεk, εk ∼ N (0 , I )
+
+(9) where αk encodes how much original signal remains at timestep k (i.e. is a noise-scheduler), and the parameters θ are then learned by minimizing the loss 
+
+L(εθ ) = 
+
+> K
+
+X
+
+> k=1
+
+Ex0∼q(x0),ε k ∼N (0 ,I )
+
+h
+
+|| ε(k) 
+
+> θ
+
+(√αkx0 + √1 − αkεk) − εk|| 22
+
+i
+
+, (10) and 
+
+σk =
+
+s
+
+1 − αk−1
+
+1 − αk
+
+
+
+1 − αk
+
+αk−1
+
+
+
+. (11) 
+
+8.1.1 Diffusion Models Implementation Details 
+
+We use existing diffusion-model architectures for both tasks. For grasp synthesis, we use the Grasp Pose Diffusion model and training scheme from [ 27 ], omitting the keypoint embedding to reduce inference time. For visuomotor servoing, we use the Diffusion Transformer with a CNN image encoder from [ 33 ]. The model is conditioned on the two most recent RGB observations and hand poses, expressed in the current gripper frame, and predicts a chunk of six future wrist poses and finger states in the same gripper frame. 13 8.2 Bayesian interpretation of optimization-constrained denoising 
+
+This appendix shows that the cost terms in (4) correspond to the negative log-density of a posterior over guided trajectories, justifying the L2 penalty on δk as a Gaussian prior inherited from the pretrained reverse process. 
+
+8.2.1 MAP Derivation 
+
+We view the guided denoising trajectory τ = ( xK , x K−1, . . . , x 0), with each state xk ∈ Rd, as a latent variable and define a posterior over trajectories conditioned on feasibility: 
+
+p(τ | feasible) ∝ pθ (τ )
+
+> K
+
+Y
+
+> k=1
+
+ℓk(xk). (12) Here, pθ (τ ) denotes the trajectory distribution induced by the pretrained DDIM sampler. The factors 
+
+ℓk(xk) act as feasibility pseudo-likelihoods and assign higher probability to lower-cost states: 
+
+ℓk(xk) ∝ exp( −βkJ(xk)) . (13) The cost J(xk) measures violation of the desired feasibility criterion, and βk controls the strength of the guidance at denoising step k. Thus, states with smaller feasibility cost are exponentially preferred. The pretrained prior factorizes along the reverse chain as 
+
+pθ (τ ) = p(xK )
+
+> K
+
+Y
+
+> k=1
+
+pθ (xk−1 | xk). (14) Taking the negative logarithm yields 
+
+− log p(τ | feasible) = − log p(xK ) −
+
+> K
+
+X
+
+> k=1
+
+log pθ (xk−1 | xk) + 
+
+> K
+
+X
+
+> k=1
+
+βkJ(xk) + c, (15) where, here and below, c collects all terms independent of the optimization variables (such as the posterior normalizer) and may take a different value in each equation. MAP inference corresponds to minimizing (15) subject to the problem constraints: the terminal tolerance on x0 and the initial-sample restriction on xK .
+
+8.2.2 Connection to DDIM 
+
+Under the stochastic DDIM update (3) with σk > 0, the reverse kernel is Gaussian, 
+
+pθ (xk−1 | xk) = N xk−1; μθ (xk, k ), σ 2
+
+> k
+
+I, (16) so that 
+
+− log pθ (xk−1 | xk) = 12σ2
+
+> k
+
+∥xk−1 − μθ (xk, k )∥22 + d 
+
+> 2
+
+log(2 πσ 2
+
+> k
+
+). (17) We reparameterize each transition through its injected noise, 
+
+xk−1 = μθ (xk, k ) + σk δk, δk ∼ N (0 , I ). (18) Substituting xk−1 − μθ (xk, k ) = σkδk cancels the σ2 
+
+> k
+
+and gives the identity 
+
+− log pθ (xk−1 | xk) = 12 ∥δk∥22 + d 
+
+> 2
+
+log(2 πσ 2
+
+> k
+
+). (19) The second term is independent of δk. Summing over the chain and folding all such terms into c, (15) becomes the MAP objective 
+
+− log p(τ | feasible) = − log p(xK ) + 
+
+> K
+
+X 
+
+> k=1 12
+
+∥δk∥22 +
+
+> K
+
+X
+
+> k=1
+
+βkJ(xk) + c. (20) This recovers the objective in (4) , up to the prior term on xK and the replacement of the likelihood term on x0 by the terminal-tolerance constraint used in our constrained formulation. 14 8.3 Nonlinear Least-Squares Relaxation 
+
+We give the full objective used by the differentiable solver of Section 4.2. The optimization variables are the denoising states and guidance perturbations, z = {xK , . . . , x 0, δ K , . . . , δ 1}, and we solve 
+
+min 
+
+> z
+
+PKk=1 βδ ∥δk∥22
+
+| {z }
+
+> guidance regularizer
+
++ βinit dXinit (xK )2
+
+| {z }
+
+> initial-sample regularizer
+
++ PKk=1 βrev xk−1 − μθ (xk, k ) − σkδk
+
+> 22
+
+| {z }
+
+> reverse-process residuals
+
++ PKk=1 βJ,k J(xk)2
+
+| {z }
+
+> soft feasibility cost
+
++ P  
+
+> k∈K J\{ 0}
+
+βpath [J(xk) − εtol ]2+ + βterm [J(x0) − εtol ]2+
+
+| {z }
+
+> soft feasibility constraints
+
+, (21) with [·]+ = max(0 , ·). The initial-sample term dXinit (xK ) is replaced by a regularizer βinit ∥xK ∥22
+
+when no bounded Xinit is used. The reverse-process residuals softly enforce consistency with the guided DDIM dynamics; the quadratic βJ,k J(xk)2 provides smooth gradients toward feasibility, while the hinge penalties concentrate weight on samples that exceed the tolerance. The path hinge is applied only to intermediate denoising states, and the separate terminal hinge βterm on x0 reflects that final-output feasibility is the primary requirement. The last reverse step uses its own weight βrev ,0 to couple x0 more tightly to the preceding denoising state. The exact weights and full formulation are described in 8.5.2. 
+
+8.4 Visuomotor manipulation 
+
+We evaluate visuomotor manipulation on two image-conditioned tasks, shown in Fig. 4. In both tasks, the policy receives RGB observations and predicts short-horizon end-effector reference tra-jectories, which are executed on the target embodiment using a damped-least-squares impedance controller. The differentiable rollout model used to evaluate controller-level executability is described in Appendix 8.5.1; implementation details for the corresponding guidance methods are provided in Appendix 8.5.2. We report two success metrics. The task success rate SR task measures the fraction of episodes in which the full task is completed: the drawer is fully opened for drawer manipulation, and the pan is correctly placed on the target burner for tabletop pick-and-place. The subtask success rate SR sub 
+
+gives partial credit for meaningful intermediate progress. For drawer manipulation, the subtasks are grasping the handle and opening the drawer by at least a small distance; for pick-and-place, they are grasping the pan and lifting it from the table. Table 3 reports task success, subtask success, executed end-effector distance, and solve time for both tasks and robot embodiments. Across the embodiment-aware methods, the optimization-based L-BFGS variant achieves the highest full task success in all settings. The improvement is particularly pronounced for tabletop pick-and-place, where successful execution often requires recovering from imperfect grasps or regrasping the pan before placement. L-BFGS also generally solves successful episodes faster than the baselines, despite the additional optimization step during replanning. The executed-distance metric should be interpreted together with task success. Methods that solve more episodes also complete more of the reaching, recovery, and placement motions, which can naturally increase accumulated path length. Thus, the longer paths observed for L-BFGS reflect its ability to recover from near-failure cases, including through corrective motions such as regrasping, while still completing successful episodes faster overall. 
+
+8.5 Optimization Modules 
+
+The optimization-guided samplers require differentiable modules that translate robot-specific execu-tion constraints into costs that can be optimized during denoising. We use two such modules. For grasp synthesis, a learned kinematic surrogate approximates the distance of a task-space wrist target 15 Figure 4: Example visuomotor manipulation tasks. We evaluate two image-conditioned manipulation tasks across two robotic manipulators. The first two rows show tabletop pick-and-place, where the robot must grasp a pan and place it on the target burner. The last two rows show drawer manipulation, where the robot must grasp the handle and open the drawer. Table 3: V ISUOMOTOR MANIPULATION RESULTS . Success rates, executed end-effector distance, and completion time for drawer opening and tabletop pick-and-place on the Dynaarm and Franka. We report full task success 
+
+SR task , subtask success SR sub , accumulated end-effector distance, and solve time. DDIM † denotes the raw diffusion output deployed on a floating gripper without embodiment constraints and is shown as an upper-reference point rather than as an embodiment-aware method. Among embodiment-aware methods, our L-BFGS guidance achieves the highest task success in all settings and generally reduces solve time. Best values are bold ,second-best are underlined. 
+
+Task Method Dynaarm Franka 
+
+SR task [%] ↑ SR sub [%] ↑ Dist [m] ↓ Time [s] ↓ SR task [%] ↑ SR sub [%] ↑ Dist [m] ↓ Time [s] ↓
+
+> Drawer
+
+DDIM † 99.5 ±1.0 100.0 ±0.0 0.66 ±0.00 7.67 ±0.10 99.5 ±1.0 100.0 ±0.0 0.66 ±0.00 7.67 ±0.10 
+
+DDIM [27] 79.5 ±1.9 84.0 ±0.8 0.68 ±0.01 9.00 ±0.06 57.8 ±2.2 66.3 ±3.1 0.69 ±0.00 10.06 ±0.43 
+
+Gradient Guidance ( σ) 79.8 ±1.7 85.0 ±1.6 0.69 ±0.01 9.03 ±0.18 57.8 ±7.8 66.8 ±6.8 0.70 ±0.00 10.29 ±0.42 
+
+Gradient Guidance ( xt-nudge) 79.8 ±3.3 83.8 ±3.0 0.68 ±0.01 9.09 ±0.04 58.0 ±2.4 67.0 ±2.8 0.70 ±0.01 10.21 ±0.43 
+
+Ours (L-BFGS) 81.8 ±2.9 87.3 ±2.9 0.73 ±0.01 8.12 ±0.19 60.0 ±3.4 70.0 ±1.6 0.78 ±0.02 9.42 ±0.44 
+
+> Pick and Place
+
+DDIM † 62.5 ±6.2 95.3 ±2.1 1.70 ±0.05 7.39 ±0.07 62.5 ±6.2 95.3 ±2.1 1.70 ±0.05 7.39 ±0.07 
+
+DDIM [27] 26.0 ±2.0 63.2 ±3.3 1.21 ±0.01 9.33 ±0.20 44.0 ±4.5 89.0 ±3.4 0.98 ±0.04 8.94 ±0.35 
+
+Gradient Guidance ( σ) 29.3 ±4.3 69.3 ±4.6 1.21 ±0.01 10.08 ±0.73 41.0 ±1.4 92.3 ±1.3 1.00 ±0.00 8.99 ±0.32 
+
+Gradient Guidance ( xt-nudge) 26.3 ±3.4 63.2 ±5.0 1.19 ±0.01 9.56 ±0.57 43.3 ±1.7 90.3 ±3.8 0.97 ±0.01 9.22 ±0.33 
+
+Ours (L-BFGS) 41.8 ±3.8 66.0 ±3.6 1.46 ±0.03 8.40 ±0.49 67.0 ±3.4 98.3 ±1.3 1.21 ±0.01 8.02 ±0.41 
+
+to the reachable set. For visuomotor manipulation, a differentiable closed-loop rollout model approxi-mates how the low-level controller tracks a predicted reference trajectory. This section describes both modules, including their inputs, training or rollout construction, and how their outputs are used as guidance costs. 
+
+8.5.0 Kinematic Feasibility Surrogate 
+
+For the grasping experiments in Section 5.1, we approximate the distance-to-reachability cost JIK 
+
+with a differentiable surrogate ˆJIK . The surrogate replaces repeated calls to an IK solver during denoising with a cheap neural approximation, while still providing gradients with respect to the generated grasp pose. In addition to a scalar reachability estimate, the network predicts a corrective task-space offset and a joint configuration used for forward-kinematics consistency during training. 16 Algorithm 1: Kinematic feasibility surrogate ˆJIK : architecture and training 
+
+Const : H = 256 , dof ∈ { 6, 7}, act = GELU; epochs = 5 , batch = 4096 , lr = 3 ×10 −4;
+
+λerr = 10 , λ pose = 1 , λ fk = 1 
+
+Function IKMLPNet( p):
+
+// p = [ pos (3) , rot6d (6)] ; quat input converted 
+
+h ← GELU(Linear(9 , 256)( p)) // input embedding 
+
+h ← GELU(Linear(256 , 256)( h)) // backbone block 1 
+
+h ← GELU(Linear(256 , 256)( h)) // backbone block 2 
+
+ˆq ← Linear(128 , dof )(GELU(Linear(256 , 128)( h))) // joint config (for FK loss) 
+
+ˆJIK ← softplus(Linear(64 , 1)(GELU(Linear(256 , 64)( h)))) // reachability ≥ 0∆p ← Linear(128 , 9)(GELU(Linear(256 , 128)( h))) // pose correction 
+
+return ˆq, ˆJIK , ∆p
+
+// Data: 10 5 targets labeled offline by reference IK solver 
+
+sample p = [pos , rot] ∼ U ([ −2, 2] 3) × SO (3) (q⋆, J ⋆, preach ) ← IKSolver( p)// Pre-Compute Dataset 
+
+θ ← init IKMLPNet ; opt ← AdamW; sched ← CosineAnnealing 
+
+for epoch = 1 to 50 do for minibatch (p, J ⋆, preach ) do 
+
+ˆq, ˆJIK , ∆p ← IKMLPNet( p)
+
+Lerr ← ∥ ˆJIK − J⋆∥2
+
+Lpose ← KeypointMSE( p + ∆ p, preach )
+
+Lfk ← KeypointMSE( FK( ˆ q), preach )
+
+L ← λerr Lerr + λpose Lpose + λfk Lfk 
+
+opt.step (∇θ L)
+
+sched.step() 
+
+return θ
+
+Network architecture. The surrogate is a feed-forward MLP that maps a single task-space wrist target to a reachability estimate and a corrective offset. The target is parameterized as a 9-D vector 
+
+p = [ t ∈ R3, r6D ∈ R6 ], where t is the wrist position in the robot base frame and r6D is the continuous 6-D rotation representation (the first two columns of the rotation matrix, with the full matrix recovered by Gram–Schmidt). A quaternion input ( t+ wxyz ) is accepted and converted internally. The backbone is an input embedding Linear(9 → 256) followed by two hidden blocks of width 256 ; every block is Linear →
+
+GELU with no normalization and no dropout. Three heads branch from the final 256 -D feature: • Reachability head ˆJIK : Linear(256 → 64) → GELU → Linear(64 → 1) followed by a 
+
+softplus , which guarantees a non-negative scalar distance ˆJIK (p) ≥ 0 rather than a fea-sibility logit. It regresses the residual pose error of the reference IK solver; reachability is decided by the threshold ˆJIK ≤ εIK .• Pose-correction head ∆p ∈ R9: an additive offset (in the same [t, r6D ] space) that nudges an infeasible target toward the reachable set; it supplies the guidance gradient during denoising. • Configuration head ˆq ∈ Rdof : predicts a joint solution, used for the forward-kinematics consistency loss and for visualization. The network has ≈ 2.2 × 10 5 parameters ( ≈ 218 k for the 6-DoF arm, ≈ 219 k for the 7-DoF arm). Linear layers use Kaiming-normal initialization. 17 Table 4: Kinematic feasibility surrogate accuracy. Held-out accuracy of ˆJIK on uniformly sampled task-space targets. RMSE reports the error relative to the ground-truth reachability cost JGT . Ranking AUC reports how well − ˆJIK predicts cuRobo IK solvability under a 5 mm /0.10 rad tolerance. Both arms achieve millimeter-level prediction error, and high AUC values show that lower surrogate costs reliably rank targets as more reachable. 
+
+Embodiment ˆJIK RMSE [mm] Ranking AUC Franka ( 7 DoF) 2.9 0.993 
+
+Dynaarm ( 6 DoF) 5.2 0.930 
+
+Training-data generation. We generate training data separately for each embodiment, namely the Franka and Dynaarm. For each sample, we draw the target position uniformly from a [−2, 2] 3 mbox around the robot base and sample the target orientation from a normalized Gaussian quaternion, 
+
+q ∼ N (0 , I 4). Each target is labeled by solving an inverse-kinematics (IK) problem, which returns the closest reachable pose and the corresponding joint configuration. For each embodiment, we generate 10 5 training targets and 2 × 10 3 validation targets. 
+
+Training objective and optimization. Training minimizes a weighted regression objective (no classification loss): 
+
+L = λerr ˆJIK − JGT 22 + λpose Lpose + λfk Lfk + λq ˆq − q⋆ 22, (22) where Lpose is a keypoint MSE between the corrected pose p + ∆ p and the reachable reference pose, and Lfk is a forward-kinematics consistency MSE between FK( ˆ q) and that reference pose. We use 
+
+λerr = 10 , λpose = 1 , λfk = 1 , and λq = 0 (direct joint supervision is off; the configuration head is still trained implicitly through Lfk ). Since λq = 0 , the joint-supervision term vanishes and the loss reduces to the three-term objective used in Algorithm 1. Optimization uses AdamW with learning rate 3 × 10 −4, a cosine-annealing schedule, batch size 4096 , 2 − 5 epochs, and fixed seed 42 . The resulting held-out surrogate accuracy is reported in Table 4. 
+
+8.5.1 Closed-Loop Rollout Model 
+
+This section specifies the differentiable closed-loop rollout map ϕ(x; q0; κ) used to evaluate the controller-level executability cost Jdyn (8) in the dynamic-manipulation experiments (Section 5.2). The map predicts how a planned end-effector trajectory would actually be executed by the controller, so that Jdyn can score the executed poses against the planned references. Its inputs are • the N predicted end-effector waypoints x = [ x0|k, . . . , x N −1|k], where each xt|k =(pref  
+
+> t
+
+, R ref  
+
+> t
+
+) ∈ SE(3) is expressed in the frame E0 of the end-effector at replanning time k;• the measured arm configuration q0 ∈ Rn (with n = 6 for the Dynaarm and n = 7 for the Franka); and • the fixed Cartesian impedance controller parameters κ,and its output is the sequence of planned executed poses ˆxt = ϕ(x; q0; κ)t.
+
+Per-step controller update. We approximate the closed-loop controller with a kinematic rollout. The model assumes that gravity compensation is handled by feed-forward torques, and simulates only the tracking behavior of a damped-least-squares inverse-kinematics controller. At each reference step t, the rollout starts from the current joint configuration qt, computes the end-effector pose 
+
+T WE (qt) = ( pee t , R ee t ), and updates the joints through the following four steps. 1. Task-space error. We first compute the geometric pose error between the reference pose and the current end-effector pose: 
+
+∆xt =
+
+pref  
+
+> t
+
+− pee t
+
+ωerr 
+
+> t
+
+
+
+∈ R6, ωerr  
+
+> t
+
+= log  Rref  
+
+> t
+
+Ree, ⊤
+
+> t
+
+∨ ∈ R3.
+
+18 Here, log( ·)∨ : SO(3) → R3 denotes the logarithmic map from rotations to axis-angle vectors. Optionally, this error can be weighted by a diagonal task-space stiffness Ktask  
+
+> p
+
+. In all reported experiments, we set Ktask  
+
+> p
+
+= I, so ∆xt is the unweighted geometric pose error. 2. Resolved-rate joint update. The task-space error is mapped to a joint-space increment with a damped-least-squares resolved-rate update: 
+
+δq t = J(qt)⊤ J(qt)J(qt)⊤ + λ2I6
+
+−1∆xt, λ = 0 .05 ,
+
+where J(qt) is the geometric end-effector Jacobian. 3. Authority limits. Before applying the update, we clip the joint increment to the motion that the robot can realize within one reference step. The per-joint bound is 
+
+¯δq = min ˙qmax ∆tref , τmax 
+
+kjoint 
+
+> p
+
+!
+
+,
+
+where ˙qmax and τmax are the robot’s velocity and effort limits, and kjoint  
+
+> p
+
+is the joint-space PD stiffness specified by the robot model. This bound captures both velocity limits and finite torque authority. 4. PD lag and integration. Finally, we account for the fact that the low-level PD controller closes only part of the commanded joint-space gap during one reference step. We model this with a first-order lag factor αeff and integrate the clipped increment: 
+
+qt+1 = clip 
+
+
+
+qt + αeff ⊙ clip( δq t, ± ¯δq ), q, q 
+
+
+
+,
+
+with 
+
+αeff ,j = 1 − 1 − kjoint 
+
+> p,j
+
+kjoint  
+
+> p,j
+
++ kjoint  
+
+> d,j
+
+/∆tin 
+
+!nsub 
+
+.
+
+Here, kjoint  
+
+> d
+
+denotes the joint-space damping gains from the robot model, ∆tin is the inner control timestep, and nsub is the number of inner controller steps per reference interval. The final clipping enforces the joint limits q and q.
+
+Executability cost. Given the executed poses ˆxt = ϕ(x; q0; κ)t, the executability cost (8) is the step-weighted tracking residual 
+
+Jdyn = 
+
+> N−1
+
+X
+
+> t=0
+
+ct
+
+
+
+ˆpt − pref  
+
+> t
+> 2
+
++ ( ˆRt − Rref  
+
+> t
+
+) K 2
+
+, (23) where the orientation term is scored through three orthogonal keypoints K at distance 0.15 m .The position and orientation terms are equally weighted, and the step weights increase linearly as 
+
+ct = t+1 .
+
+Controller offset. Using (23) directly as a guidance signal can produce an undesirable feedback effect. Since Jdyn penalizes tracking error, the easiest way to reduce this cost is not necessarily to make the motion more executable, but to make the reference itself less demanding. This occurs because the actions passed to the impedance controller also define the target reference used to evaluate tracking. As a result, the gradient can reduce the dynamic cost by suppressing fast or aggressive motions, rather than by improving their closed-loop execution. For example, suppose the policy predicts a fast upward motion in the +z direction. If the controller cannot track this motion from the nominal command alone, directly penalizing the resulting tracking residual would encourage the policy to reduce the upward acceleration. This can be undesirable, since the acceleration may be essential for completing the task. Instead, if possible, we would like to preserve the intended reference if the controller could track it with the help of a bounded feed-forward command offset. 
+
+J⋆ 
+
+> dyn
+
+= min  
+
+> o∈B
+
+Jdyn 
+
+ ϕ(x + o, q 0; κ), x  + λreg R(o). (24) 19 Here, x + o denotes the offset command sent to the controller, while the cost Jdyn is still evaluated against the original, unshifted reference x. The regularizer R(o) penalizes undesirable offsets, such as large or non-smooth corrections, and B bounds the admissible offset magnitude. The resulting cost J⋆ 
+
+> dyn
+
+measures the tracking error that remains after the best bounded feed-forward correction has been applied. Thus, the guidance signal captures the part of the reference that cannot be absorbed by the controller, instead of rewarding the policy for simply slowing down the motion. 
+
+8.5.2 Implementation Details Kinematic feasibility model. For the grasping experiments, we approximate the distance-to-reachability cost JIK with a differentiable surrogate ˆJIK , implemented as a small MLP trained on reachable and unreachable task-space targets for each robot embodiment. During optimization, ˆJIK 
+
+is used in place of the ideal distance in Eq. (5) , making the feasibility cost cheap to evaluate and differentiable with respect to the generated grasp representation. Network architecture, training-data generation, and held-out accuracy are reported in Appendix 8.5.0. 
+
+Constrained NLP solver. For the constrained formulation, we use IPOPT [ 34 ] with a maximum of 45 iterations. The optimization variables are the initial denoising state xK and the correction variables {δk}Kk=1 . The formulation is 
+
+min    
+
+> xK,{δk}Kk=1
+
+Lδ + LIK 
+
+s.t. xk−1 = μθ (xk, k ) + σkδk, k = K, . . . , 1,JIK (x0) ≤ εIK ,
+
+− 1 ≤ xK ≤ 1,
+
+− 1 ≤ δk ≤ 1, k = 1 , . . . , K, 
+
+(25) with εIK = 0 .01 . The objective terms are 
+
+Lδ = λδKX
+
+> k=1
+
+∥δk∥22, (26) 
+
+LIK = λIK 
+
+> K
+
+X
+
+> k=0
+
+JIK (xk), (27) where λδ = 1 .0 and λIK = 1 .0. When additional task constraints are present, further cost terms can be added to the objective. For example, we include an object-penetration penalty 
+
+Lobj = λobj 
+
+P 
+
+> k∈K obj
+
+P (xk), with λobj = 1 .0 and Kobj = {0, 1}, where P (xk) discourages hand–object interpenetration during the final denoising steps. 20 Differentiable NLS relaxation. For the differentiable relaxation, we use Theseus with 15 Levenberg– Marquardt iterations. Instead of enforcing the reverse dynamics and terminal feasibility as hard constraints, we optimize the soft objective 
+
+LNLS = Lrev + Lrev ,0 + Lδ + Lclamp + LIK ,cost + LIK ,term + LIK ,path , (28) with 
+
+Lrev = 10 .0
+
+> K
+
+X
+
+> k=1
+
+∥xk−1 − μθ (xk, k ) − σkδk∥22 , (29) 
+
+Lrev ,0 = 50 .0 ∥x0 − μθ (x1, 0) − σ1δ1∥22 , (30) 
+
+Lδ = 1 .0
+
+> K
+
+X
+
+> k=1
+
+∥δk∥22, (31) 
+
+Lclamp = 100 .0
+
+> K
+
+X
+
+> k=1
+
+∥max(0 , δ k − 1) + max(0 , −1 − δk)∥22 , (32) 
+
+LIK ,cost = 1 .0
+
+> K
+
+X
+
+> k=1
+
+JIK (xk)2, (33) 
+
+LIK ,term = 10 .0 max(0 , J IK (x0) − 0.005) 2 , (34) 
+
+LIK ,path = 10 .0
+
+> K
+
+X
+
+> k=1
+
+max(0 , J IK (xk) − 0.005) 2 . (35) This relaxation preserves the same denoising structure as the constrained NLP but replaces hard feasibility with weighted penalties. 
+
+Gradient-guidance baseline. For the gradient-guidance baseline, we apply a per-step guidance update with scale 
+
+sk = g w (pk) βk
+
+√1 − αk
+
+, (36) where g = 0 .2, pk = 1 − k/K , and w(pk) = cos 2(πp k). The factor βk/√1 − αk accounts for the diffusion noise schedule. This baseline follows the same denoising schedule as the proposed method, but uses a scaled cost gradient instead of solving an optimization problem at each guided step. Note that the gradient-guidance baseline uses a cosine schedule and the optimization-guided methods (IPOPT and Theseus) use constant schedulers. Both scheduler types were tested for all methods and the best performing one selected and reported. Similarly, various scales g were tested, and g = 0 .2
+
+yielded the best results. 
+
+Solver settings. Unless stated otherwise, the grasping experiments use IPOPT with 45 iterations and Theseus with 15 Levenberg–Marquardt iterations. For the image-conditioned dynamic manipulation experiments, we use the lightweight L-BFGS backend during the final denoising steps to keep online replanning tractable, which is detailed below. 
+
+Visuomotor manipulation guidance. For the dynamic-manipulation experiments, we compare three ways of using the controller-level executability cost Jdyn from (8) . All three methods use the same frozen diffusion model, replanning horizon, and differentiable rollout model from Appendix 8.5.1. The cost is evaluated on the final denoised action chunk x0. The methods differ only in how the correction enters the sampling process. The first baseline is an xt-nudge guidance method. At each denoising step, we compute the guidance gradient g from Jdyn and update 
+
+xt ← xt + λ ¯αt g. (37) The standard DDIM update is then applied to the nudged sample. Since the diffusion network receives the corrected xt, both the denoised estimate ˆx0(xt) and the predicted noise ϵθ (xt, t, c ) are affected 21 by the correction. The factor ¯αt concentrates the update near the final denoising steps. We use λ = 1 
+
+and wdyn = 5 .The second baseline is σ-guidance, which leaves the network input unchanged and injects the guidance gradient through the stochastic channel of the DDIM update. After evaluating the network at the original xt, we compute the deterministic DDIM mean μt and set 
+
+xt−1 = μt + σt g, σt = η
+
+s
+
+1 − ¯αt−1
+
+1 − ¯αt
+
+
+
+1 − ¯αt
+
+¯αt−1
+
+
+
+. (38) Its magnitude follows σt, which is largest at noisy steps and vanishes at the clean step. Therefore, this guidance is active only for η > 0; we use η = 1 .In both guidance schemes, the guidance gradient g depends on the controller offsets o, which are themselves the solution of the inner optimization problem in (24) . We therefore treat the correction as a two-stage (bilevel) optimization: at each denoising iteration we first compute the optimal offsets 
+
+o with a few inner gradient steps, and then evaluate the guidance gradient with these o held fixed. The optimization-based variant uses direct-shooting L-BFGS. Instead of modifying each denoising step online, it optimizes the full sampling process once per replanning step. The decision variable contains the initial latent sample xT , the injected denoising noises {εi}, and the feed-forward offset 
+
+o:
+
+z = [ xT | ε | o ].
+
+We optimize z with torch.optim.LBFGS using learning rate 0.1, at most 10 inner iterations, at most 5 closure evaluations, history size 10 , strong-Wolfe line search, and one outer step. Each closure re-runs the full DDIM unroll with the frozen diffusion network, evaluates the differentiable rollout on the terminal chunk x0, and back-propagates through both the sampler and rollout. Since the direct-shooting parameterization explicitly unrolls the diffusion dynamics, the generated trajectory remains consistent with the sampler by construction. 
+
+8.5.3 Base-pose difficulty stratification     
+
+> Figure 5: Success rate by base-pose. Per-method SR on the Dynaarm and Franka for each base-pose on a smaller subset of objects, with poses stratified by the success rate of the DDIM approach.
+
+We stratify the evalua-tion by base-pose difficulty: poses are classified as easy 
+
+or hard based on the suc-cess rate of the DDIM ap-proach, which hard-projects the un-guided diffusion out-put DDIM †. Base poses with lower success rates are considered more difficult. Figure 5 highlights the drop in success rate when pro-jecting the diffusion output onto the inverse-kinematic feasible set, across both em-bodiments (Dynaarm and Franka). Based on Figure 5, we consider poses nominal, npp and npp, npn as hard base pose configurations for the Dynaarm and Franka, respectively. The nominal base pose is given as [−0.65 , 0, 0] . The index p
+
+refers to a shift in positive direction, n in negative direction by 0.25 from the nominal pose. Pose npp 
+
+therefore refers to [−0.65 − 0.25 , 0.25 , 0.25] = [ −0.9, 0.25 , 0.25] .Figure 6 reports per-pose ( SR (1) , faded outer) and per-grasp ( SR all , hatched inner) success rates across both arms. DDIM † serves as an upper bound on achievable success rate given the trained diffusion prior. The trend of decreased success rates ( SR (1) ) across all methods for the more 22 challenging arm base poses is particularly evident for the Franka arm. Notably, both baselines (Gradient guidance and Projection guidance ) suffer significant drops in success rate (from 70 to 23 
+
+and 57 to 9 respectively). The optimization-guided approaches ( IPOPT and Theseus ) are more robust to base pose changes with smaller drops in success rate (from 72 to 70 and 65 to 56 respectively). The Dynaarm shows similar trends, although less pronounced. Gradient guidance and Projection guidance drop from 59 to 58 and 28 to 17 while the optimization-guided IPOPT drops from 71 to 
+
+68 . Interestingly, Theseus actually increases in success rate when changing from the easy to hard 
+
+base pose configuration, going from 61 to 67 . Additionally, while Gradient guidance outperforms 
+
+Theseus , and almost approaches the success rate achieved by IPOPT , on the Franka arm in the easy 
+
+base pose category, scores drop significantly on the hard category, where Theseus clearly outperforms 
+
+Gradient guidance .      
+
+> Figure 6: Grasp success by base-pose difficulty. Per-method success rates on the Dynaarm and Franka, split into easy and hard base-pose bins. Each bar overlays the per-pose success rate ( SR (1) , faded outer) and the per-grasp success rate ( SR all , hatched inner). Our optimization-constrained variants (IPOPT, Theseus) dominate every (arm, difficulty) bin and degrade the least as poses harden.
+
+8.6 Evaluation Metrics 
+
+We collect the definitions of all metrics used in the main text and in the collision tables here. 
+
+Grasp success and feasibility. 
+
+• SR (1) (one-axis grasp success ): a grasp is successful if it remains stable in simulation under at least one pull axis. To evaluate a grasp, we apply 3 N pulls along the ±x, ±y, and ±z axes of the object frame, grouped into three axis-wise phases. A grasp passes an axis if the object’s center of mass remains within 5 cm of its initial position throughout that phase. • SR all (all-axis grasp success ): a grasp is successful under the same evaluation if it passes all three axis-wise pull phases. This is the stricter counterpart of SR (1) , requiring the same grasp to remain stable under pulls along all object-frame axes. • SR IK (kinematic feasibility ): the fraction of predictions that are reachable by the target arm. For the snap-to-feasible DDIM baseline, this metric is computed before projection (Footnote 2). • CR (collision rate , collision tables only): the fraction of predicted grasps whose hand geometry penetrates an obstacle by more than 3 mm . We compute hand surface points from the predicted grasp pose and query their signed distances to the obstacle SDFs. A grasp is marked as colliding if the maximum penetration over all hand points and obstacles exceeds the tolerance. This is a purely geometric check and does not involve physics simulation. 23 • SR Tot (total success , collision tables only): the fraction of predictions that are both grasp-successful and collision-free. We compute this by zeroing out the per-grasp success indicator for any grasp in collision, and then averaging over all grasps. 
+
+Grasp quality. 
+
+• Efc (force-closure violation ): the GraspQP span-metric residual [ 31 ], capturing how close the grasp is to force closure (lower is better). In practice, we use the method of [ 27 ] to resample contact points and rely on the four-sided friction pyramid using μ = 0 .2.• Q1 (grasp wrench quality , higher is better): the Ferrari-Canny ε-metric, given by the radius of the largest origin-centered ball inside the convex hull of the grasp wrench set. 
+
+8.7 Collision-environment results 
+
+For the collision-aware experiments, we use the same diffusion architecture as in the main grasping experiments, but train it on the full Dataset from [ 31 ] to improve robustness under the tighter scene constraints and to support sim-to-real transfer. In addition, the initial wrist poses xK are sampled above the table plane to warm-start diffusion, providing a better initialization from which gradient-based methods can more easily find solutions. Table 5 evaluates collision-aware grasp generation across four constrained environments: floor, walls, clutter, and tunnels. The walls setting places a wall perpendicular to the arm base, whereas the tunnel 
+
+setting places walls on both sides of the arm, forming a funnel-like constraint. All methods are evaluated on 4 objects with 10 grasps per object in each environment. Since these scenes substantially restrict the set of valid grasps, the experiment stresses the ability of each method to balance grasp quality, kinematic reachability, and collision avoidance. We report the single-grasp success rate SR (1) , inverse-kinematics success rate SR IK , collision rate 
+
+CR , and total success rate SR Tot , where total success denotes grasps that both succeed and remain collision-free. All guided methods use a proximity cost based on the signed distance field (SDF), 
+
+Jcoll (x) = max(0 , s (x) + dsafe ), (39) with safety margin dsafe = 5 cm . This formulation provides a non-zero optimization signal before actual obstacle penetration occurs. For IPOPT, we include Jcoll as a cost term rather than a hard constraint to avoid overly restrictive local optimization landscapes. 
+
+Table 5: Grasp Predictions with Collision Avoidance: Comparison of methods across evaluation metrics (averaged over 4 objects and 10 grasps per object) for 4 different environments, with the walls oriented perpendicular to the arm base.                                                                                                                                                                                                
+
+> Arm Method Environment Floor Walls Clutter Tunnels
+> SR Tot ↑SR (1) ↑SR IK ↑CR ↓SR Tot ↑SR (1) ↑SR IK ↑CR ↓SR Tot ↑SR (1) ↑SR IK ↑CR ↓SR Tot ↑SR (1) ↑SR IK ↑CR ↓
+> Dynaarm DDIM [27] 5.016 .25 32 .560 .02.516 .25 32 .562 .54.37 19 .99 32 .567 .50.016 .25 32 .580 .0
+> Gradient Guidance 33 .12 33 .12 100 0.017 .519 .99 100 25 .028 .12 28 .12 100 0.030 .63 30 .62 100 0.0
+> Projection Guidance 19 .38 22 .49 100 20 .00.63 5.62 100 20 .00.00.075 .00.014 .37 19 .37 100 22 .5
+> Theseus 36 .88 36 .87 77 .50.035 .63 44 .36 77 .517 .523 .13 28 .37 82 .537 .524 .37 46 .24 80 .032 .5
+> IPOPT 46 .88 51 .24 75 .010 .022 .543 .74 75 .032 .531 .25 39 .99 65 .020 .023 .75 26 .24 52 .532 .5
+> Franka DDIM [27] 11 .87 68 .73 100 82 .510 .068 .73 100 85 .06.25 60 .61 100 90 .07.568 .73 100 87 .5
+> Gradient Guidance 22 .522 .49 100 0.020 .62 20 .62 100 30 .023 .13 23 .74 100 17 .518 .12 18 .12 100 5.0
+> Projection Guidance 58 .13 60 .61 100 2.543 .13 45 .61 100 2.50.00.057 .50.045 .047 .49 100 10 .0
+> Theseus 58 .75 58 .74 100 0.050 .62 55 .61 100 17 .526 .87 38 .12 97 .527 .538 .75 59 .36 100 30 .0
+> IPOPT 65 .62 69 .98 100 12 .560 .62 76 .86 100 20 .055 .63 70 .61 100 27 .561 .88 68 .11 100 17 .5
+
+Across both embodiments, the optimization-based methods obtain the best total success in most environments. On the Franka, IPOPT achieves the highest SR Tot in all four environments, reaching 
+
+65 .62% on Floor , 60 .62% on Walls , 55 .63% on Clutter , and 61 .88% on Tunnels . On the Dynaarm, IPOPT and Theseus also improve over the baselines in several constrained settings, with IPOPT performing best on Floor and Theseus on Walls . The main exception is the Tunnels environment, where Gradient Guidance achieves the highest SR Tot for the Dynaarm. In this case, the local gradient 24 Figure 7: Hardware Setup. Illustration of the four environments considered during hardware deployment. A video of all hardware experiments is provided in the supplementary material. 
+
+signal appears to provide a favorable correction direction, reducing collisions without substantially degrading grasp quality. However, this behavior is not consistent across environments or embodiments. The same gradient-based update often satisfies one objective at the expense of another. For example, Gradient Guidance achieves a 0.0% collision rate in several Dynaarm environments, but this frequently comes with reduced grasp success. Similarly, Projection Guidance reaches a 0.0% collision rate in the Clutter 
+
+environment for both arms, but also collapses to 0.0% grasp success, which corresponds in simulation to grasps being moved into free space rather than onto the object. These cases indicate that local gradient or projection updates can work well when the correction direction is aligned with the learned grasp prior, but can also move samples away from successful grasp modes when the objectives conflict. In contrast, the optimization-based formulations provide a more robust mechanism for trading off grasp quality, reachability, and collision avoidance, leading to higher total success in most of the evaluated settings. 
+
+8.7.1 Real-World Deployment 
+
+The dexterous manipulation task was additionally deployed on hardware using a Franka Panda arm equipped with the XHand. We evaluated both the gradient-based guidance base-line and our IPOPT-based method across all four environment settings, Floor , Walls , Clut-ter , and Tunnels , shown in Fig. 7. While the simulation study in Table 5 considers four objects, we restrict the hardware evaluation to two representative objects, Mug and Spices .Both methods are deployed zero-shot, without retraining or fine-tuning of the diffusion model. Additional hardware rollouts are shown in the supplementary video. For the hardware evaluation, we generated multiple grasp candidates per method, object, and environ-ment. In the Floor environment, we generated three grasps for each method-object pair. For the more constrained Walls , Clutter , and Tunnels environments, we generated five grasps per method-object pair to account for the smaller set of valid solutions. We then deployed all candidates that were executable by the hardware pipeline. We note that the arm approach motion was planned using cuRobo, which performs collision avoidance during execution. This component is part of the deployment pipeline, but not part of our proposed method or evaluation claim: our method only optimizes the final grasp configuration with respect to grasp success, kinematic reachability, and environment collisions. Consequently, some generated grasps that satisfied the final-state criteria could not be deployed because no valid collision-free approach motion was found by the controller. We therefore interpret the hardware experiments as initial deployment evidence rather than a complete end-to-end benchmark of motion planning and grasp execution. 25 Figure 8: Out-of-distribution failure case. Example of gradient guidance and IPOPT in the Floor environment. Gradient guidance respects the collision-avoidance ob-jective with respect to the floor, but fails to grasp the object. 
+
+Within this protocol, the hardware experiments support the qualitative trend observed in Ta-ble 5. In particular, gradient guidance can pro-duce collision-free final grasps while moving the hand away from useful object-centered grasp modes, leading to missed or unstable grasps even in the comparatively simple Floor envi-ronment, as illustrated in Fig. 8. In contrast, the IPOPT-based method more reliably preserved grasp structure in the deployed trials while ac-counting for the environmental constraints, as also shown in Fig. 8. These results provide ini-tial evidence that the same optimization-guided corrections used in simulation can transfer zero-shot to physical deployment. Further hardware experiments for all four en-vironments can be found in the supplementary video. 26
