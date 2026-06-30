@@ -1,0 +1,245 @@
+Title: SA-VLA: State-aware tokenizer for improving Vision-Language-Action Models' performance
+
+URL Source: https://arxiv.org/pdf/2606.30113v1
+
+Published Time: Tue, 30 Jun 2026 02:30:29 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# SA-VLA: State-aware tokenizer for improving Vision-Language-Action Models’ performance. 
+
+Tengyue Jiang 2 Chunpu Xu 3 Jiayue Kang 4 Yao Mu 1
+
+> 1
+
+Shanghai Jiao Tong University 
+
+> 2
+
+East China University of Science and Technology 
+
+> 3
+
+Hong Kong Polytechnic University 
+
+> 4
+
+Xi’an University of Electronic Science and Technology 
+
+Abstract: Discrete action tokenization provides a compact interface for autore-gressive VLA policies, but accurately recovering continuous robot actions from discrete codes remains challenging. Existing tokenizers typically map each dis-crete code to a fixed continuous action prototype, ignoring the robot’s current proprioceptive state. This limitation is particularly pronounced in manipulation, where the same action token may require different continuous controls under dif-ferent joint configurations, object poses, and contact conditions. We therefore propose SA-VLA, a state-aware action tokenizer that conditions action decoding on robot state. We study two state-injection mechanisms for VQ-based action tokenization: cross-attention between state and action features, and a lightweight state adapter that predicts action-wise modulation factors for state-conditioned ac-tion modulation and reconstruction. The adapter formulation expands the effective support of a finite codebook by allowing each discrete token to represent a family of state-dependent continuous actions, while preserving the efficiency and com-patibility of discrete action modeling. Integrated into an LLM-based VLA policy, SA-VLA supports both autoregressive and parallel action-token decoding with minimal changes to the model interface. On 12 RoboTwin manipulation tasks, SA-VLA improves the average success rate from 0.29 to 0.56 over the strongest tokenizer baseline. In zero-shot sim-to-real experiments on three real-world tasks, it further improves average success from 0.15 to 0.33 over the strongest tokenizer baseline. These results demonstrate that state-conditioned action decoding is a simple and effective mechanism for reducing the compression gap in discrete VLA policies. 
+
+## 1 Introduction 
+
+Visual-Language-Action (VLA)[1, 2, 3] models have recently emerged as a highly promising re-search paradigm in the field of robotic manipulation, capable of directly mapping visual observations and language instructions to action sequences.Generally, VLA[4] models can be divided into two categories based on how they generate actions: one category generates discrete action tokens that are then decoded into continuous actions via an action tokenizer(e.g., OpenVLA[5], VQ-VLA[6])while the other category directly generates continuous actions (e.g., π0[7]).A common approach for gen-erating discrete action tokens involves mapping visual predictions and language instructions into action tokens through a pretrained VLM, which are then decoded into continuous action values via an action tokenizer. However, how to convert the discrete action tokens output by the VLM[8] into continuous actions remains a significant bottleneck limiting model performance[9]. Previous research has made vari-ous attempts in this direction. For example, the binning operation used in OpenVLA[5] is simple and easy to implement but its tokenization granularity is low.The FAST[10] method offers good 
+
+> arXiv:2606.30113v1 [cs.RO] 29 Jun 2026
+
+compression performance for high-dimensional information; however, the sequence length obtained from compressing actions of the same length may be inconsistent, making it difficult to train. The residual VQ-VAE[11] approach in VQ-VLA[6] is data-driven, yet its compression performance still leaves room for improvement. To address this, we propose a state-aware action tokenizer, which introduces state information into the action tokenizer. We explore two approaches for incorporating state information. The first introduces state information through a lightweight adapter module, while the second integrates state and action information via cross-attention[12]. Both approaches achieve significant improvements in both simulation and real-world robot experiments. Between the two approaches, the method that introduces state information via a lightweight adapter module achieves greater improvements than the cross-attention approach. We attribute this to the fact that traditional VQ-VAE[11] can only decode a limited set of actions, which constrains model performance. By introducing the adapter module, we enable state-informed prediction of an contin-uous action space through a regression formulation, thereby enhancing both model performance and action decoding accuracy. In summary, our contributions are as follows: 1.We propose a state-aware tokenization approach, introducing state information into the action tokenizer. 2.We explore optimal performance through different integration strategies of state information.By introducing a lightweight adapter module to address the limitations of the traditional VQ-VAE[11]’s finite codebook. 3.Our method achieves strong performance in both simulation and real-world robot experiments 
+
+## 2 Related works 
+
+2.1 Vision-Language-Action Models 
+
+Vision-Language-Action Models are considered foundational models in the embodied AI field. They use a pre-trained VLM to extract action tokens from images and language instructions. One ap-proach employs an action tokenizer to convert discrete action tokens into continuous action values, while another uses an action expert that leverages the keys and values from the VLM. Building on this foundational model, recent studies have explored various forms of VLAs, such as those based on discrete diffusion models[13][14], integrations of world models with VLAs[15],chain-of-thought for action generation[16, 17],and the incorporation of event information into VLAs[18]. 
+
+2.2 Discrete Action Tokenizers 
+
+Action tokenizers are a key component of autoregressive transformer-based VLA models. Recent research has explored various forms of action tokenizers. For example, OpenVLA discretizes ac-tions through uniform binning, where each action value corresponds to a bin, but this tokenization approach is overly coarse. FAST[10] transforms action values from the time domain to the frequency domain using DCT, followed by BPE to obtain corresponding discrete action tokens. However, due to the nature of BPE, action sequences of the same length may be mapped to token sequences of varying lengths. VQ-VLA uses residual VQ-VAE[11] to establish a mapping between action val-ues and tokens, but we believe the granularity of this action tokenization remains insufficient. In our work, we propose a state information-guided action tokenizer, which offers stronger generaliza-tion capability and positional adaptability.Current tokenizers often borrow tokenizer methods from the field of natural language processing for text or from the field of computer vision for image generation[19, 20, 21], while neglecting the inherent characteristics of VLA themselves. 23 Methods 
+
+3.1 Problem Formulation 
+
+For a robotic arm manipulation task, given a dataset {(o1, s 1, a 1), . . . , (ot, s t, a t)} with language instruction L, where ot denotes the observed RGB image, st denotes the state of the robotic arm (typically represented by the rotation angle of each joint), and at denotes the target action of the robotic arm at the current timestep, our goal is to train a policy πθ (at:t+k | ot, s t, L ) that predicts a block of future k actions conditioned on the current observed image, state, and language instruction. 
+
+3.2 State-aware Action Tokenizer 
+
+First, we briefly introduce the base VQ-VAE[11]. The base model uses CNN and Transformer[12] encoders to extract temporal action features. These action features are then quantized using a codebook, and fixed-length discrete action embeddings are output. After that, decoding is per-formed through a decoder with a symmetric structure to the encoder, outputting the reconstructed actions.Based on this action tokenizer, we consider incorporating state information to improve the accuracy of action decoding. We explore two ways to introduce state information into the action tokenizer. The overall model architecture is illustrated in Figure 1. Our motivation for introducing state into the tokenizer is that when using delta actions, the same delta action may correspond to different physical outcomes in certain situations. For example, when a robotic arm is grasping a bottle, the same delta action for grasping might be identical, but dif-ferent grasp positions can determine whether the bottle is successfully picked up. If all actions corresponding to different grasp positions are mapped to the same action token, the performance will naturally degrade. This highlights the importance of incorporating state information.Inspired by the interaction between VLM tokens and action experts in π0[7], we propose a method that performs cross-attention between state and action within the Transformers of both the encoder and decoder to incorporate state information, denoted as Method A. The other approach is inspired by human behavioral habits: humans often predict future actions based on the current state before act-ing, for example, when the hand approaches a cup, it is likely to grasp it. Therefore, we propose using a lightweight adapter to map state information into a scaling factor for each dimension of the action sequence, thereby predicting the scale of action generation with the assistance of state information.This way is denoted as Method B. Below, we describe how the model performs forward propagation in detail. For Method A, given an input action sequence a, we first extract its intermediate features using an encoder composed of a CNN and two layers of Transformer[12], where the keys and values in the two Transformer layers are both derived from the state input. The intermediate features output by the encoder are denoted as Z ∈ RR×d.After the quantization operation of the VQ-VAE[11] codebook, the resulting quantized vectors are denoted as ˆz′
+
+> i
+
+. The quantization process for embedding ˆzi with codebook Z
+
+can be formulated as follows: 
+
+qi = arg min ∥zi − ˆzi∥2,
+
+where qi is the nearest neighbor lookup index from the codebook Z. After the quantization opera-tion, the reconstructed ˆa is obtained through a decoder that is symmetric to the encoder. It should be noted that the keys and values in the two Transformer[12] layers of the decoder also use the raw state data. Method B is similar to Method A. Given an input action sequence a, the state information first passes through a lightweight adapter composed of MLP and Activation functions such as sigmoid[22] to obtain a scaling factor w for each dimension of a, resulting in a transformed action atrans = a ÷ w.The transformed action atrans then passes through an encoder with the same structure to extract its intermediate features, where the Transformer[12] does not incorporate state input. The intermediate features output by the encoder are denoted as Z ∈ RR×d. After undergoing the same quantization 3operation, the quantized features pass through a decoder symmetric to the encoder to obtain the reconstructed transformed action ˆatrans . To maintain symmetry, ˆatrans is multiplied by w to obtain the final reconstructed action ˆa. In this case, the Transformer[12] does not use state input either. Following the training paradigm of VQ-VAE[11], we define the overall loss L as a weighted combi-nation of the reconstruction loss Lres , the vector quantization (VQ) loss Lcodebook , and the commit-ment loss Lcommit :
+
+L = ∥ˆa − a∥22 + λ1 · ∥ sg (x) − q(x)∥22 + λ2 · ∥ x − sg (q(x)) ∥22,
+
+where λ1 and λ2 are balancing hyperparameters, sg (·) denotes the stop-gradient operation, x rep-resents the encoder output features, and q(x) denotes the quantized features from the codebook. 
+
+Figure 1: The tokenizer architecture.As shown in the upper part of the figure, Method A integrates state information into the tokenizer by performing cross-attention with the action. As shown in the lower part of the figure, Method B integrates state information into the tokenizer by modulating the action through a lightweight adapter. 
+
+3.3 Integrating State-aware Action Tokenizer in VLA 
+
+The overall model architecture is illustrated in Figure 2.Our goal is to train a VLA[23][24] policy 
+
+πθ (at:t+k | ot, s t, L ) that predicts a block of future actions conditioned on the current observation image ot, robot state st, and language instruction L. For the language description L, we use the base LLM’s native tokenizer to obtain text tokens. For the joint states st, we adopt the approach outlined in FAST [10] to discretize each joint dimension into 256 bins, yielding a sequence of discrete state tokens. For processing the observation image ot, we resize each image to 224 × 224 and apply SigLIP-SO400M-patch14-224 [25] as the image tokenizer, producing a 16 × 16 grid of patch[26] embeddings, i.e., 256 continuous image tokens per frame. For the input action sequence, we use our proposed state-aware tokenizer (SA-VLA tokenizer) to transform continuous action sequences a′ into discrete action tokens ˜a. Unlike prior tokenizers, our approach introduces state-conditioned decoding via a lightweight adapter that predicts a scaling fac-tor w for each action dimension, transforming the action as atrans = a ÷ w before quantization. This 4Figure 2: VLA architecture effectively reformulates the discrete VQ-VAE[11] into a regression problem, enabling the generation of a continuous action space while preserving the benefits of a fixed codebook. To delineate modality boundaries in the input tokens, we introduce special functional tokens: 
+
+t bos/t eos for text, s bos/s eos for state, i bos/i eos for image, and a bos/a eos for ac-tion. During training, we serialize the context and targets into a single sequence, for example: 
+
+> [t bos, t tokens, t eos, s bos, s tokens, s eos, i bos, i tokens, i eos, a bos, action tokens, a eos]
+
+This design yields a consistent tokenized interface across modalities, enabling straightforward au-toregressive learning of the action sequence conditioned on language, state, and vision. We evaluate our state-aware tokenizer under two decoding strategies: 
+
+Autoregressive Decoding. In this setting, the VLA generates action tokens sequentially via next-token prediction. The training objective minimizes the negative log-likelihood of predicted action tokens given previous tokens and the full context: 
+
+LAD = −
+
+> h
+
+X
+
+> i=1
+> R
+
+X
+
+> r=1
+
+log P (qi,r | q<, o t, s t, L ), (1) where q< denotes previous action tokens. 
+
+Parallel Decoding. Our tokenizer produces fixed-length discrete action sequences, enabling parallel decoding[2] where the entire action block[27] is generated in a single forward pass. We adopt bidirectional attention and placeholder embeddings for action positions, with the training objective: 
+
+LPD = −
+
+> h
+
+X
+
+> i=1
+> R
+
+X
+
+> r=1
+
+log P (qi,r | ot, s t, L ). (2) 5Parallel decoding significantly improves inference efficiency while maintaining high performance. Across both settings, the LLM remains unchanged and continues to output discrete tokens, with only minimal modifications to the input interface and attention mask. 
+
+## 4 Experiments 
+
+4.1 Simulation Experiments 4.1.1 Experiment Setup 
+
+Our simulation experiments were conducted on the RoboTwin[28] platform in clean mode, with 12 tasks, each containing 1,600 trajectories, resulting in a total of 19,200 simulation data entries for training and testing. The specific task types are detailed in Appendix A.2. To perform com-parative experiments and validate the effectiveness of our approach, we used the same Qwen2.5-based VLM followed by different action tokenizers. The following groups were set up: (1) the bin-based tokenization method represented by OpenVLA[5]; (2) the tokenization method repre-sented by FAST[10]; (3) the VQ-BET tokenization method represented by VQ-VLA[6];(4) Method A as described in our approach; (5) Method B as described in our approach. All groups were trained under the same hyperparameter settings and tested on RoboTwin[28].The details regarding training and testing are provided in the Appendix A. 
+
+4.1.2 Simulation Results 
+
+We evaluated the models on the same 12 tasks from the RoboTwin benchmark used during training. For each task, we conducted 100 rollouts, where a success was recorded as 1 and a failure as 0, and then computed the success rate for each task. The experimental results are shown in Table 4.1. The results demonstrate that our methods, Method A and Method B, achieve significant improvements over previous action tokenization approaches under both autoregressive and parallel decoding set-tings. Specifically, Method B achieves an average success rate of 56% across the 12 tasks under autoregressive decoding, which is a 23% improvement over the binning tokenizer, a 40% improve-ment over the FAST tokenizer, and a 28% improvement over the VQ-BET tokenizer. Table 4.1: Tokenizer performance comparison on RoboTwin                                                                                                                               
+
+> Tokenizer Beat Block Move Playingcard Pick Diverse Move Can Move Pillbottle Click Handover Hammer ↑Away ↑Bottles ↑Pot ↑Pad ↑Bell ↑Mic ↑
+> Binning 0.11 0.01 0.27 0.02 0.00 0.67 0.00 FAST 0.00 0.18 0.06 0.08 0.01 0.68 0.01 VQ-BET 0.10 0.27 0.12 0.13 0.06 0.64 0.00 MethodA(AR) 0.25 0.47 0.14 0.65 0.35 0.83 0.18 MethodA(PD) 0.12 0.49 0.05 0.44 0.46 0.80 0.18 MethodB(AR) 0.16 0.60 0.22 0.62 0.36 0.90 0.22 MethodB(PD) 0.29 0.63 0.21 0.47 0.41 0.89 0.28 Tokenizer Place Container Handover Place Phone Place Burger Shake average ↑
+> Plate ↑Mic ↑Stand ↑Fries ↓Bottle ↓
+> Binning 0.00 0.85 0.02 0.01 0.92 0.24 FAST 0.07 0.17 0.01 0.00 0.76 0.17 VQ-BET 0.54 0.59 0.04 0.15 0.87 0.29 MethodA(AR) 0.90 0.96 0.25 0.77 0.85 0.55 MethodA(PD) 0.83 0.98 0.34 0.71 0.88 0.52 MethodB(AR) 0.86 0.99 0.27 0.59 0.96 0.56 MethodB(PD) 0.85 0.95 0.37 0.53 0.89 0.56
+
+4.1.3 Results Analysis 
+
+We believe such simulation results are interpretable. Introducing state information into the action tokenizer helps the tokenizer perform more precise decoding, thus leading to better experimental performance. The reason why Method B achieves better results than Method A is as follows: In Method A, the decoding process of VQ-VAE[11] is from discrete codebook tokens to continuous 6action values, which is essentially limited by the codebook capacity—i.e., there is a one-to-one correspondence between the output tokens in the VLA and the corresponding actions. In contrast, the advantage of Method B lies in extending the decoding process of VQ-VAE[11] by multiplying the discrete codebook tokens with the action scaling scales provided by the state information. Since the scales obtained from the state network vary with different states, the same token can produce multiple actions. This can be understood as: the tokens in Method B represent only a class of actions, while the state network provides the scale for that class of actions. Therefore, this approach can be extended to a continuous action space, resulting in better performance. 
+
+4.2 Ablation Study 
+
+To validate the effectiveness of our proposed method, we conduct the following ablation studies: (1) verifying whether the introduction of state improves the decoding accuracy of the action tokenizer; (2) evaluating the generalization capability of SA-VLA. 
+
+4.2.1 Ablation Study on the Role of State 
+
+To fully demonstrate the advantage of incorporating state information into the action tokenizer for action decoding, we conducted several comparative experiments. On the aforementioned 12 RoboTwin[28] tasks, we trained a VLA without state information in the action tokenizer and a VLA with state information in the action tokenizer, and evaluated their average success rates under both autoregressive and parallel decoding settings. The experimental results are shown in Table 4.2. Table 4.2: Ablations on the impact of introducing state to action tokenizer        
+
+> Method Average ↑
+> w/o state (PD) 0.43 w/o state (AR) 0.51 Method A (PD) 0.52 Method A (AR) 0.55 Method B (PD) 0.56 Method B (AR) 0.56
+
+4.2.2 Ablation study on model generalization 
+
+To investigate the generalization capability of SA-VLA, we constructed four task settings: 
+
+shake bottle horizontally and place empty cup in a clean environment, and handover mic and 
+
+place container plate in a random environment. The former two tasks are designed to evaluate the model’s performance on previously unseen tasks, whereas the latter two tasks aim to assess the model’s performance in unseen scenarios. The corresponding experimental results are presented in the Appendix C.1. 
+
+4.2.3 Ablation study on tokenization granularity 
+
+To demonstrate the fine-grained action tokenization capability of our method, we selected four sim-ilar action timesteps from four task scenarios on the Beat Block Hammer task in RoboTwin. In tokenizers without state information, these four actions were mapped to identical indices. In con-trast, with state-aware tokenization, our method can distinguish these four actions at the level of cosine similarity differences as fine as 0.001.See Appendix C.2 for details. 
+
+4.3 Real world experiments 4.3.1 Experiment Setup 
+
+In our real-world experiments, we employ the AgileX Cobot Magic mobile platform configured with an Aloha setup comprising four robotic arms. Each arm is an AgileX Piper with six degrees of freedom, equipped with a one-DoF parallel gripper. The platform is also equipped with a RealSense 7D435 RGB camera that captures real-time RGB images at a resolution of 640 × 480 pixels and a frame rate of approximately 30 Hz. To evaluate the zero-shot sim-to-real transfer capability of our VLA models, we directly apply the VLAs trained on RGB images from the RoboTwin simulator to three real-world manipulation tasks: Click Bell, Place Container Plate, and Pick Diverse Bottles. Each task is evaluated with 20 trials.The tasks are shown in Appendix B.2. 
+
+4.3.2 Real world results 
+
+To demonstrate better results, we adopt the Method B tokenizer, which performs better in simu-lation, for our experiments. The experimental results in Table 4.3 show that under the zero-shot setting, our method achieves an average success rate of 33% across the 3 tasks under autoregressive decoding, which is a 23% improvement over the binning tokenizer, a 25% improvement over the FAST tokenizer, and an 18% improvement over the VQ-BET tokenizer. Table 4.3: Tokenizer performance comparison on Real world                            
+
+> Tokenizer Click bell ↑Place container Pick Diverse Average ↑
+> plate ↑Bottle ↑
+> Binning 6/20 0/20 0/20 0.1 FAST 4/20 1/20 0/20 0.08 VQ-BET 7/20 2/20 0/20 0.15 Ours(PD) 8/20 5/20 3/20 0.27 Ours(AR) 10/20 7/20 3/20 0.33
+
+## 5 Conclusion 
+
+In our work, we experimented with different ways to incorporate state information into the action tokenizer and selected the best action tokenizer to seamlessly integrate into the VLA. In simulation, this achieves up to a 40% improvement over previous classic action tokenizer approaches, and attains high success rates in real-world sim-to-real experiments. 
+
+## 6 Limitations 
+
+Scalability: It has only been validated on small-scale datasets, and its scalability has not been demonstrated. Nowadays, many large-scale datasets[29, 30] have emerged.Many current works[31] introduce large-scale datasets to attempt to validate scaling laws[32] in robotics, which is also an important future research direction. In subsequent work, we will expand the training data volume and model parameters within our resource limits to attempt to validate the scaling law[32] of our method. 
+
+Model architecture: Furthermore, we follow the VQ-VAE[11] architecture; whether other gener-ative models like diffusion[33] can be used to replace VQ-VAE[11] remains a promising direction for future research. In image generation[19] and other domains, diffusion[33] models have demon-strated strong generative capabilities and high fidelity. Whether diffusion[33] can be integrated into discrete action tokenizers to improve generation quality is also a direction worth exploring in our future work. 
+
+Embodiment selection: Compared to dexterous hands, robotic arms are less convenient in practical real-world production and daily life scenarios. Therefore, whether the embodiment can be migrated from robotic arms to dexterous hands[34] while maintaining stable performance is a direction we will explore in the future. 8References 
+
+[1] A. Brohan, N. Brown, J. Carbajal, Y. Chebotar, J. Dabis, C. Finn, K. Gopalakrishnan, K. Haus-man, A. Herzog, J. Hsu, et al. Rt-1: Robotics transformer for real-world control at scale. arXiv preprint arXiv:2212.06817 , 2022. [2] M. J. Kim, C. Finn, and P. Liang. Fine-tuning vision-language-action models: Optimizing speed and success. arXiv preprint arXiv:2502.19645 , 2025. [3] H. Li, Y. Zuo, J. Yu, Y. Zhang, Z. Yang, K. Zhang, X. Zhu, Y. Zhang, T. Chen, G. Cui, et al. Simplevla-rl: Scaling vla training via reinforcement learning. arXiv preprint arXiv:2509.09674 , 2025. [4] C.-L. Cheang, G. Chen, Y. Jing, T. Kong, H. Li, Y. Li, Y. Liu, H. Wu, J. Xu, Y. Yang, et al. Gr-2: A generative video-language-action model with web-scale knowledge for robot manipulation. 
+
+arXiv preprint arXiv:2410.06158 , 2024. [5] M. J. Kim, K. Pertsch, S. Karamcheti, T. Xiao, A. Balakrishna, S. Nair, R. Rafailov, E. Foster, G. Lam, P. Sanketi, et al. Openvla: An open-source vision-language-action model. arXiv preprint arXiv:2406.09246 , 2024. [6] Y. Wang, H. Zhu, M. Liu, J. Yang, H.-S. Fang, and T. He. Vq-vla: Improving vision-language-action models via scaling vector-quantized action tokenizers. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 11089–11099, 2025. [7] K. Black, N. Brown, D. Driess, A. Esmail, M. Equi, C. Finn, N. Fusai, L. Groom, K. Hausman, B. Ichter, et al. π0: A vision-language-action flow model for general robot control. arXiv preprint arXiv:2410.24164 , 2024. [8] S. Bai, Y. Cai, R. Chen, K. Chen, X. Chen, Z. Cheng, L. Deng, W. Ding, C. Gao, C. Ge, et al. Qwen3-vl technical report. arXiv preprint arXiv:2511.21631 , 2025. [9] T. Shiba. The compression gap: Why discrete tokenization limits vision-language-action model scaling. arXiv preprint arXiv:2604.03191 , 2026. [10] K. Pertsch, K. Stachowicz, B. Ichter, D. Driess, S. Nair, Q. Vuong, O. Mees, C. Finn, and S. Levine. Fast: Efficient action tokenization for vision-language-action models. arXiv preprint arXiv:2501.09747 , 2025. [11] A. Van Den Oord, O. Vinyals, et al. Neural discrete representation learning. Advances in neural information processing systems , 30, 2017. [12] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, Ł. Kaiser, and I. Polo-sukhin. Attention is all you need. Advances in neural information processing systems , 30, 2017. [13] Y. Liu, P. Ding, T. Jiang, X. Wang, W. Song, M. Lin, H. Zhao, H. Zhang, Z. Zhuang, W. Zhao, et al. Mmada-vla: Large diffusion vision-language-action model with unified multi-modal instruction and generation. arXiv preprint arXiv:2603.25406 , 2026. [14] H. Liang, X. Chen, B. Wang, M. Chen, Y. Liu, Y. Zhang, Z. Chen, T. Yang, Y. Chen, J. Pang, et al. Mm-act: Learn from multimodal parallel generation to act. arXiv preprint arXiv:2512.00975 , 2025. [15] B. Team. Being-h0. 7: A latent world-action model from egocentric videos, 2026. [16] Q. Zhao, Y. Lu, M. J. Kim, Z. Fu, Z. Zhang, Y. Wu, Z. Li, Q. Ma, S. Han, C. Finn, et al. Cot-vla: Visual chain-of-thought reasoning for vision-language-action models. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 1702–1713, 2025. 9[17] Z. Liu, J. Liu, H. Chen, J. Yu, Z. Guo, C. Hou, C. Gu, X. Mi, R. Zhang, K. Wu, et al. Last 
+
+{0}: Latent spatio-temporal chain-of-thought for robotic vision-language-action model. arXiv preprint arXiv:2601.05248 , 2026. [18] J. Zhai, H. Shi, S. Guo, K. Yang, and K. Wang. E-vla: Event-augmented vision-language-action model for dark and blurred scenes. arXiv preprint arXiv:2604.04834 , 2026. [19] S. Yang, X. Hu, Q. Wu, and D. Yang. Vaevq: Enhancing discrete visual tokenization through variational modeling. In Proceedings of the AAAI Conference on Artificial Intelligence , vol-ume 40, pages 11703–11711, 2026. [20] H. Chen, Z. Wang, X. Li, X. Sun, F. Chen, J. Liu, J. Wang, B. Raj, Z. Liu, and E. Barsoum. Softvq-vae: Efficient 1-dimensional continuous tokenizer. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 28358–28370, 2025. [21] Y. Zhu, B. Li, Y. Xin, Z. Xia, and L. Xu. Addressing representation collapse in vector quantized models with one linear layer. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 22968–22977, 2025. [22] S. Elfwing, E. Uchibe, and K. Doya. Sigmoid-weighted linear units for neural network function approximation in reinforcement learning. Neural networks , 107:3–11, 2018. [23] Q. Bu, Y. Yang, J. Cai, S. Gao, G. Ren, M. Yao, P. Luo, and H. Li. Univla: Learning to act anywhere with task-centric latent actions. arXiv preprint arXiv:2505.06111 , 2025. [24] J. Cen, C. Yu, H. Yuan, Y. Jiang, S. Huang, J. Guo, X. Li, Y. Song, H. Luo, F. Wang, et al. Worldvla: Towards autoregressive action world model. arXiv preprint arXiv:2506.21539 ,2025. [25] X. Zhai, B. Mustafa, A. Kolesnikov, and L. Beyer. Sigmoid loss for language image pre-training. In Proceedings of the IEEE/CVF international conference on computer vision , pages 11975–11986, 2023. [26] A. Dosovitskiy, L. Beyer, A. Kolesnikov, D. Weissenborn, X. Zhai, T. Unterthiner, M. De-hghani, M. Minderer, G. Heigold, S. Gelly, et al. An image is worth 16x16 words: Transform-ers for image recognition at scale. arXiv preprint arXiv:2010.11929 , 2020. [27] T. Z. Zhao, V. Kumar, S. Levine, and C. Finn. Learning fine-grained bimanual manipulation with low-cost hardware. arXiv preprint arXiv:2304.13705 , 2023. [28] T. Chen, Z. Chen, B. Chen, Z. Cai, Y. Liu, Z. Li, Q. Liang, X. Lin, Y. Ge, Z. Gu, et al. Robotwin 2.0: A scalable data generator and benchmark with strong domain randomization for robust bimanual robotic manipulation. arXiv preprint arXiv:2506.18088 , 2025. [29] Y. Deng and D. Zhou. Humannet: Scaling human-centric video learning to one million hours. 
+
+arXiv preprint arXiv:2605.06747 , 2026. [30] A. O’Neill, A. Rehman, A. Maddukuri, A. Gupta, A. Padalkar, A. Lee, A. Pooley, A. Gupta, A. Mandlekar, A. Jain, et al. Open x-embodiment: Robotic learning datasets and rt-x models: Open x-embodiment collaboration 0. In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pages 6892–6903. IEEE, 2024. [31] G. A. Team. Gen-0: Embodied foundation models that scale with physical interaction. Gener-alist AI Blog , 2025. https://generalistai.com/blog/nov-04-2025-GEN-0. [32] J. Kaplan, S. McCandlish, T. Henighan, T. B. Brown, B. Chess, R. Child, S. Gray, A. Rad-ford, J. Wu, and D. Amodei. Scaling laws for neural language models. arXiv preprint arXiv:2001.08361 , 2020. 10 [33] J. Ho, A. Jain, and P. Abbeel. Denoising diffusion probabilistic models. Advances in neural information processing systems , 33:6840–6851, 2020. [34] Z. Zhang, J. Pang, Z. Yang, K. Li, M. Liao, S. Zhang, G. Chi, J. Guo, H.-a. Gao, M. Shi, et al. Dexora: Open-source vla for high-dof bimanual dexterity. arXiv preprint arXiv:2605.18722 ,2026. 11 Appendix 
+
+## A Detailed Training And Evaluation Recipes 
+
+A.1 Settings for Data Collection in Simulator 
+
+We conducted experiments in the RoboTwin simulator using two Piper manipulators separated by a distance of 0.6m as the experimental platform. A total of 12 tasks were collected, with 1,600 demonstrations per task. The data collection configuration is shown in the Table A.1. Table A.1: Settings for Data Collection in Simulator 
+
+Parameter Value 
+
+Save Frequency 15 Embodiment Piper Random Background True Cluttered Table False Clean Background Rate 0.02 Random Head Camera Distance 0.03 Random Table Height 0.03 Random Light True Crazy Random Light Rate 0.02 Head Camera Type D435 
+
+A.2 Dataset Statistics and Task Metrics 
+
+Table A.2 summarizes the task names, average trajectory lengths, and a selected instruction for each of the 12 tasks in the simulation.Appendix B.1 illustrates some of the tasks and scenarios used in the simulation environment. Table A.2: Dataset Statistics and Task Metrics                             
+
+> Task Name Avg. Step Num Task Example Description
+> Beat Block Hammer 67 Grab the silver hammer and use it to hit. Click Bell 52 Press the center top of the blue bell. Handover Mic 134 Grasp the dark blue microphone and pass it across. Move Can Pot 90 Lift the smooth sauce can, place it by the gray kitchen pot. Move Pillbottle Pad 88 Hold the white bottle and position it on the pad. Move Playingcard Away 70 Slide the box for playing cards off the table outward. Pick Diverse Bottles 75 Grab the plastic bottle, pick up the yellow body bottle. Place Mouse Pad 88 Grab the dark gray mouse and drop it on the black mat. Place Container Plate 92 Move the white cup and drop the container onto the round plate. Place Phone Stand 82 Carry the flat phone to the green phone rack. Place Burger Fries 141 Move the box for hamburg and the red fries box to the tray. Shake Bottle 133 Shake the orange bottle after lifting it.
+
+A.3 Training Recipe 
+
+The overall training procedure is divided into two stages. In the first stage, the action tokenizer is trained, while in the second stage, the vision-language-action (VLA) model is trained.We train the model using a total of 19,200 trajectories collected from 12 tasks in Appendix A.1. The detailed training recipe is shown in Table A.3. 12 Table A.3: Training recipes 
+
+Config Stage 1 Stage 2 
+
+batch size 1024 64 training epochs 200 10 optimizer AdamW AdamW learning rate 5 × 10 −5 1 × 10 −4
+
+learning rate schedule cosine cosine warmup epochs 0 0commitment coefficient 1.0 1000.0 adversarial coefficient 0.1 1.0 random horizontal flip true false 
+
+A.4 Evaluation recipes 
+
+For the evaluation on the Robotwin task, we conduct experiments on a single RTX 4090 GPU. The detailed evaluation procedure can be found at https://robotwin-platform.github.io/doc/ index.html .
+
+## B Visualization 
+
+B.1 Visualization on simulation tasks 
+
+We selected three task scenarios from RoboTwin, namely move pillbottle pad , place burger fries ,and click bell , and took a partial segment of each scenario, as shown in the Figure 3. 
+
+Figure 3: Some of the simulation tasks 
+
+B.2 Visualization on real world scenes 
+
+In the real-robot experiments, we selected three tasks, namely Click Bell , Place Container Plate ,and Pick Diverse Bottles , and took a partial segment of each scenario, as shown in the Figure 4. 
+
+## C Ablation study results 
+
+C.1 Ablations on model generalization 
+
+We selected a total of four tasks for task generalization and scene generalization, and took a partial segment of each scenario, as shown in the Table C.1. 13 Figure 4: Three task scenarios Table C.1: Performance on generalization tasks Task Name SR Shake Bottle Horizontally 0.95 Place Empty Cup 0.25 Handover Mic 0.10 Place Container Plate 0.16 
+
+C.2 Ablations on tokenization granularity 
+
+We observed examples where different actions were mapped to identical tokens by the state-agnostic tokenizer, whereas the state-aware tokenizer mapped them to distinct tokens, as illustrated in Fig-ure 5 and Table C.2. Furthermore, we quantified the changes in reconstruction loss and codebook utilization after incorporating state information, as shown in Figure ?? . These results demonstrate that incorporating state information enables finer-grained tokenization. Table C.2: Similarity comparison between four actions and the first action Label Action Data Shape Cosine Similarity to Action 1 a Action 1 8 × 7 1.000000 b Action 2 8 × 7 0.999984 c Action 3 8 × 7 0.998856 d Action 4 8 × 7 0.999998 14 Figure 5: Visualization on tokenization granularity 15

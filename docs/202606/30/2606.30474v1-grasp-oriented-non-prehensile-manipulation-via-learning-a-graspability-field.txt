@@ -1,0 +1,488 @@
+Title: Grasp-Oriented Non-Prehensile Manipulation via Learning a Graspability Field
+
+URL Source: https://arxiv.org/pdf/2606.30474v1
+
+Published Time: Tue, 30 Jun 2026 02:31:56 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+# Grasp-Oriented Non-Prehensile Manipulation via Learning a Graspability Field 
+
+Licheng Zhong and Gim Hee Lee 
+
+Department of Computer Science, National University of Singapore, Singapore 
+
+{zlicheng, gimhee.lee}@comp.nus.edu.sg https://zlicheng.com/gomp_page/ 
+
+Abstract. Non-prehensile manipulation is often used as a preparatory step for robotic grasping, yet existing approaches typically require a pre-defined target object pose. In practice, however, objects admit multiple graspable configurations and the desired pose is not known in advance. We reformulate non-prehensile manipulation for grasping as optimizing an object centric graspability objective rather than reaching a specific pose. We construct a graspable set from synthesized grasps and define a graspability field that measures how suitable an object configuration is for successful grasp execution. The scalar measure provides a dense learn-ing signal for reinforcement learning and determines when to terminate manipulation. This yields a closed-loop manipulation-to-grasp pipeline driven by a single policy. Experiments in simulation and on a real robot show that the policy reliably reconfigures objects into graspable states and transitions to grasping without external planners or manually spec-ified stopping conditions. The predicted graspability distance correlates with real world grasp success, which indicates that the learned represen-tation captures grasp feasibility of object configurations. 
+
+Keywords: Non-Prehensile Manipulation · Grasp-Oriented Manipula-tion · Graspability Field 
+
+# 1 Introduction 
+
+Robotic grasping in unstructured environments often fails not because feasible grasps do not exist, but because the object is initially in an unfavorable config-uration. Before a reliable grasp can be executed, the robot frequently needs to interact with the object through pushing, sliding, or reorienting it. These non-prehensile interactions serve as a preparation stage that transforms the object into a configuration suitable for grasping, especially when the object is unstable, partially occluded, or poorly aligned with the gripper. Recent learning-based approaches have shown promising results by using non-prehensile manipulation as a preparation stage for grasping. Methods such as CORN [7] and DyWA [28] formulate manipulation as a goal-conditioned control 
+
+> arXiv:2606.30474v1 [cs.RO] 29 Jun 2026
+
+2 L. Zhong and G. H. Lee Auto-reconfiguration Graspability check Predict & Grasp Require predefined target configuration  
+
+> Direct Grasp Graspability Goal-conditioned manipulation
+> Ours
+> Hard to grasp
+> pred. graspability field
+> Policy
+> grasp. dist.
+> learn obs.
+
+Fig. 1: Direct grasps from a fixed approach can fail due to unfavorable object configu-rations, even when feasible grasps exist. Instead of requiring a predefined target pose, we learn a graspability field over object states to guide manipulation and trigger the manipulation-to-grasp transition. Once the object enters a graspable region, the robot autonomously transitions from manipulation to grasp execution. 
+
+problem, where the policy is guided toward a desired object pose. This formula-tion enables stable learning and has demonstrated effective object repositioning behaviors in both simulation and real-world settings. However, the target-pose formulation implicitly assumes that grasp prepara-tion can be reduced to reaching a single predefined configuration. In practical grasping scenarios, many objects admit multiple graspable configurations, and selecting one goal configuration does not necessarily reflect how a robot should interact with the object from its current state. A policy may successfully match the target pose while failing to meaningfully improve grasp success. More importantly, even when a target pose is specified, reaching it does not necessarily yield the most graspable configuration: a pose-reaching objec-tive optimizes geometric similarity to a predefined configuration, while grasp preparation requires moving toward a nearby region of high graspability. Since graspability typically exhibits multiple local maxima in the object configuration space, a predefined target may lie outside the nearest graspable basin, forcing the policy to move the object away from an easily graspable configuration before eventually approaching the target. As a result, manipulation behavior ends up guided by distance to the target rather than improvement of grasp success. This reveals a mismatch between pose-reaching objectives and grasp prepa-ration: preparing an object for grasping is not a pose regulation task, but a state improvement process, where the policy should be guided by how gras-pable the object currently is rather than its proximity to a predefined pose. As shown in Fig. 1, we therefore argue that non-prehensile manipulation for grasping should be driven by graspability rather than explicit target poses: manipulation is a process of progressively improving the graspability of the object, with the GOMP 3
+
+goal not of reaching a particular configuration, but of transforming the object into a state that admits reliable and stable grasps. Based on this formulation, we propose GOMP , a Grasp-Oriented non-prehensile Manipulation Policy that maximizes a learned graspability function defined over object configurations. Instead of predicting or tracking a target pose, we learn a graspability field that estimates how suitable the current configuration is for executing a grasp. The policy is trained using reinforcement learning to progressively increase this graspability over time, which naturally enables both manipulation behaviors and stopping decisions for grasp execution. Experiments in simulation and on a real Franka robot demonstrate that GOMP consistently improves grasp success over target-conditioned baselines. In summary, our contributions are threefold: 
+
+– We introduce a new formulation of non-prehensile manipulation as graspabil-ity optimization, which replaces pose-reaching objectives with a state-based improvement objective. 
+
+– We propose a graspability field representation that provides dense learn-ing signals and enables both manipulation and stopping without requiring explicit target poses. 
+
+– We validate the proposed approach through extensive simulation studies on non-prehensile manipulation, and real-world closed-loop experiments that demonstrate consistent improvements in grasp success when using our grasp-oriented manipulation policy as a preparation stage. 
+
+# 2 Related Work 
+
+Non-Prehensile Manipulation. Non-prehensile manipulation studies how a robot deliberately changes the configuration of an object without grasping it. Typical actions include pushing, sliding, and reorientation [21, 23, 27, 30, 41, 48]. Both classical planning approaches and contact-based control methods aim to transform an object from an initial state to a desired configuration [5, 32, 33]. Recent learning-based methods acquire such behaviors directly from interaction data. Self-supervised and reinforcement learning approaches learn pushing and rearrangement policies [46], including push–grasp coordination strategies that improve robustness [10, 16, 43]. Despite improved adaptability, the manipula-tion objective in these methods remains externally specified, typically through a target pose or goal conditioned policy. More recent work investigates coordi-nated whole arm reorientation [7, 19, 28, 50, 51]. CORN [7] learns policies that manipulate objects toward a predefined target pose, and DyWA [28] further im-proves perception and distillation. To achieve strong performance, these methods require the desired object configuration to be known in advance. However, the desired configuration is usually unknown in practical grasping scenarios. Objects often admit multiple feasible grasp poses, and perception alone cannot determine which configuration should be reached before interaction. Therefore, for grasp-ing, the objective is not to reach a specific pose but to bring the object into any configuration from which a stable grasp can be executed. 4 L. Zhong and G. H. Lee 
+
+Learning Based Robotic Grasping. Learning-based robotic grasping aims to predict grasp actions directly from sensory observations [8,17]. Early methods learn grasp success predictors or analytic grasp synthesis models from large-scale data, often assuming precise object geometry or full visibility [40, 47]. Vision-based approaches then train networks to estimate stable grasp poses or grasp affordances from images or point clouds [11–14, 37, 39]. Recent generative mod-els produce diverse grasp candidates conditioned on object observations, which improve robustness to shape variation and perception noise [15, 20, 38, 42]. Al-though effective for grasp execution, these approaches generally assume that the object is already in a graspable configuration when grasp poses are predicted. Some work considers interaction with the environment to make specific grasp poses reachable, such as extrinsic dexterity where objects are pushed against surfaces to enable occluded grasps [49]. These methods still aim to execute a given grasp by modifying reachability. In contrast, our objective is to prepare the object itself by bringing it into any configuration that admits stable grasps without specifying a target pose. 
+
+Affordance Guided Manipulation. Several works attempt to connect ma-nipulation and grasping through grasp-related predictions [18, 35]. Vision-based grasping systems often estimate grasp affordances, reachability, or success like-lihoods from sensory observations [1, 9, 25, 29, 37, 39, 45]. Manipulation actions are then chosen to expose or enable predicted grasps [24, 26, 44, 46]. These ap-proaches still require a grasp to be selected or evaluated during planning. The objective is to realize a particular grasp candidate or maximize predicted grasp success, rather than to optimize the object configuration itself. In contrast, our method does not predict or evaluate grasps during manipulation. We instead de-fine a graspability measure over object states and learn actions that transform the object toward configurations that admit stable grasps. Thus, manipulation is guided by improving the object state rather than enabling a specific grasp. 
+
+# 3 Problem Formulation 
+
+Goal. We study non-prehensile manipulation as a preparatory process for robotic grasping, where the goal is to transform an object into a configuration that ad-mits reliable grasps. 
+
+Formulation. Let sto denote the (unobserved) rigid 6D pose (Ro, p o) of the object at time t, and the policy only receives an observation ot derived from sensor measurements such as point clouds. We consider an observation-based manipulation policy π(at | ot) that outputs non-prehensile actions at. Instead of specifying a desired target pose, we consider that an object may admit multiple graspable configurations. We therefore define a graspable set Sg , which contains object states that allow stable grasps. Manipulation is formulated as moving the object toward this set instead of toward a single predefined pose. To quantify progress toward graspability, we define a scalar graspability mea-sure G(so) that evaluates how close a state is to the graspable set Sg . Given an GOMP 5robot states partial pcd. robot states full pcd. robot tokens reference poses object tokens Encoder simulator teacher model cross attention learned query learned query cross attention 
+
+> GRUGRU
+
+Fig. 2: Method achitecture. A teacher–student framework that encodes observations, aggregates temporal information with a recurrent module, and predicts manipulation actions and a graspability distance. The teacher is used only during training, and the robot executes a grasp once the predicted graspability indicates a feasible configuration. 
+
+initial state s0
+
+> o
+
+, the manipulation policy aims to produce a trajectory {sto}Tt=0 
+
+that maximizes the graspability of the final state: 
+
+π∗ = arg max  
+
+> π
+
+Eπ
+
+G(sTo ) , (1) where the expectation is taken over the state distribution induced by the policy and the environment dynamics. This formulation eliminates the need for an explicit target pose: any state within the graspable set is considered successful. In the following section, we show how the graspable set can be constructed and how G(so) is derived from distances to this set. 
+
+# 4 Our Method 
+
+Overview. Fig. 2 shows the overview of our framework. Reference graspable configurations from full object geometry (Sec. 4.1) are used only during training to build graspability field for supervision (Sec. 4.2) and reward (Sec. 4.3), and are not available at test time. From partial observations, the policy predicts manipulation actions, a graspability distance, and a grasp pose (Sec. 4.4). The robot manipulates in closed loop and executes a grasp once the predicted distance indicates a sufficiently graspable configuration (Sec. 4.5), removing the need for a predefined target pose. 
+
+Architecture. As shown in Fig. 2, we employ a perception–control architec-ture that estimates graspability and actions jointly. Observations are encoded using the object-centric encoder from CORN [7]. Since our tasks and objects differ from the original setting, we fine-tune only the final attention layer while freezing earlier layers to preserve geometric features while adapting to new in-teraction dynamics. The encoder produces object and robot tokens, which are queried through cross-attention conditioned on the robot state to obtain a com-pact representation of the current object configuration. 6 L. Zhong and G. H. Lee 
+
+Due to partial observability of the object configuration from a single frame, the student policy incorporates a recurrent module (GRU [6]) to aggregate tem-poral information. The recurrent state allows the policy to infer object motion from recent observations and actions, which improves robustness to occlusion and contact-induced dynamics. The resulting feature is passed to the prediction heads that output the manipulation action, the predicted graspability distance, and the terminal grasp pose. A teacher policy with a similar perception back-bone but without recurrent memory is used only to generate stable manipulation behaviors for distillation. 
+
+4.1 Graspable Reference Pose Generation 
+
+The graspable set Sg is not directly available in practice and cannot be specified analytically for arbitrary objects. To approximate this set, we employ an off-the-shelf grasp synthesis model [38] that predicts feasible grasps from object geometry. Given an observed object point cloud, the grasp model produces multi-ple candidate grasps. Each grasp corresponds to a relative pose between the gripper and the object. We convert each grasp into a reference object pose by fixing a vertical top-down gripper pose and inverting the grasp transform 
+
+T ref obj = Rx(π)  T obj grasp 
+
+−1, where Rx(π) is a 180 ◦ rotation about the x-axis for vertical top-down alignment. The object is then vertically translated to rest on the table. This results in a set of graspable object states: 
+
+Sg = {ˆsio}Gi=1 , (2) where each ˆsio represents a configuration in which a stable grasp can be executed. Importantly, these configurations are not used as target poses for the manip-ulation policy. They are never provided to the policy as observations, nor used for imitation or supervision. Instead, they serve solely to define a set of desirable object states that characterize graspability. In the next section, we derive a scalar graspability measure by computing distances between the current object state and this graspable set. 
+
+4.2 Graspability Field Definition 
+
+A graspable configuration is not unique: many distinct object poses may al-low stable grasps. Therefore, measuring progress toward grasping using a single target pose is inappropriate since it artificially constrains the manipulation ob-jective. Instead, we measure how close the current object configuration is to a set of graspable states. Given the graspable set Sg = {ˆsio}Gi=1 defined in Sec. 3, we define a distance from the current state so to this set. A natural measure of graspability is the minimum distance to the set: 
+
+danchor (so) = min  
+
+> i∈{ 1,...,G }
+
+D(so, ˆsio), (3) GOMP 7
+
+where D(·, ·) measures the geometric discrepancy between two object configura-tions. In practice, D compares the spatial arrangement of the object geometry (e.g ., keypoints or surface points) under two configurations, and does not depend on the robot end-effector pose. A smaller value indicates that the object is closer to a configuration that admits a stable grasp. In our implementation, we approximate D using geometry alignment. Let 
+
+{pk}Kk=1 denote a fixed set of keypoints sampled from the object bounding box. For a configuration so with rigid transform T (so), the distance between two configurations is computed as the mean Euclidean discrepancy of transformed keypoints: 
+
+D(so, ˆsio) = 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+∥T (so)pk − T (ˆ sio)pk∥2. (4) This formulation compares object geometry rather than pose parameters and does not require an explicit pose representation at inference time. In particu-lar, the policy only observes point clouds, while the geometric distance is used internally to construct the learning signal. However, directly optimizing the minimum distance leads to discontinuities since the closest reference configuration may switch abruptly during manipula-tion. This instability makes learning difficult. To obtain a smooth and differen-tiable objective, we replace the hard minimum with a soft aggregation: 
+
+dsoft (so) = −τ log 
+
+> G
+
+X
+
+> i=1
+
+exp 
+
+
+
+− D(so, ˆsio)
+
+τ
+
+
+
+, (5) which smoothly approximates the minimum distance. As τ → 0, dsoft approaches 
+
+danchor , while larger τ allows the measure to account for multiple nearby gras-pable configurations simultaneously. Although the soft distance provides a smooth objective, it may still encourage frequent switching between different graspable modes across time steps. To pro-mote temporal consistency, we introduce an anchor term based on the previously selected configuration index i∗:
+
+˜d(sto) = dsoft (sto) + λD(sto, ˆsi∗ 
+
+> o
+
+). (6) The anchor steers the object toward the selected graspable configuration as it approaches the target. This mechanism stabilizes the trajectory and prevents oscillations between competing grasp modes. We interpret ˜d(so) as a graspability field defined over the space of object configurations. States with smaller values correspond to higher graspability. Im-portantly, this field evaluates a property of the object state rather than alignment with any specific grasp pose. Specifically, the policy does not aim for a particular end-effector pose. Instead, it seeks to move the object into a configuration that admits many feasible grasps. Unlike target-based objectives that optimize dis-tance to a single pose, this field defines a continuous landscape guiding the object toward regions that allow reliable grasps. Consequently, multiple manipulation strategies that produce graspable object states are equally valid. 8 L. Zhong and G. H. Lee 
+
+4.3 Learning with Graspability-Driven Rewards 
+
+The graspability field defined in Sec. 4.2 provides a continuous measure of how suitable an object configuration is for grasping. To learn a manipulation policy, we convert this measure into a training signal. A straightforward choice is to define the instantaneous reward as a monotonic function of the graspability distance: 
+
+rt = f
+
+ ˜d(sto)
+
+
+
+, (7) where smaller distance corresponds to higher reward. This directly aligns policy learning with the objective of reducing the distance to the graspable set. However, optimizing a state-based reward can lead to slow learning due to delayed credit assignment. To encourage incremental progress toward graspable configurations, we employ potential-based reward shaping. Following previous work [7], we use a potential function as a monotonic decreasing function of the graspability distance: 
+
+Φ(so) ≜ ϕ( ˜d(so)) , ϕ(d) = k1 βk2d, (8) where k1 and k2 control the scale and sharpness of the potential and β ∈ (0 , 1) .The shaped reward is then defined as: 
+
+rt = γΦ (st+1  
+
+> o
+
+) − Φ(sto), (9) which rewards reductions in the graspability distance between consecutive states. Intuitively, the agent receives a positive reward whenever the object moves closer to the graspable set ( i.e ., when ˜d decreases). This provides a dense super-vision signal and eliminates the need to execute grasp attempts during training. This formulation encourages the policy to progressively move the object toward graspable configurations while preserving the optimal policy under the original objective. Importantly, the reward is not a heuristic signal but a direct conse-quence of the graspability field: learning corresponds to minimizing the distance to the graspable set over time. 
+
+4.4 Grasp-Oriented Manipulation Policy (GOMP) 
+
+We instantiate the proposed formulation using a grasp-oriented manipulation policy, termed GOMP. The policy maps observations to non-prehensile manipu-lation actions and is trained to optimize the graspability field defined in Sec. 4.2. Instead of assuming access to the full object state, the policy operates directly on sensory observations. At each time step t, the policy receives an observa-tion ot derived from perception, including point cloud measurements and robot proprioceptive information, and produces an action 
+
+at ∼ πθ (· | ot), (10) where at corresponds to a non-prehensile manipulation command. In addition to actions, the policy predicts a scalar graspability distance ˆdt and a grasp pose GOMP 9
+
+used only for the final grasp execution. Neither reference configurations nor any target pose is provided as input. We emphasize that the policy architecture itself is not specific to our method. Any policy capable of mapping observations to manipulation actions can be used within our framework since the key contribution lies in the graspability-based objective instead of the network design. During training, the predicted distance ˆdt is supervised to regress the graspability distance ˜d(sto) defined by the graspability field. This enables the policy to estimate graspability directly from observations and to use the same signal for both manipulation and the manipulation-to-grasp transition at execution time. 
+
+4.5 Graspability-Guided Manipulation-to-Grasp Transition 
+
+Unlike target-based manipulation, our formulation does not specify a desired object pose. Consequently, the system must determine when the object is suf-ficiently prepared for grasping and when manipulation should terminate. We leverage the graspability field to provide this decision signal. Although the gras-pability field is defined over object states during training, the system relies on the policy-predicted graspability distance ˆdt at execution time. Manipulation is considered complete once the predicted graspability indicates that the object has reached a sufficiently graspable configuration. Since the magnitude of the graspability distance depends on object scale, a fixed threshold would vary across objects of different sizes. To obtain a scale-invariant stopping criterion, we normalize the predicted distance by the object size. Let L denote the diagonal length of the object bounding box. We define the normalized predicted graspability distance as ¯dt = ˆdt/L . We transition from manipulation to grasp execution when the graspability distance remains below a threshold for a short temporal window: 
+
+¯dt:t+K < ϵ,  (11) where ¯dt:t+K denotes the maximum of the predicted normalized graspability distances over a temporal window of K steps. Importantly, the transition criterion does not rely on a predefined target pose, and thus the policy can decide when to stop manipulating. Any configuration in the graspable set counts as success. Since GOMP optimizes over the entire graspable set rather than a single target, the policy can move toward alternative graspable regions that are more stable and reachable under contact dynamics; geometrically graspable but dynamically unstable states do not satisfy the stabil-ity constraint and are therefore not counted as successful. At the transition time, the policy outputs a grasp pose gt to parameterize the final grasp action. The pose does not supervise manipulation and does not define the learning objective. It only specifies how the gripper should execute the grasp once the object reaches a graspable configuration. Using the same graspability measure for both learn-ing (Sec. 4.3) and stopping teaches the policy how to manipulate the object and when further manipulation is unnecessary. This produces a closed-loop pipeline in which manipulation naturally prepares the object for grasp execution. 10 L. Zhong and G. H. Lee         
+
+> (a) Real world setup (b) Perception input
+> Fig. 3: Real-world experimental setup (a) and perception input (b) .
+> Fig. 4: Objects used in real world experiments.
+
+# 5 Experiment 
+
+5.1 Experimental Setup & Implementation Details Simulation Setup. All training is done in IsaacSim [34] and IsaacLab [31], using a Franka Emika Panda with a parallel jaw gripper. For both training and evaluation, we manually select task-suitable objects from the DexGraspNet [40], GraspFactory [36], and the YCB dataset [2–4]. The teacher policy receives full object point cloud, while the student policy operates on partial observations. Following CORN [7], we render partial point clouds using nvdiffrast [22]. 
+
+Real World Setup. As shown in Fig. 3, we run real-world experiments on a Franka Research 3 with a parallel jaw gripper. Three Intel RealSense D435IF RGB-D cameras capture multi-view depth images that are fused into a single partial point cloud. The cloud is filtered by a workspace bounding box, and the robot points are removed using forward kinematics [7]. As illustrated in Fig. 4, the evaluation set includes objects with diverse geometries, friction properties, and compliance levels, and no ground-truth poses, markers, or external tracking systems are used. All experiments use the standard parallel jaw gripper without friction enhancing materials. Successful grasps therefore depend on the policy that brings objects into graspable configurations, not on extra gripper friction. 
+
+Implementation Details. We train our policy with a teacher-student frame-work: reinforcement learning followed by online policy distillation. The teacher policy is trained for 15k iterations (approximately 10 hours on a single NVIDIA RTX A6000 GPU). A velocity constraint on the object is introduced after 5k it-erations. Before policy distillation, we further train the teacher for an additional 10k iterations with an action-scale curriculum to reduce the effective action range. Domain randomization is applied throughout training, including varia-tions in object mass, scale, friction, and initial poses. GOMP 11 
+
+Table 1: Simulation evaluation of non-prehensile manipulation as a grasp preparation task. Target Pose indicates whether the policy is explicitly conditioned on a predefined object configuration. Stable Check indicates whether dynamic stability constraints (ve-locity thresholds) are required in the success criterion. Method Target Pose Stable Check Seen Objects Unseen Objects Success Rate ↑ Avg. Time ↓ Success Rate ↑ Avg. Time ↓                                          
+
+> Retrained Baseline [7, 28] ✓✗36.1% 5.3s 28.8% 6.1s Nearest-reference Oracle ✓✗52.0% 8.1s 50.2% 8.8s Multi-reference Oracle ✓✗42.2% 11.3s 39.4% 9.9s Pretrained Baseline [7, 28] ✓✗––6.1% 12.9s Pretrained Baseline [7, 28] ✓✓––1.9% 12.1s GOMP (ours) Teacher ✗✓84.0% 4.6s 77.9% 4.8s GOMP (ours) Student ✗✓75.5% 6.1s 68.1% 6.2s
+
+5.2 Non-Prehensile Manipulation Evaluation 
+
+We first evaluate non-prehensile manipulation in simulation, where precise ob-ject states are available. This experiment does not assess grasp success; it tests whether the policy can reliably reconfigure objects toward graspable configura-tions without predefined target poses. 
+
+Baselines. We compare with the goal conditioned pose reaching teacher model used in both CORN [7] and DyWA [28], whose original evaluation targets phys-ically stable resting poses verified in a different simulator (IsaacGym). Direct comparison is non-trivial because these methods target pose reaching, not grasp preparation: our reference poses come from grasp synthesis and are graspable but not always stable resting poses. Thus, we evaluate: 1) Pretrained baseline : the released CORN/DyWA teacher checkpoints on our objects, with targets sampled from our (possibly dynamically unstable) synthesized references, making pose reaching difficult even when feasible grasps exist. 2) Retrained baseline : the same teacher policy reimplemented and retrained in our codebase with identical observations and action space, isolating the effect of the objective from imple-mentation details; the unstable-target issue remains. 3) Multi-reference ora-cle : the retrained baseline evaluated against all candidate references per episode, reporting the best result, which upper-bounds the gain from simply having ac-cess to multiple targets. 4) Nearest-reference oracle : the retrained baseline using, at every step, the reference closest to the current object state as its target – the fairest upper bound, since it always selects the most reachable target. 5) 
+
+Our method : our target-free policy that optimizes the graspability objective defined in Sec. 4. We use 10 reference configurations in all evaluations. 
+
+Evaluation metric. We evaluate manipulation as grasp preparation, so suc-cess requires both geometric alignment and dynamic stability: position error 
+
+< 0.05 m, orientation error < 15 ◦, linear velocity < 0.01 m/s, and angular ve-locity < 0.1rad/s. The goal-conditioned baseline targets its assigned reference pose, while GOMP – not conditioned on a target pose – succeeds if the final 12 L. Zhong and G. H. Lee ungraspable manipulation to increase graspability graspable grasp  
+
+> Fig. 5: Qualitative results of the full manipulation-to-grasp pipeline on real world objects. Each row shows a temporal sequence where the robot manipulates the object to increase graspability and autonomously transitions to grasp execution once a graspable configuration is reached.
+
+configuration reaches any graspable reference within the same tolerances; both therefore share the same geometric criterion, with GOMP simply having access to the full graspable set rather than a single target. For completeness, we also report the geometric criterion used by prior work (without velocity thresholds). 
+
+Results. Tab. 1 shows that goal conditioned pose reaching degrades when the targets are unstable (pretrained baseline); this does not indicate a failure of the original method, but reveals a mismatch between pose-reaching objectives and grasp preparation. Retraining the same policy in our setup improves per-formance but still remains substantially worse, often oscillating due to residual pose error. In contrast, our policy achieves high success on seen/unseen objects without any target pose and terminates once the configuration becomes suffi-ciently graspable. This experiment only evaluates the manipulation stage: goal conditioned methods require an external grasp planner once the target pose is reached, while our policy also predicts when to transition to grasp execution. We evaluate the closed-loop pipeline on a real robot in Sec. 5.3. 
+
+5.3 Manipulation-to-Grasp Evaluation 
+
+We evaluate the full manipulation-to-grasp pipeline on a real robot (Sec. 5.1). For each object, we manually set challenging initial configurations where the ob-ject is in a non-graspable state, so that a direct grasp from a fixed approach pose without prior manipulation almost always fails ( 8% success). The same policy performs non-prehensile manipulation until the predicted graspability distance falls below the transition threshold, and then executes a grasp using its pre-dicted grasp pose (no auxiliary planners or external detectors). Quantitative and qualitative results are shown in Tab. 2 and Fig. 5. The subsequent grasps are almost always successful once non-prehensile ma-nipulation succeeded. Failures are mainly due to unsuccessful reconfiguration, which indicates that the graspability field provides a reliable signal for decid-ing when manipulation has sufficiently prepared the object for grasping. The GOMP 13 
+
+Table 2: Real world manipulation-to-grasp performance on diverse objects. Each ob-ject is tested five times from challenging initial configurations. PaperBox SmallBookend BigBookend RealsenseBox DustBin Sponge Bottel Can TissuePack Snack Avg. Manip. 4/5 4/5 4/5 5/5 3/5 4/5 4/5 3/5 1/5 0/5 64%(32/50) Grasp 4/4 4/4 3/4 5/5 3/3 4/4 4/4 3/3 1/1 0/0 97%(31/32) Total 4/5 4/5 3/5 5/5 3/5 4/5 4/5 3/5 1/5 0/5 62%(31/50)   
+
+> (a) Distribution of predicted graspability dis-tance.
+> (b) Graspability-based separation and transi-tion threshold.
+
+Fig. 6: Validation of graspability-based transition in real-world experiments. Graspable configurations correspond to lower predicted distances; a single threshold separates graspable from non-graspable states. 
+
+only consistently unsuccessful object is Snack , which is highly deformable and slippery. For rigid objects such as PaperBox and DustBin , failures arise from two modes: (1) the object slides during manipulation, causing insufficient or inaccurate reconfiguration within the time limit; and (2) the robot reaches the predefined safety force limit due to strong contact with the table or object, termi-nating manipulation before a graspable configuration is reached. The predicted graspability distance still correlates with grasp success when manually placed in a favorable configuration. 
+
+Validation of Graspability Based Transition. We validate the predicted graspability distance in Eq. (11) across diverse real world object configurations. Labeling each configuration as graspable or non-graspable reveals a clear sepa-ration in predicted distances (Fig. 6), supporting a single transition threshold ϵ.Instead of reflecting the executed motion, the result indicates that the predicted distance captures a property of the object configuration. This justifies its use as both a learning objective and the manipulation-to-grasp transition signal. 
+
+5.4 Ablation Studies 
+
+We ablate the number of reference poses and the graspability distance de-sign (hard-min vs. soft aggregation, and removing the temporal anchoring term in Eq. (6)). Tab. 3 shows that increasing the number of references generally 14 L. Zhong and G. H. Lee 
+
+Table 3: Ablation studies in simulation. Seen Objects Unseen Objects Success Rate ↑ Avg. Time ↓ Final ¯dT ↓ success rate ↑ Avg. Time ↓ Final ¯dT ↓                                                      
+
+> 1 refer. poses 82.2% 4.6s 0.095 72.8% 4.8s 0.115 3 refer. poses 80.8% 4.7s 0.102 75.2% 5.1s 0.107 5 refer. poses 76.2% 5.6s 0.112 71.4% 5.8s 0.122 8 refer. poses 81.2% 4.8s 0.102 75.6% 5.2s 0.111
+> 10 refer. poses 84.0% 4.6s 0.098 77.9% 4.8s 0.118 15 refer. poses 79.1% 4.8s 0.106 72.1% 5.3s 0.121 20 refer. poses 76.0% 6.4s 0.115 68.1% 6.0s 0.132 use hardmin Eq. (3) 81.1% 5.0s 0.102 74.3% 5.2s 0.118 w/o anchor Eq. (6) 78.1% 5.0s 0.108 74.1% 5.1s 0.116
+
+improves performance on unseen objects, and thus indicates better coverage of graspable configurations. Using 10 references provides the best trade-off between success rate and execution time, while too many references slightly slow execu-tion and may reduce success due to conflicting descent directions. Interestingly, even a single reference pose already yields reasonable perfor-mance. This does not reduce the objective to target-pose reaching: supervision is defined by distance to a grasp-feasible configuration rather than reproducing a specific pose. Due to contact and support constraints, configurations far from the reference pose can still be graspable while some configurations with small SE(3) error are not. The policy therefore learns to move the object into a gras-pable basin instead of matching a particular configuration; multiple references mainly improve coverage of this basin, while a single reference still provides a locally valid descent direction. In contrast, a pose-tracking reward continues to penalize pose error even after the object becomes graspable. This often induces corrective motions or oscillations. 
+
+# 6 Conclusion 
+
+We proposed a grasp-oriented formulation of non-prehensile manipulation for robotic grasping. Instead of reaching a predefined target pose, the robot is trained to optimize an object-centric graspability objective. We construct a graspable set from synthesized grasps and define a graspability field that measures how suitable an object configuration is for grasp execution. This scalar measure pro-vides a unified signal for learning manipulation behaviors and decides when ma-nipulation should terminate, which enables a closed-loop manipulation-to-grasp pipeline with a single policy. Experiments in simulation and the real world show that the policy reliably reconfigures objects into graspable states and transi-tions to grasping without external planners or manually specified stopping con-ditions. The same graspability measure is used for learning, transition control, and evaluation, and consistently predicts real-world grasp success. This suggests the learned distance represents grasp feasibility of object configurations instead of a task-specific reward heuristic. GOMP 15 
+
+# Acknowledgements 
+
+This research / project is supported by the National Research Foundation (NRF) Singapore, under its NRF-Investigatorship Programme (Award ID. NRF-NRFI09-0008), and the Tier 2 grant MOET2EP20124-0015 from the Singapore Ministry of Education. 
+
+# References 
+
+1. Breyer, M., Chung, J.J., Ott, L., Siegwart, R., Nieto, J.: Volumetric grasping net-work: Real-time 6 dof grasp detection in clutter. In: CoRL. pp. 1602–1611. PMLR (2021) 2. Calli, B., Singh, A., Bruce, J., Walsman, A., Konolige, K., Srinivasa, S., Abbeel, P., Dollar, A.M.: Yale-cmu-berkeley dataset for robotic manipulation research. The International Journal of Robotics Research 36 (3), 261–268 (2017) 3. Calli, B., Singh, A., Walsman, A., Srinivasa, S., Abbeel, P., Dollar, A.M.: The ycb object and model set: Towards common benchmarks for manipulation research. In: ICRA. pp. 510–517. IEEE (2015) 4. Calli, B., Walsman, A., Singh, A., Srinivasa, S., Abbeel, P., Dollar, A.M.: Bench-marking in manipulation research: Using the yale-cmu-berkeley object and model set. IEEE Robotics & Automation Magazine 22 (3), 36–52 (2015) 5. Cheng, X., Huang, E., Hou, Y., Mason, M.T.: Contact mode guided motion plan-ning for quasidynamic dexterous manipulation in 3d. In: ICRA. pp. 2730–2736. IEEE (2022) 6. Cho, K., Van Merriënboer, B., Gulçehre, Ç., Bahdanau, D., Bougares, F., Schwenk, H., Bengio, Y.: Learning phrase representations using rnn encoder–decoder for statistical machine translation. In: Proceedings of the 2014 conference on empirical methods in natural language processing (EMNLP). pp. 1724–1734 (2014) 7. Cho, Y., Han, J., Cho, Y., Kim, B.: Corn: Contact-based object representation for nonprehensile manipulation of general unseen objects. In: ICLR (2024) 8. Deng, S., Yan, M., Wei, S., Ma, H., Yang, Y., Chen, J., Zhang, Z., Yang, T., Zhang, X., Cui, H., et al.: Graspvla: a grasping foundation model pre-trained on billion-scale synthetic action data. In: CoRL. PMLR (2025) 9. Ding, K., Chen, B., Wu, R., Li, Y., Zhang, Z., Gao, H.a., Li, S., Zhou, G., Zhu, Y., Dong, H., et al.: Preafford: Universal affordance-based pre-grasping for diverse objects and environments. In: IROS. pp. 7278–7285. IEEE (2024) 10. Dogar, M.R., Srinivasa, S.S.: Push-grasping with dexterous hands: Mechanics and a method. In: IROS. pp. 2123–2130. IEEE (2010) 11. Fang, H.S., Wang, C., Fang, H., Gou, M., Liu, J., Yan, H., Liu, W., Xie, Y., Lu, C.: Anygrasp: Robust and efficient grasp perception in spatial and temporal domains. IEEE TRO (2023) 12. Fang, H.S., Wang, C., Gou, M., Lu, C.: Graspnet: a large-scale clustered and densely annotated dataset for object grasping. arXiv preprint arXiv:1912.13470 (2019) 13. Fang, H.S., Wang, C., Gou, M., Lu, C.: Graspnet-1billion: A large-scale benchmark for general object grasping. In: CVPR. pp. 11444–11453 (2020) 14. Guo, D., Sun, F., Kong, T., Liu, H.: Deep vision networks for real-time robotic grasp detection. International Journal of Advanced Robotic Systems 14 (1), 1729881416682706 (2016) 16 L. Zhong and G. H. Lee 15. Hager, J., Bauer, R., Toussaint, M., Mainprice, J.: Graspme-grasp manifold estima-tor. In: 2021 30th IEEE International Conference on Robot & Human Interactive Communication (RO-MAN). pp. 626–632. IEEE (2021) 16. Hu, B., Tian, H., Wang, D., Huang, H., Zhu, X., Walters, R., Platt, R.: Push-grasp policy learning using equivariant models and grasp score optimization. IEEE RAL 
+
+10 (11), 11180–11187 (2025) 17. Huang, Y., Davies, T., Yan, J., Chen, X., Tian, Y., Hu, L.: Robograsp: A universal grasping policy for robust robotic control. arXiv preprint arXiv:2502.03072 (2025) 18. Hundt, A., Killeen, B., Greene, N., Wu, H., Kwon, H., Paxton, C., Hager, G.D.: “good robot!”: Efficient reinforcement learning for multi-step visual tasks with sim to real transfer. IEEE RAL 5(4), 6724–6731 (2020) 19. Jiang, B., Wu, Y., Zhou, W., Paxton, C., Held, D.: Hacman++: Spatially-grounded motion primitives for manipulation. In: RSS (2024) 20. Jiang, Z., Zhu, Y., Svetlik, M., Fang, K., Zhu, Y.: Synergies between affordance and geometry: 6-dof grasp detection via implicit representations. arXiv preprint arXiv:2104.01542 (2021) 21. Jung, H., Lee, D., Park, H., Kim, J., Kim, B.: Spin: distilling skill-rrt for long-horizon prehensile and non-prehensile manipulation. arXiv preprint arXiv:2502.18015 (2025) 22. Laine, S., Hellsten, J., Karras, T., Seol, Y., Lehtinen, J., Aila, T.: Modular primi-tives for high-performance differentiable rendering. ACM TOG 39 (6), 1–14 (2020) 23. Lee, H.Y., Zhou, P., Duan, A., Ma, W., Yang, C., Navarro-Alarcon, D.: Non-prehensile tool-object manipulation by integrating llm-based planning and manoeuvrability-driven controls. arXiv preprint arXiv:2412.06931 (2024) 24. Li, D., Zhao, C., Yang, S., Ma, L., Li, Y., Zhang, W.: Learning instruction-guided manipulation affordance via large models for embodied robotic tasks. In: 2024 International Conference on Advanced Robotics and Mechatronics (ICARM). pp. 662–667. IEEE (2024) 25. Li, G., Tsagkas, N., Song, J., Mon-Williams, R., Vijayakumar, S., Shao, K., Sevilla-Lara, L.: Learning precise affordances from egocentric videos for robotic manipu-lation. In: ICCV (2025) 26. Lin, T.J., Yeh, J.F., Su, H.T., Lin, C.Y., Chen, Y.T., Hsu, W.H.: Affordance-guided coarse-to-fine exploration for base placement in open-vocabulary mobile manipulation. arXiv preprint arXiv:2511.06240 (2025) 27. Lynch, K.M., Mason, M.T.: Stable pushing: Mechanics, controllability, and plan-ning. The international journal of robotics research 15 (6), 533–556 (1996) 28. Lyu, J., Li, Z., Shi, X., Xu, C., Wang, Y., Wang, H.: Dywa: Dynamics-adaptive world action model for generalizable non-prehensile manipulation. In: ICCV (2025) 29. Mahler, J., Liang, J., Niyaz, S., Laskey, M., Doan, R., Liu, X., Ojea, J.A., Goldberg, K.: Dex-net 2.0: Deep learning to plan robust grasps with synthetic point clouds and analytic grasp metrics. arXiv preprint arXiv:1703.09312 (2017) 30. Mason, M.T.: Progress in nonprehensile manipulation. The International Journal of Robotics Research 18 (11), 1129–1141 (1999) 31. Mittal, M., Roth, P., Tigue, J., Richard, A., Zhang, O., et al.: Isaac Lab - A GPU-Accelerated Simulation Framework for Multi-Modal Robot Learning. arXiv preprint arXiv:2511.04831 (2025) 32. Mordatch, I., Popović, Z., Todorov, E.: Contact-invariant optimization for hand manipulation. In: Proceedings of the ACM SIGGRAPH/Eurographics symposium on computer animation. pp. 137–144 (2012) 33. Mordatch, I., Todorov, E., Popović, Z.: Discovery of complex behaviors through contact-invariant optimization. ACM TOG 31 (4), 1–8 (2012) GOMP 17 34. NVIDIA: Isaac Sim, https://github.com/isaac-sim/IsaacSim , (accessed June 29, 2026) 35. Pohl, C., Hitzler, K., Grimm, R., Zea, A., Hanebeck, U.D., Asfour, T.: Affordance-based grasping and manipulation in real world applications. In: IROS (2020) 36. Srinivas, S.K., Shukla, Y., Arnold, A., Chitta, S.: Graspfactory: A large object-centric grasping dataset. arXiv preprint arXiv:2509.20550 (2025) 37. Sundermeyer, M., Mousavian, A., Triebel, R., Fox, D.: Contact-graspnet: Efficient 6-dof grasp generation in cluttered scenes. In: ICRA. pp. 13438–13444. IEEE (2021) 38. Urain, J., Funk, N., Peters, J., Chalvatzaki, G.: Se(3)-diffusionfields: Learning smooth cost functions for joint grasp and motion optimization through diffusion. In: ICRA. IEEE (2023) 39. Wang, C., Fang, H.S., Gou, M., Fang, H., Gao, J., Lu, C.: Graspness discovery in clutters for fast and accurate grasp detection. In: ICCV. pp. 15964–15973 (October 2021) 40. Wang, R., Zhang, J., Chen, J., Xu, Y., Li, P., Liu, T., Wang, H.: Dexgraspnet: A large-scale robotic dexterous grasp dataset for general objects based on simulation. In: ICRA. pp. 11359–11366. IEEE (2023) 41. Wang, Y., Li, Y., Yang, Y., Chen, Y.: Dexterous non-prehensile manipulation for ungraspable object via extrinsic dexterity. arXiv preprint arXiv:2503.23120 (2025) 42. Weng, T., Held, D., Meier, F., Mukadam, M.: Neural grasp distance fields for robot manipulation. In: ICRA. pp. 1814–1821. IEEE (2023) 43. Xu, K., Yu, H., Lai, Q., Wang, Y., Xiong, R.: Efficient learning of goal-oriented push-grasping synergy in clutter. IEEE RAL 6(4), 6337–6344 (2021) 44. Xu, R., Shen, Y., Li, X., Wu, R., Dong, H.: Naturalvlm: Leveraging fine-grained natural language for affordance-guided visual manipulation. IEEE RAL 9(12), 10842–10849 (2024) 45. Yuan, W., Duan, J., Blukis, V., Pumacay, W., Krishna, R., Murali, A., Mousavian, A., Fox, D.: Robopoint: A vision-language model for spatial affordance prediction in robotics. In: CoRL. PMLR (2025) 46. Zeng, A., Song, S., Welker, S., Lee, J., Rodriguez, A., Funkhouser, T.: Learning synergies between pushing and grasping with self-supervised deep reinforcement learning. In: IROS. pp. 4238–4245. IEEE (2018) 47. Zhang, J., Liu, H., Li, D., Yu, X., Geng, H., Ding, Y., Chen, J., Wang, H.: Dexgrasp-net 2.0: Learning generative dexterous grasping in large-scale synthetic cluttered scenes. In: CoRL. PMLR (2024) 48. Zhong, Z., Golestaneh, S., Chamzas, C.: Activepusher: Active learning and planning with residual physics for nonprehensile manipulation. arXiv preprint arXiv:2506.04646 (2025) 49. Zhou, W., Held, D.: Learning to grasp the ungraspable with emergent extrinsic dexterity. In: CoRL. pp. 150–160. PMLR (2023) 50. Zhou, W., Jiang, B., Yang, F., Paxton, C., Held, D.: Hacman: Learning hybrid actor-critic maps for 6d non-prehensile manipulation. In: CoRL. pp. 241–265. PMLR (2023) 51. Zhu, J., Tie, C., Cao, X., Wang, Y., Guo, J., Chen, Z., Chen, H., Chen, J., Xiao, Y., Wu, R., et al.: Adaptpnp: Integrating prehensile and non-prehensile skills for adaptive robotic manipulation. arXiv preprint arXiv:2511.11052 (2025) 18 L. Zhong and G. H. Lee 
+
+# Appendix A Additional Results 
+
+A.1 Qualitative Manipulation Simulation Results  
+
+> Fig. 7: Qualitative results of non-prehensile manipulation in simulation. The policy progressively reconfigures objects through interaction to increase graspability before grasp execution.
+
+We provide additional qualitative examples of the learned manipulation be-havior in simulation as shown in Fig. 7. Each sequence shows the object being progressively reconfigured through non-prehensile interactions before entering a graspable configuration. Compared with target pose reaching policies, the learned policy focuses on improving the graspability of the object configuration rather than matching a predefined pose. As a result, the robot often discovers diverse manipulation strategies such as pushing, sliding, or reorienting the object depending on the initial configuration. Additional sequences illustrate that the policy can handle a variety of object geometries and initial poses without requiring manually specified target config-urations. GOMP 19 
+
+A.2 Additional Qualitative Real World Results 
+
+As shown in Fig. 8, we provide additional real world manipulation-to-grasp ex-amples beyond those shown in the main paper. Each sequence illustrates the full closed-loop pipeline: the robot first performs non-prehensile manipulation to improve graspability and then autonomously transitions to grasp execution. These examples demonstrate that the learned policy produces consistent ma-nipulation behaviors across objects with different shapes, sizes, and friction prop-erties. Importantly, the manipulation stage does not rely on explicit pose targets or external planners. Instead, the transition to grasping is triggered by the pre-dicted graspability distance. ungraspable manipulation to increase graspability graspable grasp 
+
+Fig. 8: Additional qualitative results of the full manipulation-to-grasp pipeline on real world objects. Each row shows a temporal sequence where the robot manipulates the object to increase graspability and autonomously transitions to grasp execution once a graspable configuration is reached. The graspability is defined related to the home pose of the robot, which is the same for all objects. 
+
+# B Implementation and Training Details 
+
+B.1 Training Pipeline 
+
+The final policy is obtained through a three stage training procedure consisting of teacher reinforcement learning, action range reducing, and student distillation. 
+
+Stage I: Teacher Policy Training. A teacher policy is first trained in simulation using PPO to learn non-prehensile manipulation behaviors. This stage uses relatively large action limits to encourage exploration and diverse object interactions. 20 L. Zhong and G. H. Lee  
+
+> Table 4: Simulation parameters used in training.
+
+Parameter Value Simulation timestep 1/80 sControl frequency 10 Hz Episode length 30 s Policy observation points 512 Grasp-processing points 1000 
+
+Stage II: Action Range Reducing. To stabilize the learned behaviors, we further continue training the teacher policy while gradually tightening the action limits. This stage improves control precision and reduces oscillatory ma-nipulation behavior. 
+
+Stage III: Student Distillation. Finally, a recurrent student policy is distilled from the teacher. The student operates under partial observations con-sistent with the real world perception pipeline, while the teacher uses full object observations during training. The grasp pose head is supervised during student distillation: for each state, we select the nearest graspable reference and transform its precomputed object-frame grasp to the world frame as supervision, with MSE losses on position and 6D rotation. This head is not used as a manipulation target and does not affect the RL objective. 
+
+B.2 Simulation Environment 
+
+All training is conducted in Isaac Lab using a Franka Panda robot with a parallel-jaw gripper. The simulator time step is ∆t = 1 /80 s and actions are applied every eight simulation steps, resulting in a control frequency of 10 Hz. Each episode lasts 30 seconds. Object geometry is represented by mesh sampled point clouds. For the teacher policy, observations are constructed from the full mesh sampled point cloud. For the student policy, observations are obtained from point clouds rendered using nvdiffrast [22]. A denser set of mesh sampled points is additionally used for gras-pability related computations. The simulation setup is summarized in Tab. 4. 
+
+B.3 Domain Randomization 
+
+To improve robustness and facilitate sim-to-real transfer, several physical proper-ties are randomized during training. Specifically, we randomize the friction coeffi-cients of the object and the table, the object density, and the object scale. These randomizations are applied throughout all training stages, including teacher training, action-range reduction, and student distillation. The randomization ranges are listed in Tab. 5. GOMP 21  
+
+> Table 5: Domain randomization ranges used in simulation.
+
+Parameter Range Object friction [0 .3, 0.7] 
+
+Table friction [0 .3, 0.8] 
+
+Object density [500 , 1500] 
+
+Object scale multiplier [0 .8, 1.2]  
+
+> Table 6: Reward formulation coefficients.
+
+Coefficient Value 
+
+wr 0.2 
+
+wm 1.0 
+
+k1 0.3 
+
+k2 200.0 
+
+β 0.995 
+
+γ 0.995 
+
+B.4 Action Space 
+
+The manipulation action is a 6D relative end-effector command executed by a damped-least-squares differential IK controller with the gripper remaining closed. Actions are clipped to 0.06 m translation and 0.1 rad rotation, further reduced to 0.02 m and 0.03 rad during the action-scale curriculum for finer con-tact control. 
+
+B.5 Reward Formulation 
+
+During teacher policy training, we use a combination of reaching and manipu-lation rewards to stabilize early exploration and encourage object interaction. The total reward is 
+
+rt = wr rreach  
+
+> t
+
++ wmrmanip  
+
+> t
+
+, (12) where rreach  
+
+> t
+
+encourages the end-effector to approach the object and rmanip  
+
+> t
+
+is derived from the graspability field defined in Sec. 4.2. Key reward coefficients are summarized in Tab. 6. 
+
+Reaching Reward. The reaching component uses potential based reward shaping based on the end-effector distance to the object: 
+
+rreach  
+
+> t
+
+= γΦ reach (dt) − Φreach (dt−1), (13) where dt denotes the end-effector distance to the object center. The potential function follows 
+
+Φreach (d) = k1βk2d. (14) 22 L. Zhong and G. H. Lee  
+
+> Table 7: Curriculum schedules used during teacher training.
+
+Curriculum Parameter Schedule Velocity stability Linear velocity 0.3 → 0.01 
+
+Angular velocity 1.2 → 0.1
+
+Action scale Translation limit 0.06 → 0.02 
+
+Rotation limit 0.1 → 0.03 
+
+Manipulation Reward. The manipulation reward is derived from the graspability distance ˜d(so) defined in Sec. 4.2. Following the potential based shaping used in the main method, the reward encourages reductions in graspability distance between consecutive states: 
+
+rmanip  
+
+> t
+
+= γΦ ( ˜d(st+1  
+
+> o
+
+)) − Φ( ˜d(sto)) . (15) This reward directly encourages the policy to transform the object toward configurations with higher graspability. 
+
+B.6 Curriculum Scheduling 
+
+Two curricula are applied during training to stabilize manipulation behaviors. The detailed schedules are provided in Tab. 7. The velocity stability curriculum encourages the object to settle before ter-mination, while the action scale curriculum gradually improves control precision. 
+
+B.7 Policy Architecture 
+
+Both teacher and student policies share the same perception-to-control backbone illustrated in Fig. 2 of the main paper. Observations are first encoded into object-centric tokens using the encoder introduced in CORN [7]. These tokens are processed through cross attention modules conditioned on robot state to obtain a compact representation of the object configuration. To address partial observability, the student policy incorporates a recurrent module implemented with a gated recurrent unit (GRU) [6]. The GRU aggregates temporal information across observations and enables the policy to infer object motion. The student architecture details are listed in Tab. 8. 
+
+B.8 Teacher and Student Observations 
+
+Teacher and student policies differ in their observation modalities. The observa-tion breakdown is shown in Tab. 9. The student observations mimic the real world perception pipeline, where partial point clouds are reconstructed from multiple camera views. For proprio-ception, the teacher policy receives robot joint positions and velocities, while the GOMP 23 
+
+Table 8: Student policy architecture. 
+
+Component Configuration Recurrent module GRU Number of layers 2Hidden dimension 128 Outputs action, graspability distance, grasp pose 
+
+Table 9: Observation inputs for teacher and student policies. 
+
+Observation Component Teacher Student Robot joint states ✓ ✓
+
+End-effector state ✓ ✓
+
+Previous action ✓ ✓
+
+Object state ✓ –Object point cloud ✓ –Multi-view partial clouds – ✓
+
+student policy only observes joint positions. This design better reflects real world deployment, where control frequencies and sensing intervals may vary, making joint velocity estimates difficult to align with the simulation setting. Temporal information can instead be inferred by the recurrent policy. 
+
+B.9 Optimization 
+
+Key PPO settings for teacher model training are summarized in Tab. 10. While student distillation optimizes a behavior cloning term and three grasp related prediction terms. The total loss is 
+
+Lstudent = Lbehavior 
+
++ λgrasp-prob Lgrasp-prob 
+
++ λgrasp-posi Lgrasp-posi 
+
++ λgrasp-rot Lgrasp-rot .
+
+(16) The behavior term matches student actions to teacher actions: 
+
+Lbehavior = ℓMSE (at, a teacher  
+
+> t
+
+), (17) where ℓMSE denotes mean squared error. 
+
+Grasp related predictions. In addition to actions, the student policy predicts a grasp pose  ˆgt = (ˆ pt, ˆrt), where ˆpt ∈ R3 is the grasp position and ˆrt is the grasp orientation. The orientation is represented using the 6D rotation representation. 24 L. Zhong and G. H. Lee 
+
+Table 10: Key PPO hyperparameters used during teacher training. 
+
+Hyperparameter Value Learning rate 3 × 10 −4
+
+Discount factor γ 0.99 GAE parameter λ 0.95 PPO clipping parameter 0.3 Value loss coefficient 4.0 Entropy coefficient 0.0 PPO epochs 8Rollout length 10 steps 
+
+Table 11: Student distillation loss settings. 
+
+Setting Value Behavior / position / rotation loss MSE Grasp-distance loss Huber 
+
+λgrasp-prob 100.0 
+
+λgrasp-posi 100.0 
+
+λgrasp-rot 10.0 The probability distance head uses a Huber loss: 
+
+Lgrasp-prob = ℓHuber 
+
+ ˆdt, ˜d(sto)
+
+
+
+. (18) The grasp position loss is defined as 
+
+Lgrasp-pos = ℓMSE (ˆ pt, p∗ 
+
+> t
+
+) . (19) And the grasp rotation loss is 
+
+Lgrasp-rot = ℓMSE 
+
+
+
+ˆr6Dt , r6D, ∗
+
+> t
+
+
+
+. (20) Here p∗ 
+
+> t
+
+and r6D, ∗ 
+
+> t
+
+denote the grasp pose targets derived from the reference configuration in the graspable set that is closest to the current object state. The coefficients used in training are summarized in Tab. 11. 
+
+# C Limitations 
+
+Current performance degrades for highly deformable or extremely low-friction objects that cannot be consistently regulated through contact interactions, and the graspable set depends on coverage of the grasp synthesis model. Future work should study learning graspability directly from interaction and extend the framework to cluttered and dynamic environments.
