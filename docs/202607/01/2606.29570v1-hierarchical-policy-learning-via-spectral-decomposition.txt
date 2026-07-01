@@ -1,0 +1,642 @@
+Title: Hierarchical Policy Learning via Spectral Decomposition
+
+URL Source: https://arxiv.org/pdf/2606.29570v1
+
+Published Time: Tue, 30 Jun 2026 01:42:03 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# Hierarchical Policy Learning via Spectral Decomposition 
+
+Shuxin Cao 1 Liquan Wang 1 Walker Byrnes 1 2 Yiye Chen 1 Yilun Du 3 Animesh Garg 1
+
+# Abstract 
+
+In this paper, we identify a semantic decom-position in robot action sequences, separating task-level motion intent from execution-level re-finements. By analyzing actions in the spec-tral domain using the discrete cosine transform (DCT), we observe that low-frequency compo-nents capture global motion trajectories, while high-frequency components encode precise tim-ing, alignment, and contact behaviors. Motivated by this structure, we propose Causal Spectral Pol-icy ( CSP ), which models action generation as a causal coarse-to-fine process: coarse motion is predicted from observation and language, and fine corrections are generated conditionally on the realized trajectory. Across simulation and real-world evaluations, CSP consistently outperforms strong baselines on precision-sensitive manipu-lation tasks. Additionally, we propose human-inspired teleoperation noise injection as a data augmentation method under which our approach demonstrates strong robustness to noisy demon-strations. https://causal-spectral-policies.github.io/. 
+
+# 1. Introduction 
+
+Robot manipulation is a combination of long-horizon tra-jectory planning and fine-grained reactive control. On one hand, manipulation behaviors depend on long-horizon struc-ture, such as the coarse trajectory of an end-effector. On the other hand, fine-grained and reactive control governs the precision and timing of the action (Lee et al., 2019; Mart ´ın-Mart ´ın et al., 2019). Prior works typically repre-sent actions directly in the time domain and predict actions autoregressively or as fixed-length chunks while treating all temporal components as equally important. (Chi et al., 2023; Haldar et al., 2024; Zhao et al., 2023) As a result, 
+
+> 1
+
+Georgia Institute of Technology, Atlanta, Georgia, USA 
+
+> 2
+
+Georgia Tech Research Institute, Atlanta, Georgia, USA 
+
+> 3
+
+Harvard University, Cambridge, Massachusetts, USA. Corre-spondence to: Shuxin Cao, Animesh Garg <{shuxin.cao, ani-mesh.garg }@gatech.edu >.
+
+Preprint. June 30, 2026. 
+
+Figure 1. Action sequences admit a coarse-to-fine structure in the spectral domain. CSP predicts low-frequency motion from obser-vation and language, then generates high-frequency corrections conditioned on the coarse trajectory. 
+
+these methods struggle to explicitly capture the hierarchical temporal structure in robot actions, particularly in speed and precision-sensitive manipulation tasks. To confirm our intuition, we convert robot action sequences into the spectral domain using the Discrete Cosine Trans-form (DCT). We then selectively remove high-frequency components, reconstruct the resulting trajectories, and per-form roll-out on real robots to examine their behaviors. Ex-tensive real-world and simulation experiments show that removing high-frequency components largely preserves the coarse structure of motion and is often sufficient for coarse task execution, but systematically degrades fine-grained accuracy leading to errors in timing, alignment, and con-tact that accumulate during execution and cause failure in precision-critical stages. Real-robot demonstrations col-lected through teleoperation further amplify this issue, as latency, bandwidth constraints, and execution variability disproportionately affect short-timescale corrections. Motivated by these observations, we postulate that robot action learning is most effective with an inherent coarse-to-fine temporal structure. We propose a novel Causal Spec-tral Policy (CSP ) to explicitly decompose robot actions in the spectral domain into low-frequency (coarse) and high-frequency (fine) components and model them separately, allowing policies to capture stable task-level behavior be-fore predicting fine-grained corrections conditioned on the 1
+
+> arXiv:2606.29570v1 [cs.RO] 28 Jun 2026 Hierarchical Policy Learning via Spectral Decomposition
+
+coarse plan. We evaluate this hypothesis using simulated manipulation benchmarks, noise-perturbed demonstrations, and real-robot experiments on precision manipulation tasks involving tem-poral jitter and corrective motion. Our results demonstrate that an explicit coarse-to-fine action structure improves ro-bustness and execution accuracy under realistic conditions. Our contributions are threefold: (1) we identify a funda-mental asymmetry in robot action learning, showing that coarse and fine action components play distinct causal roles; (2) through controlled frequency-domain interventions, we demonstrate that high-frequency actions are essential for precision despite contributing little to overall motion en-ergy; and (3) we propose and validate a spectral coarse-to-fine policy learning framework that improves reliability on precision- and speed-sensitive tasks in both simulation and real-robot settings. 
+
+# 2. Related Work 
+
+2.1. Action Representation and Temporal Structure in Robot Learning 
+
+Finding effective action representations remains an open problem in robot imitation learning, with diverse architec-tures proposed for action prediction. Most existing methods operate in the time domain: autoregressive policies generate discrete action tokens sequentially (Zhao et al., 2023; Haldar et al., 2024; Black et al., 2024), while diffusion- and flow-based approaches predict continuous fixed-length action chunks (Chi et al., 2023; Hou et al., 2025; Intelligence et al., 2025; Jiang et al., 2025; Wang et al., 2023; 2024; Allshire et al., 2021). Although successful, both paradigms treat all timesteps uniformly and are sensitive to temporal res-olution. Recently, frequency-domain representations have been explored to improve efficiency and robustness, with strong empirical benefits demonstrated in image generation (Yu et al., 2025; Ning et al., 2025; Liu & Tang, 2025; Li et al., 2024) and audio processing (Kong et al., 2021; Wang et al., 2025). In robotics, Quest (Mete et al., 2024), FAST (Pertsch et al., 2025) and FreqPolicy (Yu et al., 2025) learn action tokenizaiton using FSQ, DCT and Diffusion-based decoders. Existing frequency-based methods primarily em-phasize representation efficiency and do not explicitly model the causal relationship between coarse motion planning and fine-grained execution, which is the focus of our work. 
+
+2.2. Frequency-Based and Coarse-to-Fine Action Modeling 
+
+To improve controllability in action generation, prior work has explored coarse-to-fine decomposition strategies (Johns, 2021; Cui et al., 2025), separating global motion from fine manipulation. Most approaches implement this through progressive refinement over temporal resolution, applied to both autoregressive policies (Gong et al., 2025) and flow-based models (Su et al., 2025b;c; Oh et al., 2025; Su et al., 2025a). FreqPolicy (Yu et al., 2025) extends this idea to the frequency domain by iteratively unmasking spectral coefficients from low to high frequency. 
+
+2.3. Robust Imitation Learning with Noisy Demonstrations 
+
+Nearly all imitation learning methods require high quality human demonstrations. However, studies have shown that the quality of human demonstration data has a considerable impact on model performance and is not well controlled between datasets (Mandlekar et al., 2020; Kurenkov et al., 2019; Sakr et al., 2022; 2025). Work in the field of neuro-science has revealed common structures in human move-ments, possessing temporally correlated corrective move-ments (Faisal et al., 2008; Van Beers et al., 2004; Todorov & Jordan, 2002b) that scale along with the distance of move-ment (Todorov & Jordan, 2002a; Harris & Wolpert, 1998b). Previous work has sought to model and filter out noise from demonstrations prior to learning (Chen et al., 2026; Huang et al., 2024; Pitis et al., 2022) or reformulate the problem as one of offline reinforcement learning (Huo et al., 2023; Bai et al., 2022a;b; Bharadhwaj et al., 2021; Sinha et al., 2021). 
+
+# 3. Spectral Analysis of Robot Actions 
+
+3.1. Problem Statement and Notation 
+
+We study imitation learning for robotic manipulation, mod-eled as a Markov Decision Process (MDP). At each time step t, the robot receives an observation ot (e.g., multi-view RGB images) together with a language instruction l, and executes a continuous action at ∈ Rd. A policy π(a | o, l )
+
+is trained to predict actions conditioned on both observation and language. Given a dataset of demonstration trajectories 
+
+D = {τi}Ni=1 , τi = {(o0, a 0), . . . , (oT , a T )},
+
+where each trajectory corresponds to a successful execution of the instructed task. The objective of imitation learning is to learn a policy whose action distribution matches that of the demonstrations, 
+
+Ppred (a | o, l ) ≈ Pgt (a | o, l ).
+
+Temporal spectral representation. To describe tempo-ral structure, we consider a generic discrete time series 
+
+x = ( x0, x 1, . . . , x K−1), x k ∈ R. We represent this se-quence in the temporal frequency domain using the discrete cosine transform (DCT). Let F ∈ RK×K denote the or-thonormal DCT basis. The forward transform produces spectral coefficients 2Hierarchical Policy Learning via Spectral Decomposition 
+
+ω = F x, 
+
+with individual coefficients given by 
+
+ωk =
+
+> K−1
+
+X
+
+> n=0
+
+xn cos 
+
+ πK
+
+ n + 12
+
+ k
+
+
+
+, k = 0 , . . . , K −1.
+
+The inverse transform reconstructs the original sequence as 
+
+x = F −1ω, which is exact since the DCT basis is orthonor-mal. In practice, this transform is applied independently to each dimension of an action sequence, providing an invertible reparameterization that makes temporal structure at different scales explicit. 
+
+3.2. Frequency-Domain Intervention via Coefficient Truncation 
+
+Building on the temporal spectral representation introduced above, we investigate the role of different frequency com-ponents in robot action trajectories. We perform controlled frequency-domain interventions on both simulated and real-robot demonstrations by modifying spectral coefficients and replaying the reconstructed actions. Concretely, given a demonstrated action trajectory, we di-vide the sequence into fixed-length chunks of length K and apply the discrete cosine transform (DCT) independently to each action dimension, yielding a spectral representation 
+
+c = F a, where a ∈ RK×d denotes the original action chunk and c ∈ RK×d its corresponding frequency coefficients. To probe the functional role of different frequency bands, we perform controlled truncation of high-frequency compo-nents. For a truncation level 0 < λ < K , we zero out the highest λ frequency coefficients: 
+
+˜ci =
+
+(
+
+ci, i ≤ K − λ, 
+
+0, i > K − λ. 
+
+The modified action chunk is reconstructed via inverse DCT, 
+
+˜a = F −1 ˜c, and replayed in the environment without fur-ther modification. By varying the number of retained low-frequency components while keeping observations fixed, this procedure isolates the causal effect of temporal fre-quency content on task execution. 
+
+3.3. Real-Robot Dart Insertion Task 
+
+We apply this analysis to a real-robot dart insertion task, where the robot aims to hit the center of a circular target (Fig. 2). Successful execution requires both a correct coarse trajectory toward the target and precise alignment during the final insertion phase, making the task suitable for studying the role of temporal frequency components.      
+
+> Figure 2. Action reconstruction under different frequency cutoffs
+> λin the real-robot dart insertion task. As λdecreases, coarse motion toward the target is preserved while fine alignment and contact accuracy degrade, highlighting the role of high-frequency components in precision execution.
+
+We collect a single successful demonstration and analyze the action sequence using a fixed chunk size of K = 64 .By progressively zeroing out high-frequency coefficients beyond a cutoff λ, we replay reconstructed trajectories with different frequency content (Fig. 2). When a large portion of high-frequency components is preserved (e.g., λ = 40 ), the reconstructed motion closely matches the original be-havior and accurately hits the target center. As λ decreases, the robot continues to reach the target region but exhibits increasing misalignment, resulting in off-center insertions. When only low-frequency components remain, the robot fol-lows the correct coarse approach but fails to achieve contact. These results show that low-frequency components govern global reaching motion, while high-frequency components are critical for precise alignment and successful insertion. 
+
+# 4. Method 
+
+4.1. Decomposition Across Temporal Scales 
+
+The frequency-domain analysis in the previous section re-veals a clear separation in how robot actions contribute to task execution: low-frequency components govern global reaching behavior, while high-frequency components are responsible for precise alignment and contact. This observa-tion motivates a structural hypothesis about manipulation. Specifically, observation and language primarily determine the coarse trajectory of a task. Once this trajectory is se-lected, the robot largely knows where to move and which region of the scene to interact with. Remaining refine-ments—such as small pose adjustments or contact tim-ing—are generated relative to the realized motion and de-pend only weakly on the language instruction. This structure is common in manipulation, where committing to a motion context constrains subsequent behavior to a limited set of interaction-specific actions. 3Hierarchical Policy Learning via Spectral Decomposition     
+
+> Figure 3. Overview of the proposed hierarchical spectral policy. Given observation oand language instruction l, the policy first predicts low-frequency action components that capture coarse task-level motion. Conditioned on the realized low-frequency trajectory, a second module predicts high-frequency corrective components. The final action sequence is reconstructed by concatenating frequency coefficients and applying the inverse discrete cosine transform (iDCT). This causal coarse-to-fine structure enables robust learning of fine-grained execution under noisy demonstrations.
+
+Motivated by this observation, we model action generation as a coarse-to-fine process across temporal scales. Given an action chunk at:t+t′ , we factorize its distribution as 
+
+p(at:t+t′ | ot, l ) = p(acoarse | ot, l ) p(afine | ot, a coarse ).
+
+(1) In contrast, standard chunk-based and autoregressive poli-cies predict fine-scale actions without explicitly modeling coarse motion, which often leads to ambiguous supervision and averaged refinement behavior (Fig. 4). This highlights the need for an action representation that enables a clear separation between coarse structure and fine-grained correc-tions.      
+
+> Figure 4. Baseline action prediction paradigms. Left: chunk-based joint prediction. Right: autoregressive prediction. Both lack an explicit representation of coarse temporal structure, motivating our coarse-to-fine formulation.
+
+4.2. Action Representation in the Spectral Domain 
+
+For the coarse-to-fine factorization in Eq. (1) to be effective, the action representation must make temporal structure at different resolutions explicit. In the time domain, however, all timesteps are treated uniformly, which entangles global motion with local refinements. We therefore represent actions in the spectral domain using the discrete cosine transform (DCT), following (Pertsch et al., 2025). The DCT provides an invertible and orthogonal transformation that reorganizes a temporal signal according to frequency. Given an action chunk at:t+t′ ∈ RK×d, the transform is applied independently to each action dimension. Let F ∈
+
+RK×K denote an orthonormal DCT basis: ct = F a t:t+t′ ,
+
+and at:t+t′ = F −1ct.
+
+Because F is orthonormal, the transformation preserves Euclidean distance, ∥ˆa − a∥22 = ∥ˆc − c∥22, and therefore constitutes an exact reparameterization of the original action sequence. Importantly, the spectral domain naturally aligns with the coarse-to-fine structure assumed in Eq. (1) . Under a fixed control frequency, low-frequency coefficients correspond to slowly varying motion over long temporal horizons, while high-frequency coefficients capture rapid, short-timescale variations. Equivalently, a coefficient at frequency k reflects action variation at a temporal scale approximately propor-tional to 1/k . As a result, the spectral representation orders action structure from coarse to fine, providing a principled basis for separating global motion planning from local exe-cution refinement. 
+
+4.3. Causal Spectral Policy 
+
+Formally, we propose CSP , a causal temporal decomposi-tion policy in the spectral domain. Given an action chunk 
+
+at:t+t′ and its frequency coefficients c = F a t:t+t′ , model-ing actions in the time domain is equivalent to modeling their spectral representation: p(at:t+t′ | ot, l ) ≡ p(c |
+
+ot, l ), since the transform F is invertible. We partition the coefficients into coarse and fine components. 4Hierarchical Policy Learning via Spectral Decomposition 
+
+For some cutoff parameter λ ∈ (0 , t ′), λ ∈ N,
+
+c =
+
+ clow 
+
+chigh 
+
+
+
+=
+
+c0: λ
+
+cλ:t′
+
+
+
+,
+
+and model them using two separate predictors with a causal dependency: 
+
+p(c | ot, l ) = plow (clow | ot, l ) phigh (chigh | ot, c low ). (2) This factorization reflects the structure of manipulation. Ob-servation and language primarily determine the coarse tra-jectory, while fine-scale execution is generated relative to that trajectory. The resulting coarse-to-fine architecture, il-lustrated in Fig. 3, allows global task intent to be decided first, followed by local execution refinement. 
+
+Training. Following the factorization in Eq. (2) , we train two predictors for coarse and fine spectral components. Given ground-truth coefficients c = [ clow , c high ], the train-ing objective is 
+
+L = ∥ˆclow − clow ∥22 + ∥ˆchigh − chigh ∥22, (3) where ˆclow = plow (ot, l ) and ˆchigh = phigh (ot, sg(ˆ clow )) .The stop-gradient operator sg( ·) prevents fine-scale supervi-sion from influencing coarse motion learning, enforcing the intended causal dependency. 
+
+# 5. Experiments 
+
+Our experiments are designed to test the following hypothe-ses: 1. Robot manipulation actions exhibit structured organiza-tion across temporal frequencies, with different compo-nents playing distinct functional roles in task execution. 2. Counterfactual interventions on the conditioning struc-ture can reveal whether the proposed coarse-to-fine fac-torization captures a directional dependency between low-frequency task intent and high-frequency execution refinements. 3. Explicitly modeling this structure improves imitation learning performance compared to standard chunk-based and autoregressive policies, particularly on long-horizon and precision-sensitive tasks. 4. Temporal abstraction alone is insufficient; incorporating frequency-domain structure is necessary to capture fine-grained execution behavior. 5. Modeling action structure across temporal frequencies improves robustness to execution noise in both teleoper-ated demonstrations and real-robot data.          
+
+> Figure 5. Sensitiv-ity to the low–high frequency split.
+> Performance re-mains stable across awide range of low-frequency cutoffs, indicating low sensitivity to the exact partition.
+
+5.1. Ideal Simulation Experiments 
+
+5.1.1. E XPERIMENTAL SETUP 
+
+We evaluate our method in simulation to assess whether modeling spectral structure improves imitation learning under clean supervision. Experiments are conducted on two standard benchmarks: LIBERO (Liu et al., 2023) (LIBERO-90 and LIBERO-10), which emphasizes long-horizon, language-conditioned tasks, and MimicGen (Man-dlekar et al., 2023), which focuses on precision-sensitive behaviors such as stacking and threading. To analyze sen-sitivity to temporal horizon, we vary the action chunk size while keeping the execution horizon fixed. For each task and chunk length K, we determine the coarse– fine frequency split using a data-driven heuristic. We compute the DCT of demonstrated action chunks, average squared coefficients across demonstrations and action di-mensions to obtain an empirical power spectrum, and select the smallest index whose cumulative energy exceeds 90% .Across both benchmarks, this typically assigns the lowest 
+
+∼30% of frequency coefficients to the coarse component. Performance remains stable over a wide range of cutoffs (approximately 20%–40%), as shown in Fig. 5, indicating that CSP is not sensitive to the exact frequency partition. 5.1.2. B ASELINES & A BLATIONS 
+
+We compare against baselines that isolate temporal abstrac-tion, frequency representation, and hierarchical structure, as summarized in Figure 7. Action Binning tests time-domain hierarchy. Frequency Autoregressive tests spectral sequen-tial prediction without explicit coarse–fine conditioning. We also include standard imitation learning baselines ( ACT (Fu et al., 2024), BAKU (Haldar et al., 2024), and Diffusion Policy (Chi et al., 2023)) that predict actions directly in the time domain. For ablation, Frequency Diffusion and No Hierarchy remove hierarchical conditioning while retain-ing spectral modeling. Together, these variants disentangle temporal abstraction, spectral representation, and causal coarse–fine decomposition. 5Hierarchical Policy Learning via Spectral Decomposition                                                                                                                                                               
+
+> Table 1. Simulation Results under Different Action Chunk Sizes. Success rate (%) across LIBERO and MimicGen-style tasks, averaged across 2 seeds. While longer chunk lengths are preferred for multimodal consistency, concurrent methods only work with short chunk lengths in precision tasks. This result shows that CSP is better at preserving performance while increasing look-ahead during prediction.
+> Method Libero-90 Libero-10 Stack Stack3 Coffee Square Threading MimicGen Mean Chunk Size = 16
+> ACT 90.7 70.5 81.3 45.0 72.5 37.5 21.3 51.5 BAKU 86.1 57.4 86.3 35.0 70.0 31.3 26.3 49.8 DP-CNN 83.0 64.6 88.8 58.8 58.8 52.5 33.8 58.5 DP-Transformer 77.0 60.6 82.5 52.5 58.8 38.8 36.3 53.8 Action Binning 92.1 73.8 81.3 60.0 82.5 47.5 17.5 57.8 Freq-Autoregressive 90.9 76.8 88.8 45.0 67.5 43.8 42.5 57.5
+> CSP(Ours) 91.9 80.8 92.5 56.3 83.8 48.8 46.3 65.5 Chunk Size = 64
+> ACT 85.7 48.6 0.0 15.0 21.3 3.8 5.0 9.0 BAKU 75.4 35.1 48.8 5.0 8.8 15.0 8.8 17.3 DP-CNN 82.7 46.4 73.8 31.3 35.0 36.3 32.5 41.8 DP-Transformer 79.1 50.0 65.0 21.3 26.3 21.3 22.5 31.3 Action Binning 84.9 59.8 62.5 17.5 47.5 23.8 7.5 31.8 Freq-Autoregressive 85.9 60.5 77.5 10.0 48.8 16.3 7.5 32.0
+> CSP(Ours) 87.6 68.8 72.5 33.8 61.3 43.8 38.8 50.0
+> Table 2. Ablation Study. Evaluating the effects of hierarchy and frequency modeling under simulated teleoperation noise.
+> Method Stack Coffee Libero-10
+> Frequency Diffusion 81.3 56.3 61.3 No Hierarchy 73.8 77.5 56.3
+> CSP 75.0 82.5 74.0 Libero-90 (Set A) No Small Large
+> Frequency Diffusion 92.5 78.5 73.0 No Hierarchy 95.5 85.5 81.5
+> CSP 97.0 92.0 87.5 Libero-90 (Set B) No Small Large
+> Frequency Diffusion 94.0 77.5 63.8 No Hierarchy 96.0 81.5 72.5
+> CSP 94.0 84.0 80.0
+
+5.1.3. R ESULTS AND ANALYSIS 
+
+Table 1 shows that explicitly modeling a causal spectral coarse-to-fine structure significantly improves imitation learning across both long-horizon and precision-sensitive tasks. On LIBERO, CSP consistently matches or outper-forms all baselines at both chunk sizes, achieving 91.9% / 80.8% success on LIBERO-90 / LIBERO-10 at chunk size 16 and maintaining strong performance at chunk size 64 (87.6% / 68.8%), while standard chunk-based and au-toregressive policies degrade substantially as the temporal horizon increases. The advantage is more pronounced on MimicGen, where task success depends on accurate alignment and timing. At chunk size 16, CSP achieves the highest mean success rate (65.5%), and at chunk size 64 it degrades gracefully to 50.0%, whereas ACT and BAKU collapse below 20%. Action Binning provides moderate gains at short horizons but deteriorates sharply at longer horizons (31.8% mean), indicating that temporal abstraction alone is insufficient. Frequency-Autoregressive methods benefit from spectral representations but remain consistently below CSP without explicit coarse–fine conditioning. These results support Hypotheses 3 and 4. Table 2 further clarifies the source of these gains. Remov-ing the hierarchical structure or the causal factorization both leads to noticeable performance drops, particularly un-der noisy supervision. Only the full CSP model maintains strong performance across settings, supporting Hypotheses 1 and 5 and confirming that structured spectral decomposition is critical for reliable manipulation. 5.1.4. C OUNTERFACTUAL INTERVENTIONS 
+
+To further examine Hypothesis 2, we perform counterfactual interventions on the conditioning structure of CSP . While the previous results show that spectral hierarchy improves policy learning, this analysis tests whether the proposed low-to-high frequency ordering reflects a directional de-pendency rather than an arbitrary hierarchical design. We construct variants that preserve the same spectral action rep-resentation but alter the dependency between coarse and fine components: removing language from the low-frequency predictor, removing low-frequency conditioning from the high-frequency predictor, and reversing the prediction or-der by generating high-frequency components before low-frequency components. Table 3 shows a clear asymmetric dependency. Removing language from the low-frequency module causes a large 6Hierarchical Policy Learning via Spectral Decomposition 
+
+Figure 6. Real-robot qualitative results across four manipulation tasks. For each task, we show the initial state, successful executions by 
+
+CSP (middle), and representative failure cases from baseline policies (right). Tasks require precise alignment and contact, including keyboard pressing, block stacking, and lid closing, highlighting the importance of accurate fine-grained execution.                                      
+
+> Method Low-frequency condition High-frequency condition L90 K=16 L90 K=32 L10 K=16 L10 K=32 No language in coarse oo, l, c low 22.2 18.2 64.5 61.0 No coarse in fine o, l o86.2 84.2 65.0 51.5
+> CSP (Ours) o, l o, l, c low 91.6 90.4 81.0 75.0
+> Reverse order chigh , o o, l 49.6 46.0 35.5 55.5 Reverse order + language chigh , o, l o, l 80.3 66.8 49.5 46.0
+
+Table 3. Counterfactual intervention analysis. CSP (Ours) uses the proposed low-to-high conditioning structure and achieves the best performance. Removing coarse task conditioning or reversing the prediction order degrades success rates, supporting the proposed asymmetric coarse-to-fine structure. 
+
+drop, indicating that task-level intent is primarily expressed through coarse motion. Removing low-frequency condition-ing from the high-frequency module also degrades perfor-mance, showing that fine corrections depend on the realized coarse trajectory. Most importantly, reversing the depen-dency direction performs substantially worse than the pro-posed ordering, suggesting that the low-to-high frequency factorization is not interchangeable with a high-to-low al-ternative. These results provide counterfactual evidence that the causal ordering in CSP is an empirically useful structural bias, rather than merely an architectural choice. 
+
+5.2. Real Robot Evaluation 
+
+Real robot experiments were conducted on a Franka Emika Panda equipped with a fixed and a wrist-mounted Logitech RGB camera. Our real evaluation tasks can be decomposed into three categories, each with their own failure modalities: 
+
+Task Baselines Ours 
+
+DP Baku Action Binning CSP Press Enter Key 1/10 8/10 10/10 10/10 
+
+Press C 0/10 3/10 5/10 8/10 
+
+Stack uniform block 6/10 6/10 9/10 9/10 
+
+Stack thin block 2/10 3/10 6/10 9/10 
+
+Close candle lid 3/10 5/10 3/10 7/10 
+
+Table 4. Real-robot success rates (successes / 10 trials). Tasks emphasize precise alignment and contact. Best result per task is highlighted in bold. 
+
+typing, stacking, and component assembly. Typing tasks are defined by pressing the commanded key while avoiding neighboring keys, requiring precise alignment to avoid the rigid failure states. For stacking tasks, blocks must be axially aligned. Fig. 6 includes example failure modes for each task category. 7Hierarchical Policy Learning via Spectral Decomposition  
+
+> Figure 7. Baseline and ablation architectures used to isolate temporal abstraction, spectral representation, and coarse-to-fine conditioning.
+
+Table 4 and Fig. 6 summarize our real-robot results. Across all tasks, CSP consistently improves execution accuracy, achieving the highest success on all precision-critical tasks. On keyboard tapping, our method attains 80% success on 
+
+Press C and 100% on Press Enter , outperforming all base-lines; the Enter key is physically larger and therefore easier to align with, leading to higher success across methods. On stacking, performance diverges sharply by task diffi-culty: for uniform block stacking , all methods—including na ¨ıve behavior cloning—achieve high success due to clean demonstrations and an average teleoperation success rate of approximately 90%. In contrast, thin block stacking is sub-stantially more challenging, with only ∼50% teleoperation success; demonstrations are longer and contain frequent high-frequency corrective motions. These interventions cause baseline methods to fail due to misalignment while our method achieves a 90% success rate. For closing a candle lid , baseline methods suffer from unstable grasping and low-precision alignment, whereas our method produces more reliable contact and closure, achieving the highest success rate. Overall, these results show that coarse-to-fine spectral decomposition is especially effective for precision-sensitive and noisy manipulation, with gains in simulation translating consistently to real-world performance. 
+
+5.3. Simulated Human Noise Injection 
+
+To study robustness under realistic supervision, we inject human-like execution noise into simulated demonstrations. This allows us to systematically evaluate how different pol-icy structures degrade under noisy training data, and whether 
+
+CSP better preserves task-critical behavior. 5.3.1. N OISE EXPERIMENT SETUP 
+
+To evaluate robustness to noisy demonstrations, we con-duct controlled noise injection experiments in simulation. While real-robot data naturally contains execution variabil-ity, simulation allows precise control over noise structure and magnitude. In practice, we evaluate two multi-task LIBERO-90 subsets (Set A and Set B) comprised of 10 tasks each and three single-task datasets, the mean of which is presented as Set C (individual tasks in Appendix). For each setting, models are trained under three conditions: no noise , moderate noise , and high noise , and evaluated using clean rollouts. 
+
+Human-inspired noise model. Instead of i.i.d. perturba-tions, we inject structured noise that approximates human teleoperation behavior. Given a clean action at, the executed action is 
+
+˜at = at+λ(t)(1 −mt)
+
+"
+
+(s0+k|at|)⊙nt+X
+
+> j
+
+1[t ∈ Wj ]η(j)
+
+> t
+
+#
+
+.
+
+(4) where nt follows an AR(1) process, nt = ρn t−1 + ϵt, and 
+
+ϵt ∼ N (0 , σ 2), modeling smooth execution drift. The scal-ing (s0 + k|at|) captures signal-dependent motor variability, while burst terms η(j) 
+
+> t
+
+injected over short windows Wj rep-resent intermittent corrective motions. The phase-dependent factor λ(t) reduces noise near task completion, and mt optionally disables perturbations at critical events to ensure task success. 
+
+Noise regimes. We evaluate two levels of simulated tele-operation noise. Small noise introduces mild temporally 8Hierarchical Policy Learning via Spectral Decomposition None Small Large          
+
+> Libero-90 (Set A)
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> Success Rate
+> None Small Large
+> Libero-90 (Set B)
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> None Small Large
+> Libero-90 (Set C)
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> CSP (Ours) Freq Autoregressive Action Binning Baku Diffusion Policy ACT
+
+Figure 8. Libero Noise Injection Results For single tasks and subsets of libero 90, CSP is more resistant to noise injection than all evaluated baselines. The noise model herein models real-world teleoperation noise, and this result showcases that while previous architecture capture cleaner data better, but perform rather poorly in prescence of high-frequency noise present in real data. 
+
+Figure 9. PCA visualiza-tion of action trajectories under different noise lev-els. Small noise causes limited dispersion, while large noise leads to sub-stantially greater varia-tion 
+
+correlated drift ( ρ ≈ 0.4–0.6) with limited stochastic vari-ation and weak corrective bursts. Large noise increases temporal correlation ( ρ ≈ 0.6–0.9) and burst magnitude, resulting in substantially noisier execution. In both regimes, noise intensity decays toward task completion via a phase-dependent schedule λ(t). As illustrated in Fig. 8, injected noise primarily affects short-timescale action components while largely preserving low-frequency task intent. Full parameter settings are provided in Appendix 7.1.4. 5.3.2. N OISE EXPERIMENTAL RESULTS & A NALYSIS 
+
+We apply the proposed human noise injection framework to Libero demonstrations to evaluate robustness under re-alistic execution variability. Low- and high-noise regimes introduce increasing short-timescale perturbations that pri-marily affect fine-grained action components. As shown in Fig. 8, CSP consistently achieves higher success rates than all baselines across three individual tasks and two multi-task subsets, and degrades substantially less under high-noise conditions. Ablation results in Table 2 further indicate that both hierarchical structure and causal frequency modeling are critical for robustness, as removing either component leads to significantly larger performance drops under noise. These results directly support our hypotheses. The strong performance gap under noise validates Hypothesis 5, show-ing that explicitly modeling action structure across temporal frequencies improves robustness. Moreover, the failure of time-domain baselines under increasing noise aligns with Hypothesis 4, indicating that temporal abstraction alone is insufficient without frequency-aware modeling. Together with the clean-setting results, these findings reinforce Hy-potheses 1 and 3, demonstrating that spectral structure is both behaviorally meaningful and practically beneficial for stable manipulation learning. 
+
+# 6. Conclusion 
+
+We identify a structured decomposition in robot manipula-tion actions, where task-level motion and execution-level refinements play distinct roles in successful behavior, and show that this structure naturally emerges in the spectral domain through low- and high-frequency components. Mo-tivated by this insight, we propose CSP , a causal spectral policy that generates actions via an explicit coarse-to-fine process. Extensive simulation and real-robot experiments demonstrate that modeling this structure improves perfor-mance on precision-sensitive tasks and substantially en-hances robustness to realistic teleoperation noise. 9Hierarchical Policy Learning via Spectral Decomposition 
+
+# Impact Statement 
+
+Robotic manipulation is a fundamental capability for au-tonomous systems in domains such as manufacturing, ser-vice robotics, and assistive technologies. However, existing imitation learning methods often struggle with long-horizon control, precision-sensitive behaviors, and robustness to noisy demonstrations, limiting real-world deployment. This work contributes a structured perspective on robot ac-tion generation by identifying semantic organization across temporal frequencies and proposing a causal spectral coarse-to-fine policy. By improving learning stability and robust-ness under realistic teleoperation noise, our approach en-ables more reliable learning from human demonstrations and reduces dependence on idealized data collection. The potential positive impacts include improved scalability of robot learning systems, greater tolerance to imperfect su-pervision, and broader applicability of imitation learning in real-world environments. We do not identify risks specific to this method beyond those common to autonomous robotic systems. As with all learning-based control approaches, re-sponsible deployment requires appropriate safety validation, human oversight, and domain-specific risk assessment. 
+
+# Acknowledgment 
+
+We are grateful to Ruoshi Liu for his insightful advice and fruitful discussions, and to the PAIR lab members at Georgia Tech for their helpful feedback and peer review. This work was supported in part by the Stephen Fleming Early Career Grant, seed grants from IMS, Mechanical Engineering WIN, and IRIM at Georgia Tech, as well as GTRI. 
+
+# References 
+
+Allshire, A., Mart ´ın-Mart ´ın, R., Lin, C., Manuel, S., Savarese, S., and Garg, A. Laser: Learning a latent action space for efficient reinforcement learning. In 2021 IEEE International Conference on Robotics and Automation (ICRA) , pp. 6650–6656. IEEE, 2021. Bai, C., Wang, L., Yang, Z., Deng, Z., Garg, A., Liu, P., and Wang, Z. Pessimistic bootstrapping for uncertainty-driven offline reinforcement learning. In International Conference on Learning Representations , 2022a. Bai, C., Xiao, T., Zhu, Z., Wang, L., Zhou, F., Garg, A., He, B., Liu, P., and Wang, Z. Monotonic quantile network for worst-case offline reinforcement learning. IEEE Transac-tions on Neural Networks and Learning Systems , 35(7): 8954–8968, 2022b. Bharadhwaj, H., Kumar, A., Rhinehart, N., Levine, S., Shkurti, F., and Garg, A. Conservative safety critics for exploration. In International Conference on Learning Representations , 2021. Black, K., Brown, N., Driess, D., Esmail, A., Equi, M., Finn, C., Fusai, N., Groom, L., Hausman, K., Ichter, B., Jakubczak, S., Jones, T., Ke, L., Levine, S., Li-Bell, A., Mothukuri, M., Nair, S., Pertsch, K., Shi, L. X., Tanner, J., Vuong, Q., Walling, A., Wang, H., and Zhilinsky, U. $pi 0$: A Vision-Language-Action Flow Model for General Robot Control, November 2024. URL http:// arxiv.org/abs/2410.24164 . arXiv:2410.24164 [cs]. Chen, S.-F., Yong, C., and Sun, S.-H. Restoring Noisy Demonstration for Imitation Learning With Diffusion Models. IEEE Transactions on Neural Networks and Learning Systems , 37(1):401–413, January 2026. ISSN 2162-237X, 2162-2388. doi: 10.1109/TNNLS.2025. 3607111. URL http://arxiv.org/abs/2510. 14467 . arXiv:2510.14467 [cs]. Chi, C., Xu, Z., Feng, S., Cousineau, E., Du, Y., Burchfiel, B., Tedrake, R., and Song, S. Diffusion Policy: Visuo-motor Policy Learning via Action Diffusion, 2023. URL 
+
+https://arxiv.org/abs/2303.04137 . 6. Cui, C., Ding, P., Song, W., Bai, S., Tong, X., Ge, Z., Suo, R., Zhou, W., Liu, Y., Jia, B., Zhao, H., Huang, S., and Wang, D. OpenHelix: A Short Survey, Empirical Analysis, and Open-Source Dual-System VLA Model for Robotic Manipulation, May 2025. URL http:// arxiv.org/abs/2505.03912 . arXiv:2505.03912 [cs]. Faisal, A. A., Selen, L. P. J., and Wolpert, D. M. Noise in the nervous system. Nature Reviews Neuroscience , 9 (4):292–303, April 2008. ISSN 1471-003X, 1471-0048. doi: 10.1038/nrn2258. URL https://www.nature. com/articles/nrn2258 .Fu, Z., Zhao, T. Z., and Finn, C. Mobile aloha: Learning bimanual mobile manipulation with low-cost whole-body teleoperation. In Conference on Robot Learning (CoRL) ,2024. Gong, Z., Ding, P., Lyu, S., Huang, S., Sun, M., Zhao, W., Fan, Z., and Wang, D. CARP: Visuomotor Policy Learn-ing via Coarse-to-Fine Autoregressive Prediction, Au-gust 2025. URL http://arxiv.org/abs/2412. 06782 . arXiv:2412.06782 [cs]. Haldar, S., Peng, Z., and Pinto, L. BAKU: An Ef-ficient Transformer for Multi-Task Policy Learning, July 2024. URL http://arxiv.org/abs/2406. 07539 . arXiv:2406.07539 [cs]. 10 Hierarchical Policy Learning via Spectral Decomposition 
+
+Harris, C. M. and Wolpert, D. M. Signal-dependent noise determines motor planning. Nature , 394(6695):780–784, 1998a. Harris, C. M. and Wolpert, D. M. Signal-dependent noise determines motor planning. Nature , 394(6695):780– 784, August 1998b. ISSN 0028-0836, 1476-4687. doi: 10.1038/29528. URL https://www.nature.com/ articles/29528 .Hou, Z., Zhang, T., Xiong, Y., Pu, H., Zhao, C., Tong, R., Qiao, Y., Dai, J., and Chen, Y. Diffusion Transformer Pol-icy, March 2025. URL http://arxiv.org/abs/ 2410.15959 . arXiv:2410.15959 [cs]. Huang, K., Sun, H.-H., Wan, S., Shao, M., Feng, S., Gan, L., and Zhan, D.-C. DIDA: Denoised Imitation Learning based on Domain Adaptation, April 2024. URL http://arxiv.org/abs/2404. 03382 . arXiv:2404.03382 [cs]. Huo, L., Wang, Z., and Xu, M. Learning Noise-Induced Reward Functions for Surpassing Demonstrations in Imitation Learning. Proceedings of the AAAI Confer-ence on Artificial Intelligence , 37(7):7953–7961, June 2023. ISSN 2374-3468, 2159-5399. doi: 10.1609/ aaai.v37i7.25962. URL https://ojs.aaai.org/ index.php/AAAI/article/view/25962 .Intelligence, P., Black, K., Brown, N., Darpinian, J., Dha-balia, K., Driess, D., Esmail, A., Equi, M., Finn, C., Fusai, N., Galliker, M. Y., Ghosh, D., Groom, L., Hausman, K., Ichter, B., Jakubczak, S., Jones, T., Ke, L., LeBlanc, D., Levine, S., Li-Bell, A., Mothukuri, M., Nair, S., Pertsch, K., Ren, A. Z., Shi, L. X., Smith, L., Springenberg, J. T., Stachowicz, K., Tanner, J., Vuong, Q., Walke, H., Walling, A., Wang, H., Yu, L., and Zhilinsky, U. $pi {0.5 }$: a Vision-Language-Action Model with Open-World Gen-eralization, April 2025. URL http://arxiv.org/ abs/2504.16054 . arXiv:2504.16054 [cs]. Jiang, Y., Cheng, S., Ding, Y., Gao, F., and Qi, B. AsyncVLA: Asynchronous Flow Match-ing for Vision-Language-Action Models, Novem-ber 2025. URL http://arxiv.org/abs/2511. 14148 . arXiv:2511.14148 [cs]. Johns, E. Coarse-to-Fine Imitation Learning: Robot Ma-nipulation from a Single Demonstration. In 2021 IEEE International Conference on Robotics and Automation (ICRA) , pp. 4613–4619, Xi’an, China, May 2021. IEEE. ISBN 978-1-7281-9077-8. doi: 10.1109/ICRA48506. 2021.9560942. URL https://ieeexplore.ieee. org/document/9560942/ .Kong, Z., Ping, W., Huang, J., Zhao, K., and Catanzaro, B. DiffWave: A Versatile Diffusion Model for Audio Synthesis, March 2021. URL http://arxiv.org/ abs/2009.09761 . arXiv:2009.09761 [eess]. Kurenkov, A., Mandlekar, A., Martin-Martin, R., Savarese, S., and Garg, A. Ac-teach: A bayesian actor-critic method for policy learning with an ensemble of suboptimal teach-ers. In 3rd Annual Conference on Robot Learning (CoRL) ,pp. 717–734. PMLR, 2019. Lee, M. A., Zhu, Y., Srinivasan, K., Shah, P., Savarese, S., Fei-Fei, L., Garg, A., and Bohg, J. Making sense of vi-sion and touch: Self-supervised learning of multimodal representations for contact-rich tasks. In 2019 Interna-tional Conference on Robotics and Automation (ICRA) .IEEE, 2019. Li, T., Tian, Y., Li, H., Deng, M., and He, K. Autore-gressive Image Generation without Vector Quantization, November 2024. URL http://arxiv.org/abs/ 2406.11838 . arXiv:2406.11838 [cs]. Liu, B., Zhu, Y., Gao, C., Feng, Y., Liu, Q., Zhu, Y., and Stone, P. Libero: Benchmarking knowledge transfer for lifelong robot learning, 2023. URL https://arxiv. org/abs/2306.03310 .Liu, X. and Tang, H. DiffFNO: Diffusion Fourier Neural Operator, April 2025. URL http://arxiv.org/ abs/2411.09911 . arXiv:2411.09911 [cs]. Mandlekar, A., Ramos, F., Boots, B., Savarese, S., Fei-Fei, L., Garg, A., and Fox, D. Iris: Implicit reinforcement without interaction at scale for learning control from of-fline robot manipulation data. In 2020 IEEE Interna-tional Conference on Robotics and Automation (ICRA) ,pp. 4414–4420. IEEE, 2020. Mandlekar, A., Nasiriany, S., Wen, B., Akinola, I., Narang, Y., Fan, L., Zhu, Y., and Fox, D. Mimicgen: A data generation system for scalable robot learning using hu-man demonstrations. In 7th Annual Conference on Robot Learning , 2023. Mart ´ın-Mart ´ın, R., Lee, M. A., Gardner, R., Savarese, S., Bohg, J., and Garg, A. Variable impedance control in end-effector space: An action space for reinforcement learning in contact-rich tasks. In 2019 IEEE/RSJ Inter-national Conference on Intelligent Robots and Systems (IROS) . IEEE, 2019. Mete, A., Xue, H., Wilcox, A., Chen, Y., and Garg, A. Quest: Self-supervised skill abstractions for learning continuous control. In Advances in Neural Information Processing Systems , volume 37, pp. 4062–4089, 2024. Ning, M., Li, M., Su, J., Jia, H., Liu, L., Bene ˇs, M., Chen, W., Salah, A. A., and Ertugrul, I. O. DCTdiff: Intriguing Properties of Image Generative Modeling in the DCT 11 Hierarchical Policy Learning via Spectral Decomposition 
+
+Space, May 2025. URL http://arxiv.org/abs/ 2412.15032 . arXiv:2412.15032 [cs]. Oh, N., Jang, J., Jung, M., and Park, D. DiSPo: Diffusion-SSM based Policy Learning for Coarse-to-Fine Ac-tion Discretization, May 2025. URL http://arxiv. org/abs/2409.14719 . arXiv:2409.14719 [cs]. Pertsch, K., Stachowicz, K., Ichter, B., Driess, D., Nair, S., Vuong, Q., Mees, O., Finn, C., and Levine, S. FAST: Ef-ficient Action Tokenization for Vision-Language-Action Models, 2025. URL https://arxiv.org/abs/ 2501.09747 . Version Number: 1. Pitis, S., Creager, E., Mandlekar, A., and Garg, A. Mocoda: Model-based counterfactual data augmentation. In Ad-vances in Neural Information Processing Systems , 2022. Sakr, M., Li, Z. J., Van Der Loos, H. F. M., Kulic, D., and Croft, E. A. Quantifying Demonstration Qual-ity for Robot Learning and Generalization. IEEE Robotics and Automation Letters , 7(4):9659–9666, Octo-ber 2022. ISSN 2377-3766, 2377-3774. doi: 10.1109/ LRA.2022.3191950. URL https://ieeexplore. ieee.org/document/9832744/ .Sakr, M., Loos, H. F. M. V. d., Kulic, D., and Croft, E. Consistency Matters: Defining Demonstration Data Quality Metrics in Robot Learning from Demonstration, April 2025. URL http://arxiv.org/abs/2412. 14309 . arXiv:2412.14309 [cs]. Sinha, S., Mandlekar, A., and Garg, A. S4rl: Surprisingly simple self-supervision for offline reinforcement learning in robotics. In 5th Annual Conference on Robot Learning ,2021. Su, Y., Liu, N., Chen, D., Zhao, Z., Wu, K., Li, M., Xu, Z., Che, Z., and Tang, J. FreqPolicy: Efficient Flow-based Visuomotor Policy via Frequency Consistency, June 2025a. URL http://arxiv.org/abs/2506. 08822 . arXiv:2506.08822 [cs]. Su, Y., Zhan, X., Fang, H., Xue, H., Fang, H.-S., Li, Y.-L., Lu, C., and Yang, L. Dense Policy: Bidi-rectional Autoregressive Learning of Actions, March 2025b. URL http://arxiv.org/abs/2503. 13217 . arXiv:2503.13217 [cs]. Su, Y., Zhang, C., Chen, S., Tan, L., Tang, Y., Wang, J., and Liu, X. DSPv2: Improved Dense Policy for Effec-tive and Generalizable Whole-body Mobile Manipulation, September 2025c. URL http://arxiv.org/abs/ 2509.16063 . arXiv:2509.16063 [cs]. Todorov, E. and Jordan, M. A Minimal Intervention Principle for Coordinated Movement. In Becker, S., Thrun, S., and Obermayer, K. (eds.), Advances in Neural Information Processing Systems , volume 15. MIT Press, 2002a. URL https://proceedings.neurips. cc/paper_files/paper/2002/file/ 8c5f6ecd29a0eb234459190ca51c16dd-Paper. pdf .Todorov, E. and Jordan, M. I. Optimal feedback control as a theory of motor coordination. Nature Neuroscience ,5(11):1226–1235, November 2002b. ISSN 1097-6256, 1546-1726. doi: 10.1038/nn963. URL https://www. nature.com/articles/nn963 .Van Beers, R. J., Haggard, P., and Wolpert, D. M. The Role of Execution Noise in Movement Variability. Jour-nal of Neurophysiology , 91(2):1050–1063, February 2004. ISSN 0022-3077, 1522-1598. doi: 10.1152/ jn.00652.2003. URL https://www.physiology. org/doi/10.1152/jn.00652.2003 .Wang, H., Liu, S., Meng, L., Li, J., Yang, Y., Zhao, S., Sun, H., Liu, Y., Sun, H., Zhou, J., Lu, Y., and Qin, Y. FELLE: Autoregressive Speech Synthesis with Token-Wise Coarse-to-Fine Flow Matching. In Pro-ceedings of the 33rd ACM International Conference on Multimedia , pp. 10229–10238, Dublin Ireland, Oc-tober 2025. ACM. ISBN 979-8-4007-2035-2. doi: 10.1145/3746027.3755494. URL https://dl.acm. org/doi/10.1145/3746027.3755494 .Wang, L., Dvornik, N., Dubeau, R., Mittal, M., and Garg, A. Self-supervised learning of action affordances as in-teraction modes. In 2023 IEEE International Conference on Robotics and Automation (ICRA) . IEEE, 2023. Wang, L., Goyal, A., Xu, H., and Garg, A. Discovering robotic interaction modes with discrete representation learning. In 8th Annual Conference on Robot Learning ,2024. Yu, H., Luo, H., Yuan, H., Rong, Y., and Zhao, F. Frequency Autoregressive Image Generation with Continuous To-kens, March 2025. URL http://arxiv.org/abs/ 2503.05305 . arXiv:2503.05305 [cs]. Zhao, T. Z., Kumar, V., Levine, S., and Finn, C. Learn-ing Fine-Grained Bimanual Manipulation with Low-Cost Hardware, April 2023. URL http://arxiv.org/ abs/2304.13705 . arXiv:2304.13705 [cs]. 12 Hierarchical Policy Learning via Spectral Decomposition 
+
+# 7. Appendix 
+
+7.1. Human-Inspired Noise Injection 
+
+7.1.1. M OTIVATION AND BACKGROUND 
+
+Motivation. When humans teleoperate a robot, executed actions deviate systematically from an ideal, noise-free pol-icy. Neuroscience and motor-control studies show that this variability is not i.i.d. noise, but exhibits structured prop-erties governed by human motor planning and feedback control. In particular, human execution noise is character-ized by three key phenomena: • Signal-dependent motor noise: the variance of motor commands increases with command magnitude, making larger and faster movements intrinsically noisier than small corrective actions (Harris & Wolpert, 1998b). • Temporally correlated execution drift: motor variabil-ity is smooth and correlated over time due to muscle dynamics and neural control, resulting in low-frequency drift rather than frame-independent jitter (Van Beers et al., 2004; Faisal et al., 2008). • Intermittent corrective submovements: under optimal feedback control, humans tolerate variability during mo-tion but generate brief, high-frequency corrections when precision becomes critical, particularly near task comple-tion (Todorov & Jordan, 2002b). 7.1.2. N OISE MODEL FORMULATION 
+
+To model these effects, we define the executed (noisy) action 
+
+˜at ∈ Rd as a structured perturbation of an ideal simulator action at:
+
+˜at = at+λ(t) (1 −mt)
+
+h
+
+(s0+k|at|)⊙nt + X
+
+> j
+
+1[t ∈ Wj ] η(j)
+
+> t
+
+i
+
+,
+
+(5) where all operations are elementwise unless otherwise stated. 
+
+Signal-dependent execution variability. The term (s0 +
+
+k|at|) ∈ Rd 
+
+> +
+
+implements signal-dependent motor noise. Here, s0 denotes a per-dimension baseline noise level, while 
+
+k scales noise proportionally to the action magnitude. This formulation reflects the classic observation that larger motor commands induce greater execution variability (Harris & Wolpert, 1998a). 
+
+Temporally correlated execution drift. The process 
+
+nt ∈ Rd models smooth execution drift and evolves ac-cording to an AR(1) process: 
+
+nt = ρn t−1 + ϵt, ϵt ∼ N (0 , Σϵ), (6) where ρ ∈ [0 , 1) controls temporal correlation. This pro-duces low-frequency deviations consistent with empirical findings that human execution noise is temporally correlated rather than white (Van Beers et al., 2004; Faisal et al., 2008). Combined with the signal-dependent scaling, this yields structured, amplitude-aware execution noise. 
+
+Intermittent corrective bursts. Human demonstrations often contain brief, high-frequency corrective actions during precision-critical phases (e.g., alignment before grasp or insertion). We model these as localized burst perturbations 
+
+η(j) 
+
+> t
+
+∼ N (0 , Σburst ) injected within short temporal windows 
+
+Wj = [ sj , s j + Lj ):
+
+X
+
+> j
+
+1[t ∈ Wj ] η(j) 
+
+> t
+
+. (7) These bursts correspond to feedback-driven corrections un-der optimal feedback control (Todorov & Jordan, 2002b), introducing high-frequency variability without corrupting global task structure. 
+
+Task-phase modulation and safety. The scalar λ(t) ∈
+
+(0 , 1] modulates noise magnitude as a function of task progress, typically decaying toward zero near task comple-tion. The binary mask mt ∈ { 0, 1} disables noise at critical timesteps (e.g., around gripper closure). Together, these mechanisms ensure that injected noise preserves task intent and success while concentrating variability in mid-trajectory and precision phases. 
+
+Summary Overall, human execution noise is modeled as 
+
+signal-dependent, temporally correlated drift + sparse feedback-driven corrective bursts .This structure primarily perturbs high-frequency compo-nents of the action sequence while leaving low-frequency, task-level motion largely intact. 7.1.3. S IMULATED HUMAN TELEOPERATION NOISE 
+
+In addition to real-robot experiments, we apply the same noise model to simulated datasets to study performance degradation under corrupted demonstrations. Unlike na ¨ıve i.i.d. perturbations, our model explicitly captures both smooth motor drift and intermittent corrective actions. Given a clean action at, the executed action ˜at follows Eq. (5) . The AR(1) drift process introduces smooth devia-tions commonly observed during continuous teleoperation, while burst perturbations model brief corrective submove-ments. Task-phase modulation via λ(t) and masking via mt
+
+ensure that all noisy trajectories remain task-completing. Because both drift and corrective bursts concentrate variabil-ity at short temporal scales, injected noise predominantly affects high-frequency components of the trajectory. Low-13 Hierarchical Policy Learning via Spectral Decomposition 
+
+frequency coefficients encoding global task motion remain comparatively stable. 7.1.4. N OISE REGIMES 
+
+To simulate varying levels of teleoperation difficulty, we define two noise regimes: 
+
+Low-noise regime. This setting models mild human vari-ability. Drift parameters are sampled from ρ ∈ [0 .40 , 0.65] 
+
+and σ ∈ [0 .22 , 0.35] . Signal-dependent scaling uses s0 ∈
+
+[0 .05 , 0.10] and k ∈ [0 .15 , 0.28] . Corrective bursts occur sparsely, with 0–4 windows of 2–4 timesteps and burst mag-nitude η ∼ N (0 , σ 2 
+
+> b
+
+) where σb ∈ [0 .06 , 0.12] . Noise in-tensity decays with λ(t) ∈ [0 .25 , 0.40] , and per-dimension perturbations are clipped to [0 .22 , 0.36] .
+
+High-noise regime. This regime simulates challenging teleoperation with substantial execution instability. Drift correlation and magnitude increase to ρ ∈ [0 .60 , 0.90] and 
+
+σ ∈ [0 .45 , 0.75] . Signal-dependent variability is amplified using s0 ∈ [0 .12 , 0.22] and k ∈ [0 .32 , 0.55] . Burst correc-tions are more frequent and stronger, with 0–6 windows of 
+
+2–5 timesteps and σb ∈ [0 .16 , 0.32] . Noise decays later in the trajectory via λ(t) ∈ [0 .15 , 0.30] , and clipping bounds increase to [0 .45 , 0.75] per dimension. 
+
+Spectral characteristics. Across both regimes, injected noise predominantly perturbs high-frequency components of the action trajectory, while low-frequency coefficients encoding global task-level motion remain stable. 7.1.5. M OTIVATION : C OARSE -TO -F INE LEARNING 
+
+UNDER NOISY DEMONSTRATIONS 
+
+The coarse-to-fine factorization of CSP becomes particularly important under realistic demonstration noise. In teleoper-ated data, execution variability is unevenly distributed across temporal scales: global task-level motion is often consistent across demonstrations, while fine-scale corrective behavior exhibits substantial variability. Let at:t+t′ denote an action chunk and c = F a t:t+t′ its spectral representation. Under human teleoperation, the executed trajectory is corrupted by noise, 
+
+˜a = a + ε, ˜c = c + η, η = F ε. 
+
+Due to temporal correlation in execution drift and delayed human feedback, this noise primarily affects short-timescale variations, yielding 
+
+ηlow ≈ 0, ηhigh large ,
+
+where ηlow and ηhigh denote the low- and high-frequency components of the noise, respectively. Under standard imitation learning, training minimizes squared error on noisy demonstrations, 
+
+E∥ˆc − ˜c∥22
+
+ = E∥ˆclow − clow ∥22
+
++E∥ˆchigh − (chigh + ηhigh )∥22
+
+ .
+
+When the variance of ηhigh is large, optimization becomes dominated by noisy high-frequency supervision. As a result, the learned predictor collapses toward the conditional mean, 
+
+ˆchigh (ot, l ) = E[chigh | ot, l ],
+
+which suppresses task-critical corrective behavior and yields overly smooth executions. In contrast, CSP conditions fine-scale prediction on the realized coarse trajectory, 
+
+p(chigh | ot, l ) → p(chigh | ot, c low ).
+
+By anchoring high-frequency refinement to a specific low-frequency motion context, this factorization substantially reduces ambiguity in high-frequency supervision. Con-sequently, predictable corrective structure can be learned even when demonstrations contain significant execution noise—an essential property for manipulation tasks requir-ing precise alignment and timing. 
+
+7.2. Zero-Out Frequency Intervention on a Precision Dart Task 
+
+To further validate the causal role of temporal frequencies in precision control, we conduct a controlled zero-out interven-tion on a dart-to-target task. This experiment complements the main paper’s frequency truncation study by exhaustively sweeping chunk sizes and high-frequency removal levels, and observing the resulting execution behavior. 
+
+Experimental setup. Given an action chunk at:t+K of length K, we compute its spectral representation c =
+
+F a t:t+K . We then zero out the highest-frequency coeffi-cients beyond a cutoff index H:
+
+ˆci =
+
+(
+
+ci, i ≤ K − H, 
+
+0, i > K − H, ˆa = F −1 ˆc. 
+
+Here, K denotes the chunk size and H the number of high-frequency components removed. The reconstructed action ˆa
+
+is replayed in the environment without retraining the policy. This isolates the *execution-level* contribution of high-frequency components from learning effects. Performance is measured by the final dart landing outcome: 
+
+middle hit , touching target with error score , or toward target but not touching .
+
+Results across chunk sizes. We summarize representative outcomes below, grouped by chunk size K.14 Hierarchical Policy Learning via Spectral Decomposition 
+
+Large chunks ( K = 125 ). When only moderate high-frequency components are removed ( H ≤ 70 ), the dart consistently lands near the center of the target. As more high-frequency components are zeroed out, accuracy de-grades smoothly: scores drop to ∼ 9 for H ∈ [80 , 100] ,then to ∼ 8 at H = 104 –108 . Beyond H ≥ 110 , the dart no longer touches the target, though the trajectory still points toward it. This indicates that coarse motion remains intact, while fine corrective timing is lost. 
+
+Medium chunks ( K = 64 ). A similar but sharper tran-sition is observed. For H ≤ 32 , the dart lands near the center. As H increases to 40 –48 , performance degrades gradually (scores ∼ 9–8). For H ≥ 52 , the dart increas-ingly undershoots and eventually fails to touch the target, despite moving in the correct direction. 
+
+Small chunks ( K = 32 , 16 , 8). With smaller chunks, high-frequency truncation has a more abrupt effect. For 
+
+K = 32 , removing nearly all high-frequency components (H = 31 ) creates a large execution gap. For K = 16 , re-moving even a single additional high-frequency coefficient (H = 14 → 15 ) noticeably degrades accuracy. For K = 8 ,zeroing out no high-frequency components yields a centered hit, while removing 5–6 components already causes visible accuracy loss. 
+
+Key observations. Across all chunk sizes, we observe a consistent pattern: • Removing high-frequency components does not destroy global task intent: the dart continues to move toward the target even under aggressive truncation. • Precision degrades gradually as more high-frequency con-tent is removed, eventually leading to failure to touch the target. • Larger chunks tolerate more high-frequency removal be-fore failure, while smaller chunks rely more critically on high-frequency components. 
+
+7.3. Frequency split selection. 
+
+For each task and fixed chunk length K, we select the low– high frequency split using a simple, data-driven heuristic based on the spectral statistics of demonstration actions. Given action chunks a ∈ RK×d from N trajectories, we apply the DCT along the temporal dimension and obtain coefficients c(n) 
+
+> k,d
+
+, k = 0 , . . . , K − 1, for each demo n and action dimension d. We then compute the empirical mean power spectrum 
+
+¯Pk = 1
+
+N d 
+
+> N
+
+X
+
+> n=1
+> d
+
+X
+
+> d=1
+
+c(n)
+
+> k,d
+> 2
+
+,
+
+optionally smoothed with a short moving average, and its cumulative energy 
+
+Ek =
+
+Pki=0 ¯Pi
+
+PK−1 
+
+> i=0
+
+¯Pi
+
+.
+
+We first define an energy-based cutoff Kenergy as the smallest index satisfying EKenergy ≥ α (with α ≈ 0.9–0.98 ), ensuring that low-frequency components capture most of the spectral energy. In parallel, we detect a “spectral elbow” Kelbow 
+
+by finding the point of maximum negative curvature in the log-power spectrum log( ¯Pk + ε) over a restricted range of frequencies, corresponding to the transition from a steep decay (structured motion) to a flatter tail (high-frequency noise and jitter). The final split index is chosen as 
+
+Ksplit = max  Kenergy , K elbow 
+
+,
+
+optionally snapped to a small set of architecture-friendly val-ues (e.g., {4, 8, 16 , 24 , 32 }). Coefficients c0: Ksplit are treated as low-frequency (coarse) components, and cKsplit :K as high-frequency (fine) components. Aggregating power across demonstrations and action dimensions makes this procedure substantially more robust than choosing a split from a single trajectory or a single largest amplitude drop. 
+
+7.4. Extended Method Details for CSP (Causal Spectral Policy) 
+
+Here we provide additional details for the CSP ( causal spec-tral policy ) used in our experiments, including inputs to the policy, the spectral factorization, and model-specific hyperparameters. For each episode, let ℓ ∈ Rdℓ be the projected output of a frozen language encoder, ut ∈ Rdu the proprioceptive state (end-effector pose, gripper state), and ot the visual observation at timestep t. All policies—including CSP and baselines—receive the same observation tuple (ot, u t, ℓ );the baselines concatenate these signals and feed them to a time-domain policy network, while CSP maps them through a perception encoder into a sequence of Nobs tokens. We assume access to expert actions at ∈ RDa (6D twist + 1 gripper) and form length-T action chunks 
+
+Ai = {ai, . . . , a i+T −1}.
+
+For CSP, the first six action dimensions in each chunk are transformed into the frequency domain using a type-II DCT along time, producing coefficients Ci ∈ RT ×6. These coef-ficients are split into low- and high-frequency subsets Clow 
+
+> i
+
+and Chigh  
+
+> i
+
+. A GPT-style trunk predicts the low-frequency slice Clow  
+
+> i
+
+from (oi:i+T −1, u i:i+T −1, ℓ ); a second trunk con-ditions on the realized low-frequency prediction to infer 
+
+Chigh  
+
+> i
+
+. The full coefficient sequence Ci = [ Clow  
+
+> i
+
+, C high  
+
+> i
+
+] is then mapped back to time-domain actions via an inverse 15 Hierarchical Policy Learning via Spectral Decomposition 
+
+DCT (IDCT), and the gripper channel is concatenated un-changed. CSP is trained with a weighted sum of low- and high-frequency regression losses on these coefficients, as described in Sec. 4. We use the following CSP-specific hyperparameters in all experiments: Parameter Value Action dimension Da 7 (6D twist + gripper) Transformer hidden dim nembd 256 # Transformer layers 8 (per stage) # Attention heads 4Block size 65 Predict in frequency Yes (twist only) Hierarchy Two-stage (low + high)  
+
+> Table 5. CSP (causal spectral policy) architecture hyperparameters.
+
+7.5. Additional Experimental Data 
+
+Fig. 10 provides additional single-task evidence supporting the robustness trends discussed in Sec. 5.3 of the main pa-per. While the primary experiments focus on aggregated performance across multi-task Libero-90 subsets, this fig-ure disaggregates results at the task level to illustrate how different policy structures respond to realistic teleoperation noise. Across individual tasks, baseline methods exhibit pro-nounced task-dependent behavior: some tasks remain rela-tively stable under noise, whereas others experience sharp performance degradation as noise magnitude increases. This variability is particularly evident for methods that predict actions monolithically in the time domain, where high-frequency execution noise can dominate learning signals. In contrast, CSP consistently shows smaller performance drops across all evaluated tasks and noise regimes. This aligns with the main paper’s hypothesis that explicitly mod-eling action structure across temporal frequencies improves robustness by isolating task-level motion from noisy fine-grained execution. These results further corroborate that the gains reported in Sec. 5 are not driven by a small subset of tasks, but persist across diverse manipulation behaviors with different precision and alignment requirements. 16 Hierarchical Policy Learning via Spectral Decomposition 
+
+Figure 10. Single-Task Noise Injection Results Evaluation of CSP and baselines on select single tasks from Libero-90. 
+
+17 Hierarchical Policy Learning via Spectral Decomposition 
+
+Table 6. Simulation Results under Additional Action Chunk Sizes. Success rate across LIBERO and MimicGen-style tasks with a chunk size of K=32. 
+
+Method Libero-90 Libero-10 Stack Stack3 Coffee Square Threading MimicGen Mean Chunk Size = 32 
+
+ACT 90.3 63.9 40.0 16.3 56.3 27.5 6.3 29.3 DP-CNN 87.0 58.1 83.8 40.0 45.0 40.0 52.5 52.3 DP-Transformer 85.5 58.4 90.0 38.8 51.3 27.5 25.0 46.5 BAKU 82.6 49.4 67.5 17.5 32.5 26.3 7.5 30.3 Action Binning 88.9 67.3 82.5 56.3 76.3 46.3 15.0 55.3 Freq-Autoregressive 88.5 68.5 85.0 32.5 67.5 27.5 28.8 48.3 
+
+Spectral Policy (Ours) 90.2 74.0 75.0 42.5 82.5 45.0 42.5 57.5 
+
+18
