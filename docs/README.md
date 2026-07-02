@@ -6,131 +6,131 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-01
-- 运行时间：2026-07-01 20:25:32 UTC
+- 最新运行日期：2026-07-02
+- 运行时间：2026-07-02 20:01:07 UTC
 - 运行状态：成功
 - 本次总论文数：37
 - 精读区：21
 - 速读区：16
 
 ### 今日简报（AI）
-今日精读37篇，重点聚焦认知科学与具身智能两大方向。最值得关注的是满分论文《Orca》提出“世界在你的思维中”这一认知框架，以及《Z-1》展示的高效视觉-语言-动作强化学习模型。建议普通读者优先精读Orca理解思维与环境的交互逻辑，再通过速读触觉定位等应用巩固认知。
-- 详情：[/202607/01/README](/202607/01/README)
+今天共阅读37篇论文，精读21篇，其中《Orca: The World is in Your Mind》和《Training Vision-Language-Action Models with Dense Embodied Chain-of-Thought Supervision》均获9.0高分，是核心亮点。最值得关注方向：使用密集链式思维监督训练具身VLA模型，以及关于基础策略分布重塑的动态适应性研究。建议优先精读这两篇9分论文，理解具身智能中思维链与动作耦合的新框架。
+- 详情：[/202607/02/README](/202607/02/README)
 
 ### 精读区论文标签
-1. [Orca: The World is in Your Mind](/202607/01/2606.30534v2-orca-the-world-is-in-your-mind)  
-   标签：评分：10.0/10、query:world-model
-   evidence：世界基础模型，统一潜在空间与下一状态预测
-2. [Z-1: Efficient Reinforcement Learning for Vision-Language-Action Models](/202607/01/2606.31846v1-z-1-efficient-reinforcement-learning-for-vision-language-action-models)  
-   标签：评分：10.0/10、query:vla
-   evidence：面向视觉语言动作模型的强化学习后训练
-3. [Policy Gradient Learning for Distributionally Robust Markov Decision Processes under Wasserstein Ambiguity](/202607/01/2606.27610v1-policy-gradient-learning-for-distributionally-robust-markov-decision-processes-under-wasserstein-ambiguity)  
-   标签：评分：9.0/10、query:control
-   evidence：基于Wasserstein模糊集分布鲁棒MDP的控制
-4. [A Path-Space Formulation of Prediction in World Models: From a Single Action to Prediction, Planning, and Irreversibility](/202607/01/2606.28751v1-a-path-space-formulation-of-prediction-in-world-models-from-a-single-action-to-prediction-planning-and-irreversibility)  
+1. [Orca: The World is in Your Mind](/202607/02/2606.30534v1-orca-the-world-is-in-your-mind)  
    标签：评分：9.0/10、query:world-model
-   evidence：世界模型中预测的路径空间公式
-5. [ViPSim: Collaborating Visual and Parameter Spaces for Consistent Long-Horizon Embodied World Models](/202607/01/2606.28804v1-vipsim-collaborating-visual-and-parameter-spaces-for-consistent-long-horizon-embodied-world-models)  
-   标签：评分：9.0/10、query:world-model
-   evidence：一致长时程具身世界模型
-6. [Hierarchical Policy Learning via Spectral Decomposition](/202607/01/2606.29570v1-hierarchical-policy-learning-via-spectral-decomposition)  
-   标签：评分：9.0/10、query:robot-learn
-   evidence：通过频谱分解的层次化策略学习用于机器人操作
-7. [FutureNav: Unified World-Action Modeling for Vision-and-Language Navigation](/202607/01/2606.30367v1-futurenav-unified-world-action-modeling-for-vision-and-language-navigation)  
-   标签：评分：9.0/10、query:robot-learn
-   evidence：面向视觉语言导航的世界-动作统一建模
-8. [ViTL: Temporal Logic-Guided Zero-Shot Natural Language Navigation via Vision-Language Models](/202607/01/2606.30696v1-vitl-temporal-logic-guided-zero-shot-natural-language-navigation-via-vision-language-models)  
-   标签：评分：9.0/10、query:robot-learn
-   evidence：带时间逻辑约束的零样本自然语言导航
-9. [Sampling-Based Coordination-Informed Multi-Objective Multi-Robot Reinforcement Learning](/202607/01/2606.30893v1-sampling-based-coordination-informed-multi-objective-multi-robot-reinforcement-learning)  
-   标签：评分：9.0/10、query:robot-learn
-   evidence：多目标多机器人强化学习
-10. [Efficient Sim-to-Real Transfer of World-Action Models from Synthetic Priors](/202607/01/2606.31101v1-efficient-sim-to-real-transfer-of-world-action-models-from-synthetic-priors)  
-   标签：评分：9.0/10、query:robot-learn
-   evidence：使用合成数据的世界动作模型模拟到现实迁移
-11. [MIRTH: Mutual-Information Reasoning with Temporal Hubs for Vision-Language-Action Agents](/202607/01/2606.31167v1-mirth-mutual-information-reasoning-with-temporal-hubs-for-vision-language-action-agents)  
+   evidence：提出Orca世界基础模型，具有统一潜在空间和下一状态预测
+2. [Training Vision-Language-Action Models with Dense Embodied Chain-of-Thought Supervision](/202607/02/2606.30552v2-training-vision-language-action-models-with-dense-embodied-chain-of-thought-supervision)  
    标签：评分：9.0/10、query:vla
-   evidence：带有时序记忆和潜在推理的新型VLA框架
-12. [Agentic RAG-VLM: Affordance-Aware Retrieval-Augmented Generation with Self-Reflective Planning for Robotic Grasping](/202607/01/2606.31200v1-agentic-rag-vlm-affordance-aware-retrieval-augmented-generation-with-self-reflective-planning-for-robotic-grasping)  
-   标签：评分：9.0/10、query:robot-learn
-   evidence：基于物理可供性感知的RAG和VLM机器人抓取
-13. [Delta-JEPA: Learning Action-Sensitive World Models via Latent Difference Decoding](/202607/01/2606.31232v1-delta-jepa-learning-action-sensitive-world-models-via-latent-difference-decoding)  
-   标签：评分：9.0/10、query:world-model
-   evidence：基于潜在差异解码的动作敏感世界模型
-14. [3D HAMSTER: Bridging Planning and Control in Hierarchical Vision Language Action Models through 3D Trajectory Guidance](/202607/01/2606.31329v1-3d-hamster-bridging-planning-and-control-in-hierarchical-vision-language-action-models-through-3d-trajectory-guidance)  
+   evidence：具身思维链的VLA模型用于跨本体迁移
+3. [ELASTIC: Efficiently Learning to Adaptively Scale Test-Time Compute for Generative Control Policies](/202607/02/2606.31132v1-elastic-efficiently-learning-to-adaptively-scale-test-time-compute-for-generative-control-policies)  
    标签：评分：9.0/10、query:vla
-   evidence：层次化VLA模型，通过3D轨迹指导机器人操纵
-15. [Stabilization Learning: A Paradigm Transition Bridging Control Theory and Machine Learning](/202607/01/2606.31562v1-stabilization-learning-a-paradigm-transition-bridging-control-theory-and-machine-learning)  
-   标签：评分：9.0/10、query:control
-   evidence：结合控制理论与机器学习，利用李雅普诺夫方法和数据驱动反馈进行稳定性学习
-16. [UniTacVLA: Unified Tactile Understanding and Prediction in Vision Language Action Models](/202607/01/2606.31723v1-unitacvla-unified-tactile-understanding-and-prediction-in-vision-language-action-models)  
+   evidence：VLA模型的测试时计算自适应缩放
+4. [A Modular Vision-Language-Action Robotics Framework for Indoor Environments](/202607/02/2606.31144v1-a-modular-vision-language-action-robotics-framework-for-indoor-environments)  
    标签：评分：9.0/10、query:vla
-   evidence：VLA模型中的统一触觉理解与预测
-17. [LeCropFollow: Latent Space Planning for Navigation in Unstructured Crop Fields](/202607/01/2606.31941v1-lecropfollow-latent-space-planning-for-navigation-in-unstructured-crop-fields)  
-   标签：评分：9.0/10、query:robot-learn
-   evidence：面向农业自主导航的潜空间规划
-18. [Adapting Generalist Robot Policies with Semantic Reinforcement Learning](/202607/01/2606.31958v1-adapting-generalist-robot-policies-with-semantic-reinforcement-learning)  
-   标签：评分：9.0/10、query:robot-learn
-   evidence：语义强化学习用于机器人策略适应
-19. [AdaJEPA: An Adaptive Latent World Model](/202607/01/2606.32026v1-adajepa-an-adaptive-latent-world-model)  
-   标签：评分：9.0/10、query:control
-   evidence：自适应潜在世界模型，在MPC闭环中进行测试时适应
-20. [Freeform Preference Learning for Robotic Manipulation](/202607/01/2606.32027v1-freeform-preference-learning-for-robotic-manipulation)  
-   标签：评分：9.0/10、query:robot-learn
-   evidence：自由形式偏好学习用于机器人操作策略
-21. [DVG-WM: Disentangled Video Generation Enables Efficient Embodied World Model for Robotic Manipulation](/202607/01/2606.32028v1-dvg-wm-disentangled-video-generation-enables-efficient-embodied-world-model-for-robotic-manipulation)  
+   evidence：面向室内任务的模块化VLA机器人框架
+5. [Delta-JEPA: Learning Action-Sensitive World Models via Latent Difference Decoding](/202607/02/2606.31232v1-delta-jepa-learning-action-sensitive-world-models-via-latent-difference-decoding)  
    标签：评分：9.0/10、query:world-model
-   evidence：通过解耦视频生成实现的机器人操作世界模型
+   evidence：通过潜在差异解码的动作敏感世界模型
+6. [3D HAMSTER: Bridging Planning and Control in Hierarchical Vision Language Action Models through 3D Trajectory Guidance](/202607/02/2606.31329v2-3d-hamster-bridging-planning-and-control-in-hierarchical-vision-language-action-models-through-3d-trajectory-guidance)  
+   标签：评分：9.0/10、query:vla
+   evidence：分层视觉-语言-动作模型结合3D轨迹引导用于机器人操作
+7. [CoDex: Learning Compositional Dexterous Functional Manipulation without Demonstrations](/202607/02/2606.31909v1-codex-learning-compositional-dexterous-functional-manipulation-without-demonstrations)  
+   标签：评分：9.0/10、query:robot-learn
+   evidence：零演示条件下的组合灵巧操作，使用视觉语言模型
+8. [Human-as-Humanoid: Enabling Zero-Shot Humanoid Learning from Ego-Exo Human Videos with Human-Aligned Embodiments](/202607/02/2606.32009v1-human-as-humanoid-enabling-zero-shot-humanoid-learning-from-ego-exo-human-videos-with-human-aligned-embodiments)  
+   标签：评分：9.0/10、query:vla
+   evidence：直接使用视觉语言动作模型从人类视频中学习人形机器人
+9. [3D Point World Models: Point Completion Enables More Accurate Dynamics Learning](/202607/02/2607.00148v1-3d-point-world-models-point-completion-enables-more-accurate-dynamics-learning)  
+   标签：评分：9.0/10、query:world-model
+   evidence：用于规划和动力学学习的世界模型
+10. [Unleashing More Actions via Action Compositional Training for VLA Models](/202607/02/2607.00351v1-unleashing-more-actions-via-action-compositional-training-for-vla-models)  
+   标签：评分：9.0/10、query:vla
+   evidence：VLA模型动作组合训练以泛化到新技能组合
+11. [Regularized Model Predictive Control via Contractivity and Implicit Lur'e Analysis](/202607/02/2607.00383v1-regularized-model-predictive-control-via-contractivity-and-implicit-lure-analysis)  
+   标签：评分：9.0/10、query:control
+   evidence：正则化模型预测控制的稳定性分析
+12. [Robust Operational Space Control with Conformal Disturbance Bounds for Safe Redundant Manipulation](/202607/02/2607.00424v1-robust-operational-space-control-with-conformal-disturbance-bounds-for-safe-redundant-manipulation)  
+   标签：评分：9.0/10、query:control
+   evidence：冗余机械臂的鲁棒控制
+13. [Search-Based Spatiotemporal and Multi-Robot Motion Planning on Graphs of Space-Time Convex Sets](/202607/02/2607.00444v1-search-based-spatiotemporal-and-multi-robot-motion-planning-on-graphs-of-space-time-convex-sets)  
+   标签：评分：9.0/10、query:robot-learn
+   evidence：基于时空凸集图的搜索式时空及多机器人运动规划
+14. [Multi-scale Mixture of World Models for Embodied Agents in Evolving Environments](/202607/02/2607.00457v1-multi-scale-mixture-of-world-models-for-embodied-agents-in-evolving-environments)  
+   标签：评分：9.0/10、query:world-model
+   evidence：多尺度世界模型混合用于动态环境中的具身智能体
+15. [A Data-Enabled Primal-Dual Approach for Policy Learning with SDP Formulations](/202607/02/2607.00644v1-a-data-enabled-primal-dual-approach-for-policy-learning-with-sdp-formulations)  
+   标签：评分：9.0/10、query:control
+   evidence：数据驱动的原始-对偶最优控制策略学习
+16. [Domain Arithmetic: One-Shot VLA Adaptation under Environmental Shifts](/202607/02/2607.00666v1-domain-arithmetic-one-shot-vla-adaptation-under-environmental-shifts)  
+   标签：评分：9.0/10、query:vla
+   evidence：通过权重算术实现单次VLA适应
+17. [ABot-M0.5: Unified Mobility-and-Manipulation World Action Model](/202607/02/2607.00678v1-abot-m05-unified-mobility-and-manipulation-world-action-model)  
+   标签：评分：9.0/10、query:world-action
+   evidence：提出了一个统一的移动操作世界动作模型ABot-M0.5
+18. [From World Models to World Action Models: A Concise Tutorial for Robotics](/202607/02/2607.00836v1-from-world-models-to-world-action-models-a-concise-tutorial-for-robotics)  
+   标签：评分：9.0/10、query:world-model
+   evidence：面向机器人的世界模型与世界动作模型教程
+19. [RoboWorld: Fast and Reliable Neural Simulators for Generalist Robot Policy Evaluation](/202607/02/2607.01060v1-roboworld-fast-and-reliable-neural-simulators-for-generalist-robot-policy-evaluation)  
+   标签：评分：9.0/10、query:world-model
+   evidence：用于机器人策略评估的视频世界模型
+20. [Structured 4D Latent Predictive Model for Robot Planning](/202607/02/2607.01166v1-structured-4d-latent-predictive-model-for-robot-planning)  
+   标签：评分：9.0/10、query:latent-space
+   evidence：用于机器人规划的结构化4D潜在预测模型
+21. [FurnitureVLA: Learning Long-Horizon Bimanual Furniture Assembly with Vision-Language-Action Model](/202607/02/2607.01212v1-furniturevla-learning-long-horizon-bimanual-furniture-assembly-with-vision-language-action-model)  
+   标签：评分：9.0/10、query:vla
+   evidence：基于VLA的长时程双臂家具组装
 
 ### 速读区论文标签
-1. [TACTFUL: Tactile-Driven Exploration For Object Localization and Identification in Confined Environments](/202607/01/2606.24712v1-tactful-tactile-driven-exploration-for-object-localization-and-identification-in-confined-environments)  
+1. [SIR: Structured Image Representations for Explainable Robot Learning](/202607/02/2606.30101v1-sir-structured-image-representations-for-explainable-robot-learning)  
    标签：评分：8.0/10、query:robot-learn
-   evidence：触觉驱动的受限空间物体定位探索
-2. [Lipschitz Regularity in Wasserstein Robust Stochastic Optimal Control](/202607/01/2606.28633v1-lipschitz-regularity-in-wasserstein-robust-stochastic-optimal-control)  
+   evidence：基于结构化图像表示的机器人策略学习
+2. [Warp RL: Reshaping Base Policy Distributions for Dynamics Adaptation](/202607/02/2606.31043v1-warp-rl-reshaping-base-policy-distributions-for-dynamics-adaptation)  
+   标签：评分：8.0/10、query:robot-learn
+   evidence：通过分布重塑进行动力学适应的残差强化学习
+3. [Warp RL: Reshaping Base Policy Distributions for Dynamics Adaptation](/202607/02/2606.31043v2-warp-rl-reshaping-base-policy-distributions-for-dynamics-adaptation)  
+   标签：评分：8.0/10、query:robot-learn
+   evidence：Warp RL通过分布重塑适配机器人策略，与强化学习机器人控制相关
+4. [Plan Right, Then Plan Tight: Symbolic RL for Efficient Embodied Reasoning](/202607/02/2606.31260v1-plan-right-then-plan-tight-symbolic-rl-for-efficient-embodied-reasoning)  
+   标签：评分：8.0/10、query:robot-learn
+   evidence：基于符号强化学习的具身任务规划
+5. [Revisiting Parameter Redundancy in Vision-Language-Action Models: Insights from VLM-to-VLA Adaptation](/202607/02/2606.31382v1-revisiting-parameter-redundancy-in-vision-language-action-models-insights-from-vlm-to-vla-adaptation)  
+   标签：评分：8.0/10、query:vla
+   evidence：VLA模型参数剪枝、冗余分析
+6. [Stabilization Learning: A Paradigm Transition Bridging Control Theory and Machine Learning](/202607/02/2606.31562v1-stabilization-learning-a-paradigm-transition-bridging-control-theory-and-machine-learning)  
    标签：评分：8.0/10、query:control
-   evidence：Wasserstein鲁棒随机最优控制中的Lipschitz正则性
-3. [Why Struggle with Continuous Latents? Interpretable Discrete Latent Reasoning via Rendered Compression](/202607/01/2606.29712v1-why-struggle-with-continuous-latents-interpretable-discrete-latent-reasoning-via-rendered-compression)  
-   标签：评分：8.0/10、query:latent-space
-   evidence：面向可解释表示的离散潜变量推理
-4. [SIR: Structured Image Representations for Explainable Robot Learning](/202607/01/2606.30101v1-sir-structured-image-representations-for-explainable-robot-learning)  
+   evidence：控制理论，李雅普诺夫稳定性
+7. [MVP-Nav: Multi-layer Value Map Planner Navigator](/202607/02/2606.31919v1-mvp-nav-multi-layer-value-map-planner-navigator)  
    标签：评分：8.0/10、query:robot-learn
-   evidence：通过场景图构建结构化图像表示以实现可解释的机器人策略学习
-5. [HUMEMBR: Learning Human Routines for Predictive Embodied Navigation](/202607/01/2606.30404v1-humembr-learning-human-routines-for-predictive-embodied-navigation)  
+   evidence：利用3D重建的RGB零样本物体目标导航
+8. [ASPIRE: Agentic /Skills Discovery for Robotics](/202607/02/2607.00272v1-aspire-agentic-skills-discovery-for-robotics)  
    标签：评分：8.0/10、query:robot-learn
-   evidence：预测性具身导航，学习人类日常行为
-6. [Latent Actions from Factorized Transition Effects under Agent Ambiguity](/202607/01/2606.30544v1-latent-actions-from-factorized-transition-effects-under-agent-ambiguity)  
-   标签：评分：8.0/10、query:latent-space
-   evidence：从观测转换中学习潜在动作表示
-7. [Robustness-Based Synthesis for Time Window Temporal Logic Specifications via Mixed-Integer Linear Programming](/202607/01/2606.30820v1-robustness-based-synthesis-for-time-window-temporal-logic-specifications-via-mixed-integer-linear-programming)  
-   标签：评分：8.0/10、query:control
-   evidence：利用MILP综合鲁棒控制策略
-8. [Joint Chance Constrained Safe-Optimal Control](/202607/01/2606.30829v1-joint-chance-constrained-safe-optimal-control)  
-   标签：评分：8.0/10、query:control
-   evidence：带有联合机会约束的安全最优控制
-9. [Motion Planning in Compressed Representation Spaces](/202607/01/2606.30940v1-motion-planning-in-compressed-representation-spaces)  
+   evidence：通过迭代探索和代码即策略发现机器人操作技能
+9. [NeHMO: Neural Hamilton-Jacobi Reachability Learning for Decentralized Safe Multi-Arm Motion Planning](/202607/02/2607.00326v1-nehmo-neural-hamilton-jacobi-reachability-learning-for-decentralized-safe-multi-arm-motion-planning)  
    标签：评分：8.0/10、query:robot-learn
-   evidence：压缩表示空间中的运动规划
-10. [Vision-Language Model Reasoning for Contextual Semantic Mapping in Intralogistics](/202607/01/2606.24814v2-vision-language-model-reasoning-for-contextual-semantic-mapping-in-intralogistics)  
+   evidence：使用神经HJR的分布式安全多臂运动规划
+10. [Learning from Demonstration via Spatiotemporal Tubes for Unknown Euler-Lagrange Systems](/202607/02/2607.00534v1-learning-from-demonstration-via-spatiotemporal-tubes-for-unknown-euler-lagrange-systems)  
+   标签：评分：8.0/10、query:robot-learn
+   evidence：通过学习示范和时空管状约束实现未知欧拉-拉格朗日系统的机器人学习
+11. [Vision-Language Procedural Reasoning for Context-Aware Reward Modeling of Robotic Endovascular Guidewire Navigation](/202607/02/2606.30698v1-vision-language-procedural-reasoning-for-context-aware-reward-modeling-of-robotic-endovascular-guidewire-navigation)  
    标签：评分：7.0/10、query:robot-learn
-   evidence：用于自主移动机器人导航的上下文语义建图
-11. [Mesh-RL: Coupled subgrid reinforcement learning](/202607/01/2606.26333v1-mesh-rl-coupled-subgrid-reinforcement-learning)  
+   evidence：视觉语言程序推理用于机器人导丝导航中的奖励建模
+12. [Deep Reinforcement Learning for Individual Atomic Control and Cooling](/202607/02/2606.30765v1-deep-reinforcement-learning-for-individual-atomic-control-and-cooling)  
    标签：评分：7.0/10、query:robot-learn
-   evidence：强化学习算法加速信用分配
-12. [A Backstepping Framework for Unconstrained Accelerated Optimization Algorithms](/202607/01/2606.27722v1-a-backstepping-framework-for-unconstrained-accelerated-optimization-algorithms)  
-   标签：评分：7.0/10、query:control
-   evidence：基于反步法的优化算法控制理论框架
-13. [Regularized Reward-Punishment Reinforcement Learning](/202607/01/2606.28152v1-regularized-reward-punishment-reinforcement-learning)  
+   evidence：使用强化学习的原子控制仿真到现实迁移
+13. [Safe Online Learning via Smooth Safety-Structured Policy Composition](/202607/02/2606.31320v1-safe-online-learning-via-smooth-safety-structured-policy-composition)  
    标签：评分：7.0/10、query:robot-learn
-   evidence：带耦合策略正则化的奖惩强化学习
-14. [CORE: Common Outcome Regularities from Action-Free Visual Demonstrations for Robot Manipulation](/202607/01/2606.29517v1-core-common-outcome-regularities-from-action-free-visual-demonstrations-for-robot-manipulation)  
-   标签：评分：7.0/10、query:robot-learn
-   evidence：从无动作视觉演示中学习操作策略
-15. [Reasoning as Attractor Dynamics: Latent Memory Retrieval via Gibbs-Weighted Energy Minimization](/202607/01/2606.24543v1-reasoning-as-attractor-dynamics-latent-memory-retrieval-via-gibbs-weighted-energy-minimization)  
-   标签：评分：6.0/10、query:latent-space
-   evidence：推理的潜在空间表示
-16. [Prototype Latent World Model Replay for Class-Incremental Learning](/202607/01/2606.29465v1-prototype-latent-world-model-replay-for-class-incremental-learning)  
+   evidence：通过平滑安全结构策略组合实现安全在线强化学习
+14. [Harnessing the Latent Space: From Steering Vectors to Model Calibrators for Control and Trust](/202607/02/2607.00083v1-harnessing-the-latent-space-from-steering-vectors-to-model-calibrators-for-control-and-trust)  
+   标签：评分：7.0/10、query:latent-space
+   evidence：利用潜空间进行控制向量和模型校准
+15. [Automating the Design of Embodied AgentArchitectures](/202607/02/2606.30111v1-automating-the-design-of-embodied-agentarchitectures)  
+   标签：评分：6.0/10、query:world-action
+   evidence：自动化设计具身代理架构，使用模拟器进行执行
+16. [Data-Adaptive Learning of Dynamical Systems by Matching Transfer Operators and Invariant Measures](/202607/02/2607.00391v1-data-adaptive-learning-of-dynamical-systems-by-matching-transfer-operators-and-invariant-measures)  
    标签：评分：6.0/10、query:world-model
-   evidence：用于类增量学习的原型潜世界模型
+   evidence：通过传输算子匹配学习动力系统的预测模型
 
 
 <div class="dpr-home-promo-card">
