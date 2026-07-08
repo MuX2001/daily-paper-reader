@@ -1,0 +1,832 @@
+Title: Domain Adaptation with Adaptive Imagination for Visual Reinforcement Learning under Limited Target Data
+
+URL Source: https://arxiv.org/pdf/2606.30192v1
+
+Published Time: Tue, 30 Jun 2026 02:10:50 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# Domain Adaptation with Adaptive Imagination for Visual Reinforcement Learning under Limited Target Data 
+
+Hyunwoo Park 1 and Sang-Hyun Lee 2 
+
+> 1
+
+STRADVISION, Seoul, Republic of Korea 
+
+hyunwoo.park@stradvision.com  
+
+> 2
+
+Department of Mobility Engineering, Ajou University, Suwon, Republic of Korea 
+
+sanghyunlee@ajou.ac.kr 
+
+Abstract. Sim-to-real transfer remains a major obstacle for reinforce-ment learning (RL), especially for vision-based control where image ob-servations exacerbate the state-distribution shift between simulation and the real world. Domain adaptation (DA) is a promising remedy for this challenge. Prior sim-to-real DA works have demonstrated encouraging results, yet these approaches typically assume substantially more target data, which is not available in practice. Indeed, their performance de-grades significantly when the target data budget is reduced. To address this challenge, we propose AIDA ( Adaptive Imagination for Domain 
+
+Adaptation), a domain adaptation framework for visual reinforcement learning that addresses sim-to-real transfer under scarce target data without requiring additional interaction with the target environment. Our key idea is adaptive imagination: generating reliable and semantic imagination rollouts to augment limited target data. Specifically, AIDA employs a distribution-shift-aware discriminator that truncates rollouts when imagined transitions drift into low-confidence regions, so that only reliable transitions contribute to the augmentation. On these reliable transitions, AIDA introduces a self-consistency loss that cycles through state → image observation → state, penalizing discrepancies between the original and reconstructed states. This provides additional adap-tation signals beyond the scarce target data. Our experiments demon-strate that adaptive imagination effectively truncates unreliable rollouts. By enforcing a self-consistency loss on the resulting reliable transitions, AIDA learns semantically meaningful state representations and outper-forms baselines across five MuJoCo tasks and two Gymnasium-Robotics tasks. 
+
+## 1 Introduction 
+
+Deep reinforcement learning (RL) has achieved remarkable success in simulation, enabling agents to master complex control tasks from raw sensory inputs [1, 12]. However, deploying these learned policies in the real world remains a fundamen-tal challenge: discrepancies between simulation and reality—known as the sim-to-real gap—often cause dramatic performance degradation [24]. This gap can  
+
+> arXiv:2606.30192v1 [cs.AI] 29 Jun 2026 2H. Park and S. Lee
+
+be broadly attributed to two factors: dynamics mismatch and state-distribution shift. In particular, for vision-based RL policies, state-distribution shift often plays a larger role. This is because pixel observations are high-dimensional and highly sensitive to changes in appearance and sensing conditions, which exac-erbates the sim-to-real gap. In this work, we focus on mitigating this state-distribution shift for vision-based RL policies. To cope with such distribution shifts, three families of methods are com-monly used: domain randomization (DR), domain generalization (DG), and do-main adaptation (DA). DR [9,10,15,18] augments the simulator to train a single robust policy, hoping that the resulting variability covers factors of variation in the target environment. However, when the test domain is truly unknown or the shift is large, such coverage cannot be guaranteed. DG [3,7,21] aims to learn poli-cies that transfer to previously unseen test environments without target-domain supervision, typically by encouraging domain-agnostic representations and in-variances (e.g., via attention/invariance objectives or augmentation-consistent regularization) rather than explicitly matching to a specific target domain. How-ever, because the test domain is unknown by design, there is no guarantee that the training sources or augmentations capture the true factors of variation en-countered at deployment; consequently, when the domain gap is large or in-cludes unmodeled shifts, DG performance may degrade substantially—revealing a fundamental limitation of methods that must anticipate the target distribution without ever observing it [21]. DA [2, 6, 16, 20] is a promising alternative that directly leverages target-domain data to adapt to the specific target environment. This requires access to target data, but in return enables specialization to the particular deployment set-ting, even when the underlying causes of the shift are unknown at training time. Prior DA methods have indeed demonstrated superior performance over DR and DG [6, 20]. Nevertheless, they typically assume access to sufficient target data, and their performance degrades significantly when this budget is reduced [2,13]. Moreover, most prior DA methods adopt an image-to-image setting [6, 16, 20], which requires training RL agents in image-based simulation—a process that is usually harder [11, 23] and can slow down RL by up to 20 × [22]. These two practical constraints remain underexplored despite their practical relevance. To address these challenges, we propose AIDA (Adaptive Imagination for 
+
+Domain Adaptation), a DA framework for visual RL that operates under scarce target data without additional target interaction. Our key idea is adaptive imag-ination : augmenting limited target data with reliable imagination rollouts ob-tained via discriminator-gated truncation, and optimizing a self-consistency ob-jective on these rollouts to learn semantically meaningful representations. Specifi-cally, AIDA adopts a cross-modality setting (sim-state → real-image) that avoids the overhead of image-based RL training. A learned dynamics model produces policy-conditioned rollouts starting from target-inferred states, augmenting the limited target data with synthetic transitions. However, longer rollouts accu-mulate model error and drift from the target manifold. Therefore, a three-way discriminator assesses each imagined transition and truncates the rollout when AIDA 3
+
+confidence drops, so that only reliable, target-aligned transitions contribute to training. This adaptive truncation is critical, as imagination reliability varies across both tasks and individual states, making any fixed imagination horizon suboptimal. On the resulting reliable transitions, we introduce a self-consistency loss that enforces a state → image → state cycle on discriminator-gated imagina-tion rollouts. Unlike prior cycle objectives limited to short, data-supported pre-dictions, our self-consistency loss extends cycle supervision to multi-step, policy-conditioned imagination rollouts, extracting additional training signal specifi-cally from states the agent is likely to visit and thereby promoting semantically meaningful state representations. We evaluate AIDA across five MuJoCo tasks and two Gymnasium-Robotics tasks with scarce pre-collected target data, where it consistently outperforms baselines, demonstrating its effectiveness in practically important yet challenging regime. Our contributions are: (i) AIDA A novel paradigm that augments limited target data with reliable synthetic transitions and leverages self-consistency to learn semantically meaningful representations. (ii) Discriminator-gated imagination. A mechanism for generating only re-liable imagined transitions by dynamically truncating imagination rollouts based on the discriminator’s domain classification signal. (iii) Self-consistency via imagination-augmented data. A scheme that learns semantically meaningful representations by enforcing a self-consistency loss on synthetic policy-conditioned imagination rollouts, providing additional supervision under limited target data. (iv) Experimental evaluation. Comprehensive experiments across five Mu-JoCo tasks and two Gymnasium-Robotics tasks demonstrate that imagined transitions progressively become unreliable as the rollout horizon grows and that discriminator-gated truncation yields higher returns than any fixed-horizon alternative, enabling AIDA to consistently outperform baseline DA methods in the low-data regime. 
+
+## 2 Related Work 
+
+Bridging the sim-to-real gap has been a longstanding challenge in RL, and a number of approaches have been proposed to address the shift in state distri-butions between source and target domains. Broadly, these methods fall into three categories: domain randomization (DR), domain generalization (DG), and domain adaptation (DA). 
+
+Domain Randomization (DR). DR trains an agent in simulation under a wide range of environment parameters—such as textures, lighting, camera poses, and object appearances—with the goal that such visual variations will cover the target-domain state distribution. In vision-based settings, this typi-cally involves randomizing camera poses, lighting conditions, object placements, textures (including non-realistic ones), and backgrounds [9, 10, 15, 18]. The re-sulting randomized images can be fed directly to the agent for policy learning, 4 H. Park and S. Lee 
+
+or first passed through an image-translation generator to produce more realistic observations before being used for training. However, DR often requires generating a large number of variants to encour-age the policy to learn invariant representations, which makes training computa-tionally expensive. More importantly, the randomization space (i.e., which fac-tors to vary and their ranges) is manually specified by the practitioner; therefore, target domains may contain additional, unforeseen factors that are not included in the chosen variants. As a result, the assumed variants may fail to fully cover the target-domain distribution, leading to degraded transfer performance [6]. 
+
+Domain Generalization (DG). While DR broadens the training distribu-tion by randomizing simulator parameters to cover a particular target domain, DG assumes no target-domain data at training time and seeks to generalize to unseen domains by learning domain-invariant representations from diverse sources/augmentations. In vision-based RL, DG is commonly implemented by shaping the visual representation to be insensitive to appearance changes—for example, through visual augmentations [7], representation-level consistency and foreground extraction [21], or feature factorization/reconstruction objectives [3]. However, because the test domain is unknown, there is no guarantee that the training sources/augmentations capture the true factors of variation encoun-tered at deployment; consequently, when the domain gap is large or includes unmodeled shifts, DG performance may degrade substantially. 
+
+Domain Adaptation (DA). Unlike DR and DG, DA assumes access to a target environment and adapts a source-trained policy to the target domain before deployment or at test time [2, 6, 16, 20]. Because the adaptation is driven by target-domain data, DA can reduce the source–target shift even when the primary factors behind the domain gap are unknown, focusing updates on dis-crepancies that are actually observed in the target domain. Concretely, a common design is to adapt what the policy sees (i.e., the obser-vation/feature representation) so that source and target become consistent, or to adapt the policy itself using target-domain experience. For example, PAD [6] performs test-time adaptation by updating the visual encoder with an inverse-dynamics self-supervised objective, while CODAS [2] uses a GAN-based map-ping to align target visual observations with source-side privileged information. PRFT [20] instead adapts the policy during deployment by fine-tuning with pre-dicted rewards computed in the target domain, enabling reward-free adaptation. Sun et al. [16] transfer source-trained latent transition and reward models as fixed regularizers to guide representation learning in the target domain, effectively en-couraging target features to be compatible with source dynamics priors. Despite their effectiveness, these methods typically assume access to substantial target data, which is often impractical in real-world deployment where data collection is costly and limited. In contrast, our work explicitly targets the scarce-data regime, which remains underexplored despite its practical importance. AIDA 5
+
+## 3 Preliminaries 
+
+3.1 Markov Decision Process. 
+
+We consider a Markov Decision Process defined by a tuple (S, A, p, r, γ ), where 
+
+S is the state space, A is the action space, p(s′ | s, a ) is the transition dynamics, 
+
+r(s, a ) is the reward function, and γ ∈ (0 , 1) is the discount factor. The goal of RL is to learn a policy π(a | s) that maximizes the expected cumulative return 
+
+E
+
+hPTt=0 γtr(st, a t)
+
+i
+
+. In visual RL, the agent does not observe the underlying state s directly; instead, it receives a high-dimensional image observation o ∈ O ,and must learn to act from pixels. A dynamics model fω : S × A → S is a parameterized approximation of the transition dynamics p(s′ | s, a ). Given a state st and action at, it predicts the next state ˜st+1 = fω (st, a t). We learn ω by minimizing a one-step prediction loss such as Lwm = E(s,a,s ′)∼p(s′|s,a )
+
+h
+
+∥fω (s, a ) − s′∥22
+
+i
+
+. By repeatedly applying fω
+
+under a policy π, the agent generates multi-step rollouts ˜st+1 , ˜st+2 , . . . entirely in state space without interacting with the environment—a process referred to as imagination [5,17]. Since the dynamics model is an approximation, prediction error accumulates over successive steps, making longer rollouts less reliable. 
+
+3.2 Domain Adaptation in RL as Variational Inference. 
+
+When the source domain provides low-dimensional states while the target do-main provides image observations, a mapping function must project target ob-servations into the source state space to enable policy transfer. We build on the trajectory-level variational inference framework of [2] for aligning inferred and source state distributions. This framework models a generation process via an auto-regressive observation model pθ (ot | ˆst, o t−1) that renders target observa-tions from inferred states ˆst and the previous observation ot−1, and an inference process via a mapping function qϕ(st | ˆst−1, a t−1, o t) that infers a mapped state 
+
+ˆst by combining the previous inferred state ˆst−1, the previous action at−1, and the target observation ot. Applying step-wise inference over a full trajectory defines a variational posterior qϕ(τ s | τ o) over the source state–action trajec-tory τ s = {(s1, a 1), . . . , (sT , a T )} given the target observation–action trajectory 
+
+τ o = {(o1, a 1), . . . , (oT , a T )}. The resulting ELBO is: 
+
+max  
+
+> ϕ,θ
+
+Eτ o
+
+h
+
+Eˆτ s∼qϕ(τ s|τ o)
+
+ log pθ (τ o | ˆτ s) − DKL (qϕ(τ s | τ o) ∥ p(τ s)) 
+
+i
+
+,
+
+where ˆτ s denotes an inferred state–action trajectory sampled from qϕ, the first term is a reconstruction loss Lrecon enforcing visual consistency, and the second term aligns the inferred trajectory distribution with the source prior. Since the KL term is intractable, it is approximated with the adversarial loss [14]: a binary discriminator Dη distinguishes source trajectories from inferred ones, while qϕ
+
+acts as the generator. We denote this loss as Ladv :
+
+min  
+
+> ϕ
+
+max  
+
+> η
+
+Eτ s∼D src [log Dη (τ s)] + Eτ o∼D tgt , ˆτ s∼qϕ(·| τ o)
+
+log  1 − Dη (ˆ τ s) . (1) 6 H. Park and S. Lee RL Agent 
+
+> st
+> st+1
+
+𝜋 !
+
+> st
+
+𝑓 "           
+
+> at
+> at
+> Source Env.
+> action
+> state
+> Source Data
+> Target Data
+> Source Data
+> (States)
+> Stage 1: Source -Domain Learning
+> Prediction Imagination
+> Fixed Training Network
+> Target Data
+> (Observations)
+> Stage 2: Target -Domain Adaptation
+> RL Agent
+> 𝑓 !
+> s"!
+> at
+> RL Agent
+> 𝑓 !
+> 𝜋 "
+> RL Agent
+> 𝑓 !
+> 𝜋 "
+> 이미지
+> s#t+3
+> Reliable ( 𝐷 !
+> "#" ≥𝛿 )Reliable ( 𝐷 !
+> "#" ≥𝛿 )Unreliable ( 𝐷 !
+> "#" <𝛿 )
+> s̅ !"#
+> s#t+1 s#t+2
+> 𝑝 "
+> 𝑞 # 이미지
+> s̅!"$
+> 𝑝 "
+> 𝑞 #
+> Self -
+> Consistency
+> Loss
+> Mapping Function
+> Trajectory
+> Alignment Loss
+> s"!-#
+> s"!
+
+𝑞 #   
+
+> otat-1
+> at+1
+> at+2
+> 𝐷 &𝐷 &𝐷 &
+> Self -
+> Consistency
+> Loss
+> 𝜋 "
+> Unreliable Imagination
+
+Fig. 1: Overview of AIDA. The framework proceeds in two stages. Stage 1(source-domain learning): the agent interacts with the source environment to train a dynamics/world model fω and a policy π via dynamics learning and reinforcement learning. Stage 2 (target-domain adaptation): given scarce target image trajec-tories Dtgt , we freeze fω and π and generate reliable, adaptively truncated imagined trajectories Dimg . A mapping function qϕ and an observation model pθ are then opti-mized with a trajectory alignment loss Lalign and a self-consistency loss Lsc (state →
+
+image → state) to learn target-aligned imagination under limited target data. 
+
+Together with the reconstruction loss, this defines the trajectory alignment loss 
+
+Lalign = Lrecon + αLadv , where α controls the relative weight of the adversar-ial alignment term. Trajectory-level alignment is essential because state-level matching alone is ill-posed: a target observation may be mapped to an incorrect but plausible source state that is indistinguishable without sequential context. 
+
+## 4 Method 
+
+AIDA operates in two stages. In the first stage, a state-based policy π and a dynamics model fω are trained in the source domain with full environment access. In the second stage, given only a small pre-collected dataset of target-domain image trajectories Dtgt , AIDA adapts the source-trained policy to the target domain without any additional target interaction. The adaptation builds on the trajectory alignment framework described in Sec. 3, optimizing the tra-jectory alignment loss. However, the core challenge is that scarce target data provides insufficient coverage for alignment. AIDA addresses this through adap-tive imagination: a learned dynamics model generates synthetic rollouts from target-inferred states, a three-way discriminator truncates these rollouts when they drift from the target manifold, and a self-consistency loss on the result-ing reliable transitions provides additional supervision for learning semantically meaningful representations. Our overall workflow is summarized in Fig. 1. We begin by formally defining the problem setting (Sec. 4.1), then describe each AIDA 7
+
+component in detail. Additional implementation details are provided in the sup-plementary material. 
+
+4.1 Problem Formulation 
+
+We consider domain adaptation for visual RL between a source and a target domain. We distinguish the underlying state s ∈ S , which specifies the physical configuration of the system, from the observation received by the agent. Follow-ing common sim-to-real DA formulations [2, 6, 16], we assume that the source and target share the same state space S, action space A, transition dynamics, and reward function, but differ in their observation spaces. A straightforward approach to sim-to-real visual adaptation is image-to-image adaptation , which encodes source and target observations into a shared latent feature space and aligns the resulting representations so that a policy trained on the aligned features can transfer across domains [6, 16, 20]. However, visual-based RL is notorious for unstable training [11, 23] and expensive com-putation [22], making image-to-image approaches impractical when interaction and computation budgets are limited. Moreover, most existing domain adapta-tion methods assume access to a large amount of target-domain data [2], which is often unrealistic since collecting real-world data is far more costly than gen-erating simulated data. In this work, we consider a challenging setting that addresses both of these limitations. First, we adopt a cross-modality problem setting. The policy is trained in the source domain using low-dimensional simulator states s ∈ S , while the target domain provides only high-dimensional image observations o ∈ O .Simulators typically provide privileged access to the full state, which enables substantially more efficient policy learning. However, this design turns deploy-ment into a cross-modality transfer problem (sim(state) → real(image)) and en-larges the domain gap compared to image-to-image adaptation, since the policy must operate from a different sensing modality at test time. Second, we consider a scarce target data regime. Only a small number of target-domain trajectories are available, and no additional target interaction is permitted during adapta-tion. This makes the adaptation problem substantially harder, as the alignment module must generalize from minimal target samples. Consequently, domain adaptation in our setting reduces to learning an image-to-state mapping qϕ : O → S from scarce target data, projecting target observa-tions into the source state space and enabling direct deployment of the source policy in the target domain as π(qϕ(o)) . The target dataset Dtgt for training qϕ
+
+consists of trajectories of image observations paired with executed actions, e.g ., tuples (ot, a t, o t+1 ), and contains no privileged target states. 
+
+4.2 Discriminator-Gated Imagination 
+
+When target data is scarce, the alignment objective in Eq. (1) alone provides insufficient supervision. To obtain additional training signal, we leverage the learned dynamics model to generate imagination rollouts from target-inferred 8 H. Park and S. Lee 
+
+states, synthesizing auxiliary transitions beyond the limited target dataset. A key question, however, is how long to roll out. If the rollout horizon is too long, imagined transitions drift into regions unsupported by target data, where the mapping is unreliable. Additionally, the dynamics model accumulates prediction error over successive steps, further degrading rollout quality. If it is too short, too few synthetic transitions are generated to supplement the scarce target data. Therefore, effective adaptation requires choosing an imagination horizon that is long enough to provide useful supervision while remaining within regions where the imagined transitions are reliable. To address this, we introduce a three-way discriminator Dψ (distinct from the binary alignment discriminator Dη in Sec. 3.2) trained to classify transitions as (i) target-inferred , (ii) source , or (iii) imagined . Since the discriminator is trained on real target transitions, it assigns high target-likeness scores to imagined tran-sitions that resemble the target data and low scores to those that have drifted away, making its output a natural indicator of rollout reliability. We use this score as an online confidence signal to adaptively truncate rollouts, continuing while the score remains high and stopping when it drops, so that only reliable transitions contribute to training. The three-way formulation is important be-cause a binary source-vs-target discriminator scores transitions that drift outside the support of both domains ambiguously (often near 0.5), which may be mistak-enly interpreted as “moderately target-like” even though they are unlike either distribution. Introducing an explicit imagined class allows the discriminator to recognize such out-of-support rollouts as imagined/OOD rather than assigning a misleading intermediate probability. Utilizing the three-way discriminator as an online confidence signal, we now describe how imagination rollouts are generated and adaptively truncated during training. Given a target-initialized state ˆst ∼ qϕ(st | ˆst−1, a t−1, o t), we roll out imagined states ˜st+1 , ˜st+2 , . . . using the dynamics model under the frozen policy 
+
+π. Let Dtgt  
+
+> ψ
+
+(x) ≜ Pψ (y = target -inferred | x) denote the discriminator’s predicted probability of the target-inferred class. At each step, we use Dtgt  
+
+> ψ
+
+(·) as a target-likeness score and define the adaptive rollout horizon as the first step at which this score falls below a threshold δ ∈ (0 , 1) , limited to a maximum horizon Kmax ,
+
+K∗ = min 
+
+
+
+min 
+
+n
+
+k ≥ 0 Dtgt  
+
+> ψ
+
+(˜ st+k, a t+k, ˜st+k+1 ) < δ 
+
+o
+
+, K max 
+
+
+
+, (2) so that imagination proceeds for steps k = 0 , 1, . . . , K ∗ − 1. A higher Dtgt  
+
+> ψ
+
+indi-cates that the rollout remains within the target-aligned manifold, whereas a low score signals drift into a low-confidence region where self-consistency training would be counterproductive. Discriminator-gated imagination offers more than simply finding an appro-priate rollout length, because the truncation decision is made per-state rather than globally. This is crucial since each state from which imagination begins leads to a different rollout trajectory, and the maximum length of reliable imag-ination varies accordingly. In practice, we observe that the rollout horizon varies significantly depending on the state (see 5.2.Q2), confirming that a single fixed AIDA 9
+
+K cannot capture this per-state variability, and that the adaptive scheme con-sistently outperforms all fixed-horizon alternatives (see 5.2.Q3). 
+
+4.3 Self-Consistency via Imagination-Augmented Data 
+
+Here we describe how to fully leverage the reliable imagined transitions obtained from discriminator-gated truncation. Our key idea is to impose a self-consistency constraint on these imagined transitions, requiring that a state decoded into an image and re-inferred should recover the original. This cycle-consistency idea has been explored in latent space [8, 25], but only on real data points. Our formulation applies this constraint to imagined states from multi-step rollouts, enabling supervision even in regions where no real target data exists. For each reliable imagined state ˜st+k (k ≤ K∗) admitted by the discriminator gate, we generate an imagined observation ˜ot+k ∼ pθ (· | ˜st+k, ˜ot+k−1) and re-infer a state 
+
+¯st+k ∼ qϕ(st+k | ˜st+k−1, a t+k−1, ˜ot+k). We penalize discrepancies between the re-inferred and original imagined states, 
+
+Lsc = 1
+
+K∗
+
+> K∗
+
+X
+
+> k=1
+
+∥¯st+k − ˜st+k∥22 . (3) This loss encourages the encoder to capture semantically meaningful state in-formation that is visually grounded . Factors that cannot be rendered into target-like observations and re-inferred are suppressed, while state-relevant factors that remain consistent under the decode →re-infer cycle are reinforced. Furthermore, since our consistency constraint is enforced over multi-step imagination rather than short, data-supported predictions, it yields extra supervision across suc-cessive rollout steps. The policy-conditioned rollouts further concentrate this supervision on reachable states the current policy is likely to encounter. Be-cause reliable imagination can generate many such multi-step state–observation pairs without additional target interaction, the self-consistency objective pro-vides dense auxiliary supervision beyond scarce real target data, stabilizing rep-resentation alignment in regions where real samples are insufficient. Combining the trajectory alignment objective from Sec. 3 with the self-consistency loss, the overall training objective for Stage 2 is: L = Lalign + λ Lsc ,
+
+where λ controls the relative weight of the self-consistency regularization. 
+
+## 5 Experiments 
+
+We design our experiments to investigate the following questions: (1) Does AIDA outperform existing domain adaptation baselines under scarce target data? (2) Does the three-way discriminator reliably detect unreliable drifted transitions? (3) Does the adaptive imagination outperform fixed-horizon imagi-nation, where unreliable imagined transitions are inevitably included? (4) Does the self-consistency loss encourage the encoder to learn state representations that faithfully capture the true physical configuration? We first describe the experimental setup, then address each question in Sec. 5.2. 10 H. Park and S. Lee 
+
+5.1 Experimental Setup 
+
+We evaluate AIDA on seven continuous control tasks: five tasks from the MuJoCo benchmark suite [19], HalfCheetah, Hopper, Swimmer, Walker2d, and Inverted-Pendulum, and two tasks from Gymnasium-Robotics, Shadow Dexterous Hand Reach and Fetch Reach. Following the problem setting in Sec. 4.1, the source domain provides low-dimensional states while the target domain provides only high-dimensional image observations, creating a large cross-modality gap. The target data budget is severely restricted to reflect the practical reality that real-world data collection is costly and limited: only 50 trajectories are available for all tasks— 1/6 of the target data used in previous work [2]. For InvertedPen-dulum, a relatively simple task, we reduce the trajectory length T and image resolution to avoid performance saturation across all methods. The target tra-jectories are collected by executing the expert policy in the target environment, and no additional interaction with the target environment is permitted during adaptation, except for PAD, the online adaptation baseline. The source-domain policy π is trained using Soft Actor-Critic (SAC) [4] with low-dimensional state inputs until convergence, then frozen throughout the adaptation procedure. Ad-ditional details are provided in the supplementary material. We compare AIDA against five methods that span different approaches to bridging the observation mismatch: 
+
+– CODAS [2]: A GAN-based domain adaptation method that aligns target visual observations with source-side privileged state information via a vari-ational inference framework with adversarial training. As the closest prior work to our setting, comparing against CODAS directly measures the benefit of adaptive imagination under the same problem setting. 
+
+– GAN_STACK [2]: A GAN-based domain adaptation method that stacks consecutive observations and feeds them to the alignment module, providing temporal context. This baseline tests whether simply providing more tempo-ral information can substitute for the imagination-based augmentation that AIDA employs. 
+
+– PAD [6]: A self-supervised test-time adaptation method originally proposed for adapting vision-based RL policies to unseen visual changes. Unlike the other offline baselines, PAD continuously interacts with the target environ-ment during deployment. This baseline evaluates whether self-supervised online adaptation is sufficient under our larger state-to-image domain gap, compared to AIDA. 
+
+– Behavior Cloning (BC) : A supervised baseline that directly learns a map-ping from target image observations to source states using paired data, with-out any adversarial or self-consistency objective. This serves as a reference for how far pure supervised learning can go with scarce paired data. 
+
+– Oracle (Image) : SAC combined with a convolutional autoencoder [23] trained jointly with the RL objective on target-domain image observations with unlimited online interaction. This serves as an approximate upper bound for visual RL without cross-modal transfer, providing a reference point for the offline adaptation methods. AIDA 11 
+
+Table 1: Comparison of domain adaptation methods under scarce target data. RMSE (↓) and Return Ratio ( ↑) report converged performance. A ratio of 1.0 corresponds to the source expert’s average return. Best results are in bold . Mean ±std over 3 seeds.                                                                                
+
+> (a) Return Ratio (↑)Method H.Cheetah Hopper Swimmer Walker2d Inv.Pend. Shadow Fetch Oracle (image) 1.638 ±.343 0.591 ±.232 0.304 ±.060 0.196 ±.073 0.989 ±.072 0.991 ±.045 0.975 ±.076
+> BC 0.462 ±.011 0.121 ±.018 0.403 ±.042 0.101 ±.013 0.319 ±.052 0.836 ±.033 0.453 ±.009
+> GAN_STACK 0.340 ±.087 0.056 ±.008 0.261 ±.066 0.026 ±.004 0.063 ±.004 0.645 ±.122 0.823 ±.053
+> PAD 0.573 ±.075 0.142 ±.023 0.347 ±.058 0.036 ±.005 0.155 ±.012 0.395 ±.088 0.821 ±.044
+> CODAS 0.711 ±.098 0.356 ±.086 0.468 ±.069 0.038 ±.009 0.440 ±.038 0.893 ±.059 0.897 ±.007
+> AIDA (ours) 0.810 ±.113 0.440 ±.142 0.512 ±.047 0.058 ±.018 0.561 ±.049 0.931 ±.027 0.984 ±.012
+> (b) RMSE (↓)Method H.Cheetah Hopper Swimmer Walker2d Inv.Pend. Shadow Fetch GAN_STACK 3.006 ±.153 0.862 ±.059 1.360 ±.272 2.525 ±.317 0.328 ±.042 0.452 ±.029 0.025 ±.009
+> CODAS 1.550 ±.081 0.540 ±.021 0.482 ±.057 2.180 ±.405 0.108 ±.007 0.425 ±.037 0.017 ±.004
+> AIDA (ours) 1.403 ±.116 0.523 ±.023 0.356 ±.015 1.784 ±.320 0.075 ±.004 0.391 ±.016 0.015 ±.008
+
+Evaluation metrics. We report two complementary metrics: 
+
+– Root Mean Squared Error (RMSE) : Measures the accuracy of the learned mapping qϕ by computing the root-mean-squared distance between the inferred states and the ground-truth states. 
+
+– Return Ratio : Measures the task performance of the adapted policy rel-ative to the source-trained expert. Defined as rratio = r/r ∗, where r is the cumulative return of the adapted policy deployed in the target environment, and r∗ is the average return of the source expert. A ratio of 1.0 indicates full recovery of the source expert’s performance. 
+
+5.2 Experimental Results and Analysis (Q1) Does AIDA outperform existing domain adaptation baselines under scarce target data? To assess whether adaptive imagination provides effective additional supervision under scarce target data, we compare AIDA against all baselines across the five MuJoCo tasks and two Gymnasium-Robotics tasks. Note that RMSE directly measures how accurately qϕ recovers the true proprioceptive state, serving as a quantitative indicator of representation quality. Table 1 summarizes the results. AIDA achieves the lowest RMSE on every task and the highest return ratio on six out of seven tasks. As shown in Fig. 2, AIDA also converges faster than all baselines, with the RMSE curves showing a consistent trend of steeper decrease and stabilization at a lower value, though the difference on Hopper is marginal. Comparison with PAD further highlights AIDA’s robustness to large domain gaps. Although PAD continuously interacts with the target environment dur-ing deployment, it shows lower performance than AIDA across all tasks. This 12 H. Park and S. Lee 0 5000 10000 15000 20000 25000 
+
+> Training Step
+> 0.3
+> 0.2
+> 0.1
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> Reward Ratio
+> AIDA
+> CODAS
+> GAN_STACK
+> Behavior Cloning
+> PAD
+
+(a) Return – HalfCheetah 0 10000 20000 30000  
+
+> Training Step
+> 0.04
+> 0.00
+> 0.04
+> 0.08
+> 0.12
+> 0.16
+> 0.20
+> 0.24
+> 0.28
+> 0.32
+> 0.36
+> 0.40
+> 0.44
+> 0.48
+> Reward Ratio
+> AIDA
+> CODAS
+> GAN_STACK
+> Behavior Cloning
+> PAD
+
+(b) Return – Hopper 0 10000 20000 30000  
+
+> Training Step
+> 0.24
+> 0.16
+> 0.08
+> 0.00
+> 0.08
+> 0.16
+> 0.24
+> 0.32
+> 0.40
+> 0.48
+> 0.56
+> 0.64
+> 0.72
+> Reward Ratio
+> AIDA
+> CODAS
+> GAN_STACK
+> Behavior Cloning
+> PAD
+
+(c) Return – Swimmer 0 5000 10000 15000 20000 25000 
+
+> Training Step
+> 1.6
+> 2.0
+> 2.4
+> 2.8
+> 3.2
+> 3.6
+> 4.0
+> 4.4
+> 4.8
+> 5.2
+> Root-MSE
+> AIDA
+> CODAS
+> GAN_STACK
+
+(d) RMSE – HalfCheetah 0 10000 20000 30000  
+
+> Training Step
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> 1.8
+> 2.0
+> 2.2
+> 2.4
+> Root-MSE
+> AIDA
+> CODAS
+> GAN_STACK
+
+(e) RMSE – Hopper 0 10000 20000 30000  
+
+> Training Step
+> 0.30
+> 0.45
+> 0.60
+> 0.75
+> 0.90
+> 1.05
+> 1.20
+> 1.35
+> 1.50
+> 1.65
+> 1.80
+> 1.95
+> Root-MSE
+> AIDA
+> CODAS
+> GAN_STACK
+
+(f ) RMSE – Swimmer 
+
+Fig. 2: Training curves across three environments. Top row: target-domain return ( ↑)over training iterations. Bottom row: mapping RMSE ( ↓) over training iterations. Solid lines denote the median and shaded regions represent the interquartile range over 3 random seeds. 
+
+suggests that while PAD’s self-supervised adaptation can handle relatively small image-to-image domain gaps, AIDA’s adaptation strategy is more effective under the larger state-to-image domain gap considered in our setting. Notably, on Swimmer and Fetch, AIDA even outperforms Oracle (image), which has access to unlimited online interaction. This is because AIDA benefits from a policy stably trained on low-dimensional states, whereas Oracle (image) must learn both representations and a policy jointly from images. Oracle (image) also achieves relatively low return ratios on Swimmer ( 0.304 ) and Walker2d (0.196 ), suggesting that these tasks are inherently challenging for extracting meaningful state information from images alone. On Walker2d, all DA methods yield lower return ratios than BC, despite AIDA achieving the best RMSE. We attribute this to the balance-critical nature of Walker2d: even small mapping errors can cause the agent to fall, amplifying the gap between reconstruction accuracy and downstream performance. Overall, AIDA’s advantage stems from two factors. The adaptive imagination mechanism augments the scarce target data with reliable synthetic transitions, and the self-consistency loss leverages these transitions to learn semantically meaningful representations. Together, they provide dense supervision that exist-ing methods, which rely solely on the limited real target data, cannot achieve. 
+
+(Q2) Does the three-way discriminator reliably detect unreliable drifted transitions? The adaptive truncation mechanism relies on the three-way dis-AIDA 13            
+
+> 0246810 12 14 (a)
+> (b) 0250 500 750 999
+> Steps
+> 0
+> 4
+> 8
+> 12
+> 16
+> 20
+> 24
+> Imagination length
+> (a)
+> (b)
+
+Fig. 3: Top: imagined observations decoded from adaptive imagination rollouts on the Swimmer task (shown at every 2 steps). The green line marks the point at which imagination begins. The red line indicates the truncation point determined by Dψ .Bottom: adaptive imagination horizon at each step within a single episode, illustrating how the truncation length varies depending on the state encountered at each step. The two highlighted rollouts, (a) and (b) , correspond to the marked points in the bottom plot (orange dots) and show the decoded imagination sequences starting from those specific steps. 
+
+criminator Dψ to detect when imagined transitions drift away from the target-aligned manifold. To verify whether Dψ makes reasonable truncation decisions, we visualize imagined observations decoded from rollouts across two initial states, and additionally plot the adaptive imagination horizon at each step within a sin-gle episode alongside the corresponding observations at selected steps. As shown in the top of Fig. 3, the decoded observations before the trun-cation point remain visually coherent and physically plausible, whereas those after the truncation point exhibit noticeable degradation such as distorted body configurations and blurred artifacts. This clear quality gap confirms that the discriminator reliably identifies the boundary between reliable and drifted imag-ination. Notably, the truncation length varies substantially across states. The bottom of Fig. 3 visualizes this per-state variability by plotting the adaptive imagination horizon across steps within a single episode, with the marked points corresponding to the two example rollouts shown above. The horizon fluctu-ates significantly depending on the encountered state, confirming that imagina-tion reliability is highly state-dependent and motivating adaptive, per-transition truncation rather than a single globally fixed horizon. 14 H. Park and S. Lee 
+
+GT 
+
+AIDA 
+
+CODAS 
+
+(a) (b) (c) (d) (e) (f) 
+
+Fig. 5: Qualitative comparison of imagined observations on the InvertedPendulum task. Each column shows the ground-truth observation (GT) and those decoded by AIDA (with Lsc ) and CODAS (without Lsc ) for the same state. 0 10000 20000 30000 
+
+> Training Step
+> 0.26
+> 0.28
+> 0.30
+> 0.32
+> 0.34
+> 0.36
+> 0.38
+> 0.40
+> 0.42
+> 0.44
+> 0.46
+> Reward Ratio
+> AIDA
+> imagination horizon 0
+> imagination horizon 5
+> imagination horizon 10
+> imagination horizon 20
+
+Fig. 4: Adaptive vs. fixed-
+
+K training curves on Hop-per. Return ( ↑). Mean over 3 seeds. 
+
+(Q3) Does the adaptive imagination outper-form fixed-horizon imagination, where un-reliable imagined transitions are inevitably included? The qualitative analysis in Fig. 3 re-vealed that imagination reliability varies signifi-cantly across individual states and that the dis-criminator can detect this drift. We now examine whether including these unreliable transitions actu-ally harms performance, by comparing the adaptive horizon against fixed horizons K ∈ { 0, 5, 10 , 20 }.As shown in Fig. 4, AIDA achieves the highest return among all configurations on Hopper. Fixed horizons—regardless of length—yield performance comparable to or even worse than no imagination at all, confirming that indiscriminately including unreliable transitions harms rather than helps adaptation. In contrast, the adaptive scheme selectively re-tains only high-confidence transitions, providing clean supervision that enables meaningful representation learning beyond what scarce target data alone can offer. 
+
+(Q4) Does the self-consistency loss encourage the encoder to learn state representations that faithfully capture the true physical config-uration? To examine whether the self-consistency loss encourages semantically meaningful state representations, we compare the quality of imagined observa-tions from AIDA and CODAS. Since the observation model pθ can only render realistic images from states that accurately reflect the true physical configura-tion, the quality of decoded images directly indicates how well the learned state representations capture the actual physical state. We select InvertedPendulum AIDA 15 
+
+for this analysis because its reduced trajectory length and image resolution make the difference between methods more pronounced. As shown in Fig. 5, the challenging setting leads to lower reconstruction quality overall, which makes the outputs of AIDA and CODAS appear visually similar. A closer comparison, however, reveals a clear difference. AIDA closely matches the ground-truth pendulum angle and position across all cases, whereas CODAS consistently depicts angles that deviate from the true configuration. This suggests that without the self-consistency loss, the learned state represen-tations may not fully capture the precise physical configuration even when the decoded images appear plausible. The self-consistency loss helps qϕ learn se-mantically meaningful state representations that more faithfully reflect the true pendulum orientation. 
+
+## 6 Conclusions 
+
+We presented AIDA, a domain adaptation framework for visual reinforcement learning that leverages adaptive imagination to overcome the challenge of lim-ited target-domain data. AIDA augments scarce target data with reliable and semantically meaningful imagination rollouts. To ensure the reliability of these transitions, a three-way discriminator adaptively truncates drifted rollouts, and a self-consistency loss is trained on the resulting reliable transitions to learn seman-tically meaningful representations. Experiments on five MuJoCo tasks and two Gymnasium-Robotics tasks demonstrate that AIDA consistently outperforms existing baselines under severely limited target data, the discriminator reliably detects imagination drift, and adaptive truncation outperforms all fixed-horizon alternatives. Despite these results under a challenging cross-modality setting with scarce target data, our work has two limitations. First, the adapted policy still falls short of full source-expert performance, particularly on balance-critical tasks. Incorporating online adaptation algorithm could help close this gap. Sec-ond, AIDA assumes shared transition dynamics across domains, which may not hold in practice. Extending AIDA to handle dynamics mismatch is a promising direction for future work. 
+
+## Acknowledgements 
+
+This work was supported by the Technology Innovation Program (or Industrial Strategic Technology Development Program-Technology Innovation Program) (RS-2025-25449157, Development of Commercialization Technologies for End-to-End Autonomous Driving Products) funded by the Ministry of Trade, Indus-try and Resources (MOTIR, Korea), the National Research Foundation of Ko-rea (NRF) grant funded by the Korea government (MSIT) (RS-2026-25497111), the Institute of Information & Communications Technology Planning & Eval-uation (IITP) under the Artificial Intelligence Convergence Innovation Human Resources Development (IITP-2026-RS-2023-00255968) grant funded by the Ko-rea government (MSIT), and the Ajou University research fund. 16 H. Park and S. Lee 
+
+## References 
+
+1. Chen, J., Li, S.E., Tomizuka, M.: Interpretable end-to-end urban autonomous driving with latent deep reinforcement learning. IEEE Transactions on Intelligent Transportation Systems 23 (6), 5068–5078 (2021) 2. Chen, X.H., Jiang, S., Xu, F., Zhang, Z., Yu, Y.: Cross-modal domain adaptation for cost-efficient visual reinforcement learning. Advances in Neural Information Processing Systems 34 , 12520–12532 (2021) 3. Choi, H., Lee, H., Jeong, S., Min, D.: Environment agnostic representation for vi-sual reinforcement learning. In: Proceedings of the IEEE/CVF International Con-ference on Computer Vision. pp. 263–273 (2023) 4. Haarnoja, T., Zhou, A., Abbeel, P., Levine, S.: Soft actor-critic: Off-policy maxi-mum entropy deep reinforcement learning with a stochastic actor. In: International conference on machine learning. pp. 1861–1870. Pmlr (2018) 5. Hafner, D., Lillicrap, T., Ba, J., Norouzi, M.: Dream to control: Learning behaviors by latent imagination. In: International Conference on Learning Representations (2020) 6. Hansen, N., Jangir, R., Sun, Y., Alenyà, G., Abbeel, P., Efros, A.A., Pinto, L., Wang, X.: Self-supervised policy adaptation during deployment. In: International Conference on Learning Representations (2021) 7. Hansen, N., Wang, X.: Generalization in reinforcement learning by soft data aug-mentation. In: 2021 IEEE International Conference on Robotics and Automation (ICRA). pp. 13611–13617. IEEE (2021) 8. Huang, X., Liu, M.Y., Belongie, S., Kautz, J.: Multimodal unsupervised image-to-image translation. In: Proceedings of the European conference on computer vision (ECCV). pp. 172–189 (2018) 9. James, S., Davison, A.J., Johns, E.: Transferring end-to-end visuomotor control from simulation to real world for a multi-stage task. In: Conference on Robot Learning. pp. 334–343. PMLR (2017) 10. James, S., Wohlhart, P., Kalakrishnan, M., Kalashnikov, D., Irpan, A., Ibarz, J., Levine, S., Hadsell, R., Bousmalis, K.: Sim-to-real via sim-to-sim: Data-efficient robotic grasping via randomized-to-canonical adaptation networks. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 12627–12637 (2019) 11. Kaiser, L., Babaeizadeh, M., Milos, P., Osinski, B., Campbell, R.H., Czechowski, K., Erhan, D., Finn, C., Kozakowski, P., Levine, S., et al.: Model-based reinforce-ment learning for atari. In: International Conference on Learning Representations (2020) 12. Mnih, V., Kavukcuoglu, K., Silver, D., Graves, A., Antonoglou, I., Wierstra, D., Riedmiller, M.: Playing atari with deep reinforcement learning. arXiv preprint arXiv:1312.5602 (2013) 13. Niu, H., Chen, Q., Liu, T., Li, J., Zhou, G., ZHANG, Y., HU, J., Zhan, X.: xted: Cross-domain adaptation via diffusion-based trajectory editing. In: NeurIPS 2024 Workshop on Open-World Agents (2024) 14. Nowozin, S., Cseke, B., Tomioka, R.: f-gan: Training generative neural samplers us-ing variational divergence minimization. Advances in neural information processing systems 29 (2016) 15. Pinto, L., Andrychowicz, M., Welinder, P., Zaremba, W., Abbeel, P.: Asymmetric actor critic for image-based robot learning. In: Robotics: Science and Systems (2018) AIDA 17 16. Sun, Y., Zheng, R., Wang, X., Cohen, A., Huang, F.: Transfer rl across observa-tion feature spaces via model-based regularization. In: International Conference on Learning Representations (2022) 17. Sutton, R.S.: Dyna, an integrated architecture for learning, planning, and reacting. ACM Sigart Bulletin 2(4), 160–163 (1991) 18. Tobin, J., Fong, R., Ray, A., Schneider, J., Zaremba, W., Abbeel, P.: Domain randomization for transferring deep neural networks from simulation to the real world. In: 2017 IEEE/RSJ international conference on intelligent robots and sys-tems (IROS). pp. 23–30. IEEE (2017) 19. Todorov, E., Erez, T., Tassa, Y.: Mujoco: A physics engine for model-based control. In: 2012 IEEE/RSJ international conference on intelligent robots and systems. pp. 5026–5033. IEEE (2012) 20. Wang, W., Fang, X., Hager, G.: Adapting image-based rl policies via predicted rewards. In: 6th Annual Learning for Dynamics & Control Conference. pp. 324– 336. PMLR (2024) 21. Wang, X., Lian, L., Yu, S.X.: Unsupervised visual attention and invariance for reinforcement learning. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 6677–6687 (2021) 22. Xia, F., Zamir, A.R., He, Z., Sax, A., Malik, J., Savarese, S.: Gibson env: Real-world perception for embodied agents. In: Proceedings of the IEEE conference on computer vision and pattern recognition. pp. 9068–9079 (2018) 23. Yarats, D., Zhang, A., Kostrikov, I., Amos, B., Pineau, J., Fergus, R.: Improving sample efficiency in model-free reinforcement learning from images. In: Proceedings of the aaai conference on artificial intelligence. vol. 35, pp. 10674–10681 (2021) 24. Zhao, W., Queralta, J.P., Westerlund, T.: Sim-to-real transfer in deep reinforce-ment learning for robotics: a survey. In: 2020 IEEE symposium series on compu-tational intelligence (SSCI). pp. 737–744. IEEE (2020) 25. Zhu, J.Y., Zhang, R., Pathak, D., Darrell, T., Efros, A.A., Wang, O., Shechtman, E.: Toward multimodal image-to-image translation. Advances in neural information processing systems 30 (2017) Domain Adaptation with Adaptive Imagination for Visual Reinforcement Learning under Limited Target Data: Supplementary Material 
+
+Hyunwoo Park 1 and Sang-Hyun Lee 2,3 
+
+> 1
+
+STRADVISION, Seoul, Republic of Korea 
+
+hyunwoo.park@stradvision.com  
+
+> 2
+
+Department of Mobility Engineering, Ajou University, Suwon, Republic of Korea 
+
+sanghyunlee@ajou.ac.kr 
+
+## A Training Details 
+
+A.1 Details of Trajectory Alignment Loss 
+
+The trajectory alignment loss trains the image-to-state mapping qϕ so that in-ferred states are visually consistent with the original images and distributionally aligned with source state trajectories. This alignment operates at the trajectory level because a single observation alone can map to multiple plausible states. Sequential context resolves this ambiguity, allowing the loss to reject incorrect mappings through temporal dependencies. As described in Sec. 3.2 of the main paper, the trajectory alignment loss 
+
+Lalign consists of two components: a reconstruction loss Lrecon and an adver-sarial alignment loss Ladv . The reconstruction loss is computed as the mean squared error between the original target observation ot and the reconstructed observation ˆot = pθ (· | ˆst, o t−1):
+
+Lrecon = 1
+
+T
+
+> T
+
+X
+
+> t=1
+
+∥ot − ˆot∥22 . (1) This ensures that the inferred state ˆst retains sufficient information to recon-struct the original target observation. The adversarial loss Ladv follows the stan-dard GAN loss from Eq. (1) of the main paper, where the binary discriminator 
+
+Dη is implemented recurrently over transitions to enforce the trajectory-level alignment. For the detailed network architecture, refer to Fig. 1 and Fig. 2, respectively. 
+
+A.2 Detailed Training Procedure 
+
+The overall training procedure of AIDA is summarized in Algorithm 1. AIDA 19 Encoder 
+
+GRU 
+
+Mapping Function 𝑞 ! 
+
+> Target Data Prediction Trainable
+> s"!
+> s"!"#𝑎 !"#
+
+𝑝 " 
+
+> 𝑜 !𝑜 "!
+> 𝑜 !"#
+
+Fig. 1: Reconstruction path. The mapping function qϕ maps the target observation ot
+
+to a inferred state ˆst, and the observation model pθ reconstructs the observation ˆot
+
+from ˆst.…
+
+Target Trajectory Inference 
+
+> Source Data
+> 𝑜 !
+
+𝑞 ! s#! 
+
+> 𝑎 !"#𝑜 !$#
+
+𝑞 ! s#!$# 
+
+> 𝑎 !𝑜 !$%
+
+𝑞 ! s#!$%  
+
+> 𝑎 !$%"#
+> Target Inferred Trajectory 𝜏 ̂&
+
+𝐷 "  
+
+> Source Trajectory 𝜏 &
+> Target Data Prediction Trainable Initialized State
+> s#!"#
+> Source
+> Target
+
+Fig. 2: Trajectory alignment path. The mapping function qϕ sequentially maps target observations to latent states, and the discriminator Dη classifies whether the resulting trajectory is from the source or target domain. 
+
+Stage 1: Source-domain learning (Lines 2–11). The policy π and dynamics model 
+
+fω are trained in the source domain. At each time step, the agent collects a transition (st, a t, r t, s t+1 ) and stores it in the replay buffer B (Lines 5–7). The dynamics model fω is updated via one-step prediction loss (Line 8), and the policy π and critic Q are updated via SAC [2] (Line 9). Once converged, both π
+
+and fω are frozen (Line 12). 
+
+Stage 2: Target-domain adaptation (Lines 13–40). Trajectory alignment (Lines 14–24). Given only the pre-collected datasets Dsrc 
+
+and Dtgt , the mapping function qϕ, observation model pθ , and discriminators 
+
+Dη , Dψ are trained without any environment interaction. At each iteration, a batch of target and source trajectory segments of length T are sampled (Lines 14–15). The mapping function qϕ sequentially infers states (Lines 16–18). 20 H. Park and S. Lee 
+
+Algorithm 1 AIDA Training Procedure 
+
+Require: Max imagination horizon Kmax , truncation threshold δ, trajectory length T ,update frequencies: IR (reconstruction), ID (binary discriminator), IM (mapping) 1: Initialize fω , π, Q, qϕ, pθ , Dη , Dψ , replay buffer B ← ∅
+
+Stage 1: Source-domain learning 
+
+2: while not converged do 
+
+3: s1 ← env .reset() 
+
+4: for t = 1 , . . . , N do 
+
+5: at ∼ π(· | st), (rt, s t+1 ) ← env .step( at)
+
+6: B ← B ∪ { (st, a t, r t, s t+1 )}
+
+7: Sample minibatch from B ▷ Dynamics model and RL agent update 8: Update fω via Lwm = ∥fω (s, a ) − s′∥22
+
+9: Update π, Q via SAC actor-critic updates 10: end for 
+
+11: end while 
+
+12: Freeze π and fω
+
+Stage 2: Target-domain adaptation (no environment interaction) 
+
+13: while not converged do 
+
+14: Sample B target trajectory segments τ tgt ∼ D tgt 
+
+15: Sample B source trajectory segments τ src ∼ D src 
+
+16: for t = 1 , . . . , T do  ▷ Sequential state inference 17: ˆst ∼ qϕ(st | ˆst−1, a t−1, o t)
+
+18: end for 
+
+19: for i = 1 , . . . , I R do  ▷ Reconstruction updates 20: Update qϕ and pθ via Lrecon 
+
+21: end for 
+
+22: for i = 1 , . . . , I D do  ▷ Binary discriminator update 23: Update Dη via Ladv 
+
+24: end for 
+
+// Adaptive imagination with self-consistency 
+
+25: for i = 1 , . . . , I M do  ▷ Mapping function updates 26: Sample rollout start t0 ∼ Unif( {1, . . . , T })
+
+27: ˜s0 ← ˆst0 , ˜o0 ← ot0 , Lsc ← 0, K∗ ← 0
+
+28: for k = 0 , . . . , K max − 1 do 
+
+29: ak ∼ π(· | ˜sk ), ˜sk+1 ← fω (˜ sk , a k ) ▷ π, fω frozen 30: if Dtgt  
+
+> ψ
+
+(˜ sk , a k , ˜sk+1 ) < δ then break  ▷ Truncate 31: end if 
+
+32: ˜ok+1 ∼ pθ (· | ˜sk+1 , ˜ok ) ▷ Decode 33: ¯sk+1 ∼ qϕ(sk+1 | ˜sk , a k , ˜ok+1 ) ▷ Re-infer 34: Lsc += ∥¯sk+1 − ˜sk+1 ∥22
+
+35: K∗ ← k + 1 
+
+36: end for 
+
+37: Update qϕ and pθ via Lsc /K ∗ ▷ Self-consistency 38: Update qϕ via Ladv 
+
+39: Update Dψ on {source, target-inferred, imagined} transitions 40: end for 
+
+41: end while AIDA 21 
+
+The reconstruction loss is then used to update qϕ and pθ for IR iterations (Lines 19–21), and the adversarial loss is used to update Dη for ID iterations (Lines 22–24). 
+
+Adaptive imagination (Lines 25–40). The imagination and self-consistency up-date is repeated IM times per iteration (Lines 25–39). At each repetition, a rollout start index is sampled uniformly from the trajectory segment (Line 26), and imagination proceeds from the corresponding target-inferred state using the frozen policy and dynamics model (Line 29). At each imagination step, the three-way discriminator evaluates the transition. If the target-likeness score falls below the threshold δ, the rollout is truncated (Lines 30–31). For each reliable imagined step, the observation model decodes an imagined observation and the mapping function re-infers a state, accumulating the self-consistency loss (Lines 32–34). After the rollout, qϕ and pθ are updated via Lsc /K ∗ (Line 37). The adversar-ial loss is used to update qϕ (Line 38). Finally, the three-way discriminator Dψ
+
+is updated using transitions from all three classes: target-inferred, source, and imagined (Line 39). 
+
+## B Implementation Details 
+
+Pre-processing. Source state statistics (mean and standard deviation) are com-puted from Dsrc , with a variance floor of 10 −6. The same statistics are used for normalizing both the source states and the inferred states. Target RGB images are obtained via env.render() , resized to 32 × 32 for InvertedPendulum and 
+
+64 × 64 for all other tasks, and scaled to [0 , 1] .
+
+Trajectory processing. Each trajectory has a maximum length of 500 steps and is split into rollout chunks of length 100, except for InvertedPendulum, where the trajectory length and rollout chunk length are set to 45 and 15, respectively. Discriminator and reconstruction losses are computed only on valid timesteps within each chunk. The first action and state are zero-initialized at the beginning of each chunk. 
+
+Dynamics model. The dynamics model predicts the next state in residual form [3]. Given a state-action pair (s, a ), it outputs a state increment and updates the state as s′ = s + fω (s, a ). Predicting state differences rather than absolute next states is commonly used in learned dynamics models, and prior work reports that this parameterization can reduce the output range and stabilize training [5]. This property is particularly important in our setting, because AIDA relies on the learned dynamics model to generate imagination rollouts for target-domain adap-tation. If one-step prediction is unstable, errors can quickly accumulate during imagination and degrade the reliability of the generated transitions. Therefore, improving one-step prediction stability is critical for producing useful imagina-tion rollouts in practice. 22 H. Park and S. Lee 
+
+Optimizer and learning rate schedule. All modules use the Adam optimizer, except for the discriminators and generator (mapping function), which use RM-Sprop. The learning rate follows a polynomial decay schedule, linearly decreasing to 50% of the initial value by the end of training. 
+
+Training stabilization. Several techniques are used to stabilize GAN training: 
+
+– LayerNorm is applied within the mapping function and the discriminators. 
+
+– An entropy regularization term −0.001 · H(logits) is added to the adversarial loss. 
+
+– Gradient norm clipping is applied to discriminator updates. For the genera-tor, both gradient norm clipping and weight-value clipping are used. 
+
+– Discriminator updates are skipped when it becomes too strong (ı.e., the mean fake probability drops below 0.4), with a forced update every 20 steps to prevent stalling. 
+
+Hyperparameters. Tables 1 and 2 lists the hyperparameters used across all ex-periments. The same values are used for all five tasks unless otherwise noted. 
+
+B.1 Environment Details 
+
+We evaluate AIDA on seven continuous control tasks: five tasks from the MuJoCo benchmark suite [4], implemented via OpenAI Gym, and two reaching tasks from Gymnasium-Robotics, Shadow Dexterous Hand Reach and Fetch Reach. Tab. 3 summarizes the key properties of each environment. All tasks use continuous ac-tion spaces with values in [−1, 1] , and the maximum episode length is 1,000 steps. As described in the main paper, the source domain provides low-dimensional proprioceptive states (4–63 dimensions depending on the task), while the tar-get domain provides high-dimensional image observations( 32 × 32 × 3 = 3 ,072 
+
+dimensions for InvertedPendulum and 64 × 64 × 3 = 12 ,288 dimensions for all other tasks). This cross-modality setting offers a practical advantage. The policy can be trained on low-dimensional states, avoiding the instability and compu-tational cost of visual RL. However, it also causes a large dimensionality gap               
+
+> Table 1: Hyperparameters for AIDA (Stage 1: Source-domain learning).
+> Type Name Value
+> General SAC learning rate (actor / critic) 1×10 −3/1×10 −3
+> Replay buffer size 1×10 6
+> Batch size 256 Discount factor γ0.99 Dynamics Model Hidden layers [1024, 1024] Activation function ReLU Learning rate 1×10 −3
+> Minibatch size 256
+
+AIDA 23 
+
+between the two domains. As a result, the adaptation problem becomes consid-erably harder than the image-to-image setting adopted by most prior work. In particular, the mapping qϕ must infer precise physical quantities, such as joint angles and velocities, from raw pixels. 
+
+Table 2: Hyperparameters for AIDA (Stage 2: Target-domain adaptation). 
+
+Type Name Value 
+
+General 
+
+ID 1
+
+IR 1
+
+IM 5Trajectories per iteration 10 Trajectory length T (InvPend) 45 Trajectory length T (Except InvPend) 500 Discriminator 
+
+Dη
+
+Hidden layers [256, 256, 256] Activation function ReLU Learning rate 5×10 −5
+
+RNN type GRU RNN layers [128] 
+
+Hreset 100 Adversarial weight α 2.0 Three-way Discrim. Dψ
+
+Hidden layers [256, 256, 256] Activation function ReLU Learning rate 1×10 −3
+
+Max imagination horizon Kmax 20 Self-consistency weight λ 1.0 Mapping Function qϕ
+
+Encoder 
+
+Conv layers Conv(4,4,32), Conv(4,4,64), Conv(4,4,128), Conv(4,4,256) MLP hidden layers [256, 256, 256, 256] Activation function LeakyReLU 
+
+RNN Cell 
+
+RNN type GRU RNN layers [128, 128] Observation Model pθ
+
+Visual Decoder 
+
+Hidden layers [1024, 2048] Deconv layers Deconv(5,5,128), Deconv(5,5,64), Deconv(6,6,32), Deconv(6,6,3) Train Learning rate ( qϕ, pθ ) 1×10 −4
+
+Training iterations 30,000 24 H. Park and S. Lee                        
+
+> Table 3: Summary of environments used in our experiments. Environment State dim. Action dim. Description HalfCheetah 17 62D cheetah running forward Hopper 11 32D one-legged hopping Swimmer 822D multi-link swimming Walker2d 17 62D bipedal walking InvertedPendulum 41Balancing an inverted pole Shadow-Reach 63 20 Dexterous hand fingertip reaching Fetch-Reach 10 4Robotic arm end-effector reaching
+
+We briefly describe each task below to illustrate the diversity of state repre-sentations that qϕ must infer from images. HalfCheetah is a 2D robot consisting of 9 body parts and 8 joints. The state includes joint angles and velocities (17 dimensions), and the agent applies torques to 6 joints to run forward as fast as possible. Hopper is a 2D one-legged figure with 4 body parts. The 11-dimensional state includes positions and velocities of each body part, and the agent controls 3 hinge joints to hop forward. Swimmer is a 2D multi-link robot in a viscous fluid. The state is 8-dimensional, consisting of joint angles and velocities, and the agent applies torques to 2 joints to swim forward. Walker2d is a 2D bipedal robot with a structure similar to Hopper but with two legs. The 17-dimensional state includes joint angles and velocities, and the agent controls 6 joints to walk for-ward while maintaining balance. InvertedPendulum is the simplest task, where the agent must balance an inverted pole on a cart. The state is 4-dimensional (cart position, cart velocity, pole angle, pole angular velocity), and the agent applies a single continuous force to the cart. Fetch-Reach requires a robotic ma-nipulator to move its gripper to a target position. The state is 10-dimensional, and the agent controls 4-dimensional gripper displacements. Shadow Dexterous Hand-Reach requires a multi-fingered robotic hand to move its fingertips to tar-get positions. The state is 63-dimensional, and the agent controls 20 actuated degrees of freedom of the hand. The tasks span a range of difficulty in terms of state dimensionality (4 to 63), action dimensionality (1 to 20), and control complexity (static balancing to dexterous hand control), providing a comprehensive testbed for evaluating domain adaptation under cross-modality and scarce data conditions. Illustrations of each task are shown in Fig. 3. 
+
+B.2 Data Collection 
+
+To reflect a realistic deployment scenario where real-world data collection is costly and time-consuming, we adopt a limited target data setting. Accordingly, we pre-collect 50 trajectories for all tasks (each with a maximum rollout length of 1,000 steps). The expert policy for data acquisition is trained via SAC [2] with low-dimensional state inputs until convergence. For each task, we use the expert policy to collect trajectories in the simulator and render images. The images are AIDA 25       
+
+> HalfCheetah Hopper Swimmer Walker2d
+> InvertedPendulum Shadow Fetch
+> Fig. 3: Example rendered images from each task used in our experiments.
+
+rendered using the default camera configuration via render_mode="rgb_array" 
+
+and resized to 32 ×32 ×3 for InvertedPendulum and 64 ×64 ×3 for all other tasks. The collected state-action trajectories are regarded as the source dataset Dsrc ,and the rendered image-action trajectories are regarded as the target dataset 
+
+Dtgt . Examples of rendered images for each task are shown in Fig. 3. Although Dsrc can be much larger than Dtgt , we deliberately subsample it to match the size of Dtgt at each training iteration. This follows the standard GAN training practice where the batch sizes of real and generated samples are kept equal [1]. Without this balancing, the discriminator quickly overfits to the majority class and provides uninformative gradients to the generator. 
+
+## C Additional Experiment Results 
+
+C.1 Additional Analysis of Three-way Discriminator 
+
+To verify that the three-way discriminator truncates rollouts that drift away from the target data distribution, we visualize imagination rollouts in state space using PCA. Fig. 4 shows the first two principal components of the state space, with the background contour representing the kernel density estimate of the target data distribution. Each rollout is depicted as a trajectory from a start state (green circle) through intermediate imagined states (black dots) to the truncation point (red cross) determined by Dψ .As shown in the figure, most rollouts begin within or near the high-density regions of the target distribution, and the three-way discriminator permits imag-ination to continue as long as the trajectory remains in these regions. Once the imagined states drift into low-density regions, the three-way discriminator trig-gers truncation. This is evident from the red crosses, which consistently appear 26 H. Park and S. Lee    
+
+> Fig. 4: PCA visualization of imagination rollouts on the Swimmer task. The back-ground contour shows the kernel density estimate of the target data distribution. Green circles denote the start of each rollout, black dots are intermediate imagined states, and red crosses mark the truncation points determined by Dψ.
+
+in low-density areas of the target distribution. This confirms that Dψ effectively detects when imagination rollouts leave the target data distribution and trun-cates them accordingly, preventing unreliable transitions from being used for self-consistency training. 
+
+C.2 Extended Visualization of Imagination Drift 
+
+In the main paper (Fig. 3), we visualize imagination rollouts for two selected initial states. Here we provide an extended visualization with six initial states to further demonstrate the per-state variability of imagination reliability. As shown in Fig. 5, the truncation point varies widely across states: (a) and (f) permit nearly the full rollout, (b) and (c) truncate at moderate horizons, and (d) and (e) truncate almost immediately. In all cases, the decoded observations after the truncation point exhibit visible degradation compared to those before, confirming the discriminator’s reliability across diverse states. AIDA 27            
+
+> 0246810 12 14 (a)
+> (b)
+> (c)
+> (d)
+> (e)
+> (f) 0250 500 750 999
+
+Steps 
+
+> 0
+> 4
+> 8
+> 12
+> 16
+> 20
+> 24
+> Imagination length
+> (a)
+> (b)
+
+Fig. 5: Extended visualization of imagination drift on the Swimmer task (shown at every 2 steps). The green line marks the point at which imagination begins. The red line indicates the truncation point determined by Dψ . The bottom plot shows the adaptive imagination horizon at each step within a single episode. Rollouts (a)–(f) correspond to the marked points (orange dots) in the bottom plot, illustrating how the truncation length varies substantially across states. 
+
+C.3 Sensitivity to the Amount of Target Data 
+
+We conducted an additional target-data budget analysis on HalfCheetah by re-ducing the number of target trajectories from the original setting of 50 to 30, 20, and 10. As shown in Tab. 4, AIDA’s return ratio decreases with fewer target trajectories, but its gap over CODAS becomes larger. This suggests that adap-tive imagination becomes more effective as target data becomes more limited. 28 H. Park and S. Lee 
+
+Table 4: Return ratio of AIDA and CODAS on HalfCheetah under different target-data budgets. Target Data Budget 50 30 20 10 AIDA 0.810 0.573 0.448 0.175 
+
+CODAS 0.711 0.476 0.312 0.058 
+
+## References 
+
+1. Guo, T., Xu, C., Huang, J., Wang, Y., Shi, B., Xu, C., Tao, D.: On positive-unlabeled classification in gan. In: Proceedings of the ieee/cvf conference on computer vision and pattern recognition. pp. 8385–8393 (2020) 2. Haarnoja, T., Zhou, A., Abbeel, P., Levine, S.: Soft actor-critic: Off-policy maxi-mum entropy deep reinforcement learning with a stochastic actor. In: International conference on machine learning. pp. 1861–1870. Pmlr (2018) 3. He, K., Zhang, X., Ren, S., Sun, J.: Deep residual learning for image recognition. In: Proceedings of the IEEE conference on computer vision and pattern recognition. pp. 770–778 (2016) 4. Todorov, E., Erez, T., Tassa, Y.: Mujoco: A physics engine for model-based control. In: 2012 IEEE/RSJ international conference on intelligent robots and systems. pp. 5026–5033. IEEE (2012) 5. Xu, J., Heiden, E., Akinola, I., Fox, D., Macklin, M., Narang, Y.: Neural robot dynamics. In: Conference on Robot Learning. pp. 3915–3935. PMLR (2025)
