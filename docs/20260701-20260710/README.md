@@ -1,57 +1,53 @@
 # 日报 · 2026-07-01 ~ 2026-07-10
 
-- 生成时间：2026-07-10 02:49:21 UTC
-- 当次推荐总数：39
-- 精读区：27
-- 速读区：12
+- 生成时间：2026-07-10 05:26:47 UTC
+- 当次推荐总数：35
+- 精读区：24
+- 速读区：11
 
 ## 今日简报（AI）
-今日精读两篇满分论文《TACO》与《Optimal Transport Q-Learning》，速读三篇8分工作。  
-最值得关注触觉世界模型自校正（TACO）和最优传输Q学习流策略加速两大方向。  
-普通读者可从《TACO》入手，了解如何用触觉模型提升VLA后训练，再结合《RoboWorld》评估通用机器人策略。
+日报覆盖7月1-10日，共35篇论文，精读了分布式NMPC与无人机安全控制等高影响力工作。  
+最值得关注的是异步灵敏度分布式NMPC（10分）和通信感知的无人机预测潜模型（9分），分别代表多智能体协同与安全控制的进展。  
+建议速读单自由度气动系统学习控制与机器人径向基智能控制器，快速补充相近领域的实践案例。
 
 ## 精读区
-1. [TACO: TActile World Model as a Self-COrrector forScalable VLA Post-Training](/20260701-20260710/2607.02840v1-taco-tactile-world-model-as-a-self-corrector-forscalable-vla-post-training) （10.0/10）
-2. [Optimal Transport Q-Learning for Flow Policy Steering and Acceleration](/20260701-20260710/2607.06262v1-optimal-transport-q-learning-for-flow-policy-steering-and-acceleration) （10.0/10）
-3. [From World Models to World Action Models: A Concise Tutorial for Robotics](/20260701-20260710/2607.00836v2-from-world-models-to-world-action-models-a-concise-tutorial-for-robotics) （9.0/10）
-4. [AutoSpeed: Annotation-Free Stage-Adaptive Motion Speed Learning for Robot Manipulation](/20260701-20260710/2607.01051v2-autospeed-annotation-free-stage-adaptive-motion-speed-learning-for-robot-manipulation) （9.0/10）
-5. [GPU-Parallel Linearization Error Bounds for Real-Time Robust Optimal Control of Nonlinear and Neural Network Dynamics](/20260701-20260710/2607.01203v1-gpu-parallel-linearization-error-bounds-for-real-time-robust-optimal-control-of-nonlinear-and-neural-network-dynamics) （9.0/10）
-6. [One Demonstration Is Enough for Real-World Robotic Reinforcement Learning](/20260701-20260710/2607.01651v1-one-demonstration-is-enough-for-real-world-robotic-reinforcement-learning) （9.0/10）
-7. [SPLC: Social Preference Learning for Crowd Robot Navigation](/20260701-20260710/2607.01925v1-splc-social-preference-learning-for-crowd-robot-navigation) （9.0/10）
-8. [Reference-Governed Distributed Safe Gradient Flow for Safe Optimal Output Agreement of Multi-Agent Systems](/20260701-20260710/2607.02192v1-reference-governed-distributed-safe-gradient-flow-for-safe-optimal-output-agreement-of-multi-agent-systems) （9.0/10）
-9. [Bridge-WA: Predicting Where and How the World Changes for Robotic Action](/20260701-20260710/2607.02195v1-bridge-wa-predicting-where-and-how-the-world-changes-for-robotic-action) （9.0/10）
-10. [WorldSample: Closed-loop Real-robot RL with World Modelling](/20260701-20260710/2607.02431v1-worldsample-closed-loop-real-robot-rl-with-world-modelling) （9.0/10）
-11. [Adaptive Linear Quadratic Control of Unknown Linear Time-Varying Systems via Policy Gradient Methods](/20260701-20260710/2607.03251v1-adaptive-linear-quadratic-control-of-unknown-linear-time-varying-systems-via-policy-gradient-methods) （9.0/10）
-12. [CoorGrasp: Coordinated Contact Control for Adaptive Dexterous Grasping Under Uncertainty](/20260701-20260710/2607.03557v1-coorgrasp-coordinated-contact-control-for-adaptive-dexterous-grasping-under-uncertainty) （9.0/10）
-13. [OmniTacTune: Policy-Agnostic Real-World RL for Tactile Residual Adaptation of Visual Policies](/20260701-20260710/2607.03723v1-omnitactune-policy-agnostic-real-world-rl-for-tactile-residual-adaptation-of-visual-policies) （9.0/10）
-14. [WSA$_1$: a 3D-Centric World-Spatial-Action Model for Generalizable Robot Control](/20260701-20260710/2607.03941v1-wsa1-a-3d-centric-world-spatial-action-model-for-generalizable-robot-control) （9.0/10）
-15. [Integrated Graph Search and Model Predictive Control for Smooth and Efficient Path Planning in Autonomous Vehicles](/20260701-20260710/2607.04259v1-integrated-graph-search-and-model-predictive-control-for-smooth-and-efficient-path-planning-in-autonomous-vehicles) （9.0/10）
-16. [SILO: Simulation-in-the-Loop Sim-to-Real Transfer for Multi-Stage Cable Routing](/20260701-20260710/2607.04616v1-silo-simulation-in-the-loop-sim-to-real-transfer-for-multi-stage-cable-routing) （9.0/10）
-17. [KAM-WM: Kinematic Affordance Maps from Latent World Models for Robot Manipulation](/20260701-20260710/2607.04652v1-kam-wm-kinematic-affordance-maps-from-latent-world-models-for-robot-manipulation) （9.0/10）
-18. [DSWAM: A Dual-System World Action Foundation Model for Fine-Grained Robot Manipulation](/20260701-20260710/2607.04927v1-dswam-a-dual-system-world-action-foundation-model-for-fine-grained-robot-manipulation) （9.0/10）
-19. [Closing the Reality Gap: Zero-Shot Sim-to-Real Deployment for Dexterous Force-Based Grasping and Manipulation](/20260701-20260710/2607.04940v1-closing-the-reality-gap-zero-shot-sim-to-real-deployment-for-dexterous-force-based-grasping-and-manipulation) （9.0/10）
-20. [InternVLA-A1.5: Unifying Understanding, Latent Foresight, and Action for Compositional Generalization](/20260701-20260710/2607.04988v1-internvla-a15-unifying-understanding-latent-foresight-and-action-for-compositional-generalization) （9.0/10）
-21. [Input-to-State Stability Implications in Contraction Theory](/20260701-20260710/2607.05640v1-input-to-state-stability-implications-in-contraction-theory) （9.0/10）
-22. [LAMP: Latent Motion Prior-Guided Real-World Learning for Dexterous Hand Manipulation](/20260701-20260710/2607.06323v1-lamp-latent-motion-prior-guided-real-world-learning-for-dexterous-hand-manipulation) （9.0/10）
-23. [RynnWorld-4D: 4D Embodied World Models for Robotic Manipulation](/20260701-20260710/2607.06559v1-rynnworld-4d-4d-embodied-world-models-for-robotic-manipulation) （9.0/10）
-24. [WAM-TTT: Steering World-Action Models by Watching Human Play at Test Time](/20260701-20260710/2607.06988v1-wam-ttt-steering-world-action-models-by-watching-human-play-at-test-time) （9.0/10）
-25. [PriGo: Test-Time Primitive Guidance to Diffusion and Flow Policies for Adaptive Robotic Manipulation](/20260701-20260710/2607.07076v1-prigo-test-time-primitive-guidance-to-diffusion-and-flow-policies-for-adaptive-robotic-manipulation) （9.0/10）
-26. [Safe Reinforcement Learning using Ideas from Model Predictive Control](/20260701-20260710/2607.07252v1-safe-reinforcement-learning-using-ideas-from-model-predictive-control) （9.0/10）
-27. [On the Robustness in Data-Driven Nonlinear Optimal Control: From Stability to Optimality](/20260701-20260710/2607.07570v1-on-the-robustness-in-data-driven-nonlinear-optimal-control-from-stability-to-optimality) （9.0/10）
+1. [Asynchronous Sensitivity-Based Distributed NMPC](/20260701-20260710/2607.03412v1-asynchronous-sensitivity-based-distributed-nmpc) （10.0/10）
+2. [Communication-Aware and Safety-Aware UAV Control via Predictive Latent Models](/20260701-20260710/2607.00288v1-communication-aware-and-safety-aware-uav-control-via-predictive-latent-models) （9.0/10）
+3. [Iterative graph lifting for automatic design of path-complete stability certificates](/20260701-20260710/2607.00637v1-iterative-graph-lifting-for-automatic-design-of-path-complete-stability-certificates) （9.0/10）
+4. [GPU-Parallel Linearization Error Bounds for Real-Time Robust Optimal Control of Nonlinear and Neural Network Dynamics](/20260701-20260710/2607.01203v1-gpu-parallel-linearization-error-bounds-for-real-time-robust-optimal-control-of-nonlinear-and-neural-network-dynamics) （9.0/10）
+5. [Multi-Rate Nonlinear Model Predictive Control for Wall-Supported Bipedal Locomotion of Quadrupedal Robots](/20260701-20260710/2607.01574v1-multi-rate-nonlinear-model-predictive-control-for-wall-supported-bipedal-locomotion-of-quadrupedal-robots) （9.0/10）
+6. [Predicting Closed-Loop Performance of Latent World Models: Offline Checkpoint Selection for MPC and Model-Based RL Under Non-Markovian Rewards in LunarLander](/20260701-20260710/2607.01736v2-predicting-closed-loop-performance-of-latent-world-models-offline-checkpoint-selection-for-mpc-and-model-based-rl-under-non-markovian-rewards-in-lunarlander) （9.0/10）
+7. [Koopman operator theory: fundamentals, control, and applications](/20260701-20260710/2607.01819v1-koopman-operator-theory-fundamentals-control-and-applications) （9.0/10）
+8. [Sensitivity Analysis and Robust Optimal Control for Coupled Evolution Inclusions with State-Dependent Maximal Monotone Operators](/20260701-20260710/2607.02339v1-sensitivity-analysis-and-robust-optimal-control-for-coupled-evolution-inclusions-with-state-dependent-maximal-monotone-operators) （9.0/10）
+9. [ACID: Action Consistency via Inverse Dynamics for Planning with World Models](/20260701-20260710/2607.02403v1-acid-action-consistency-via-inverse-dynamics-for-planning-with-world-models) （9.0/10）
+10. [Data-driven Kernel-based Predictive Control with Stability and Robustness Guarantees](/20260701-20260710/2607.02851v1-data-driven-kernel-based-predictive-control-with-stability-and-robustness-guarantees) （9.0/10）
+11. [Inverse Optimal Control for Linear Quadratic Problem with Poisson Jumps: Model-Free Inverse Reinforcement Learning Approaches](/20260701-20260710/2607.03169v1-inverse-optimal-control-for-linear-quadratic-problem-with-poisson-jumps-model-free-inverse-reinforcement-learning-approaches) （9.0/10）
+12. [Strouhal-Aware Model Predictive Control for Efficient Multi-Fin Flapping Locomotion](/20260701-20260710/2607.03216v1-strouhal-aware-model-predictive-control-for-efficient-multi-fin-flapping-locomotion) （9.0/10）
+13. [CoorGrasp: Coordinated Contact Control for Adaptive Dexterous Grasping Under Uncertainty](/20260701-20260710/2607.03557v1-coorgrasp-coordinated-contact-control-for-adaptive-dexterous-grasping-under-uncertainty) （9.0/10）
+14. [Finite-Sample Closed-Loop Stability of Model Predictive Path Integral Control for Linear Time-Invariant Systems](/20260701-20260710/2607.04006v1-finite-sample-closed-loop-stability-of-model-predictive-path-integral-control-for-linear-time-invariant-systems) （9.0/10）
+15. [Scenario-based Data-Enabled Predictive Control: Robustification via the Scenario Approach](/20260701-20260710/2607.04165v1-scenario-based-data-enabled-predictive-control-robustification-via-the-scenario-approach) （9.0/10）
+16. [XS-VLA: Coupling Coarse-grained Spatial Distillation with Latent Flow Matching for Lightweight Robotic Control](/20260701-20260710/2607.04171v1-xs-vla-coupling-coarse-grained-spatial-distillation-with-latent-flow-matching-for-lightweight-robotic-control) （9.0/10）
+17. [Spatial Attention: Adapting Execution Horizons for Diffusion Policies via Observation Sensitivity](/20260701-20260710/2607.04739v1-spatial-attention-adapting-execution-horizons-for-diffusion-policies-via-observation-sensitivity) （9.0/10）
+18. [Input-to-State Stability Implications in Contraction Theory](/20260701-20260710/2607.05640v1-input-to-state-stability-implications-in-contraction-theory) （9.0/10）
+19. [Clustering-Embedded Model Predictive Path Integral Control: Avoiding Averaging-Induced Failure and Enabling Efficient Cluster Selection for Dynamic Obstacles](/20260701-20260710/2607.06499v1-clustering-embedded-model-predictive-path-integral-control-avoiding-averaging-induced-failure-and-enabling-efficient-cluster-selection-for-dynamic-obstacles) （9.0/10）
+20. [Stochastic Stability of Nonlinear MPPI via Contraction Theory and Control Lyapunov Functions](/20260701-20260710/2607.06945v1-stochastic-stability-of-nonlinear-mppi-via-contraction-theory-and-control-lyapunov-functions) （9.0/10）
+21. [Residual-Conservative Model Predictive Path Integral Control](/20260701-20260710/2607.06950v1-residual-conservative-model-predictive-path-integral-control) （9.0/10）
+22. [Safe Reinforcement Learning using Ideas from Model Predictive Control](/20260701-20260710/2607.07252v1-safe-reinforcement-learning-using-ideas-from-model-predictive-control) （9.0/10）
+23. [Multi-Agent Robotic Control with Onboard Vision-Language Models](/20260701-20260710/2607.07403v1-multi-agent-robotic-control-with-onboard-vision-language-models) （9.0/10）
+24. [On the Robustness in Data-Driven Nonlinear Optimal Control: From Stability to Optimality](/20260701-20260710/2607.07570v1-on-the-robustness-in-data-driven-nonlinear-optimal-control-from-stability-to-optimality) （9.0/10）
 
 ## 速读区
-1. [RoboWorld: Fast and Reliable Neural Simulators for Generalist Robot Policy Evaluation](/20260701-20260710/2607.01060v1-roboworld-fast-and-reliable-neural-simulators-for-generalist-robot-policy-evaluation) （8.0/10）
-2. [Rank-Then-Act: Reward-Free Control from Frame-Order Progress](/20260701-20260710/2607.01897v1-rank-then-act-reward-free-control-from-frame-order-progress) （8.0/10）
-3. [ACID: Action Consistency via Inverse Dynamics for Planning with World Models](/20260701-20260710/2607.02403v1-acid-action-consistency-via-inverse-dynamics-for-planning-with-world-models) （8.0/10）
-4. [Data-driven Kernel-based Predictive Control with Stability and Robustness Guarantees](/20260701-20260710/2607.02851v1-data-driven-kernel-based-predictive-control-with-stability-and-robustness-guarantees) （8.0/10）
-5. [Integrating Physics-Informed Neural Networks for Safe Reinforcement Learning in a 1-DoF Helicopter System](/20260701-20260710/2607.03125v1-integrating-physics-informed-neural-networks-for-safe-reinforcement-learning-in-a-1-dof-helicopter-system) （8.0/10）
-6. [Communication-Aware and Safety-Aware UAV Control via Predictive Latent Models](/20260701-20260710/2607.00288v1-communication-aware-and-safety-aware-uav-control-via-predictive-latent-models) （7.0/10）
-7. [Influence of Radial Basis Activation Functions on Intelligent Controller for Robotic Manipulators](/20260701-20260710/2607.02167v1-influence-of-radial-basis-activation-functions-on-intelligent-controller-for-robotic-manipulators) （7.0/10）
-8. [Layout-independent actuation allocator for fin-actuated marine robots](/20260701-20260710/2607.03204v1-layout-independent-actuation-allocator-for-fin-actuated-marine-robots) （7.0/10）
-9. [Asynchronous Sensitivity-Based Distributed NMPC](/20260701-20260710/2607.03412v1-asynchronous-sensitivity-based-distributed-nmpc) （7.0/10）
-10. [Sample-Efficient Pareto Front Modeling for Energy-Aware Reinforcement Learning Using Bayesian Optimization](/20260701-20260710/2607.03140v1-sample-efficient-pareto-front-modeling-for-energy-aware-reinforcement-learning-using-bayesian-optimization) （6.0/10）
-11. [GaP: A Graph-as-Policy Multi-Agent Self-Learning Harness For Variational Automation Tasks](/20260701-20260710/2607.05369v1-gap-a-graph-as-policy-multi-agent-self-learning-harness-for-variational-automation-tasks) （6.0/10）
-12. [Embodied Human-Robot Interaction via Acoustics: A MARL Approach with AcoustoBots for Spatial Data Physicalization](/20260701-20260710/2607.06563v1-embodied-human-robot-interaction-via-acoustics-a-marl-approach-with-acoustobots-for-spatial-data-physicalization) （6.0/10）
+1. [Learning-based control of a single-DOF Aero system](/20260701-20260710/2607.00640v1-learning-based-control-of-a-single-dof-aero-system) （8.0/10）
+2. [Bilinear control of age--space structured populations](/20260701-20260710/2607.01347v1-bilinear-control-of-age--space-structured-populations) （8.0/10）
+3. [Influence of Radial Basis Activation Functions on Intelligent Controller for Robotic Manipulators](/20260701-20260710/2607.02167v1-influence-of-radial-basis-activation-functions-on-intelligent-controller-for-robotic-manipulators) （8.0/10）
+4. [RCOA Extension and Applications](/20260701-20260710/2607.02797v1-rcoa-extension-and-applications) （8.0/10）
+5. [Longitudinal-Motion-Aware Lateral Control for Autonomous Vehicles: A Robust Nonlinear Control Framework](/20260701-20260710/2607.02924v1-longitudinal-motion-aware-lateral-control-for-autonomous-vehicles-a-robust-nonlinear-control-framework) （8.0/10）
+6. [Sparse State Feedback Control for Industrial Applications](/20260701-20260710/2607.03159v1-sparse-state-feedback-control-for-industrial-applications) （8.0/10）
+7. [Computationally Efficient Near-Optimal Control for Current Ripple Reduction and Optimization of Three-Phase Motors via LMIs](/20260701-20260710/2607.01215v1-computationally-efficient-near-optimal-control-for-current-ripple-reduction-and-optimization-of-three-phase-motors-via-lmis) （7.0/10）
+8. [Continuous-Time Gaussian Belief Trees for Motion Planning](/20260701-20260710/2607.02884v1-continuous-time-gaussian-belief-trees-for-motion-planning) （7.0/10）
+9. [Function-Space Diffusion for Motion Planning](/20260701-20260710/2607.02977v1-function-space-diffusion-for-motion-planning) （7.0/10）
+10. [Anticipatory Reinforcement Learning for Trajectory Tracking](/20260701-20260710/2607.03132v1-anticipatory-reinforcement-learning-for-trajectory-tracking) （7.0/10）
+11. [Deep Reinforcement Learning for Dynamic Battery Management of Autonomous Order Pickers](/20260701-20260710/2607.05683v1-deep-reinforcement-learning-for-dynamic-battery-management-of-autonomous-order-pickers) （6.0/10）
 
 ---
 使用键盘方向键可在日报/论文之间快速切换。
