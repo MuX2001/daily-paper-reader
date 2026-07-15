@@ -1,0 +1,609 @@
+Title: D-SafeMPC: Diffusion-Driven Safe Model Predictive Control with Discrete-Time Control Barrier Functions
+
+URL Source: https://arxiv.org/pdf/2607.10842v1
+
+Published Time: Tue, 14 Jul 2026 02:01:00 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# D-SafeMPC: Diffusion-Driven Safe Model Predictive Control with Discrete-Time Control Barrier Functions 
+
+Erdi Sayar 1, Ersin Da¸ s2, Joel W. Burdick 3, Alois Knoll 4, and Erdal Kayacan 1
+
+Abstract — A key limitation on the use of diffusion models in robotic planning is their inability to inherently enforce safety or dynamical constraints, which often results in physically infeasible or unsafe outputs. Hybrid approaches that employ model predictive control (MPC) to address this problem can be unstable, as poor trajectory initializations from the diffusion model prevent the MPC from converging to a safe and feasible solution. To overcome these challenges, we propose D-SafeMPC, which enhances the interaction between diffusion and control. Our method guides the reverse diffusion process with control barrier functions (CBFs) and control Lyapunov functions (CLFs) and employs an iterative-projection scheme where an MPC refines the trajectory at each denoising step. This steers sampling toward safe, goal-directed regions and provides reliable MPC warm starts. In simulations on a Franka manipulator across four scenarios (one static-obstacle and three dynamic-obstacle settings) and in a sim-to-real experiment on a physical Franka robot, D-SafeMPC improves safety, task success rates, and planning efficiency over state-of-the-art baselines. To facilitate reproducibility, our source code and experimental configurations are available in a repository at 
+
+https://github.com/erdiphd/D-SafeMPC 
+
+I. INTRODUCTION Diffusion models [1] have established state-of-the-art performance in generative tasks such as image and video synthesis. In robotics, they demonstrate impressive capabilities in trajectory planning, where they learn complex policies from demonstrations [2]–[5]. These models excel at captur-ing multimodal behaviors and generating high-dimensional trajectories holistically, which mitigates the compounding errors common in sequential methods and improves long-term performance. However, despite their success with large datasets, diffusion models lack an intrinsic mechanism to enforce explicit constraints, such as system dynamics, obstacle avoidance, and safety margins [6]. As a result, the trajectories produced via their iterative stochastic denoising process frequently violate the physical constraints of the system [7]. To address this limitation, [8] combines a diffusion model with control barrier functions (CBFs) [9] and control Lyapunov functions (CLFs) [10] to avoid obstacles while reaching a target set during the reverse diffusion process. Although                                 
+
+> *This work was partially supported by the Horizon Europe Grant Agreement No. 101136056.
+> 1E. Sayar and E. Kayacan are with the Department of Electrical Engi-neering and Information Technology, Paderborn University, 33098 Paderborn, Germany, {erdi.sayar, erdal.kayacan}@uni-paderborn.de .
+> 2E. Da¸ s is with the Department of Mechanical, Materials, and Aerospace Engineering, Illinois Institute of Technology, Chicago, IL 60616, USA,
+> edas2@illinoistech.edu .
+> 3J. W. Burdick is with the Mechanical and Civil Engineer-ing, California Institute of Technology, Pasadena, CA 91125, USA,
+> jburdick@caltech.edu .
+> 4A. Knoll is with the School of Computation, Information, and Technology, Technical University of Munich, 80333 Munich, Germany,
+> k@tum.de .
+
+this approach guides the planner, it only acts as a form of guidance, pushing generated trajectories toward safe and goal-directed regions. In other words, CBFs and CLFs improve the probabilistic safety of the planned trajectories, but no hard safety constraints are enforced on the final trajectory, which may still violate safety or dynamic constraints. To enforce such hard constraints, an alternative strategy is to leverage model predictive control (MPC) [11], an optimization-based control framework that computes control actions by repeatedly solving a finite-horizon optimal control problem subject to explicit system constraints. Owing to its ability to systematically handle complex dynamics and safety requirements, MPC has been widely adopted across robotic domains [12], [13]. Recent approaches [14], [15] address this limitation by employing a hybrid framework that couples a diffusion model with MPC. This process involves generating an initial trajectory with the diffusion model, using MPC to project it onto a safe and dynamically feasible set, and then feeding the corrected trajectory back to guide the next denoising step [14]. This iterative cycle enables MPC to continually enforce safe operational boundaries. However, this hybrid strategy has a critical limitation: a poor initial trajectory from the diffusion model can prevent the MPC from converging to a feasible solution, leading to instability or failure in complex environments. To address these challenges, we introduce D-SafeMPC, a novel framework that seamlessly integrates diffusion-based trajectory generation with MPC leveraging CBFs and CLFs. In each denoising iteration, we guide the reverse diffusion process by steering the generated trajectory samples toward safe, goal-directed regions. As aforementioned, this guidance steers the denoising process dynamically toward safe and goal-reaching trajectories without requiring retraining of the diffusion model, thereby rendering them probabilistically safer. However, this guidance alone does not enforce hard constraints such as safety or dynamic feasibility. Therefore, we refine these guided trajectories using MPC with explicit safety and dynamic constraints at each denoising step. The integration of CBFs and CLFs provides MPC with well-initialized trajectories, enabling more stable and efficient convergence to safe and feasible solutions within the allocated computational budget. The refined trajectories from MPC are then used to initialize the subsequent denoising iteration. This iterative cycle continues until the final timestep, at which point the control action from the converged trajectory is applied to the robot to advance to the next state. The main contributions of this work are:  
+
+> •
+
+We introduce a novel framework that leverages discrete-time CBFs and CLFs to guide the reverse diffusion process, steering trajectory generation toward safer, goal-arXiv:2607.10842v1 [cs.RO] 12 Jul 2026 Fig. 1. Overview of the proposed diffusion-based trajectory planning framework, D-SafeMPC. The left side illustrates the evolution of trajectories during the denoising and projection process. At each denoising step, the diffusion model computes the mean μθ (τ i, i, y ) based on the projected trajectory from MPC (τ i), the current denoising step (i) and condition information (y). This mean is then adjusted using gradients from the discrete-time CBF and CLF, denoted as ∇uψh and ∇uΦV , respectively. The adjusted mean is then sampled to produce a trajectory ˜τ i−1, which serves as initialization for the MPC. The MPC projects this trajectory onto a safe and dynamically feasible set τ i−1, and the projected trajectory initializes the next denoising iteration. This cycle continues until the final timestep, where the control action ut from the projected trajectory is applied to advance the robot to the next state xt. This updated state then provides conditional input for generating the subsequent trajectory. The right side details the denoising process: the reverse diffusion loop begins with pure Gaussian noise conditioned on the current state xt. Throughout denoising, the discrete-time CBF and CLF gradients guide the trajectory generation, steering it away from obstacles and toward the goal. 
+
+oriented regions and improving MPC initialization.  
+
+> •
+
+The MPC enforces strict safety and dynamic constraints on the probabilistically safe trajectories generated via discrete-time CBF and CLF guidance, ensuring that the resulting trajectory remains within a defined safer set and adheres to the dynamic constraints.  
+
+> •
+
+Empirical validation on a Franka robot manipulator in static and dynamic obstacle scenarios, demonstrating su-perior safety, success rates, and computational efficiency compared to state-of-the-art baselines. II. R ELATED WORK 
+
+Diffuser [2] is an offline-trained diffusion model that learns to denoise entire state–action trajectories by treating them as single-channel images. Using pre-collected trajectory datasets, the model is trained to reconstruct clean trajectories from noise through iterative temporal denoising. During inference, Diffuser produces full-length trajectories by starting from Gaussian noise and applying two mechanisms: reward-guided sampling, where a learned critic steers the denoising process toward trajectories with higher expected return, and goal-conditioned inpainting, where specified start and end states are enforced. Despite its flexibility in generating goal-directed motion, this planning approach does not guarantee safety—there is no formal mechanism to prevent unsafe states during generation. To address this safety issue, CoBL-Diffusion [8] combines a diffusion-based planner with CBFs and CLFs to enable safe navigation in dynamic environments. In this approach, CBFs and CLFs guide the model away from obstacles and toward goals. However, this guidance acts as a soft preference rather than a hard constraint, meaning the generated trajectories might still violate safety or dynamic constraints. Similarly, other work has focused on improving physical realism by aligning the diffusion model’s sampling path with a traditional optimization trajectory, guiding the generation toward more valid solutions [16]. In contrast to these soft guidance approaches, an alternative technique is to enforce safety and goal-reaching requirements by projecting diffusion-generated trajectories onto the safe sets. The method proposed in [17] projects a noisy trajectory onto a constraint set while considering the system dynamics. Diffusion predictive control with constraints (DPCC) [14] employs a diffusion model to generate horizon-based tra-jectories. These trajectories serve as an initial guess for an MPC, which then projects them onto a safe and dynamically feasible set by enforcing constraints on obstacle avoidance, safe operational regions, and system dynamics. The resulting projected trajectory initializes the next denoising step in the diffusion model, creating an iterative cycle in which the MPC continually refines the trajectory to ensure safety. However, if the initial trajectory generated by the diffusion model is poor, the MPC may fail to find a feasible solution within its allocated iterations, which can pose a significant safety risk. This limitation becomes more pronounced in challenging scenarios, such as when dynamic obstacles are present or when obstacles intersect the paths of the expert trajectories 2used for training. Our method addresses this by guiding the diffusion output with CBFs and CLFs, which provides a high-quality initial guess for the MPC and enables convergence. III. B ACKGROUND 
+
+Since the robot dynamics are typically continuous-time and nonlinear, we start by considering continuous-time control-affine nonlinear systems of the form: 
+
+˙x = f (x) + g(x)u, x ∈ X ⊆ Rn, u ∈ U ⊆ Rm, (1) where the drift dynamics f : X → Rn and the actuation matrix 
+
+g : X → Rn×m are locally Lipschitz continuous functions. We assume the set of admissible control inputs U is an 
+
+m-dimensional compact convex polytope. Digital implemen-tation of any controller introduces a sample-and-hold effect on the control: 
+
+u(t) = uk, ∀t ∈ [tk, t k+1 ), (2) where uk is constant between consecutive sampling instants 
+
+tk and tk+1 with the time index k ∈ N0. We assume a uniform sampling strategy with a sampling interval T . As the system is piecewise locally Lipschitz continuous, it admits a unique trajectory. We can obtain a discrete-time nonlinear model of the continuous-time system (1) under the sample-and-hold strategy (2) as 
+
+xk+1 = xk +
+
+Z tk+1 
+
+> tk
+
+(f (x(τ ))+ g(x(τ )) uk) dτ ≜ F(xk,uk), (3) where F : X ×U → X is the exact state discrete map . If we use a one-step Euler discretization to approximate this map, we have xk+1 = F(xk, uk) = xk +( f (xk)+ g(xk)uk) T +O(T 2).Throughout the paper, we denote F as the discrete-time model used for control and analysis. When necessary, F refers to the Euler approximation of the exact flow map. 
+
+A. Discrete-Time CBFs and CLFs 
+
+We consider dynamic obstacles in our safe control sce-narios, and our control framework is discrete-time. We first define discrete-time control barrier functions (CBFs) [18], [19], which extend continuous-time CBFs [9] to certify safety at sampling instants. We characterize safety through the notion of forward invariance. Let the time-invariant set C be the 0-superlevel set of a continuously differentiable function h : X → R:
+
+C ≜ {x ∈ X ⊆ Rn : h(x) ≥ 0} . (4) This set is said to be forward invariant if for the discrete-time system (3) , for any initial condition x0 ∈ C , im-plies that xk ∈ C , for all k ∈ N0. The closed-loop system 
+
+xk+1 = F(xk,k(xk)) , with a feedback controller k : X → U ,
+
+u = k(x), is safe with respect to the safe set C, if C is forward invariant. To design controllers that guarantee such forward invariance properties, discrete-time control barrier functions (CBFs) provide a systematic framework. 
+
+Definition 1 (Discrete-Time Control Barrier Function) . Let 
+
+C ⊆ X be the 0-superlevel set of a continuously differentiable function h : X → R. The function h is a discrete-time control barrier function for system (3) with respect to C if there exists a class-K function * α ∈ K satisfying α(r) < r, ∀r > 0
+
+such that ∀xk ∈ C :
+
+sup  
+
+> uk∈U
+
+h(F(xk,uk)) − h(xk) > −α(h(xk)) .
+
+We can derive formal safety guarantees using Definition 1, with the help of the following theorem: 
+
+Theorem 1. If h is a discrete-time CBF for (3) on C, then any feedback controller k : X → U , uk = k(xk) satisfying 
+
+h(F(xk,k(xk))) − h(xk) ≥ − α(h(xk)) (5) 
+
+for all xk ∈ C renders the set C forward invariant. 
+
+Similar to CBFs, CLFs encode stability objectives by requiring a Lyapunov candidate to decrease along closed-loop trajectories. Therefore, CLFs are useful for representing closed-loop objectives, such as stabilizing to a desired configuration or, through an appropriate choice of CLFs, converging to a target set. We specifically consider discrete-time exponential control Lyapunov functions (CLFs): 
+
+Definition 2 (Discrete-Time Control Lyapunov Function) . Acontinuously differentiable function V (x), V : G ⊆ X → R≥0,is a discrete-time control Lyapunov function for system (3) if there exists a constant σ ∈ (0 , 1) such that for all xk ∈ G :
+
+inf  
+
+> uk∈U
+
+h
+
+V (F(xk, uk)) − V (xk)
+
+i
+
+≤ − σV (xk).
+
+B. Diffusion Models 
+
+Diffusion models [1] express a probability distribution 
+
+p(τ0) through latent variables in the form pθ (τ0) ≜R pθ (τ0: N ) dτ1: N , where τ1, . . . , τN are latent variables of the same dimensionality as the data τ0 ∼ p (τ0).These models are characterized by a forward and a reverse diffusion process. The forward diffusion process is the fixed approximate posterior q (τ1: N | τ0), given by a Markov chain that, starting from τ0 ∼ q (τ0), perturbs the input data by gradually adding Gaussian noise in N steps with a predefined variance schedule β1, . . . , β N following the cosine noise schedule [20]. This process is defined as 
+
+q (τ1: N | τ0) ≜
+
+> N
+
+Y
+
+> i=1
+
+q (τi | τi−1) , (6) 
+
+q (τi | τi−1) ≜ N
+
+
+
+τi; p1 − βiτi−1, β iI
+
+
+
+.
+
+The reverse diffusion process aims to recover the original input data from the noisy (diffused) data. A deep neural network with parameters θ is trained to progressively reverse the diffusion process step by step and approximates the joint distribution pθ (τ0: N ). This process is modelled as [1] 
+
+pθ (τ0: N ) ≜ p (τN )
+
+> N
+
+Y
+
+> i=1
+
+pθ (τi−1 | τi) , (7) 
+
+pθ (τi−1 | τi) ≜ N (τi−1; μθ (τi, i ) , Σθ (τi, i )) ,
+
+where p (τN ) = N (τN ; 0, I), μθ and Σθ are the outputs of the neural network. Following [1], we set Σθ = σ2 
+
+> i
+
+I = βiI,        
+
+> *A continuous function α: [0 , a )→R≥0, where a > 0, belongs to class-K
+> (α∈ K ) if it is strictly monotonically increasing and α(0) = 0 .
+
+3which is not learned but follows the cosine schedule, and the mean is defined as 
+
+μθ (τi, i ) = 1
+
+√αi
+
+
+
+τi − βi
+
+√1 − ¯αi
+
+ϵθ (τi, i )
+
+
+
+, (8) where αi = 1 − βi and ¯αi = QNs=1 αs is the cumulative prod-uct of the α terms. The model is optimized by maximizing the evidence lower bound (ELBO) [21], Eq
+
+h
+
+ln pθ (τ0: N ) 
+
+> q(τ1: N|τ0)
+
+i
+
+.The training objective can be simplified from the ELBO to a loss function [1]: 
+
+Ld(θ) = Ei,ϵ,τ 0
+
+
+
+ϵ − ϵθ
+
+  √¯αiτ0 + √1 − ¯αi ϵ
+
+| {z }
+
+> τi
+
+, i 
+
+ 2
+
+, (9) here, ϵθ is a neural network that learns to predict the noise. Once trained, sampling data from Gaussian noise τN ∼ p (τN )
+
+and running it through the reverse diffusion process from 
+
+i = N to i = 0 yields an approximation of the original data distribution. IV. T RAJECTORY PLANNING WITH CONDITIONAL 
+
+DIFFUSION MODELS 
+
+As planning and diffusion processes operate on distinct temporal values, we denote the diffusion iteration index with a superscript i ∈ { 0, . . . , N } and the planning trajectory index with a subscript t ∈ { 0, . . . , T }. Following this convention, 
+
+τ i = ( xi
+
+> 0
+
+, ui
+
+> 0
+
+, . . . , xiH ) represents the entire trajectory at diffusion step i with a horizon H. However, an important distinction is that we denote the output of the guided diffusion model with ˜τ i and the output of the MPC projection with τ i.We consider a robotic system operating in an environment with NJ static or dynamic obstacles. The system is governed by the discrete-time, nonlinear dynamics given in (3) . The state and control input of the j-th obstacle at timestep t is denoted by xj,t and uj,t , for j = 1 , . . . , N J .Our objective is to control the robot from an initial state x0 to a goal g ∈ G within a maximum of T time steps. Goal achievement is indicated by a binary function 
+
+ϕ : X ×G → { 0, 1}, where ϕ(xT , g ) = 1 signals success. In our examples, we use the D3IL dataset [22], which contains teleoperated demonstrations with a 7-DoF Franka Emika Panda robot in MuJoCo [23]. This dataset, D = {(m)τe}Mm=1 ,consists of M successful expert trajectories of the form 
+
+> (m)
+
+τe = ( (m)x0, (m)u0, . . . , (m)xT ), each associated with a goal (m)g such that ϕ((m)xT , (m)g) = 1 . The expert is mod-eled as an unknown stochastic policy πe, where actions are sampled as ut ∼ πe(· | xt, g ). We aim to learn a goal-conditioned stochastic control policy π from the expert dataset 
+
+D using a conditional diffusion model. As recent work [2] has demonstrated that conditional diffusion models can effectively learn complex robotic control policies from offline data, we adopt this method. Our diffusion model is trained to approximate the conditional distribution of trajectories 
+
+pθ (τ | y) where y is the conditioning information, such as the current state xt and a desired goal g.During the training process, the diffusion model learns from offline trajectory data collected in obstacle-free environments, implicitly encoding dynamic constraints from the demonstra-tion data. However, during inference, the environment may contain obstacles and unsafe regions not present in the training data. While the diffusion model can generate trajectories with horizon H conditioned on y that respect the learned dynamics, the stochastic nature of the reverse diffusion process may produce trajectories that violate safety constraints or dynamic feasibility. To address these safety concerns, we define a safe set, denoted by C, using a CBF, h(x). This set consists of all the states x for which the CBF is non-negative, as formally defined by the set in (4). We can incorporate these constraints into the diffusion architecture and train the model in environments with dynamic obstacles. However, learning the distribution pθ (˜ τ i−1 | ˜τ i, y, C)
+
+requires extensive offline demonstrations that satisfy the safety constraints. Furthermore, since C is task-specific, the trained model might fail to generalize during inference for unseen scenarios. To overcome these challenges, we propose a more flex-ible approach: incorporating the safety constraints as soft constraints during the denoising process. We achieve this using classifier guidance [24], which dynamically steers trajectory generation toward safe regions without requiring model retraining. Specifically, we model the likelihood of a trajectory ˜τ i−1 belonging to the safe set C using a Gibbs-Boltzmann distribution: 
+
+p(˜ τ i−1 ∈ C ) ∝ exp 
+
+ h(˜ τ i−1)
+
+T
+
+
+
+, (10) where T is a temperature parameter, and trajectories with higher (safer) h values are assigned a higher probability, effectively directing the reverse diffusion process toward desired outcomes. Our objective is thus to sample from the posterior p(τ 0 |
+
+y, C), expressed as 
+
+p(τ 0 | y, C) = 
+
+Z
+
+p(τ N | y, C)
+
+> N
+
+Y
+
+> i=1
+
+p(τ i−1 | τ i, i, y, C) d τ1: N
+
+(11) with p(τ N | y, C) = N (0, I). Sampling from this posterior involves iteratively drawing from the safety-conditioned distribution via Bayes’ rule: 
+
+p(˜ τ i−1 | ˜τ i, i, y, C) = Z·p(˜ τ i−1 | ˜τ i, i, y )·p(C | ˜τ i−1), (12) where Z is a normalizing constant. Because Z is typically intractable to compute, it is not possible to sample from this distribution directly [24]. Therefore, the safety-conditioned distribution p(˜ τ i−1 | ˜τ i, i, y, C) has no closed form for sampling. Taking the logarithm of this safety-conditioned posterior yields 
+
+log p(˜ τ i−1 | ˜τ i, i, y, C) ≈ log p(˜ τ i−1 | ˜τ i, i, y )+log p(C | ˜τ i−1),
+
+(13) where p(˜ τ i−1 | ˜τ i, i, y ) ≈ pθ (˜ τ i−1 | ˜τ i, i, y ) denotes the learned denoising model. This decomposition separates the learned diffusion denoising from the safety guidance, and the learned denoising model is given by 
+
+log pθ (˜ τ i−1 | ˜τ i, i, y ) = log N (μθ , β iI) (14) 
+
+= − 12
+
+ ˜τ i−1 −μθ
+
+⊤
+
+ I
+
+βi
+
+  ˜τ i−1 −μθ
+
++c1,
+
+4where c1 is a constant and μθ = μθ (˜ τ i, i, y ) for brevity. We approximate log p(C | ˜τ i−1) using a first-order Taylor expansion around the mean ˜τ i−1 = μθ :
+
+log p(C | ˜τ i−1) ≈ log p(C | ˜τ i−1) ˜τ i−1=μθ
+
++(˜ τ i−1 − μθ ) · g
+
+≈ c2 + (˜ τ i−1 − μθ ) · g, (15) where c2 is the constant value at the mean, and g =
+
+∇˜τ i−1 log p(C | ˜τ i−1) ˜τ i−1=μθ
+
+is the gradient of the safety log-probability evaluated at μθ . This linear approximation is valid locally and enables gradient-based guidance. Combining the approximations, the conditional log-probability becomes: 
+
+log pθ (˜ τ i−1 | ˜τ i, y, C)
+
+≈ − 12βi
+
+˜τ i−1 − μθ + βi
+
+T ∇˜τ i−1 h(˜ τ i−1) ˜τ i−1=μθ
+
+! 2
+
++c3
+
+≈ − 12βi
+
+∥˜τ i−1 − (μθ + βig)∥2 + c3, (16) where c3 represents all constant terms. This approximation in (16) reveals that the conditional distribution remains Gaussian, with its mean shifted in the direction of the safety constraint’s gradient. Ultimately, since we rely on control actions to govern the robot’s behavior, we apply this guidance by computing the gradients of the CBF and CLF conditions (as detailed in Section IV-A) with respect to the control input, rather than the entire trajectory. CBFs, as detailed in Section III-A, facilitate guiding the reverse diffusion process to produce trajectories that avoid collisions with static or dynamic obstacles. Similarly, CLFs can be utilized to steer the reverse diffusion process toward the goal. 
+
+A. CBF and CLF Guidance Design 
+
+Since we consider both static and dynamic obstacles, their dynamics affect the CBF-based safety and CLF-based stability conditions. Therefore, we augment the nonlinear system model (1) with the autonomous dynamics of these obstacles: 
+
+˙xj = fj (xj ), j = 1 , . . . , N J , (17) where xj ∈ Rnj . We assume the future obstacle states 
+
+xj,t +1 , . . . , xj,t +H over the planning horizon H are known to the planner. Then, we define an augmented system dynamics formed by (1) and (17) as 
+
+
+
+˙x
+
+˙x1
+
+·
+
+˙xj
+
+·
+
+˙xNJ
+
+| {z } 
+
+> ≜˙¯x
+
+=
+
+
+
+f (x)
+
+f1(x1)
+
+·
+
+fj (xj )
+
+·
+
+fNJ (xNJ )
+
+| {z } 
+
+> ≜¯f(¯ x)
+
++
+
+
+
+g(x)
+
+0
+
+·
+
+0
+
+·
+
+0
+
+| {z }
+
+> ≜˜g(¯ x)
+
+u, (18) where ¯x ∈ Rn+nj ×NJ is the augmented state. We represent discrete-time dynamics as ¯F(¯ xk,uk).Next, we consider the collision avoidance between the robot and the j-th obstacle, which has a radius rj :
+
+hj (¯ x) = ∥x − xj ∥2 − r2 
+
+> j
+
+. (19) Our goal is to satisfy all constraints simultaneously; therefore, we define a unified safety function using the min function: 
+
+h(¯ x) = min   
+
+> j∈{ 1,...,N J}
+
+[hj (¯ x)] , (20) which is non-smooth. To construct a smooth function repre-senting the min function, we can employ a smooth under-approximation given by (with λ ≥ 0): 
+
+h(¯ x) = − 1
+
+λ ln 
+
+ NJX
+
+> j=1
+
+e−λh j (¯ x)
+
+. (21) From Theorem 1, we have a formal safety guarantee with respect to h if the discrete-time CBF condition: 
+
+0 ≤ h( ¯F(¯ xk,uk)) − h(¯ xk) + α(h(¯ xk)) ≜ ψh(¯ xk, uk) (22) is satisfied for all sampled ¯xk via control input uk.Therefore, the collision avoidance safety (21) is guaranteed if the safety condition, ψh, remains positive for every control action throughout the entire sequence. To actively enforce this using the guidance mechanism shown in (16) , we utilize the gradient of the safety condition with respect to the control input: 
+
+∇uψh(¯ x, u) = 
+
+ ∂ ¯F(¯ x, u)
+
+∂u
+
+⊤
+
+∇¯xh  ¯F(¯ x, u) , (23) which points in the direction of steepest ascent of ψh with respect to u, indicating how to modify the control input to improve satisfaction of the discrete-time CBF condition [8]. Under the Euler discretization, ∂ ¯F 
+
+> ∂u
+
+= T ˜g(¯ x) depends only on 
+
+¯x. Nevertheless, ∇uψh(¯ x, u) generally depends on u through the evaluation of ∇¯xh at ¯F(¯ x, u). By integrating this gradient as a guidance signal within each denoising step, evaluated at the current denoising iterate, we steer the diffusion model toward synthesizing trajectories directed toward the safe set. Similar to how a CBF enforces safety by repelling the denoising steps from unsafe regions, a CLF can enforce stability by attracting the denoising steps toward a desired goal state. To guide the reverse diffusion process toward the goal state g, we define a CLF: 
+
+V (¯ x) = ∥¯x − g∥2. (24) The condition ensures exponential stability of g is given by 
+
+0 ≥ V ( ¯F(¯ xk,uk)) − V (¯ xk) + σV (¯ xk) ≜ ΦV (¯ xk, uk), (25) The gradient of ΦV with respect to u:
+
+∇uΦV (¯ x, u) = 
+
+ ∂ ¯F(¯ x, u)
+
+∂u
+
+⊤
+
+∇¯xV   ¯F(¯ x, u) , (26) which indicates the direction in which u should be selected to most effectively decrease the CLF value, thereby enabling convergence to the goal state g.By integrating gradients from both CBFs and CLFs into the denoising process as 
+
+pθ (˜ τ i−1 | ˜τ i, y ) = N (μθ + λc∇uψh − λl∇uΦV , β iI), (27) the diffusion model generates trajectories that avoid obstacles while advancing toward the goal, thereby reducing the risk of stagnation in safe yet suboptimal regions. Nevertheless, conflicts may arise when the CBF and CLF gradients oppose one another. To address this, we employ an adaptive weight 5λc ≥ 0 for the CBF constraint, which increases proportionally as the distance to obstacles decreases, while maintaining a fixed weight λl ≥ 0 for the CLF constraint. Note that we set both λc, λ l = 0 during the first few denoising steps, as the initial noisy trajectories cannot be expected to satisfy safety constraints. Although CBFs and CLFs guide the generated trajectories by steering them away from obstacles and toward desired goals, respectively, this guidance serves as a soft directive rather than a hard constraint, steering the model toward approximately feasible regions. As a result, safety violations may still arise in the generated trajectories. To mitigate this issue, we utilize an MPC as a corrective refinement to enhance the trajectories, guaranteeing compliance with both dynamic and safety constraints. We can formulate the MPC as 
+
+min  
+
+> u0: H,¯x0: H
+> H
+
+X
+
+> t=0
+
+12 (τ i)⊤Q(τ i) − (˜ τ i)⊤Q(τ i)
+
+s.t h(¯ xk) ≥ 0¯xk+1 = ¯F(¯ xk, uk)
+
+τ i−10 = ˜ τ i−1
+
+(28) where τ i ≜ (¯ xi
+
+> 0
+
+, ui 
+
+> 0
+
+. . . , ¯xiH ) and ˜τ i−1 is the warm-start trajectory from the CBF- and CLF-guided diffusion process, providing a probabilistically safe initialization for the MPC. This initialization enables the MPC to converge more rapidly to feasible, goal-oriented solutions compared to unguided cases, where it may fail to identify valid trajectories within allocated iteration limits or become trapped in safe yet suboptimal regions. In the MPC objective function given in (28) , the first term, 12 (τ i)⊤Q(τ i), serves as a regularization term that prevents the optimization variables from growing excessively large. The second term, −(˜ τ i)⊤Q(τ i), encourages the optimization variables to remain close to the output of the guided diffusion model, ensuring that the resulting trajectories do not deviate significantly from the distribution learned by the diffusion neural network. Similar to the approach in DPCC [14], our framework employs an iterative projection scheme that tightly integrates MPC into the reverse diffusion process. At each denoising iteration, the MPC projects the probabilistically safe trajectory ˜τ i−1 onto a safe and dynamically feasible set. This is achieved by using 
+
+˜τ i−1 to both initialize the MPC’s solver (as a warm start) and penalize deviations from this trajectory in the cost function. The resulting corrected trajectory then initializes the subsequent denoising step. In this refinement loop, MPC serves as a dedicated projection operator, rigorously enforcing constraints throughout the generation process. Although only the final denoised trajectory is executed, enforcing feasibility during intermediate steps is important due to the sequential (Markovian) nature of reverse diffusion: each iterate initializes the subsequent denoising step and, in our method, also warm-starts the MPC projection. Consequently, a highly unsafe or dynamically infeasible intermediate trajectory can propagate errors forward by biasing subsequent denoising updates or by preventing the MPC from converging within a fixed  
+
+> *Since the data contain more noise in the early denoising iterations, guidance and MPC projection are excluded for the first few steps.
+> Fig. 2. Experimental setups for static (left) and dynamic (right) obstacle avoidance scenarios. The left panel shows the physical setup for our Sim2Real experiments, featuring static obstacles (white cylinders), a designated safe area (blue), and a goal line (green). The right panel displays the simulation environment with dynamic obstacles (colored circles), whose future paths are indicated by arrows. The faint red lines represent the numerous expert trajectories trained by our framework to safely navigate the environment, while the light blue area indicates a safety constraint.
+
+Algorithm 1 D-SafeMPC with CBF/CLF Guidance  
+
+> 1:
+
+Input: Guidance weights λc, λ l 
+
+> 2:
+
+Initialize trajectory τ N ∼ N (0 , I ) 
+
+> 3:
+
+for i = N . . . 1 do  
+
+> 4:
+
+z ∼ N (0 , I ) if i > 1, else z = 0  
+
+> 5:
+
+μθ = 1√αi
+
+
+
+τ i − βi√1− ¯αi
+
+ϵθ (τ i, i, y )
+
+ 
+
+> 6:
+
+Denoise with CBF/CLF guidance  
+
+> 7:
+
+ˆμ ← μθ + λc∇uψh − λl∇uΦV 
+
+> 8:
+
+˜τ i−1 ← ˆμ+ zσ i ▷ Sample using reparameterization trick  
+
+> 9:
+
+if i ≤ N/ 2 then  
+
+> 10:
+
+τ i−1 ← MPC-Project (˜ τ i−1) ▷ Eq.(28)  
+
+> 11:
+
+else  
+
+> 12:
+
+τ i−1 ← ˜τ i−1 
+
+> 13:
+
+end if  
+
+> 14:
+
+end for  
+
+> 15:
+
+return τ 0
+
+computational budget, ultimately degrading the final plan. Following DPCC [14], we therefore apply the projection operator during denoising, but only after an initial burn-in phase (once the sample leaves the pure-noise regime); from that point onward, the projected feasible iterate is fed back to the diffusion model to keep the remaining denoising iterations within the basin of attraction of the constrained optimizer. The overall framework is visualized in Fig. 1. Algorithm 1 outlines the D-SafeMPC framework. The framework begins by initializing a trajectory with pure Gaussian noise (line 2). In Iterative mode (lines 3–14), it employs a step-by-step reverse diffusion process from diffusion step N down to 1. In each iteration, the following steps occur:  
+
+> •
+
+Guidance: The predicted mean of the reverse process, 
+
+μ, (line 5) is adjusted using gradients from CBFs and CLFs (line 7). This critical step steers the trajectory generation toward safer, goal-oriented regions while avoiding obstacles. 6Fig. 3. A comparison of the average time (in seconds) each planner requires to generate a control action in the static obstacle environment.  
+
+> •
+
+Sampling: A new, less noisy trajectory, ˜τ i−1, is sampled from a distribution centered at the guided mean, ˆμ
+
+(line 8).  
+
+> •
+
+Projection: Once the trajectory leaves the high-noise regime ( i ≤ N/ 2)†, an MPC projects it onto a safe and dynamically feasible set (line 10) as expressed in (28) .The resulting corrected trajectory, τ i−1, is then used to initialize the subsequent denoising step, ensuring that safety and system constraints are enforced throughout the entire generation process. V. E XPERIMENTS 
+
+In our simulation, we create realistic dynamic environments for robotic path planning by modeling obstacle motion with parametric trajectories. Obstacles are categorized as either static, with fixed positions, or dynamic, following circular orbits with a defined angular velocity. For each dynamic obstacle, we generate an ideal reference trajectory in R2, denoted by pref (t). The position reference at time t is defined as xref (t) = xc + r cos( ωt + ϕ) and 
+
+yref (t) = yc + r sin( ωt + ϕ) where ( xc, y c) is the center of the circular path, r is the radius, ω is the angular velocity, and 
+
+ϕ is the initial phase offset. For static obstacles, the reference trajectory is a fixed point, which is achieved by setting the radius and angular velocity to zero ( r = 0 , ω = 0 ). To create a diverse set of scenarios, the parameters for each obstacle’s trajectory—radius, angular velocity, and phase offset—are sampled from uniform distributions within spec-ified bounds. The actual obstacle trajectories are simulated using a proportional-derivative (PD) controller to track the 
+
+> †To ensure a fair comparison, we adopt the same burn-in strategy and hyperparameters as the DPCC baseline [14].
+
+reference path. The system’s dynamics are modeled as a velocity-controlled point mass, with the control input determined by the PD control law. The simulation uses forward Euler integration to update the obstacle’s position at each timestep. In all experiments, we use N = 20 diffusion steps; consequently, the burn-in threshold in Algorithm 1 corresponds to i ≤ N/ 2 = 10 .We evaluate all planners across 10 random seeds using two metrics (Table I) ‡. The Goal Reach Rate measures the proportion of such collision-free goal-reaching trials. The 
+
+Safety-Compliant Goal Reached Rate additionally requires satisfaction of all safety constraints throughout the trajectory. Our proposed framework, D-SafeMPC, demonstrates con-sistently superior performance over multiple baselines across both static and dynamic environments. In the static obstacle scenario, while CoBL achieves marginally higher success rates and DPCC-C attains better safe-success rates, our method remains highly competitive, with D-SafeMPC yielding 80% success and safe-success. Notably, D-SafeMPC excels in dynamic obstacle scenarios, where it achieves the highest or near-highest success and safe-success rates, underscoring its robustness in enforcing safety constraints under challenging conditions. In addition to task performance, we evaluated the computational efficiency of each planner. Figure 3 illustrates the average computation time per decision step for each method in the static environment. Our proposed framework, D-SafeMPC, achieves a favorable balance between its high safe-success rates and computational overhead. Notably, D-SafeMPC is computationally more efficient than other MPC-based models, such as the DPCC variants and Post-Processing. We attribute this improvement to the CBF and CLF guidance, which provides the MPC with better-initialized trajectories, leading to faster convergence. While methods without an MPC projection step, such as Diffuser, are significantly faster, their speed comes at the cost of lower safety and reliability, as reflected in their poor safe-success rates. 
+
+A. Sim-to-Real Experiments 
+
+We have validated our framework with a sim-to-real experiment, using the physical (static obstacles) and simulated (dynamic obstacles) setups shown in Fig. 2. The diffusion model, trained entirely in simulation, has been deployed on a physical Franka robot manipulator. Control and state feedback have been handled using the Franky library §. During this sim-to-real experiment, we have scaled the dynamic parameters of the real robot by setting the relative dynamics factor to 0.05 in order to minimize controller errors and ensure precise positioning, which is crucial for successfully avoiding obstacles and unsafe regions. In the experiment, the robot has executed a trajectory guided by CBFs and CLFs, with final optimization performed by the MPC. We have demonstrated the real-world performance of our proposed D-SafeMPC and DPCC baseline in a sim-to-real experiment. VI. C ONCLUSION 
+
+In this work, we introduce D-SafeMPC, a novel framework that addresses the critical challenge of enforcing safety and 
+
+> ‡Each planner is tested with two variants per seed, totaling 20 evaluations.
+> §https://github.com/TimSchneider42/franky
+
+7TABLE I. Planning performance in static and dynamic environments, showing average success and safe-success rates.                                                                                                                                                                                                                                                                                                                                                                   
+
+> Static Env Dynamic Env 1 Dynamic Env 2 Dynamic Env 3 Planner Safety-Compliant Goal Reached Rate Goal Reached Rate Safety-Compliant Goal Reached Rate Goal Reached Rate Safety-Compliant Goal Reached Rate Goal Reached Rate Safety-Compliant Goal Reached Rate Goal Reached Rate D-SafeMPC (ours) 0.800 ±0.332 0.800 ±0.332 1.000 1.000 0.875 ±0.268 0.875 ±0.268 0.925 ±0.179 0.925 ±0.179
+> CoBL 0.050 ±0.150 1.000 0.100 ±0.300 0.850 ±0.320 0.775 ±0.370 0.925 ±0.238 0.800 ±0.332 0.850 ±0.320
+> Diffuser 0.050 ±0.150 0.650 ±0.450 0.200 ±0.332 0.400 ±0.436 0.175 ±0.327 0.325 ±0.426 0.325 ±0.426 0.450 ±0.415
+> DPCC-C 0.900 ±0.300 0.900 ±0.300 0.750 ±0.335 0.850 ±0.229 0.450 ±0.415 0.600 ±0.339 0.425 ±0.327 0.425 ±0.327
+> DPCC-C Tightened 0.700 ±0.400 0.700 ±0.400 0.700 ±0.332 0.750 ±0.250 0.575 ±0.396 0.575 ±0.396 0.650 ±0.391 0.650 ±0.391
+> DPCC-R 0.350 ±0.391 0.500 ±0.387 0.450 ±0.350 0.650 ±0.391 0.275 ±0.295 0.325 ±0.327 0.675 ±0.286 0.825 ±0.238
+> DPCC-R Tightened 0.700 ±0.332 0.700 ±0.332 0.800 ±0.332 0.900 ±0.300 0.600 ±0.339 0.600 ±0.339 0.750 ±0.250 0.750 ±0.250
+> DPCC-T 0.800 ±0.332 0.950 ±0.150 0.350 ±0.320 0.500 ±0.316 0.050 ±0.150 0.050 ±0.150 0.275 ±0.334 0.300 ±0.367
+> DPCC-T Tightened 0.850 ±0.320 0.850 ±0.320 0.450 ±0.350 0.450 ±0.350 0.125 ±0.217 0.125 ±0.217 0.350 ±0.421 0.350 ±0.421
+> Guidance 0.400 ±0.490 0.400 ±0.490 0.400 ±0.490 0.400 ±0.490 0.525 ±0.487 0.525 ±0.487 0.525 ±0.487 0.525 ±0.487
+> Guidance Tightened 0.400 ±0.490 0.400 ±0.490 0.400 ±0.490 0.400 ±0.490 0.525 ±0.487 0.525 ±0.487 0.525 ±0.487 0.525 ±0.487
+> Model-Free 0.000 0.550 ±0.415 0.350 ±0.450 0.450 ±0.472 0.225 ±0.370 0.300 ±0.400 0.350 ±0.421 0.450 ±0.415
+> Model-Free Tightened 0.000 0.600 ±0.374 0.350 ±0.450 0.500 ±0.447 0.275 ±0.402 0.425 ±0.396 0.375 ±0.415 0.425 ±0.426
+> Post-Processing 0.550 ±0.350 0.750 ±0.335 0.550 ±0.350 0.600 ±0.300 0.400 ±0.374 0.425 ±0.396 0.550 ±0.350 0.725 ±0.295
+> Post-Processing Tightened 0.700 ±0.332 0.700 ±0.332 0.750 ±0.403 0.750 ±0.403 0.600 ±0.300 0.600 ±0.300 0.700 ±0.292 0.700 ±0.292
+
+dynamic feasibility in diffusion-based trajectory planning. By guiding the reverse diffusion process with discrete-time CBF and CLF, our approach steers trajectory generation toward safe, goal-directed regions. This guidance provides high-quality warm starts for a subsequent MPC. Our framework’s effectiveness is demonstrated through an iterative-projection scheme where the MPC refines the trajectory at each denoising step, providing robust refinement and enforcing strict safety and dynamic constraints. Through extensive simulations in environments with both static and dynamic obstacles, alongside a sim-to-real experiment on a physical Franka manipulator, we have shown that D-SafeMPC significantly improves safety, task success rates, and planning efficiency compared to state-of-the-art baselines. Despite these advancements, our framework has limitations. It may not scale well to high-dimensional state spaces (e.g., visual inputs), as MPC optimization becomes computationally prohibitive. Additionally, positioning inaccuracies in early time steps can propagate recursively, since the diffusion model conditions trajectory generation on the current state, potentially destabilizing subsequent predictions. Future work will focus on extending this framework to systems with more complex, higher-dimensional state spaces while addressing scalability and error-propagation challenges. REFERENCES [1] J. Ho, A. Jain, and P. Abbeel, “Denoising diffusion probabilistic models,” in Advances in Neural Information Processing Systems , vol. 33. Curran Associates, Inc., 2020, pp. 6840–6851. [2] M. Janner, Y. Du, J. Tenenbaum, and S. Levine, “Planning with diffusion for flexible behavior synthesis,” in ICML , 2022. [3] C. Chi, Z. Xu, S. Feng, E. Cousineau, Y. Du, B. Burchfiel, R. Tedrake, and S. Song, “Diffusion policy: Visuomotor policy learning via action diffusion,” The International Journal of Robotics Research , 2025. [4] J. Carvalho, A. T. Le, M. Baierl, D. Koert, and J. Peters, “Motion planning diffusion: Learning and planning of robot motions with diffusion models,” in 2023 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) . IEEE, 2023, pp. 1916–1923. [5] J. Carvalho, A. T. Le, P. Kicki, D. Koert, and J. Peters, “Motion planning diffusion: Learning and adapting robot motion planning with diffusion models,” IEEE Transactions on Robotics , 2025. [6] W. Xiao, T.-H. Wang, C. Gan, R. Hasani, M. Lechner, and D. Rus, “Safediffuser: Safe planning with diffusion probabilistic models,” in 
+
+The Thirteenth International Conference on Learning Representations ,2023. [7] V. Kurtz and J. W. Burdick, “Equality constrained diffusion for direct trajectory optimization,” in American Control Conference (ACC) . IEEE, 2025, pp. 535–540. [8] K. Mizuta and K. Leung, “CoBL-Diffusion: Diffusion-based conditional robot planning in dynamic environments using control barrier and Lyapunov functions,” in 2024 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) . IEEE, 2024, pp. 13 801–13 808. [9] A. D. Ames, X. Xu, J. W. Grizzle, and P. Tabuada, “Control barrier function based quadratic programs for safety critical systems,” IEEE Transactions on Automatic Control , vol. 62, no. 8, pp. 3861–3876, 2017. [10] A. D. Ames, S. Coogan, M. Egerstedt, G. Notomista, K. Sreenath, and P. Tabuada, “Control barrier functions: Theory and applications,” in 
+
+2019 18th European Control Conference (ECC) , 2019. [11] U. Eren, A. Prach, B. B. Koçer, S. V. Rakovi´ c, E. Kayacan, and B. Açıkme¸ se, “Model predictive control in aerospace systems: Current state and opportunities,” Journal of Guidance, Control, and Dynamics ,vol. 40, no. 7, pp. 1541–1566, 2017. [12] A. Amer, M. Mehndiratta, J. le Fevre Sejersen, H. X. Pham, and E. Kayacan, “Visual tracking nonlinear model predictive control method for autonomous wind turbine inspection,” in 21st International Conference on Advanced Robotics (ICAR) , 2023, pp. 431–438. [13] A. Amer, M. Mehndiratta, Y. Brodskiy, and E. Kayacan, “Empowering autonomous underwater vehicles using learning-based model predictive control with dynamic forgetting Gaussian processes,” IEEE Transac-tions on Control Systems Technology , vol. 33, no. 5, pp. 1913–1920, 2025. [14] R. Römer, A. v. Rohr, and A. Schoellig, “Diffusion predictive control with constraints,” in Proceedings of the 7th Annual Learning for Dynamics & Control Conference , vol. 283. PMLR, 2025, pp. 791–803. [15] G. Zhou, S. Swaminathan, R. V. Raju, J. S. Guntupalli, W. Lehrach, J. Ortiz, A. Dedieu, M. Lázaro-Gredilla, and K. Murphy, “Diffusion model predictive control,” arXiv preprint arXiv:2410.05364 , 2024. [16] G. Giannone, A. Srivastava, O. Winther, and F. Ahmed, “Aligning optimization trajectories with diffusion models for constrained design generation,” Advances in neural information processing systems , vol. 36, pp. 51 830–51 861, 2023. [17] R. Römer, L. Brunke, M. Schuck, and A. P. Schoellig, “Safe offline reinforcement learning using trajectory-level diffusion models,” in 
+
+ICRA 2024 Workshop—Back to the Future: Robot Learning Going Probabilistic , 2024. [18] A. Agrawal and K. Sreenath, “Discrete control barrier functions for safety-critical control of discrete systems with application to bipedal robot navigation.” in Robotics: Science and Systems , vol. 13. Cambridge, MA, USA, 2017, pp. 1–10. [19] M. Ahmadi, A. Singletary, J. W. Burdick, and A. D. Ames, “Safe policy synthesis in multi-agent pomdps via discrete-time barrier functions,” in 
+
+2019 IEEE 58th Conference on Decision and Control (CDC) . IEEE, 2019, pp. 4797–4803. [20] A. Q. Nichol and P. Dhariwal, “Improved denoising diffusion prob-abilistic models,” in International conference on machine learning .PMLR, 2021, pp. 8162–8171. [21] D. M. Blei, A. Kucukelbir, and J. D. McAuliffe, “Variational infer-ence: A review for statisticians,” Journal of the American Statistical Association , vol. 112, no. 518, p. 859–877, Apr. 2017. [22] X. Jia, D. Blessing, X. Jiang, M. Reuss, A. Donat, R. Lioutikov, and G. Neumann, “Towards diverse behaviors: A benchmark for imitation learning with human demonstrations,” arXiv preprint arXiv:2402.14606 ,2024. [23] E. Todorov, T. Erez, and Y. Tassa, “MuJoCo: A physics engine for model-based control,” in IEEE/RSJ International Conference on Intelligent Robots and Systems . IEEE, 2012, pp. 5026–5033. [24] P. Dhariwal and A. Nichol, “Diffusion models beat GANs on image synthesis,” in Advances in Neural Information Processing Systems ,vol. 34. Curran Associates, Inc., 2021, pp. 8780–8794. 
+
+8
