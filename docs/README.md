@@ -6,83 +6,112 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-16
-- 运行时间：2026-07-16 21:36:05 UTC
+- 最新运行日期：2026-07-17
+- 运行时间：2026-07-17 21:50:41 UTC
 - 运行状态：成功
-- 本次总论文数：21
-- 精读区：8
+- 本次总论文数：30
+- 精读区：17
 - 速读区：13
 
 ### 今日简报（AI）
-今天聚焦机器人视觉-语言-控制方向，精读两篇高分论文《Multi-Agent Robotic Control with Onboard Vision-Language Models》与《LEEVLA: Seeing What Matters in Latent Environment Evolution》。最值得关注的是多智能体机器人控制与基于隐含环境演化的视觉语言动作模型。建议优先阅读这两篇9.0分精读文章，它们提出了面向复杂场景的具身智能新框架。
-- 详情：[/202607/16/README](/202607/16/README)
+今日聚焦具身智能核心突破，精读两篇9分论文：潜环境演化驱动的视觉语言动作模型与全身触觉协调的四足操作控制。  
+最值得关注的方向是LEEVLA如何提升VLA模型对动态环境的感知效率，以及TAC-LOCO实现触觉反馈下的全身运动-操作融合。  
+建议普通读者优先精读这两篇高分论文，它们分别代表了具身智能中感知精细化和控制统一化的最新突破。
+- 详情：[/202607/17/README](/202607/17/README)
 
 ### 精读区论文标签
-1. [Multi-Agent Robotic Control with Onboard Vision-Language Models](/202607/16/2607.07403v1-multi-agent-robotic-control-with-onboard-vision-language-models)  
+1. [LEEVLA: Seeing What Matters in Latent Environment Evolution for Vision-Language-Action](/202607/17/2607.08182v1-leevla-seeing-what-matters-in-latent-environment-evolution-for-vision-language-action)  
    标签：评分：9.0/10、query:vla
-   evidence：使用机载视觉语言动作模型的多智能体机器人控制
-2. [LEEVLA: Seeing What Matters in Latent Environment Evolution for Vision-Language-Action](/202607/16/2607.08182v1-leevla-seeing-what-matters-in-latent-environment-evolution-for-vision-language-action)  
-   标签：评分：9.0/10、query:vla
-   evidence：视觉-语言-动作模型，关注潜在环境演化
-3. [Adaptive MPPI with Online Disturbance Covariance Estimation: Provable Stability Tightening via Spatial Smoothing](/202607/16/2607.08942v1-adaptive-mppi-with-online-disturbance-covariance-estimation-provable-stability-tightening-via-spatial-smoothing)  
-   标签：评分：9.0/10、query:control
-   evidence：非线性系统的自适应MPPI与在线扰动估计
-4. [LIDAR-AD: A Decoder-Free Latent-Interaction Dreamer with Action-Residual Chains for Autonomous Driving](/202607/16/2607.11964v1-lidar-ad-a-decoder-free-latent-interaction-dreamer-with-action-residual-chains-for-autonomous-driving)  
-   标签：评分：9.0/10、query:world-model
-   evidence：用于自动驾驶规划和决策的潜在世界模型
-5. [Semantic Anchoring for Robotic Action Representations](/202607/16/2607.13597v1-semantic-anchoring-for-robotic-action-representations)  
-   标签：评分：9.0/10、query:vla
-   evidence：为视觉-语言-动作模型提供语义锚定以保持结构
-6. [Learning Forward & Reverse Skills from a Single Unfinished Demonstration for Constrained Manipulation Tasks](/202607/16/2607.13882v1-learning-forward--reverse-skills-from-a-single-unfinished-demonstration-for-constrained-manipulation-tasks)  
+   evidence：视觉语言动作模型，结合潜在环境演化和漂移引导优先级
+2. [TAC-LOCO: Unified Whole-Body Control for Quadrupedal TACtile-Informed LOCO-Manipulation](/202607/17/2607.10132v2-tac-loco-unified-whole-body-control-for-quadrupedal-tactile-informed-loco-manipulation)  
    标签：评分：9.0/10、query:robot-learn
-   evidence：从单个未完成演示中学习正向和逆向操作技能
-7. [GigaWorld-Policy-0.5: A Faster and Stronger WAM Empowered by AutoResearch](/202607/16/2607.13960v1-gigaworld-policy-05-a-faster-and-stronger-wam-empowered-by-autoresearch)  
+   evidence：触觉增强的强化学习实现四足机器人全身操作
+3. [Second order optimality conditions for piecewise regular extremals in Optimal Control](/202607/17/2607.10434v1-second-order-optimality-conditions-for-piecewise-regular-extremals-in-optimal-control)  
+   标签：评分：9.0/10、query:control
+   evidence：分段正则极值点的二阶最优性条件
+4. [EDAR: Learning Environment-Dependent Action Representations for Robotic Manipulation](/202607/17/2607.11427v1-edar-learning-environment-dependent-action-representations-for-robotic-manipulation)  
+   标签：评分：9.0/10、query:robot-learn
+   evidence：环境依赖的动作表示用于机器人操作
+5. [LQG solution for POMDP without estimating states: A minimum variance approach](/202607/17/2607.12135v1-lqg-solution-for-pomdp-without-estimating-states-a-minimum-variance-approach)  
+   标签：评分：9.0/10、query:control
+   evidence：无需状态估计的LQG控制方法
+6. [Knowledge- and Gradient-Guided Reinforcement Learning for Parametrized Action Markov Decision Processes](/202607/17/2607.12924v2-knowledge--and-gradient-guided-reinforcement-learning-for-parametrized-action-markov-decision-processes)  
+   标签：评分：9.0/10、query:robot-learn
+   evidence：用于参数化动作空间的神经符号强化学习
+7. [Online Control via Counterfactual Tracking](/202607/17/2607.13029v1-online-control-via-counterfactual-tracking)  
+   标签：评分：9.0/10、query:control
+   evidence：通过反事实跟踪与一般因果策略竞争的在线控制方法
+8. [Non-asymptotic Bounds of Learning-based Linear MPC With Input Constraints and Unbounded Stochastic Noise](/202607/17/2607.13513v1-non-asymptotic-bounds-of-learning-based-linear-mpc-with-input-constraints-and-unbounded-stochastic-noise)  
+   标签：评分：9.0/10、query:control
+   evidence：基于学习的线性MPC非渐近界包含输入约束与随机噪声
+9. [Learning Robust Execution in Robotic Manipulation with Agentic Reinforcement Learning](/202607/17/2607.13818v1-learning-robust-execution-in-robotic-manipulation-with-agentic-reinforcement-learning)  
+   标签：评分：9.0/10、query:robot-learn
+   evidence：基于智能体强化学习的机器人操作鲁棒执行
+10. [Beyond Visual Grasping: Benchmarking Complex Grasping from Detection to Execution](/202607/17/2607.14341v1-beyond-visual-grasping-benchmarking-complex-grasping-from-detection-to-execution)  
+   标签：评分：9.0/10、query:robot-learn
+   evidence：面向复杂机器人抓取的基准，需要多步推理和语义理解
+11. [ConFlow: Constraints-Guided Learning with Flow Matching for Motion Generation](/202607/17/2607.14424v1-conflow-constraints-guided-learning-with-flow-matching-for-motion-generation)  
+   标签：评分：9.0/10、query:robot-learn
+   evidence：基于流匹配的机器人运动生成，引入约束指导
+12. [Motion Planning with Model-Based Diffusion via Constraint Optimization and Adaptive Scheduling](/202607/17/2607.14455v1-motion-planning-with-model-based-diffusion-via-constraint-optimization-and-adaptive-scheduling)  
+   标签：评分：9.0/10、query:robot-learn
+   evidence：基于模型的扩散用于单机器人运动规划，处理约束优化
+13. [BridgeFlow: Fast and Robust SE(2)-Equivariant Motion Planning with Flow Matching](/202607/17/2607.14725v1-bridgeflow-fast-and-robust-se2-equivariant-motion-planning-with-flow-matching)  
+   标签：评分：9.0/10、query:robot-learn
+   evidence：SE(2)等变运动规划，结合流匹配
+14. [Towards Human-like Physical Intelligence: LifelongVision-Language-Action Learning for Robotic Manipulation](/202607/17/2607.14852v1-towards-human-like-physical-intelligence-lifelongvision-language-action-learning-for-robotic-manipulation)  
+   标签：评分：9.0/10、query:vla
+   evidence：用于机器人操作的终身视觉-语言-动作学习
+15. [Robust Optimal Control of Arbitrarily Switched Systems: A Path-Complete Framework](/202607/17/2607.15055v1-robust-optimal-control-of-arbitrarily-switched-systems-a-path-complete-framework)  
+   标签：评分：9.0/10、query:control
+   evidence：具有性能保证的切换系统鲁棒最优控制
+16. [DriftWorld: Fast World Modeling through Drifting](/202607/17/2607.15065v1-driftworld-fast-world-modeling-through-drifting)  
    标签：评分：9.0/10、query:world-model
-   evidence：世界动作模型用于机器人策略学习，推理高效
-8. [Neural feedback approximation for stochastic control with degenerate diffusions: error estimates and numerical analysis](/202607/16/2607.10254v1-neural-feedback-approximation-for-stochastic-control-with-degenerate-diffusions-error-estimates-and-numerical-analysis)  
-   标签：评分：8.0/10、query:control
-   evidence：神经反馈近似用于随机最优控制问题
+   evidence：用于机器人规划的动作条件世界模型
+17. [RoboTTT: Context Scaling for Robot Policies](/202607/17/2607.15275v1-robottt-context-scaling-for-robot-policies)  
+   标签：评分：9.0/10、query:robot-learn
+   evidence：通过上下文扩展的机器人学习方法
 
 ### 速读区论文标签
-1. [Time-to-Collision Based Dynamic Obstacle Avoidance Using Pretrained Vision Models for Robots in Unstructured Environments](/202607/16/2607.07885v1-time-to-collision-based-dynamic-obstacle-avoidance-using-pretrained-vision-models-for-robots-in-unstructured-environments)  
+1. [One-Shot Multimodal Learning from Demonstration with Force-Constrained Elastic Maps](/202607/17/2607.09515v1-one-shot-multimodal-learning-from-demonstration-with-force-constrained-elastic-maps)  
    标签：评分：8.0/10、query:robot-learn
-   evidence：避免仿真到现实迁移，仅使用真实世界数据
-2. [Latent Memory Palace: Reasoning for Control as Autoregressive Variational Inference](/202607/16/2607.08724v1-latent-memory-palace-reasoning-for-control-as-autoregressive-variational-inference)  
-   标签：评分：8.0/10、query:world-model
-   evidence：用于控制策略推理的自回归潜变量分布
-3. [SafeExplorer: An Unbiased Policy Gradient for Reinforcement Learning with Recovery Interventions](/202607/16/2607.08925v1-safeexplorer-an-unbiased-policy-gradient-for-reinforcement-learning-with-recovery-interventions)  
+   evidence：单次示范的多模态学习，结合力约束弹性映射用于操作
+2. [Robo-ValueRL: Reliable Value Estimation for Offline-to-Online Reinforcement Learning](/202607/17/2607.09866v1-robo-valuerl-reliable-value-estimation-for-offline-to-online-reinforcement-learning)  
    标签：评分：8.0/10、query:robot-learn
-   evidence：针对机器人学习的安全探索与恢复干预
-4. [Learning More from Less: Reinforcement Learning from Hindsight](/202607/16/2607.09042v1-learning-more-from-less-reinforcement-learning-from-hindsight)  
+   evidence：面向机器人操作的离线到在线强化学习中的可靠价值估计
+3. [Source-Lifted Flow Matching for Intervenable Multimodal Imitation](/202607/17/2607.10206v1-source-lifted-flow-matching-for-intervenable-multimodal-imitation)  
    标签：评分：8.0/10、query:robot-learn
-   evidence：基于后见重标记的VLA强化学习后训练
-5. [Control Laguerre Tessellation: Semi-discrete Optimal Transport Over Control Systems](/202607/16/2607.09139v1-control-laguerre-tessellation-semi-discrete-optimal-transport-over-control-systems)  
-   标签：评分：8.0/10、query:control
-   evidence：基于Laguerre剖分的控制系统最优传输
-6. [Shortcut Trajectory Planning for Efficient Offline Reinforcement Learning](/202607/16/2607.09336v1-shortcut-trajectory-planning-for-efficient-offline-reinforcement-learning)  
+   evidence：可干预源端的流匹配用于多模态机器人模仿学习
+4. [PIER-Flow: Physics-Informed Efficient Rectified Flow for Real-Time Mobile Robot Navigation](/202607/17/2607.10288v1-pier-flow-physics-informed-efficient-rectified-flow-for-real-time-mobile-robot-navigation)  
    标签：评分：8.0/10、query:robot-learn
-   evidence：捷径轨迹规划用于高效离线强化学习
-7. [Deep Learning for Dynamic Programming with Recursive Utility Using First-order Conditions](/202607/16/2607.09461v1-deep-learning-for-dynamic-programming-with-recursive-utility-using-first-order-conditions)  
-   标签：评分：8.0/10、query:control
-   evidence：深度学习求解递归效用动态规划的一阶条件方法
-8. [Mosaic: Runtime-Efficient Multi-Agent Embodied Planning](/202607/16/2607.09603v1-mosaic-runtime-efficient-multi-agent-embodied-planning)  
+   evidence：物理信息导航策略，蒸馏MPC实现实时规划
+5. [SLIDER: Sparse History-Guided Aerial Robot Target Search using Sliding Local Maps](/202607/17/2607.10553v1-slider-sparse-history-guided-aerial-robot-target-search-using-sliding-local-maps)  
+   标签：评分：8.0/10、query:robot-learn
+   evidence：空中机器人目标搜索, 使用局部地图和增量视点规划
+6. [Dual-Process Atomic Skill Learning: Decoupling Semantic Reasoning and Real-Time Control](/202607/17/2607.10625v1-dual-process-atomic-skill-learning-decoupling-semantic-reasoning-and-real-time-control)  
+   标签：评分：8.0/10、query:robot-learn
+   evidence：双过程架构用于机器人语言条件模仿学习
+7. [Artificial Foveated Perception for Mitigating Shortcut Learning in Robotic Foundation Models](/202607/17/2607.10655v1-artificial-foveated-perception-for-mitigating-shortcut-learning-in-robotic-foundation-models)  
    标签：评分：7.0/10、query:robot-learn
-   evidence：多智能体具身规划中的状态跟踪与协同
-9. [ActiveFly-Bench: Aligning Embodied Question Answering with Vision-Language-Action for Aerial Embodied Perception](/202607/16/2607.10180v1-activefly-bench-aligning-embodied-question-answering-with-vision-language-action-for-aerial-embodied-perception)  
-   标签：评分：7.0/10、query:vla
-   evidence：面向无人机具身感知的视觉-语言-动作智能体
-10. [3D Scene Graph Prediction: Generating Hierarchical Models from Partially Observed Environments](/202607/16/2607.10879v1-3d-scene-graph-prediction-generating-hierarchical-models-from-partially-observed-environments)  
+   evidence：解决机器人基础模型中的捷径学习问题，提升策略鲁棒性
+8. [Think When It Matters: Conditional VLM Reasoning for Social Navigation with RL Policies](/202607/17/2607.10991v1-think-when-it-matters-conditional-vlm-reasoning-for-social-navigation-with-rl-policies)  
    标签：评分：7.0/10、query:robot-learn
-   evidence：三维场景图预测用于机器人环境探索与规划
-11. [Think When It Matters: Conditional VLM Reasoning for Social Navigation with RL Policies](/202607/16/2607.10991v1-think-when-it-matters-conditional-vlm-reasoning-for-social-navigation-with-rl-policies)  
-   标签：评分：7.0/10、query:vla
-   evidence：条件化VLM推理结合RL策略用于社交导航
-12. [Behavior Foundations for Quadruped Robots: ABot-C0 Technical Report](/202607/16/2607.07370v1-behavior-foundations-for-quadruped-robots-abot-c0-technical-report)  
-   标签：评分：6.0/10、query:robot-learn
-   evidence：四足机器人通用运动控制系统与策略学习
-13. [From Non-Rigid to Rigid: Safe Acquisition of Rigid Communication Graphs under Limited Sensing](/202607/16/2607.10170v1-from-non-rigid-to-rigid-safe-acquisition-of-rigid-communication-graphs-under-limited-sensing)  
+   evidence：条件VLM推理与RL策略结合用于社交导航
+9. [When Does Reward Teach State? A Hidden-Automaton Instrument and the Group-Language Boundary](/202607/17/2607.11953v2-when-does-reward-teach-state-a-hidden-automaton-instrument-and-the-group-language-boundary)  
+   标签：评分：7.0/10、query:world-model
+   evidence：利用隐藏自动机工具探测强化学习中的潜在状态表示
+10. [Directional Constraints for Efficient Exploration in Safe Reinforcement Learning](/202607/17/2607.12784v1-directional-constraints-for-efficient-exploration-in-safe-reinforcement-learning)  
+   标签：评分：7.0/10、query:robot-learn
+   evidence：带方向约束的安全强化学习提升探索效率
+11. [From Non-Rigid to Rigid: Safe Acquisition of Rigid Communication Graphs under Limited Sensing](/202607/17/2607.10170v1-from-non-rigid-to-rigid-safe-acquisition-of-rigid-communication-graphs-under-limited-sensing)  
    标签：评分：6.0/10、query:control
-   evidence：多机器人编队控制与通信图刚性
+   evidence：基于分布式二次优化的多机器人编队控制
+12. [An offline approach to fNIRS-guided reinforcement learning for robot behavior](/202607/17/2607.14393v1-an-offline-approach-to-fnirs-guided-reinforcement-learning-for-robot-behavior)  
+   标签：评分：6.0/10、query:robot-learn
+   evidence：fNIRS引导的强化学习用于机器人行为
+13. [Active Real-World Factor-Based Evaluation for Generalist Robot Policies](/202607/17/2607.14439v1-active-real-world-factor-based-evaluation-for-generalist-robot-policies)  
+   标签：评分：6.0/10、query:robot-learn
+   evidence：利用序贯实验设计的通用机器人策略主动评估框架
 
 
 <div class="dpr-home-promo-card">
