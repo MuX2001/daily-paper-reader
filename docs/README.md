@@ -6,83 +6,83 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-19
-- 运行时间：2026-07-19 21:21:39 UTC
+- 最新运行日期：2026-07-20
+- 运行时间：2026-07-20 20:58:54 UTC
 - 运行状态：成功
 - 本次总论文数：21
 - 精读区：8
 - 速读区：13
 
 ### 今日简报（AI）
-今日推荐21篇论文，精读8篇，重点聚焦工业机器人操作与灵巧遥操作两大方向。最值得关注的是两篇9分论文：LoRA微调工业视觉-语言-动作模型的高效性，以及人类级灵巧遥操作研究。建议优先精读这两篇论文，关注大模型轻量化在机器人领域的应用与遥操作灵巧性突破。
-- 详情：[/202607/19/README](/202607/19/README)
+今日精选21篇论文，精读8篇，其中两篇获9分高分。核心亮点：机器人中心点图驱动视觉-语言-动作模型，以及基于随机有限集的风险感知控制障碍函数。建议普通读者重点关注视觉-语言-动作结合方法与风险感知控制等前沿方向。
+- 详情：[/202607/20/README](/202607/20/README)
 
 ### 精读区论文标签
-1. [On the Efficiency of LoRA Fine-Tuning for Vision-Language-Action Models in Industrial Robotic Manipulation](/202607/19/2607.10172v1-on-the-efficiency-of-lora-fine-tuning-for-vision-language-action-models-in-industrial-robotic-manipulation)  
+1. [See like a Robot: Robot-Centric Pointmaps for Vision-Language-Action Models](/202607/20/2607.11498v1-see-like-a-robot-robot-centric-pointmaps-for-vision-language-action-models)  
    标签：评分：9.0/10、query:vla
-   evidence：工业机器人操作中视觉-语言-动作模型的LoRA微调
-2. [Towards Human-level Dexterous Teleoperation](/202607/19/2607.11481v1-towards-human-level-dexterous-teleoperation)  
-   标签：评分：9.0/10、query:robot-learn
-   evidence：灵巧遥操作，手物协同跟踪控制器，用于手内操作
-3. [See like a Robot: Robot-Centric Pointmaps for Vision-Language-Action Models](/202607/19/2607.11498v1-see-like-a-robot-robot-centric-pointmaps-for-vision-language-action-models)  
-   标签：评分：9.0/10、query:vla
-   evidence：面向视觉语言动作模型的机器人中心点图解决坐标系不匹配
-4. [Reducing Temporal Redundancy for Efficient Vision-Language-Action Inference](/202607/19/2607.12287v1-reducing-temporal-redundancy-for-efficient-vision-language-action-inference)  
-   标签：评分：9.0/10、query:robot-learn
-   evidence：机器人的高效视觉语言动作推理
-5. [ExToken: Structured Exploration for Efficient Vision-Language-Action Reinforcement Fine-tuning](/202607/19/2607.12931v1-extoken-structured-exploration-for-efficient-vision-language-action-reinforcement-fine-tuning)  
-   标签：评分：9.0/10、query:robot-learn
-   evidence：面向VLA强化学习微调的结构化探索
-6. [Semantic Anchoring for Robotic Action Representations](/202607/19/2607.13597v1-semantic-anchoring-for-robotic-action-representations)  
-   标签：评分：9.0/10、query:robot-learn
-   evidence：VLA动作表示的语义锚定
-7. [Towards Human-like Physical Intelligence: LifelongVision-Language-Action Learning for Robotic Manipulation](/202607/19/2607.14852v1-towards-human-like-physical-intelligence-lifelongvision-language-action-learning-for-robotic-manipulation)  
-   标签：评分：9.0/10、query:robot-learn
-   evidence：机器人操作中的终身视觉语言动作学习
-8. [SMC-ES: Automated synthesis of formally verified control policies](/202607/19/2607.15003v1-smc-es-automated-synthesis-of-formally-verified-control-policies)  
+   evidence：面向视觉-语言-动作模型的机器人中心点图
+2. [Risk-Aware Belief Control Barrier Functions over Random Finite Sets](/202607/20/2607.15016v1-risk-aware-belief-control-barrier-functions-over-random-finite-sets)  
    标签：评分：9.0/10、query:control
-   evidence：自动合成形式化验证的控制策略
+   evidence：风险感知信念控制屏障函数用于机器人安全
+3. [Multi-Objective Kinodynamic Motion Planning with Asymptotic Pareto Optimality](/202607/20/2607.15508v1-multi-objective-kinodynamic-motion-planning-with-asymptotic-pareto-optimality)  
+   标签：评分：9.0/10、query:robot-learn
+   evidence：机器人多目标运动规划，含动力学约束
+4. [Difference-Based Relational Learning for Zero-Shot Object-Goal Visual Navigation With Direct Sim-to-Real Transfer](/202607/20/2607.15642v1-difference-based-relational-learning-for-zero-shot-object-goal-visual-navigation-with-direct-sim-to-real-transfer)  
+   标签：评分：9.0/10、query:robot-learn
+   evidence：通过关系学习实现视觉导航的直接仿真到现实迁移
+5. [AC-VLA: Robust Out-of-Distribution Action Execution via Compositional Learning](/202607/20/2607.15714v1-ac-vla-robust-out-of-distribution-action-execution-via-compositional-learning)  
+   标签：评分：9.0/10、query:vla
+   evidence：用于视觉语言动作模型的组合学习以处理分布外泛化
+6. [A Task-Space Receding Horizon Controller for Fast Collision Avoidance](/202607/20/2607.15733v1-a-task-space-receding-horizon-controller-for-fast-collision-avoidance)  
+   标签：评分：9.0/10、query:control
+   evidence：任务空间滚动时域控制器用于碰撞避免，应用MPC
+7. [AHEAD: Anticipatory Hand-Driven Teleoperation via Human Intent Prediction](/202607/20/2607.15172v1-ahead-anticipatory-hand-driven-teleoperation-via-human-intent-prediction)  
+   标签：评分：8.0/10、query:robot-learn
+   evidence：基于意图预测的遥操作用于机器人操作
+8. [Gaussian behaviors and stochastic data-driven control](/202607/20/2607.15949v1-gaussian-behaviors-and-stochastic-data-driven-control)  
+   标签：评分：8.0/10、query:control
+   evidence：随机数据驱动预测控制框架
 
 ### 速读区论文标签
-1. [ActiveFly-Bench: Aligning Embodied Question Answering with Vision-Language-Action for Aerial Embodied Perception](/202607/19/2607.10180v1-activefly-bench-aligning-embodied-question-answering-with-vision-language-action-for-aerial-embodied-perception)  
-   标签：评分：8.0/10、query:vla
-   evidence：视觉语言动作对齐用于空中具身感知
-2. [Is Energy Guidance All You Need? Training-Free Norm Injection for Driving World Models](/202607/19/2607.10781v1-is-energy-guidance-all-you-need-training-free-norm-injection-for-driving-world-models)  
+1. [Steering Robustness into World Action Models via Mechanistic Interpretability and Optimal Control](/202607/20/2607.14943v1-steering-robustness-into-world-action-models-via-mechanistic-interpretability-and-optimal-control)  
    标签：评分：8.0/10、query:world-model
-   evidence：通过能量引导驾驶世界模型
-3. [StratMamba: Strategic and Reactive Stream Partitioning for Path-Efficient LiDAR-Based Obstacle Avoidance](/202607/19/2607.12370v1-stratmamba-strategic-and-reactive-stream-partitioning-for-path-efficient-lidar-based-obstacle-avoidance)  
+   evidence：利用可解释性和最优控制提升世界模型鲁棒性
+2. [RAVEN: Reinforcement-Adaptive Visibility-Graph Planning for Robust Humanoid Navigation with Collision-Free MPC](/202607/20/2607.15701v1-raven-reinforcement-adaptive-visibility-graph-planning-for-robust-humanoid-navigation-with-collision-free-mpc)  
    标签：评分：8.0/10、query:robot-learn
-   evidence：基于Mamba的时间建模用于激光雷达避障及仿真到真实迁移
-4. [Worlds in One Demo: A Synthetic Data Engine for Learning Open-World Mobile Manipulation](/202607/19/2607.13154v1-worlds-in-one-demo-a-synthetic-data-engine-for-learning-open-world-mobile-manipulation)  
+   evidence：结合强化学习和模型预测控制的人形机器人导航运动规划
+3. [Dynamics-Aware Meta-Imitation for Generalization to Unseen Robotic Manipulation](/202607/20/2607.15880v1-dynamics-aware-meta-imitation-for-generalization-to-unseen-robotic-manipulation)  
    标签：评分：8.0/10、query:robot-learn
-   evidence：从一次演示生成合成数据以学习开放世界移动操作
-5. [Grounded world models in biological organisms and future embodied AI](/202607/19/2607.13560v1-grounded-world-models-in-biological-organisms-and-future-embodied-ai)  
+   evidence：元模仿学习实现机器人操作泛化
+4. [Orbis 2: A Hierarchical World Model for Driving](/202607/20/2607.15898v1-orbis-2-a-hierarchical-world-model-for-driving)  
    标签：评分：8.0/10、query:world-model
-   evidence：具身智能中的具身世界模型
-6. [Industrial Dexterity Benchmark: A Hardware-Software Benchmarking Platform for Industrial Dexterous Manipulation](/202607/19/2607.14021v1-industrial-dexterity-benchmark-a-hardware-software-benchmarking-platform-for-industrial-dexterous-manipulation)  
+   evidence：用于驾驶的分层世界模型与未来预测
+5. [Data and Learning Where it Matters for Contact-Rich Manipulation](/202607/20/2607.15982v1-data-and-learning-where-it-matters-for-contact-rich-manipulation)  
    标签：评分：8.0/10、query:robot-learn
-   evidence：工业灵巧操作基准与模仿学习框架
-7. [Lyapunov Guidance: A Unified Framework for Stabilizing Generative Flows](/202607/19/2607.14272v1-lyapunov-guidance-a-unified-framework-for-stabilizing-generative-flows)  
-   标签：评分：8.0/10、query:control
-   evidence：将Lyapunov控制理论用于生成流引导
-8. [DA-Nav: Direction-Aware City-Scale Vision-Language Navigation](/202607/19/2607.11638v1-da-nav-direction-aware-city-scale-vision-language-navigation)  
-   标签：评分：7.0/10、query:vla
-   evidence：方向感知的视觉语言城市级导航框架
-9. [Just-In-Time Scene Graph Growth: Combating Perceptual Saturation in Long-Horizon Robotics](/202607/19/2607.13245v1-just-in-time-scene-graph-growth-combating-perceptual-saturation-in-long-horizon-robotics)  
-   标签：评分：7.0/10、query:world-model
-   evidence：作为世界模型的即时增长场景图用于长时程机器人
-10. [Where Should RL Post-Training Compute Go? Model Size, Search, Learning, and Feedback](/202607/19/2607.13389v1-where-should-rl-post-training-compute-go-model-size-search-learning-and-feedback)  
+   evidence：接触丰富操作中的数据高效学习
+6. [Compositional Context Fine-Tuning Vision-Language Model for Complex Assembly Action Understanding from Videos](/202607/20/2607.10797v1-compositional-context-fine-tuning-vision-language-model-for-complex-assembly-action-understanding-from-videos)  
    标签：评分：7.0/10、query:robot-learn
-   evidence：强化学习后训练在机器人学习管道中的应用
-11. [A Nonlinear Model Predictive Control Perspective on Gradient-Based Optimization: A New Efficient, Parameter-Free and Provably Stable Algorithm](/202607/19/2607.14600v1-a-nonlinear-model-predictive-control-perspective-on-gradient-based-optimization-a-new-efficient-parameter-free-and-provably-stable-algorithm)  
+   evidence：VLM微调用于装配动作理解
+7. [Machines that Predict Trajectories from Templates](/202607/20/2607.11551v1-machines-that-predict-trajectories-from-templates)  
    标签：评分：7.0/10、query:control
-   evidence：从NMPC视角提出的新型梯度优化算法
-12. [Compositional Context Fine-Tuning Vision-Language Model for Complex Assembly Action Understanding from Videos](/202607/19/2607.10797v1-compositional-context-fine-tuning-vision-language-model-for-complex-assembly-action-understanding-from-videos)  
+   evidence：基于模板的轨迹预测，含鲁棒性界限分析
+8. [A Generative Partially Specified Finite State Machine Approach to Complex Behaviour Planning](/202607/20/2607.15674v1-a-generative-partially-specified-finite-state-machine-approach-to-complex-behaviour-planning)  
+   标签：评分：7.0/10、query:robot-learn
+   evidence：用于机器人复杂行为规划的生成式有限状态机
+9. [Embodied Active Learning under Limited Annotation and Navigation Budget for Object Detection](/202607/20/2607.15974v1-embodied-active-learning-under-limited-annotation-and-navigation-budget-for-object-detection)  
+   标签：评分：7.0/10、query:robot-learn
+   evidence：机器人主动学习算法用于目标检测
+10. [On the Existence of Almost Periodic Solutions with Applications to Global Entrainment](/202607/20/2607.10838v1-on-the-existence-of-almost-periodic-solutions-with-applications-to-global-entrainment)  
+   标签：评分：6.0/10、query:control
+   evidence：非线性控制系统中几乎周期解的存在性与稳定性
+11. [SafeRelBench: A Spatial-Relation-Aware Benchmark for Process-Level Safety in VLM-Driven Embodied Agents](/202607/20/2607.14543v1-saferelbench-a-spatial-relation-aware-benchmark-for-process-level-safety-in-vlm-driven-embodied-agents)  
    标签：评分：6.0/10、query:vla
-   evidence：基于视觉语言模型的装配动作理解
-13. [SafeRelBench: A Spatial-Relation-Aware Benchmark for Process-Level Safety in VLM-Driven Embodied Agents](/202607/19/2607.14543v1-saferelbench-a-spatial-relation-aware-benchmark-for-process-level-safety-in-vlm-driven-embodied-agents)  
-   标签：评分：6.0/10、query:vla
-   evidence：面向VLM驱动具身智能体的空间关系感知安全基准
+   evidence：面向VLM驱动具身代理的空间关系安全基准
+12. [Risk-Aware Preference Learning for Stochastic Outcomes](/202607/20/2607.15483v1-risk-aware-preference-learning-for-stochastic-outcomes)  
+   标签：评分：6.0/10、query:robot-learn
+   evidence：风险感知偏好学习用于机器人行为对齐
+13. [Vision-Language-Motion Maps: An Open-Vocabulary, Uncertainty-Aware, Queryable Motion Attribute for 3D Scene Maps](/202607/20/2607.16173v1-vision-language-motion-maps-an-open-vocabulary-uncertainty-aware-queryable-motion-attribute-for-3d-scene-maps)  
+   标签：评分：6.0/10、query:world-model
+   evidence：3D场景地图的运动属性表示
 
 
 <div class="dpr-home-promo-card">
