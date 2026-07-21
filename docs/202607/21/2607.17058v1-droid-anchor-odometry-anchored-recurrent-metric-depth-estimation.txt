@@ -1,0 +1,404 @@
+Title: DROID-ANCHOR: Odometry-Anchored Recurrent Metric Depth Estimation
+
+URL Source: https://arxiv.org/pdf/2607.17058v1
+
+Published Time: Tue, 21 Jul 2026 00:55:27 GMT
+
+Number of Pages: 7
+
+Markdown Content:
+# DROID-ANCHOR: Odometry-Anchored Recurrent Metric Depth Estimation 
+
+## Yuxuan Chen UC Berkeley 
+
+cyx1024@berkeley.edu 
+
+## Brook Du UC Berkeley 
+
+brookdu@berkeley.edu 
+
+## Abstract 
+
+Precise metric depth estimation is fundamental for au-tonomous robot navigation, yet monocular systems inher-ently suffer from scale ambiguity and scale drift. While recent recurrent flow-based SLAM systems have demon-strated state-of-the-art robustness, they remain scale-ambiguous. In this paper, we propose Metric-DROID, an end-to-end recurrent architecture that anchors visual SLAM to physical reality by integrating proprioceptive odometry. Our framework introduces the following innovations: (1) a LSTM Update Operator that encodes high-frequency odom-etry sequences into spatial feature maps, providing a persis-tent metric bias for iterative refinement. (2) an Uncertainty-Aware Metric Backend ( BA odom ) that treats odometry as a geometric anchor with learned heteroscedastic covariance. By regressing a time-varying metric uncertainty Σo, our system intelligently balances visual re-projection and met-ric translation residuals, effectively mitigating the impact of wheel-slip and sensor noise. (3) We further propose a se-lective residual fine-tuning strategy to preserve pre-trained geometric priors while enabling zero-shot metric alignment. 
+
+## 1. Introduction 
+
+For mobile robots, standard navigation tasks such as ob-stacle avoidance and path planning require precise metric distances, making mere relative proximity information in-sufficient. While RGB-D and stereo cameras can provide accurate metrics, their high cost and calibration complexity remain prohibitive for mass-market robotic platforms. Con-sequently, achieving accurate metric perception using only a ubiquitous monocular camera would significantly democ-ratize accessible and low-cost robotic navigation. Further-more, acquiring this physical accuracy must not incur sig-nificant computational overhead, as low-latency inference is strictly required for real-time closed-loop control. Despite the success of deep SLAM systems [6, 9] in achieving relative consistency, a fundamental dilemma per-sists between metric accuracy and real-time inference. On one hand, state-of-the-art monocular models [5, 6, 10, 11] 
+
+Figure 1. Our framework, DROID ANCHOR, utilizes raw robot odometry as a persistent geometric anchor to resolve monocular scale ambiguity 
+
+remain scale-blind, suffering from inherent scale ambi-guity and catastrophic drift over long-range trajectories. On the other hand, contemporary metric-aware pipeline MOGS [12] leverage object features to anchor metric, how-ever introduce excessive computational latency. This la-tency creates a temporal misalignment between the esti-mated spatial state and the robot’s immediate physical pose, rendering spatial information obsolete for high-frequency closed-loop control. While other solutions like MAC-VO [7] attempt to balance this, they still rely on the stereo camera. Consequently, a real-time system that simulta-neously satisfies global metric grounding and low-latency feedback remains an open challenge. Thus, we aim to bridge between precise metric depth and real-time efficiency by utilizing the robot’s internal odome-try (wheel encoders or IMU) as a persistent scale constraint. 
+
+## 2. Related Work 
+
+Deep Monocular Geometry. Recent breakthroughs in feed-forward geometric models, such as DUSt3R [11] and VGGT [10], have redefined 3D reconstruction by estimating geometry directly from image pairs. While these methods produce high-fidelity point clouds, they primarily focus on visualization and rendering. As monocular systems, they lack an absolute reference, resulting in ”virtual” scale units that cannot be directly utilized for robotic metric naviga-tion. Our work differs by anchoring these geometric priors to physical units via a persistent odometry constraint. 
+
+Recurrent Visual SLAM. DROID-SLAM [9] intro-arXiv:2607.17058v1 [cs.RO] 19 Jul 2026 duced an iterative refinement framework using ConvGRUs, achieving unprecedented robustness against rapid motion and low-texture environments. Subsequent variants like DROID-W [3] have further improved generalization in the dynamic environment. However, these systems operate on an relative scale. While they achieve excellent relative tracking, the lack of metric grounding leads to scale drift, which is a fatal flaw for real-world obstacle avoidance. We build upon the recurrent architecture of DROID-SLAM but reformulate the backend optimization to incorporate metric anchors. 
+
+Metric Scale Recovery. Recovering absolute scale from monocular sequences typically involves auxiliary cues, such as object categories (Object-SLAM) or multi-sensor fusion. Recent works like MOGS [12] achieve metric scale but at the cost of high-latency multi-stage processing. MAC-VO [7] addresses efficiency by utilizing a probabilistic weighting mechanism for odometry. However, it requires stereo camera input and the frame-to-frame nature lacks the global geometric consistency of graph-based BA. Unlike these methods, DROID method integrates odometry as both a latent feature prior and a hard geometric constraint within a recurrent BA framework, achieving a superior trade-off between metric fidelity and real-time throughput. 
+
+## 3. Methodology 
+
+In this section, we present our Odometry-Anchored Recurrent framework, which synergizes high-frequency odometry priors with visual features to achieve robust, metric-scale scene understanding. Our approach integrates motion dynamics into the feature space and enforces global consistency through a uncertainty-aware bundle adjustment formulation 
+
+3.1. Proprioceptive Feature Injection 
+
+We process high-frequency odometry sequences through a two-stage hierarchical encoding: 
+
+Temporal Encoding: Following the sequential learning framework in VINet [1], we encode the temporal evolution of camera motion using an LSTM over a sequence of rela-tive SE(3) transformations. We represent the absolute pose of frame i in the world coordinate system as: 
+
+Ti =
+
+Ri ti
+
+0 1
+
+
+
+, Ti+1 =
+
+Ri+1 ti+1 
+
+0 1
+
+
+
+, (1) where Ti ∈ SE(3) maps points from the camera coordinate frame at time i to the world coordinate frame. The inverse transformation 
+
+T −1 
+
+> i
+
+=
+
+R⊤ 
+
+> i
+
+−R⊤ 
+
+> i
+
+ti
+
+0 1
+
+
+
+(2) maps world coordinates back to the local frame at time i.The relative motion between consecutive frames is com-puted as: 
+
+∆Ti→i+1 = T −1 
+
+> i
+
+Ti+1 =
+
+R⊤ 
+
+> i
+
+Ri+1 R⊤ 
+
+> i
+
+(ti+1 − ti)0 1
+
+
+
+,
+
+(3) which represents the motion from frame i to i + 1 expressed in the local coordinate system of frame i. We extract the relative translation and rotation as: 
+
+∆ti→i+1 = R⊤ 
+
+> i
+
+(ti+1 − ti), ∆Ri→i+1 = R⊤ 
+
+> i
+
+Ri+1 . (4) The sequence of relative motions {∆Tk→k+1 } between frames i and j is then fed into the LSTM encoder, producing a compact latent representation zij that captures the under-lying motion dynamics. 
+
+Spatial Broadcasting: To integrate motion information with spatial visual features, we map the latent motion rep-resentation zij to a 2D feature map via an Odometry MLP. This spatially broadcasted representation is then concate-nated with visual features (e.g., cost volumes and optical flow), providing an explicit metric prior to guide the Con-vGRU during iterative hidden state refinement. This fusion enables the network to incorporate both geometric motion cues and image-based correspondences for accurate metric reasoning. 
+
+3.2. Bundle Adjustment with Odometry 
+
+To ensure global geometric consistency and resolve the inherent scale ambiguity in monocular SLAM, we formu-late the SLAM backend as a joint optimization of visual re-projection and metric translation residuals. The total energy function is defined as: 
+
+E(G,d) = X
+
+> (i,j )∈E
+
+∥p∗ 
+
+> ij
+
+− Πc(Gij ◦ Π−1 
+
+> c
+
+(pi, d i)) ∥2Σij 
+
++ λodom 
+
+X
+
+> (i,j )∈E
+
+∥∆Gij − ∆Oij ∥2Σodom 
+
+(5) where rvis denotes the photometric re-projection error, and 
+
+rodom = Trans (Gj G−1 
+
+> i
+
+) − ∆Oij represents the metric dis-placement residual. This formulation anchors the visual scale to the physical manifold defined by the robot’s pro-prioceptive sensors. Furthermore, inspired by the proba-bilistic weighting mechanisms in MAC-VO [7], we substi-tute static hyper-parameters with a learnable Metric Covari-ance Head. This module regresses a heteroscedastic covari-ance Σodom,ij that captures the non-Gaussian noise char-acteristics inherent in robotic locomotion. By dynamically adjusting the precision matrix, the system effectively miti-gates catastrophic scale drift caused by wheel-slip or sensor degradation. Figure 2. Overview of the Metric-DROID Architecture. Our framework extends the recurrent refinement paradigm with two metric-anchored components: (a) Odom Feature Extractor: Beyond visual correlation and motion features, we introduce a proprioceptive branch. An Odom-Sequence Encoder (LSTM) processes relative pose sequences, which are then broadcasted into spatial feature maps and fused into the ConvGRU hidden state. (b) Uncertainty-Aware Backend: An auxiliary Metric Covariance Head regresses the heteroscedastic uncertainty Σo for each edge in the frame graph. (c) Metric Bundle Adjustment: The optimization layer treats odometry as a persistent geometric anchor, dynamically weighting metric residuals via Σo to achieve deterministic physical scale while mitigating sensor drift and wheel-slip. 
+
+Furthermore, to solve the resulting non-linear least squares problem via the Gauss-Newton algorithm, we per-form incremental updates on the Lie algebra se (3) using the right perturbation formulation. Specifically, let the transla-tion residual be ro = trans (Gj G−1 
+
+> i
+
+)−oe. We derive the an-alytical Jacobians of ro with respect to the camera poses Ti
+
+and Tj as Joj = [ I3×3 | − [tij ]×] and Joi = −Joj · Ad (Gij ),respectively. These Jacobians enable the seamless integra-tion of metric constraints into the sparse Hessian matrix. By solving the reduced camera system via the Schur com-plement, our framework jointly optimizes the global pose graph and the metric scale of the estimated depth maps, en-suring geometric consistency across the sequence. The de-tailed mathematical derivation is given in the appendix A part. 
+
+3.3. Noise Modeling 
+
+In real-world robotic applications, obtaining synchro-nized, high-quality RGB-D and odometry datasets is often labor-intensive and platform-specific. Furthermore, odome-try characteristics vary significantly across different robotic platforms due to disparate sensor modalities, varying wheel diameters, and distinct mounting extrinsics. To ensure that our model generalizes across heterogeneous hardware with-out requiring extensive site-specific recalibration, we pro-pose a synthetic noise modeling framework to simulate these diverse sensor data during training. We model the corrupted odometry observation oe by se-quentially applying scale and additive perturbations to the ground-truth translation tgt :
+
+se = 1 + ϵs, (6) 
+
+oe = se · tgt + ϵt, (7) where se denotes the scale factor used to simulate sys-tematic biases (e.g., wheel-slip), and ϵt represents addi-tive Gaussian noise capturing high-frequency jitter during robotic locomotion. Here, ϵs and ϵt are sampled from zero-mean Gaussian distributions with task-specific variances. 
+
+3.4. Training Objective 
+
+We optimize a multi-term objective that enforces con-sistency across geometry, reprojection, pixel motion, depth, and odometry: 
+
+Ltotal = w1Ldisp + w2Lodom . (8) To account for iterative refinement, all loss terms are weighted across optimization steps: 
+
+αk = γ(n−k−1) , γ ∈ (0 , 1) , (9) where k indexes the refinement step and later predictions receive higher weights. 
+
+Depth Loss. We supervise the predicted depth using valid ground-truth measurements: 
+
+Ldisp = X
+
+> k
+
+αk
+
+P 
+
+> x
+
+m(x) d(k)(x) − dgt (x)
+
+P 
+
+> x
+
+m(x) , (10) 
+
+m(x) = 
+
+(
+
+1, dgt (x) > 00, otherwise (11) Rather than treating all pixels equally, we restrict supervi-sion to valid depth regions, ensuring stable training in the presence of missing measurements. 
+
+Odometry Likelihood Loss. To model uncertainty in odometry observations, we adopt a heteroscedastic Gaus-sian likelihood formulation following [2]: 
+
+r = ∆ Oobs − ∆Ogt , (12) 
+
+Lodom = X
+
+> k
+
+αk E
+
+ 12
+
+ rσ(k)
+
+2
+
++ log σ(k)
+
+
+
+, (13) where σ(k) is a learnable uncertainty parameter. This formulation enables the model to down-weight unreliable odometry signals while emphasizing more confident esti-mates, leading to improved robustness under noisy or in-consistent motion measurements. Taken together, these objectives jointly enforce consis-tency across geometric motion, reprojection, pixel corre-spondences, depth estimation, and odometry priors, leading to robust and metrically grounded scene understanding. 
+
+3.5. Selective Residual Fine-tuning 
+
+To facilitate efficient training while preserving the robust geometric priors of the original framework, we implement a selective freezing strategy during the fine-tuning stage. 
+
+Parameter Preservation. We freeze the weights of the feature extraction network ( fnet ) and the context network (cnet ) from the pre-trained original DROID-SLAM. 
+
+Gradient-Constrained GRU Update. To incorporate the newly introduced metric bias, we expand the input di-mension of the ConvGRU from 448 to 512. To prevent the degradation of pre-established geometric reasoning, we employ gradient hooks to implement a partial update strat-egy. Specifically, we only permit gradients to backpropa-gate through the weights associated with the newly added 64-channel metric features, while keeping the weight slices corresponding to the original 448-dimensional visual fea-tures fixed. This surgical update ensures that the network learns to fuse metric priors without destabilizing the pre-trained iterative hidden state refinement. 
+
+## 4. Experiments 
+
+4.1. Implementation and Experimental Setup 
+
+Implementation . All experiments run on a single NVIDIA GeForce RTX 4080 laptop GPU and an Intel Core i9-13950HX CPU (5.50 GHz). 
+
+Datasets and Metrics. We evaluate our method on the TUM RGB-D benchmark [8], which provides monocular RGB images, depth maps, and ground-truth camera trajec-tories with metric scale. We report performance in terms of metric depth accuracy and computational efficiency. For depth accuracy, we use standard depth estimation metrics, including Absolute Rel-ative Error (AbsRel), Root Mean Squared Error (RMSE), and threshold accuracy δ1, defined as the percentage of pix-els satisfying max( d∗/d, d/d ∗) < 1.25 , where d and d∗
+
+denote the predicted and ground-truth depth values, respec-tively. 
+
+4.2. Performance Evaluation 
+
+Depth Accuracy. We compare our method against DROID-SLAM as representative visual SLAM baselines. We attempted to include MOGS [12]; however, the open-source package is currently not complete. In addition, we include Depth Anything V3 [4] as a recent method capable of recovering metric-scale geometry, providing a strong ref-erence for evaluating absolute depth accuracy. These com-parisons allow us to assess both geometric performance and practical efficiency across different approaches. While Depth Anything V3 achieves superior metrics than Droid-Anchor, it functions as a pre-trained monocu-lar depth estimation model leveraging massive data priors. In contrast, Droid-Anchor is a complete visual SLAM sys-tem designed for real-time camera tracking and consistent map reconstruction. TUM-Dataset Method AbsRel ↓ RMSE ↓ δ1 ↑
+
+Depth Anything V3 0.136 0.342 0.658 Droid-SLAM 0.617 6.800 0.373 
+
+Droid-Anchor (Ours) 0.528 1.663 0.392 
+
+4.3. Ablation Study 
+
+We conduct two ablation studies to evaluate the contri-bution of temporal odometry modeling and odometry noise modeling. First, to assess whether temporal modeling is beneficial for metric-scale depth estimation, we replace the LSTM-based odometry encoder with a simpler mean-pooling encoder. In the baseline setting, the relative odome-try sequence is encoded by an LSTM before being projected into the odometry feature map. Both models use the same odometry bundle adjustment setting. Second, we evaluate the effect of the proposed odome-try noise modeling strategy. The baseline model is trained with randomly perturbed odometry inputs, including trans-lation, rotation, and scale perturbations, while the ablation model removes this noise modeling and is trained directly with clean GT-derived odometry. As shown in Table 1, replacing the LSTM encoder with mean pooling leads to inferior overall performance. This indicates that temporal odometry sequences contain struc-tured motion cues that cannot be fully captured by order-TUM-Dataset Method AbsRel ↓ RMSE ↓ δ1 ↑
+
+Mean Pooling Ablation 1.644 7.658 0.234 
+
+Droid-Anchor (Ours) 0.528 1.663 0.392   
+
+> Table 1. Ablation study on the odometry encoder. The LSTM-based encoder achieves better overall performance than the mean-pooling ablation, suggesting that temporal odometry modeling provides a more informative motion prior for metric depth esti-mation.
+
+TUM-Dataset Method AbsRel ↓ RMSE ↓ δ1 ↑
+
+Clean Odom Ablation 1.122 5.619 0.260 
+
+Droid-Anchor (Ours) 0.528 1.663 0.392   
+
+> Table 2. Ablation study on odometry noise modeling. Train-ing with synthetic odometry perturbations improves AbsRel and RMSE compared with directly using clean GT-derived odometry, indicating that noise modeling enhances robustness to imperfect odometry inputs.
+
+invariant aggregation. In contrast, the LSTM encoder can model and integrate more complex frame-to-frame mo-tion variations, providing a more informative motion prior for metric-scale depth estimation. Table 2 further shows that removing odometry noise modeling degrades AbsRel and RMSE. The synthetic odometry perturbations there-fore serve as an effective regularization strategy by expos-ing the model to translation, rotation, and scale variations during training, improving robustness to odometry noise and camera-odometry extrinsic misalignment across differ-ent camera configurations. 
+
+## 5. Conclusion & Discussion 
+
+In this paper, we introduced DROID-ANCHOR, a novel recurrent framework designed to resolve the inherent scale ambiguity in monocular SLAM by anchoring visual geom-etry to proprioceptive odometry. By tightly coupling met-ric priors within the recurrent update operator, our model demonstrates a robust capability for deterministic metric scale estimation. Despite these advancements, we acknowledge that the generalization of the current model is constrained by the scarcity of large-scale datasets that simultaneously provide high-fidelity RGB-D ground truth and synchronized odom-etry. Furthermore, the inherent variance in the odometry noise profiles on different robotic platforms poses a chal-lenge for generalization of the cross-data set. To address these limitations and further validate the system’s robust-ness, our future work will focus on the collection of a com-prehensive real-world dataset. This will involve deploying a mobile robot in high-traffic indoor environments to evalu-ate the performance of the framework against dynamic oc-clusions, complex motion patterns, and various mechanical noise. References 
+
+[1] Ronald Clark, Sen Wang, Hongkai Wen, Andrew Markham, and Niki Trigoni. Vinet: visual-inertial odometry as a sequence-to-sequence learning problem. In Proceedings of the Thirty-First AAAI Conference on Artificial Intelligence ,AAAI’17, page 3995–4001. AAAI Press, 2017. 2 [2] Alex Kendall and Yarin Gal. What uncertainties do we need in bayesian deep learning for computer vision? Advances in neural information processing systems , 30, 2017. 4 [3] Moyang Li, Zihan Zhu, Marc Pollefeys, and Daniel Barath. Droid-slam in the wild, 2026. 2 [4] Haotong Lin, Sili Chen, Jun Hao Liew, Donny Y. Chen, Zhenyu Li, Guang Shi, Jiashi Feng, and Bingyi Kang. Depth anything 3: Recovering the visual space from any views. 
+
+arXiv preprint arXiv:2511.10647 , 2025. 4 [5] Jiahao Lu, Tianyu Huang, Peng Li, Zhiyang Dou, Cheng Lin, Zhiming Cui, Zhen Dong, Sai-Kit Yeung, Wenping Wang, and Yuan Liu. Align3r: Aligned monocular depth estimation for dynamic videos. In 2025 IEEE/CVF Conference on Com-puter Vision and Pattern Recognition (CVPR) , pages 22820– 22830, 2025. 1 [6] Riku Murai, Eric Dexheimer, and Andrew J. Davison. MASt3R-SLAM: Real-time dense SLAM with 3D recon-struction priors. In Proceedings of the IEEE/CVF Confer-ence on Computer Vision and Pattern Recognition , 2025. 1 [7] Yuheng Qiu, Yutian Chen, Zihao Zhang, Wenshan Wang, and Sebastian Scherer. Mac-vo: Metrics-aware covariance for learning-based stereo visual odometry. In 2025 IEEE In-ternational Conference on Robotics and Automation (ICRA) ,pages 3803–3814. IEEE, 2025. 1, 2 [8] J. Sturm, N. Engelhard, F. Endres, W. Burgard, and D. Cre-mers. A benchmark for the evaluation of rgb-d slam systems. In Proc. of the International Conference on Intelligent Robot Systems (IROS) , Oct. 2012. 4 [9] Zachary Teed and Jia Deng. Droid-slam: deep visual slam for monocular, stereo, and rgb-d cameras. In Proceedings of the 35th International Conference on Neural Information Processing Systems , NIPS ’21, Red Hook, NY, USA, 2021. Curran Associates Inc. 1 [10] Jianyuan Wang, Minghao Chen, Nikita Karaev, Andrea Vedaldi, Christian Rupprecht, and David Novotny. Vggt: Visual geometry grounded transformer. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2025. 1 [11] Shuzhe Wang, Vincent Leroy, Yohann Cabon, Boris Chidlovskii, and J´ erˆ ome Revaud. Dust3r: Geometric 3d vision made easy. 2024 IEEE/CVF Conference on Com-puter Vision and Pattern Recognition (CVPR) , pages 20697– 20709, 2023. 1 [12] Shengkai Zhang, Yuhe Liu, Jianhua He, Xuedou Xiao, Mozi Chen, and Kezhong Liu. Mogs: Monocular object-guided gaussian splatting in large scenes, 2026. 1, 2, 4 
+
+## A. BA Mathematical Derivations 
+
+In this section, we provide a detailed derivation of the Jacobian matrices and the construction of the normal equa-tions for the proposed Odometry-Anchored Bundle Adjust-ment ( BA odom ). 
+
+A.1. Objective Function 
+
+The total energy functional E is composed of a visual re-projection term and a metric odometry term: 
+
+E(G, d) = X
+
+> (i,j )∈E
+
+|rij vis |2Σij 
+
++λodo 
+
+X
+
+> (i,j )∈E
+
+|Trans (Gij ) − ∆Oij |2Σoij 
+
+(14) where Gij = Gj Gi−1 represents the relative SE(3) trans-formation, and ∆Oij is the metric translation constraint from the robot’s proprioception. 
+
+A.2. Perturbation Analysis 
+
+To minimize the energy, we apply a small perturbation 
+
+ξ ∈ se (3) to the poses. The perturbed relative transforma-tion G′ 
+
+> ij
+
+can be expressed as: 
+
+G′ 
+
+> ij
+
+= exp( ξj )Gj (exp( ξi)Gi)−1
+
+= exp( ξj )Gj Gi−1 exp( −ξi)= exp( ξj )Gij exp( −ξi)
+
+Using the adjoint property of the SE(3) group, 
+
+G exp( ξ) = exp( Adj Gξ)G, we rewrite the expression as: 
+
+G′ 
+
+> ij
+
+= exp( ξj ) exp( −Adj Gij ξi)Gij (15) Applying the first-order Taylor expansion exp( ξ) ≈ I + ξ∧,we obtain the linearized perturbation: 
+
+G′ 
+
+> ij
+
+≈ (I + ξ∧ 
+
+> j
+
+− (Adj Gij ξi)∧)Gij (16) 
+
+A.3. Jacobian of the Odometry Residual 
+
+The odometry residual is defined as roij = Trans (Gij ) −
+
+∆Oij . The derivative of the translation component with respect to the Lie algebra perturbation ξ = [ ρ, ϕ]⊤ is given by: 
+
+∂Trans (Gij )
+
+∂ξj
+
+= Joj = [ I3×3 | − [tij ]×] ∈ R3×6 (17) By applying the chain rule and the adjoint property derived in the previous section, the Jacobian with respect to the starting frame i is: 
+
+∂Trans (Gij )
+
+∂ξi
+
+= Joi = −[I3×3 | − [tij ]×] · Adj Gij (18) Thus, the linearized odometry residual ∆roij is approxi-mated as: 
+
+∆roij ≈ Joj ∆ξj + Joi ∆ξi (19) A.4. Normal Equations 
+
+By accumulating the contributions from both visual and odometry terms, we construct the Schur complement sys-tem. The resulting normal equations are: 
+
+Bvis + Bodo EE⊤ C + λI
+
+  ∆ξ
+
+∆d
+
+
+
+=
+
+vvis + vodo 
+
+w
+
+
+
+(20) where Bodo and vodo represent the Hessian and gradient contributions from the metric anchors, respectively. Specif-ically, for each edge (i, j ), the odometry update to the diag-onal blocks of the Hessian is computed as: 
+
+B(ii ) 
+
+> odo
+
+= X
+
+> j
+
+(Joi )⊤(Σ oij )−1Joi , B(jj ) 
+
+> odo
+
+= X
+
+> i
+
+(Joj )⊤(Σ oij )−1Joj
+
+(21)
