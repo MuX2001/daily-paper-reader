@@ -1,0 +1,940 @@
+Title: Real-time optimal control with shallow recurrent decoder networks
+
+URL Source: https://arxiv.org/pdf/2607.19302v1
+
+Published Time: Wed, 22 Jul 2026 01:23:29 GMT
+
+Number of Pages: 17
+
+Markdown Content:
+# Real-time optimal control with shallow recurrent decoder networks 
+
+Matteo Tomasetto †, Francesco Braghin †, J. Nathan Kutz ∗, and Andrea Manzoni ‡ 
+
+> †
+
+Department of Mechanical Engineering, Politecnico di Milano, Milano, Italy 
+
+> ∗
+
+Autodesk Research, London, UK and  
+
+> ‡
+
+MOX - Department of Mathematics, Politecnico di Milano, Milano, Italy 
+
+Controlling dynamical systems in real-time across multiple scenarios is critical to enabling adaptive control strategies, ensuring stability and efficiency. However, to tailor control actions in response to varying scenarios, traditional optimal control problems typically require several system simulations, which are often computationally demanding due to the high-dimensionality of the underlying spatio-temporal dynamics. In this work, we exploit SHallow REcurrent Decoder networks-based Reduced Order Modeling (SHRED-ROM) to synthesize a real-time closed-loop controller for high-dimensional and parametric dynamics, relying solely on limited state sensor readings. After training the model on a few optimal examples given by an expert demonstrator, SHRED-ROM mimics the expert behavior with effective distributed control actions in new scenarios, alleviating the curse of dimensionality. Moreover, a sensor forecaster is synthesized and used to close the loop at the latent level, thus efficiently mitigating possible sensor failures or delays. The performance of the proposed optimal control strategy is finally assessed on three challenging high-dimensional cases dealing with either parametric density control or fluid flow control. 
+
+I. INTRODUCTION 
+
+A wide range of phenomena in applied sciences and en-gineering can be described through the spatio-temporal evolution of one or more state variables which are governed by conservation laws and physical principles and expressed in terms of partial differential equations 
+
+(PDEs). A model within this class that involves a(scalar-valued, for the sake of simplicity) state variable 
+
+y : Ω × [0 , T ] → R in the domain Ω and over the time horizon [0 , T ] can typically be written in the form ˙y = N (y, u, x, t ; μ), (1) where u : Ω ×[0 , T ] → R is the (real and scalar-valued, for the sake of simplicity) control variable, N is the (possi-bly nonlinear) differential operator that models the time derivative of the state ˙ y, while x ∈ Ω and t ∈ [0 , T ] are the space-time coordinates. Note that extensions to vector-valued state ⃗y and control ⃗u variables are readily possible. In addition, suitable boundary and initial conditions are required to partner with Equation (1) in order to make the resulting mathematical problem well-posed. Impor-tantly, dynamical systems in Equation (1) often depend on a vector of parameters μ ∈ P ⊆ RNμ , with P being an admissible set. Solving PDEs requires numerical meth-ods such as, e.g., finite volume, finite element and spec-tral methods [15, 38, 50]. In essence, through a discretiza-tion of the state y(x, t k, μ) → y(tk, μ) = yμ 
+
+> k
+
+∈ RNy and control u(x, t k, μ) → u(tk, μ) = uμ 
+
+> k
+
+∈ RNu over space and time – with t1, . . . , t Nt a uniform grid over [0 , T ] and 
+
+Ny , N u being the numbers of state and control degrees of freedom – the PDE turns into a (possibly nonlinear) system of equations to be solved over time [50], that is 
+
+yμ 
+
+> k+1
+
+= F(yμ 
+
+> k
+
+, uμ 
+
+> k
+
+; μ) for k = 1 , . . . , N t,
+
+where F : RNy × RNu × P → RNy is the state transition map at discrete level, while y(t1, μ) = yμ 
+
+> 1
+
+∈ RNy is the prescribed initial condition. Whenever a large number of degrees of freedom are required to discretize and capture the state dynamics, such as in the case of stiff phenomena or complex domains, the high-dimensionality of the re-sulting system entails a demanding – or even prohibitive – computational burden. The computational bottleneck becomes even more severe when (i) considering optimal control problems (OCPs), which require multiple PDE evaluations within an optimization loop to design opti-mal control actions minimizing a problem-specific loss or cost functional [32, 42, 63], and (ii) parametric problems, as different independent solves are demanded in order to adapt the control actions with respect to variations in the underlying scenario. Traditional numerical methods are therefore not suitable for controlling moderate to large-scale parametric systems related to safety-critical appli-cations with strict latency (timing) requirements, such as autonomous vehicles, robotics, plasma control, and aerospace, as delays in the control computations may imply a significant loss of performance and robustness. The goal of this work is to conceive an efficient strategy to rapidly evaluate (possibly distributed and parametric) control actions from the temporal history of limited state sensor readings, thus overcoming the computational bar-rier of traditional full-order solvers. To speed up the multiple simulation requirements entailed by OCPs, it is possible to leverage accurate and fast surrogate models of the underlying dynami-cal system. For instance, projection-based reduced or-der models (ROMs) can be obtained through a (e.g., Galerkin) projection of the PDE onto a low-dimensional subspace obtained through proper orthogonal decom-position (POD) [11, 38, 41, 51], thus retrieving an r-dimensional system to be solved over time, which is com-putationally tractable when r ≪ Ny . Specifically, the 
+
+singular value decomposition (SVD) of the matrix col-lecting the state snapshots yμi 
+
+> k
+
+= y(tk, μi) for differ-ent time instants k = 1, ..., N t and parameter values arXiv:2607.19302v1 [cs.LG] 21 Jul 2026 2STATE     
+
+> DYNAMICAL SYSTEM
+> … SCENARIO  1SCENARIO  1
+> STATE SENSOR DATA
+> LSTM SDN POD
+> POLICY
+> OPTIMAL CONTROL PREDICTION
+> SENSOR FEEDBACK LOOP
+> TIME
+
+FIG. 1: Graphical summary of sensor-based feedback control with SHRED-ROM . Sparse sensor readings sμi
+
+> k−L
+
+, . . . , sμi
+
+> k
+
+monitoring the state over time windows of length L for k = 1 , . . . , N t in multiple scenarios i = 1 , . . . , N p are encoded through a long short-term memory (LSTM), while a shallow decoder network (SDN) projects the resulting latent representation in the (possibly high-dimensional) control space. The corresponding full-order control snapshots uμi
+
+> k
+
+are reduced by proper orthogonal decomposition (POD), allowing for compressive training at the POD level. After training, in the online phase, it is possible to predict optimal control actions ˆ uμ 
+
+> k
+
+for new parameters μ unseen during training, relying solely on the past history of sparse state sensor readings. The optimal control inference may be repeated within a feedback loop in order to provide a real-time closed-loop control strategy. 
+
+i = 1 , ..., N p provides the r directions of maximum vari-ability in the data, which serve as optimal (in a least-square or statistical sense) basis for projecting the orig-inal dynamics. Alternatively, physics-informed learn-ing [31] embeds the equations describing the underlying phenomenon into the neural network training loss, thus penalizing deviations from the known physics and pro-viding consistent state predictions. For instance, Wang et al. [64] and Hwang et al. [29] employ physics-informed deep operator networks to learn the control-to-state map, thus enhancing optimization online. Instead of focusing on open-loop controllers, which are pre-planned strate-gies incapable of correcting for external disturbances or model uncertainties, the same rationale may be ex-ploited to design closed-loop or feedback control strate-gies. For example, model predictive control (MPC) [14] considers multiple open-loop physics-constrained opti-mization problems as the dynamics evolves over time, iteratively updating the optimal controls with respect to incoming feedback information such as, e.g., sensor data capturing the current system setting. To acceler-ate the multiple optimization procedures online, MPC usually employs fast-inference surrogate models – such as, e.g., recurrent, physics-informed or echo state neu-ral networks [1, 7, 13, 17, 47, 65], POD [5, 23], or sys-tem identification techniques [26, 30, 33, 34, 48, 49] – to quickly evaluate the state dynamics over a prediction horizon starting from the current system configuration. However, learning accurate proxies of Equation (1) may be intractable when coping with distributed control ac-tions, as significant training data would be required to adequately explore the control space. Rather than synthesizing surrogate models to enhance optimization, it is possible to focus on all-at-once strate-gies aimed at solving the Karush-Kuhn-Tucker (KKT) system of first-order optimality conditions [32, 42, 63], thus avoiding optimization procedures in the online phase while allowing for large-scale actuations. For instance, projection-based ROMs [6, 12, 35, 36, 45, 46, 51, 58] and physics-informed neural networks [2, 10, 16, 44, 69, 70] may rapidly solve (online, after training) the opti-mality conditions, thus providing optimal state-control pairs, possibly generalizing to multiple scenarios. Sim-ilarly, feedback control design is traditionally addressed 3through the Hamilton-Jacobi-Bellman equation [9, 32]. Despite attempts to circumvent and reduce the problem complexity in this framework – see, e.g., [37], [4], [54], [3] – numerical schemes suffer from the curse of dimen-sionality and become computationally intractable as the state and control dimensions increase, thus limiting their applicability in real-time control scenarios. Moreover, projection-based ROMs require complete knowledge of the underlying physics and are limited by the linearity assumption, lacking accuracy and efficiency when dealing with nonlinear and convective phenomena, while physics-informed learning typically results in oversmoothing and expensive training phases. To mitigate these limita-tions, deep learning-based ROMs (DL-ROMs) [20, 25] have been proposed as efficient nonlinear, non-intrusive and data-driven alternatives to solve high-dimensional control problems in multiple scenarios [60, 61]. In par-ticular, after reducing the state and control dimensional-ity by POD or autoencoders, the parameter-to-reduced solution map is approximated through a feed-forward neural network. While being faster and more flexible than projection-based ROMs, DL-ROMs still require full parametric knowledge to infer the state evolution, are uninformed with respect to the actual system behavior, and typically require demanding hyperparameter tuning. Conversely, since having access to sensor measurements is the standard realistic assumption in control theory, we take advantage of sensor-based reduced order models to synthesize effective control strategies that leverage this kind of information. In this work, we employ shallow recurrent decoders [62, 66] to predict in real-time (possibly distributed) optimal control actions in multiple scenarios, relying solely on very limited feedback information – such as, e.g., sparse sensors monitoring the state evolution – and coping with missing or uncertain parametric knowledge. See Figure 1 for a graphical summary of the proposed sensor-based feedback control strategy. Since continuously monitoring dynamical systems may be unfeasible due to, e.g., sensor failures or delays in communications, we also propose a computationally efficient sensor forecaster to close the loop at the latent level, thus enabling real-time optimal control strategies even in the case of missing feedback data. The structure of the paper is as follows. Section II re-calls shallow recurrent decoders for parametric problems. Section III presents the sensor-based feedback controller, exploiting shallow recurrent decoders as control policies and recurrent neural networks as sensor forecasters to close the loop at the latent level. Finally, Section IV ex-ploits the proposed control strategy to steer three chal-lenging high-dimensional and parametric control prob-lems, ranging from density control to flow control.  
+
+> II. SHALLOW RECURRENT DECODER-BASED REDUCED ORDER MODELING
+
+In this section, we review the reduced order modeling technique based on shallow recurrent decoders (SHRED-ROM) proposed in [62]. SHRED-ROM is a lightweight, data-driven framework aimed at reconstructing high-dimensional and parametric spatio-temporal state dy-namics yμ 
+
+> k
+
+= y(tk, μ) for different time instants k =1, ..., N t and multiple scenarios μ ∈ P , such as the solu-tion of time-dependent, high-dimensional and parametric PDEs, starting from limited sensor measurements, which are often available in real-world applications. Differently from state-of-the-art sensing strategies, SHRED-ROM exploits the past history of L sensor readings, i.e. 
+
+sμ 
+
+> k−L:k
+
+= {s(tk−L, μ), ..., s(tk, μ)},
+
+where s(tk, μ) ∈ RNs for k = 1 , . . . , N t denotes the avail-able Ns sensor values at time tk under operating condi-tion μ, while s(tk−L, μ) = 0 if k ≤ L due to pre-padding. The possibility of reconstructing high-dimensional dy-namics from sparse time-lagged sensor sequences is un-derpinned by the Takens embedding theorem [53, 59]. In essence, under mild conditions, this result guarantees that time-delayed sensor measurements are diffeomorphic to the original high-dimensional state space, i.e., the sen-sor sequence encodes enough dynamical information to reconstruct the underlying state up to a smooth differen-tiable map with differentiable inverse. The time-lagged sensor values thus represent an alternative coordinate system to the original full-order one that preserves the topology of the underlying dynamical system’s attrac-tor. Unfortunately, the Takens embedding theorem does not provide hints on how to find the sensor-to-state map, and it can thus be approximated through data-driven ap-proaches, such as SHRED-ROM. SHRED-ROM is built upon the shallow recurrent decoder (SHRED) architecture, initially proposed by Williams et al. [66] as a promising sparse sensing strat-egy in single scenarios, extending the flow reconstruc-tion method proposed by Erichson et al. [19] with past observations. SHRED has been then extended to en-compass mobile sensors [18], interpretable and accurate latent dynamics [22, 68], robust predictions and uncer-tainty quantification [21, 52], and data assimilation [8]. SHRED-ROM focuses on broader, more challenging, and more general problems, providing accurate approxima-tions of high-dimensional and chaotic dynamics in mul-tiple scenarios, such as parametric regimes never seen during training, in the direction of parametric reduced order modeling. SHRED-ROM is a decoding-only model consisting of a sequence model fT , which encodes time-lagged sensor sequences into a low-dimensional latent representation, and a decoder model fX , which performs a nonlinear upscaling of the latent representation onto the original full state space, thus reconstructing the spatio-temporal 4quantity of interest in multiple scenarios, that is 
+
+yμ 
+
+> k
+
+≈ ˆyμ 
+
+> k
+
+= fX (fT (sμ
+
+> k−L:k
+
+)) for k = 1 , ..., N t.
+
+In particular, we use a long short-term memory network 
+
+(LSTM) [27] to model the temporal dependency of sensor data, and a shallow decoder network (SDN) as latent-to-state map, even though several alternative architectures may be employed. Whenever the state dimension Ny is remarkably high, compressive training strategies may be employed to enhance computational efficiency and memory usage. Specifically, it is possible to reduce the state dimension-ality through a data- or physics-driven basis expansion of the snapshots yμi 
+
+> k
+
+, and train the model to its compressed representation [40, 62]. In other words, SHRED-ROM is trained to estimate only the r ≪ Ny basis expansion co-efficients, rather than the entire high-dimensional state, enabling efficient laptop-level computing. Among differ-ent alternatives such as, e.g., Fourier modes or spherical harmonics [62, 67], in the following we consider POD to project the data onto a lower-dimensional subspace, that is 
+
+yμ 
+
+> k
+
+= Ψr aμ 
+
+> k
+
+for k = 1 , . . . , N t,
+
+where Ψr ∈ RNy ×r is the matrix collecting the first r left singular vectors obtained through SVD of the state snap-shot matrix, while aμ 
+
+> k
+
+∈ Rr are the corresponding basis expansion coefficients, thus yielding the reconstruction 
+
+yμ 
+
+> k
+
+≈ ˆyμ 
+
+> k
+
+= Ψr ˆaμ 
+
+> k
+
+= Ψr fX (fT (sμ
+
+> k−L:k
+
+)) for k = 1 , ..., N t.
+
+Note that, in contrast to traditional ROMs techniques, the explicit knowledge of the scenario parameters μ is not required, as it is directly embedded in the temporal history of sensor values. Moreover, beyond reconstruct-ing state data from its own measurements, it is possible to reconstruct one quantity from sensors monitoring a coupled field [40, 62, 66]. Taking advantage of this prop-erty, here we propose a strategy to synthesize paramet-ric closed-loop controllers, enabling real-time distributed feedback control strategies across multiple scenarios in the low-data limit.  
+
+> III. SENSOR-BASED FEEDBACK CONTROL WITH SHRED-ROM
+
+Parametric optimal control problems can be formu-lated as (discrete, for the sake of simplicity) PDE-constrained optimizations in the form 
+
+J(uμ 
+
+> k
+
+, μ) = 
+
+> Nt
+
+X
+
+> k=1
+
+L(yμ 
+
+> k
+
+, uμ 
+
+> k
+
+, μ) + ϕ(yμ
+
+> Nt+1
+
+, μ) → min s.t. yμ 
+
+> k+1
+
+= F(yμ 
+
+> k
+
+, uμ 
+
+> k
+
+; μ) for k = 1 , . . . , N t,
+
+where J(uμ 
+
+> k
+
+, μ) = J(uμ 
+
+> 1
+
+, . . . , uμ 
+
+> Nt
+
+, μ) ∈ R is the scalar loss function to minimize by optimally designing the control variables uμ 
+
+> k
+
+= u(tk, μ) for k = 1, . . . , N t.Moreover, L(yμ 
+
+> k
+
+, uμ 
+
+> k
+
+, μ) ∈ R is the running cost for 
+
+k = 1, . . . , N t, while ϕ(yμ
+
+> Nt+1
+
+, μ) ∈ R is the final payoff, where the state variables implicitly depend on the control actions through the system dynamics, i.e. 
+
+yμ 
+
+> k+1
+
+= yμ
+
+> k+1
+
+(uμ 
+
+> k
+
+, . . . , uμ 
+
+> 1
+
+, μ) for k = 1, . . . , N t. The optimal actions over time can be computed through the Lagrangian multiplier approach or the adjoint state method [32, 42, 63], yielding the KKT system of optimal-ity conditions with state equation, adjoint equation and optimality condition, that is 
+
+
+
+yμ 
+
+> k+1
+
+= F(yμ 
+
+> k
+
+, uμ 
+
+> k
+
+, μ) for k = 1 , . . . , N t
+
+λμ 
+
+> k
+
+= ∂F ∂yk
+
+> ⊤
+
+λμ 
+
+> k+1
+
++ ∂L ∂yk
+
+> ⊤
+
+for k = Nt, . . . , 1
+
+∂L ∂uk
+
++ λμ 
+
+> k+1
+> ⊤
+
+∂F ∂uk
+
+= 0 for k = 1 , . . . , N t,
+
+(2) where λμ 
+
+> k
+
+∈ RNy is the discrete adjoint variable satisfying the backward-in-time adjoint equation with terminal con-dition λμ 
+
+> Nt+1
+
+= ∂ϕ ∂yμ
+
+> Nt+1
+
+. The KKT system returns, once solved, the optimal open-loop control actions over time for a fixed configuration. Different independent solves of Equation (2) would be required to compute the control actions for different scenarios μ or, after resetting time, to update them with respect to new incoming feedback information yμ 
+
+> 1
+
+. Parametric ROMs are therefore required to rapidly retrieve control actions in different settings, without degrading overall optimality, stability and sys-tem performances, while preventing damages, accidents, unsafe operations and failures. The coupling between state and control variables in Equation (2) allows us to take advantage of SHRED-ROM to build a controller providing (possibly dis-tributed) optimal control actions in multiple scenarios starting from the temporal history of Ns state sensor measurements, that is 
+
+uμ 
+
+> k
+
+≈ ˆuμ 
+
+> k
+
+= fX (fT (sμ
+
+> k−L:k
+
+)) for k = 1 , ..., N t,
+
+where sμ 
+
+> k
+
+= {y(xs, t k)}Ns 
+
+> s=1
+
+∈ RNs are state readings at some locations x1, . . . , xNs ∈ Ω over time k = 1 , . . . , N t.Importantly, pre-padding ( sμ 
+
+> k
+
+= 0 for k ≤ L) is crucial to infer optimal control actions over the whole time hori-zon [0 , T ], thus allowing for instantaneous controls with no burn-in periods. Thanks to SHRED-ROM sensor effi-ciency, as well as the independence on parameter values, limited state sensor readings are all you need to control high-dimensional and parametric systems in real-time. Note that, along with the optimal control prediction, the corresponding high-dimensional controlled state and the scenario parameter values may be taken into account as additional outputs of the surrogate model, as shown in Section IV, that is 
+
+
+
+uμ
+
+> k
+
+yμ
+
+> k
+
+μ
+
+ ≈
+
+
+
+ˆuμ
+
+> k
+
+ˆyμ
+
+> k
+
+ˆμ
+
+ = fX (fT (sμ
+
+> k−L:k
+
+)) for k = 1 , ..., N t.5TIME      
+
+> … SCENARIO  1SCENARIO  1
+> LSTM SDN POD
+> POLICY
+> LSTM
+> SENSOR FAILURE
+> SENSOR DATA AVAILABLE
+> LATENT SENSOR FORECASTER
+> STATE SENSOR DATA
+> OPTIMAL CONTROL PREDICTION STATE
+> LATENT FEEDBACK LOOP
+> DYNAMICAL SYSTEM
+
+FIG. 2: Graphical summary of sensor-based feedback control with latent feedback loop . Optimal distributed control actions in multiple scenarios ˆ uμ 
+
+> k
+
+are predicted in real-time relying solely on sparse state sensor readings sμ 
+
+> k
+
+. The optimal control inference may be repeated within a feedback loop in order to provide a real-time closed-loop control strategy. Whenever state sensor measurements are not available online, the latent sensor forecaster is exploited to predict the sensor evolution at the latent level, allowing for a continuous control of the system. To train SHRED-ROM in a supervised manner, we consider a few optimal examples given by an expert demonstrator, as typically considered in imitation learn-ing or behavioral cloning [28], along with the correspond-ing state sensor data 
+
+uμi 
+
+> k
+
+= u(tk, μi) ∈ RNu , sμi 
+
+> k
+
+= {y(xs, t k, μi)}Ns 
+
+> s=1
+
+∈ RNs
+
+for different time instants t1, . . . , t Nt and scenario pa-rameters μ1, . . . , μNp ∈ P . In other words, we employ SHRED-ROM to mimic the expert behavior, thus pro-viding a real-time policy for high-dimensional and para-metric dynamics in the low-data limit, while mitigating the curse of dimensionality. Note that when expanding the SHRED-ROM output with optimal state and sys-tem parameter values, the corresponding data are re-quired during training. Note also that the need for con-trolled snapshots may represent a limiting factor, espe-cially when dealing with synthetic data, and alternative strategies are required whenever such examples are not available. After splitting the available input-output pairs into training, validation, and test sets, the parameters of the sequence model θT and the decoder model θX are determined by minimizing the reconstruction loss 
+
+L(θT , θX ) = X
+
+> i∈Ξtrain
+> Nt
+
+X
+
+> k=1
+
+uμi 
+
+> k
+
+− fX (fT (sμi
+
+> k−L:k
+
+; θT ); θX ) 2
+
+over the set of training parameter instances Ξ train . After training, it is possible to repeatedly apply the predicted distributed control actions to the dynamical system in new scenarios unseen during training, while continuously monitoring the state through sparse sensors in order to update the steering online. 
+
+Latent feedback loop 
+
+The lack of state sensor measurements online due to, e.g., sensor malfunctions or delays in communications, prevents real-time adaptation of optimal control strate-gies, compromising effectiveness and stability. To over-come this limitation, similarly to the loop closure at the latent level in [60], we propose a deep learning-based sen-sor forecaster φz to predict future sensor measurements starting from their own temporal history and SHRED-6ROM latent variables, that is 
+
+φz : RNs × . . . × RNs
+
+| {z } 
+
+> Ltimes
+
+× RNz × . . . × RNz
+
+| {z } 
+
+> Ltimes
+
+→ RNs ,
+
+sμ 
+
+> k
+
+≈ ˆsμ 
+
+> k
+
+= φz (sμ
+
+> k−L−1: k−1
+
+, zμ
+
+> k−L−1: k−1
+
+)for k = 2 , . . . , N t, where zμ 
+
+> k
+
+= fT (sμ
+
+> k−L:k
+
+) ∈ RNz for 
+
+k = 1 , . . . , N t are the embeddings provided by the se-quence model, while pre-padding is applied on both sen-sor measurements and latent control variables. Note that, for the sake of simplicity, we consider the same lag L
+
+of the SHRED-ROM model, even through different values are also possible. Importantly, whenever state readings are unavailable for multiple (possibly consecutive) time steps, one can still forecast sensor values taking into ac-count past predictions as input to φz , thus utilizing the latent sensor forecaster as an autoregressive model. For example, if two consecutive state sensor data are missing at time tk and tk−1, we approximate sμ 
+
+> k
+
+with ˆsμ 
+
+> k
+
+= φz (sμ
+
+> k−L−1: k−2
+
+, ˆsμ
+
+> k−1
+
+, zμ
+
+> k−L−1: k−1
+
+).
+
+The sensor forecaster predicts the evolution of the sen-sor measurements starting from their own past values, which are informative on the system configuration, as well as past latent control variables, as different control actions lead to different system evolutions. Notably, the 
+
+Takens embedding theorem for non-autonomous, forced systems [56] entails that the temporal history of both sensor readings and control actions is fundamental to re-construct the state dynamics in this context. The latent sensor forecaster allows us to control the dynamical system even when feedback observations are compromised, thus promoting robustness, efficiency and optimality. For instance, if we experience a sensor mal-function at time tk, we exploit φz to approximate the sensor evolution, and we update the control strategy with ˆuμ 
+
+> k
+
+= fX (fT (sμ
+
+> k−L:k−1
+
+, ˆsμ 
+
+> k
+
+)) = fX (fT (sμ
+
+> k−L:k−1
+
+, φ z (sμ
+
+> k−L−1: k−1
+
+, zμ
+
+> k−L−1: k−1
+
+))) .
+
+Importantly, whenever only a subset of sensors does not provide data in real-time, we combine the online mea-surements available with the φz predictions of the miss-ing one. In the following, we model the latent sensor forecaster through a LSTM with parameters θ, and we determine its weights and biases minimizing the predic-tion loss 
+
+Lz (θ) = X
+
+> i∈Ξtrain
+> Nt
+
+X
+
+> k=1
+
+sμi 
+
+> k
+
+− φz (sμi
+
+> k−L−1: k−1
+
+, zμi
+
+> k−L−1: k−1
+
+) 2 .
+
+Figure 2 graphically summarizes sensor-based feedback controllers with loop closure at the latent level. 
+
+IV. NUMERICAL RESULTS 
+
+This section presents the numerical results obtained when steering three high-dimensional and parametric dy-namics through the proposed sensor-based feedback con-trollers. Since SHRED-ROM requires minimal hyperpa-rameter tuning, we take into account the default hyper-parameter values proposed in [62]. In particular, we split the available data into training, validation and test set with ratio 80:10:10. Moreover, the sequence model fT
+
+shows 2 hidden layers with 64 neurons each, while the decoder fX is made of 2 hidden layers having 350 and 400 neurons, respectively. Moreover, we select ReLU as activation function, and we prevent overfitting through dropout with rate equal to 0 .1. Regarding the neural networks training, we exploit Adam optimizer for 200 epochs, half with learning rate equal to 0 .001 and half with learning rate equal to 0 .0001, considering a batch size equal to 64. To quantitatively assess generalization capabilities of SHRED-ROM and φz on new scenario parameters, we take into account the following mean relative errors 
+
+ε(u, ˆu) = 1
+
+|Ξtest |
+
+X
+
+> i∈Ξtest
+> Nt
+
+X
+
+> k=1
+
+uμi 
+
+> k
+
+− ˆuμi
+
+> k
+
+uμi
+
+> k
+
+,ε(s, ˆs) = 1
+
+|Ξtest |
+
+X
+
+> i∈Ξtest
+> Nt
+
+X
+
+> k=1
+
+sμi 
+
+> k
+
+− ˆsμi
+
+> k
+
+sμi
+
+> k
+
+,
+
+where Ξ test collects the parameter indices in the test set, while |Ξtest | denotes its cardinality. 
+
+Fluidic pinball 
+
+To assess the performance of the proposed controller, we first consider a high-dimensional and parametric den-sity control problem. In particular, we take into ac-count the fluidic pinball setting detailed in [62] where, starting from a Gaussian density y0 centered at (0 , 0) with variance 0 .05, the state evolves in the domain Ω = (−1, 1) 2 \ C 1 ∪ C 2 ∪ C 3 – where C1 = B0.15 (−0.5, −0.5), 
+
+C2 = B0.15 (0 .5, −0.5) and C3 = B0.15 (0 .0, 0.5), with 
+
+BR(x1, x 2) denoting the cylinder centered at ( x1, x 2) with radius R – according to the advection-diffusion PDE 
+
+
+
+˙y + ∇ · (−η∇y +⃗vy +⃗uy ) = 0 in Ω × (0 , T ](−η∇y +⃗vy +⃗uy ) ·⃗n = 0 on ∂Ω × (0 , T ]
+
+y = y0 in Ω × { t = 0 },
+
+(3) with homogeneous Neumann boundary conditions and ⃗n
+
+being the normal unit vector. In addition to a diffusion effect with diffusivity η = 0 .001, the density is trans-ported by a fluid flow with velocity ⃗v : Ω → R 2, whose dynamics is modeled via steady Navier-Stokes equations, 7             
+
+> UNCONTROLLED STATE
+> 1st test scenario 10 seconds
+> 1st test scenario 30 seconds
+> 2nd test scenario 10 seconds
+> 2nd test scenario 30 seconds
+> TARGET STATE
+> CONTROLLED STATE
+> TARGET CONTROL
+> SHRED-ROM CONTROL 0.0 0.5 1.0 1.5 2.0 2.5 3.0 0.00 0.01 0.02 0.03
+
+FIG. 3: Fluidic pinball . Uncontrolled state (first row), optimal target state (second row), controlled state with SHRED-ROM policy (third row), target optimal control (fourth row), and SHRED-ROM control prediction (fifth row) in two different test scenarios related to μ = [ −0.06 , 0.06 , −0.70] ⊤ and μ = [ −0.74 , 0.01 , 0.83] ⊤ at t = 10 and 
+
+t = 30 seconds. The mobile sensor trajectories are depicted in orange. The control velocity fields on Ω are depicted through vector fields, with the underlying colors corresponding to their magnitude. 8             
+
+> 1st test scenario 010 20 30 40 50
+> Time t
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Loss
+> No control
+> Sensor feedback control 2nd test scenario 010 20 30 40 50
+> Time t
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Loss
+> No control
+> Sensor feedback control
+
+FIG. 4: Fluidic pinball . Loss function over time in the uncontrolled and controlled settings with 
+
+μ = [ −0.06 , 0.06 , −0.70] ⊤ (first panel) and μ = [ −0.74 , 0.01 , 0.83] ⊤ (second panel). that is 
+
+
+
+−ν∆⃗v + ( ⃗v · ∇ )⃗v + ∇p =⃗ 0 in Ω 
+
+∇ · ⃗v = 0 in Ω ⃗v =⃗ 0 on Γ walls ⃗v ·⃗n = 0 on ∂Ω⃗v ·⃗ t = v1 on ∂C1⃗v ·⃗ t = v2 on ∂C2⃗v ·⃗ t = v3 on ∂C3,
+
+with kinematic viscosity ν = 1 .0, p : Ω → R the pressure variable, ⃗ t the tangential unit vector, and no-slip bound-ary conditions on the external walls Γ walls . The fluid velocity implicitly depends on three rotating cylinders in the domain, whose constant velocities are regarded as tangential Dirichlet boundary data and scenario param-eters, that is μ = [ v1, v 2, v 3]⊤.As visible in the first row of Figure 3, the uncontrolled setting is characterized by significant density dispersion throughout the domain, as well as collisions with the boundaries. Preventing these phenomena in multiple sce-narios – i.e. for different combinations of cylinder veloc-ities – would be beneficial whenever the density y serves as the macroscopic description of, e.g., robotic swarms or pollutant concentration. To do so, we take into account a distributed velocity field ⃗u in Equation (3), whose values have to be optimally designed in order to minimize the loss function 
+
+J(⃗u, μ) = 12
+
+Z T
+
+> 0
+
+Z
+
+> Ω
+
+(y − ¯y)2dΩdt +
+
+Z T
+
+> 0
+
+Z
+
+> ∂Ω
+
+y2dΓdt ++ β
+
+2
+
+Z T
+
+> 0
+
+Z
+
+> Ω
+
+|| ⃗u|| 2dΩdt + βg
+
+2
+
+Z T
+
+> 0
+
+Z
+
+> Ω
+
+||∇ ⃗u|| 2dΩdt, 
+
+where β = 10 −4 penalizes control effort, while βg = 10 promotes control smoothness. To avoid density disper-sion while following the fluid flow, the target state ¯ y(t)is defined as the Gaussian density ¯y(t) = 10 
+
+π exp ( −10( x1 − ¯μ1(t)) 2 − 10( x2 − ¯μ2(t)) 2)with constant variance equal to 0 .05 and mean position ¯μ(t) = (¯ μ1(t), ¯μ2(t)) given by the ODE 
+
+( ˙¯μ(t) = ⃗v( ¯μ, t )¯μ(0) = ⃗ 0.
+
+Moreover, to avoid collisions with the domain bound-aries, we minimize the L2 norm of the density over 
+
+∂Ω × [0 , T ]. To synthesize a sensor-based feedback controller, we first discretize the forward problem with finite element method, resulting in full-order state and control dimen-sions equal to, respectively, Ny = 7525 and Nu = 59344, while we employ an evenly spaced time discretization with ∆ t = 1 second and T = 50 seconds. We then generate Np = 100 optimal examples through the full-order adjoint method [43] for different cylinder velocities randomly sampled in the parameter space P = [ −1, 1] 3,and we split the optimal trajectories into training, vali-dation and test sets with ratio 80:10:10. Finally, we train the SHRED-ROM policy to predict the optimal control velocity field starting from the L = 10 past state mea-surements and the coordinates of Ns = 1 mobile sensor, which is placed in the center of the domain at t = 0 and is passively steered by the underlying fluid flow velocity ⃗v.Alternatively, sparse fixed sensors monitoring the state evolution may be considered. To speed up training, it is possible to employ com-pressive training strategies where the control snapshots are reduced through r = 300 ≪ Nu POD modes. After training the sensor-based feedback controller, it is pos-sible to deploy the synthesized policy in test scenarios unseen during training. Figure 3 and Figure 4 qualita-tively and quantitatively assess the performance of the SHRED-ROM policy in two test scenarios, with effec-tive minimization of density dispersion and boundary col-lisions compared to the uncontrolled setting, achieving performance comparable to the full-order target optimal solutions in the test set. 9
+
+> Unsteady flow control
+
+In this section, we test the proposed sensor-based feed-back control strategy in the high-dimensional and para-metric unsteady flow control problem introduced in [61]. In particular, we take into account a fluid flow in a rect-angular channel with a circular obstacle inside, that is Ω = (0 , 8) ×(0 , 2) \B 0.2(1 , 1), whose dynamics is described by the unsteady Navier-Stokes equations 
+
+
+
+˙⃗v − ν∆⃗v + ( ⃗v · ∇ )⃗v + ∇p =⃗ 0 in Ω × (0 , T ]
+
+∇ · ⃗v = 0 in Ω × (0 , T ]⃗v =⃗ 0 on Γ obs × (0 , T ]⃗v =⃗u on Γ c × (0 , T ]⃗v =⃗v in (μ) on Γ in × (0 , T ]⃗v ·⃗n = 0 on Γ walls × (0 , T ](ν∇⃗v − pI)⃗n ·⃗ t = 0 on Γ walls × (0 , T ](ν∇⃗v − pI)⃗n =⃗ 0 on Γ out × (0 , T ]⃗v =⃗ 0 in Ω × { t = 0 },
+
+(4) where the kinematic viscosity is equal to ν = 0 .01 and I
+
+is the identity matrix. Specifically, we consider homoge-neous initial condition, homogeneous Dirichlet boundary condition on the rear of the obstacle Γ obs , homogeneous Neumann boundary conditions on the outflow Γ out , and free-slip boundary conditions on the walls Γ walls . On the inflow boundary Γ in , we take into account a stationary velocity datum ⃗v in (x, μ) = [ γin cos( αin ), 0.01 x2(20 − x2)γin sin( αin )] ⊤
+
+where the angle of attack αin is regarded as scenario pa-rameter, i.e., μ = αin , while the inflow velocity intensity is set equal to γin = 10 .0, yielding a Reynolds number equal to 400. The control action ⃗u allows us to inject or absorb the fluid from the front portion of the cylinder boundary Γ c.After discretizing Equation (4) with P2 − P1 finite ele-ments, the flow velocity and the boundary control action are described, respectively, by means of Nv = 46874 and 
+
+Nu = 54 degrees of freedom. After letting the system evolve for a burn-in period of 0 .5 seconds, the control is applied every ∆ t = 0 .1 seconds until T = 5 .0 seconds, that is Nt = 45. In this setting, we aim to minimize the energy dissipated by the fluid in multiple scenarios, that are different angles of attack μ = αin ∈ [−1.0, 1.0]. The dissipated energy can be computed as the L2 norm of the flow velocity gradient, while regularizing terms avoid extremely expensive and energetic optimal control strate-gies [61]. After generating 50 optimal solutions through 
+
+dolfin-adjoint [43], we double the snapshots thanks to horizontal symmetry, yielding Np = 100 trajectories. In order to efficiently train the neural networks into play, we reduce the data dimensionality through POD with reduced dimensions equal to 200 for the velocity and 20 for the control. It is now possible to train the SHRED-ROM policy to predict distributed control actions start-ing from the temporal history of L = 20 values of Ns = 3 sensors monitoring the horizontal velocity at as many locations in the channel. Note that the sensor place-ment is chosen randomly, and comparable results can be retrieved exploiting different sensor locations, taking into account more sensors, as well as measuring differ-ent related quantities such as, e.g., the pressure [62]. After training, SHRED-ROM is capable of accurately reconstructing boundary controls from state sensor val-ues, with a mean relative error in test scenarios equal to 2.68%. Whenever optimal state data are available, one can augment the SHRED-ROM output in order to predict both distributed optimal controls and the corresponding high-dimensional optimal state. Specifically, we train the sequence and decoder model of SHRED-ROM to return the 220 POD coefficients of state and control, while we re-cover the corresponding full-order variables through POD decoding, that is 
+
+uμ
+
+> k
+
+vμ
+
+> k
+
+
+
+≈
+
+ˆuμ
+
+> k
+
+ˆvμ
+
+> k
+
+
+
+=
+
+Ψu 00 Ψv
+
+
+
+fX (fT (sμ
+
+> k−L:k
+
+)) for k = 1 , . . . , N t, where Ψu and Ψv denote the POD modes for control and velocity, respectively. Therefore, beyond predicting the optimal control action to apply to the dynamical system, it is also possible to approxi-mate the underlying high-dimensional fluid velocity, with a mean relative error on test data equal to 2 .38%. Fig-ure 5 shows the uncontrolled velocity, the target optimal pair computed through a high-fidelity OCP solver, the flow velocity under the SHRED-ROM policy, and the SHRED-ROM optimal pair prediction. The proposed sensor-based feedback controller is able to effectively sup-press the vortex shedding in the cylinder wake and to predict the evolution of the high-dimensional controlled dynamics, resulting in a minimization of the dissipated energy and the drag force on the cylinder, as further as-sessed by the results in Figure 6. The lack of sensor values in the online phase prevents real-time adaptations of the control strategy, thereby compromising efficiency and robustness, while possibly leading to unsafe operating conditions. To overcome this limitation, we propose a loop closure at the latent level through a latent sensor forecaster φz capable of replacing the missing sensor measurements with accurate approx-imations. After training φz with lag L = 20, the latent sensor forecaster is able to accurately forecast the sensor evolution over time starting from past sensor measure-ments and latent control variables, with a mean relative error on test data equal to 0 .19%. Figure 5 shows the controlled velocity and the corresponding optimal pair prediction in three test scenarios when switching off the sensors from t = 3 onward, thus employing the latent sensor forecaster to predict the future sensor values in autoregressive mode. Moreover, Figure 6 displays the re-sulting flow energy dissipation and drag, with minimal 10    
+
+> NO CONTROL  1st test scenario 4 seconds
+> 2nd test scenario 4 seconds
+> 3rd test scenario 4 seconds
+> TARGET PAIR
+> SENSOR-BASED FEEDBACK CONTROL
+> LATENT FEEDBACK LOOP
+
+FIG. 5: Unsteady flow control . Uncontrolled velocity (first row), optimal target pair (second row), controlled velocity and optimal pair prediction with sensor-based feedback control (third and fourth row), controlled velocity and optimal pair prediction with latent feedback loop (fifth and sixth row) in two different test scenarios related to 
+
+μ = −0.39 , 0.39 , −0.76 at t = 4 seconds. The fixed sensors are depicted with orange dots. The velocity on Ω is depicted through a scalar field with colors corresponding to its norm, while the boundary control is represented through a vector field. discrepancy with respect to the controlled setting rely-ing on sensor data at every time step. Figure 7 presents, instead, an ablation study on the dissipated energy and the drag force for different sensor failure probabilities. In particular, we exploit the sensor-based feedback con-troller with latent feedback loop to minimize the dissi-pated energy in 5 different scenarios randomly sampled in the parameter space P. At every time step, each sensor may experience a malfunction with a certain probability, thus requiring the latent sensor forecaster to predict its evolution. Despite remarkably high failure probabilities up to 50%, the proposed closed-loop control strategy is able to significantly decrease the dissipated energy with respect to the uncontrolled setting, with minimal differ-ences compared to the case monitoring sensor data at every time step. 11     
+
+> 1st test scenario
+> (a)
+> 2nd test scenario 3rd test scenario
+> (b)
+
+FIG. 6: Unsteady flow control . (a) Energy dissipated by the fluid in the uncontrolled and controlled settings with 
+
+μ = −0.39 , 0.39 , −0.76. (b) Drag force on the obstacle in the uncontrolled and controlled settings with 
+
+μ = −0.39 , 0.39 , −0.76.  
+
+> (a) (b)
+
+FIG. 7: Unsteady flow control . (a) Energy dissipated by the fluid in the uncontrolled and controlled settings with latent feedback loop while considering 5 different random parametric scenarios and different sensor failure probabilities. (b) Drag force on the obstacle in the uncontrolled and controlled settings with latent feedback loop while considering 5 different random parametric scenarios and different sensor failure probabilities. 12 
+
+> Double gyre flow tracking
+
+In this section, we exploit SHRED-ROM to solve a high-dimensional and parametric tracking problem. In particular, we consider an incompressible fluid in the rectangular domain Ω = (0 , 2) × (0 , 1), whose dynamics is governed by the unsteady NS equations 
+
+
+
+˙⃗v − ν∆⃗v + ( ⃗v · ∇ )⃗v + ∇p =⃗u in Ω × (0 , T ]
+
+∇ · ⃗v = 0 in Ω × (0 , T ](ν∇⃗v − pI)⃗n =⃗ 0 on ∂Ω × (0 , T ]⃗v =⃗v 0 in Ω × { t = 0 },
+
+(5) with ν = 0 .01 and homogeneous Neumann boundary con-ditions. Starting from the initial velocity configuration ⃗v 0(x) = 
+
+ ∂ψ ∂x 2
+
+, − ∂ψ ∂x 1
+
+⊤
+
+,
+
+where the stream function ψ(x) = ψ(x1, x 2) =0.1e−16(( x1−1.0) 2+( x2−0.5) 2) entails a vortex centered in the domain, the goal is to steer the fluid dynamics in order to track a reference velocity ¯ v. In other words, we aim to minimize the L2 distance between the NS velocity ⃗v and the target one ¯ v. To do so, we employ a distributed, time-dependent and vector-valued source term ⃗u as con-trol action. In the following, the target is represented by the double gyre flow [55], a time-dependent model for the interaction of two counter-rotating vortices that can lead to chaotic particle trajectories. Specifically, the double gyre flow velocity is defined as ¯v(x, μ) = 
+
+ −πI sin ( πf ) cos ( πx 2)
+
+πI cos ( πf ) sin ( πx 2) ∂f ∂x 1
+
+
+
+,
+
+where I = 0 .1 is the intensity coefficient, f = f (x1, t ) = 
+
+ϵ sin( ωt )x21 +(1 −2ϵ sin( ωt )) x1, while ϵ and ω are the per-turbation amplitude and the frequency of the oscillation, respectively, which are regarded as scenario parameters 
+
+μ = [ ϵ, ω ]⊤.After discretizing the unsteady NS equations with 
+
+P2 − P1 finite elements, we end up with 5151 degrees of freedom for the pressure, while the vector-valued fields have dimension equal to Nv = Nu = 40602. Regarding the time discretization, we consider a uniform grid within the horizon [0 , T ], with final time T = 5 seconds and time step ∆ t = 0 .1 seconds, that is Nt = 50. Instead of relying on optimal control solvers to gen-erate training snapshots, we here take into account the feedback control law proposed by Strazzullo et al. [57], which extends the results by Gunzburger and Manservisi [24]. In particular, the expert behaviour is given by the source term ⃗u = ˙¯v − ν∆¯ v + (¯ v · ∇ )¯ v + ( ⃗v − ¯v)∇¯v − (⃗v − ¯v),
+
+which enables velocity tracking with exponential conver-gence over time. Note that the control optimality is guar-anteed even after space-time discretization [57]. Through the control formula above, we generate Np = 100 opti-mal control actions, along with the corresponding veloc-ity and pressure fields, for as many scenario parameters randomly sampled within P = [0 .0, 0.5] ×[0 .25 π, 2π]. The velocity and control snapshots are then reduced through POD in order to enable SHRED-ROM compressive train-ing. In particular, we consider 15 modes for each variable component, for a total of 60 POD modes. SHRED-ROM is now utilized to predict in real-time the distributed and parametric control actions and, sim-ilarly to the previous test case, the corresponding ve-locity fields. The input is represented by the temporal history of 6 sensors randomly placed in the domain, half of which monitor the pressure and half of which mea-sure the horizontal velocity of the reference flow. Note that, while the former set of sensors is crucial to inform the controller about the system configuration, the lat-ter is needed to specify which instance of double gyre flow to track, without requiring complete knowledge of the scenario parameters. The lag parameter is set equal to L = 25, which covers two periods of the double gyre flow at the minimum frequency considered. After train-ing SHRED-ROM to predict the 60 POD coefficients of the variables of interest, we are able to accurately recon-struct test snapshots with a mean relative error equal to 7.47% for the control and 3 .00% for the velocity. Fig-ure 8 qualitatively assesses the performance of SHRED-ROM when predicting control and velocity snapshots in two test cases, relying solely on the limited sensor read-ings available. To cope with missing sensor values online, we also train a latent sensor forecaster to predict sensor values starting from their own L = 25 past values and the corresponding control latent variables, resulting in a mean relative error on test data equal to 0 .69%. Figure 9 displays the goodness of φz in forecasting ground truth sensor data in the test set. The SHRED-ROM policy can be now employed to con-trol test scenarios. In addition to the setting where sen-sor data are always available in time, we simulate a signal transmission problem every 1 second, thus taking advan-tage of the latent sensor forecaster to close the loop at the latent level through the prediction of pressure and reference horizontal velocity sensor values. Figure 10 shows the uncontrolled dynamics, the double gyre ref-erence flow, the velocity under SHRED-ROM policy and the corresponding SHRED-ROM control, both with and without sensor failures, related to μ = [0 .25 , π ]⊤. More-over, Figure 11 displays the loss functions over time in the uncontrolled and controlled settings in three different test scenario parameters. SHRED-ROM is thus capable of rapidly steering the fluid dynamics from the initial sin-gle vortex to the double gyre reference flow, despite the distributed control actions required over time and the new scenarios never seen during training. 13     
+
+> TARGET VELOCITY
+> 1st test scenario 0.5 seconds
+> 1st test scenario 2.5 seconds
+> 2nd test scenario 0.5 seconds
+> 2nd test scenario 2.5 seconds
+> SHRED-ROM VELOCITY
+> TARGET CONTROL
+> SHRED-ROM CONTROL
+
+FIG. 8: Double gyre flow tracking . Optimal target velocity (first row), SHRED-ROM optimal velocity prediction (second row), optimal target control (third row) and SHRED-ROM optimal control prediction (fourth row) in two different test scenarios related to μ = [0 .49 , 5.4] ⊤ and μ = [0 .22 , 1.47] ⊤ at t = 0 .5 and t = 2 .5 seconds. The fixed sensors monitoring pressure and reference velocity are depicted with, respectively, orange dots and squares. The velocity and control on Ω are depicted through a scalar field with colors corresponding to its vorticity, with the streamlines in black.     
+
+> 1st test scenario Pressure sensor data
+> 1st test scenario Reference sensor data
+> 2nd test scenario Pressure sensor data
+> 2nd test scenario Reference sensor data
+
+FIG. 9: Double gyre flow tracking . Ground truth pressure sensor data (first and third panel) and reference horizontal velocity sensor data (second and fourth panel) with latent sensor forecaster predictions in two different test scenarios related to μ = [0 .49 , 5.4] ⊤ (first and second panel) and μ = [0 .22 , 1.47] ⊤ (third and fourth panel). 14    
+
+> NO CONTROL  0.5 seconds 2.0 seconds 3.5 seconds 5.0 seconds
+> REFERENCE VELOCITY
+> CONTROLLED VELOCITY
+> SHRED-ROM CONTROL
+
+FIG. 10: Double gyre flow tracking . Uncontrolled velocity (first row), reference velocity (second row), controlled velocity and optimal control prediction with sensor-based feedback loop (third and fifth row), controlled velocity and optimal control prediction with latent feedback loop (fourth and sixth row) in the test scenario related to 
+
+μ = [0 .25 , π ]⊤ at t = 0 .5, 2.0, 3.5, 5.0 seconds. The fixed sensors monitoring pressure and reference velocity are depicted with, respectively, orange dots and squares. The velocity and control on Ω are depicted through a scalar field with colors corresponding to its vorticity, with the streamlines in black.  
+
+> V. CONCLUSIONS
+
+In this work, we propose a parametric feedback control strategy in the low-data limit, agnostic to parameter val-ues. Specifically, in the context of imitation learning, we exploit SHRED-ROM to mimic expert demonstrations and predict distributed control actions in multiple sce-narios, relying solely on limited state sensor readings. Moreover, it is readily possible to enlarge the model out-put with the corresponding controlled state dynamics, as well as other coupled fields of interest. SHRED-ROM is particularly appealing for control tasks as (i) it re-quires very limited and sparse sensor measurements, (ii) 
+
+it is independent on sensor placement and agnostic to parameter values, and (iii) it can be efficiently trained with laptop-level computing thanks to dimensionality re-duction techniques such as POD. As demonstrated in 15 
+
+FIG. 11: Double gyre flow tracking . Loss function in the uncontrolled and controlled settings with μ = [0 .1, 0.5π]⊤
+
+(first panel), μ = [0 .25 , π ]⊤ (second panel) and μ = [0 .4, 2π]⊤ (third panel). Section IV, after SHRED-ROM training, it is possible to control challenging high-dimensional and parametric systems, designing effective optimal control strategies in real-time. To account for sensor malfunctions and signal trans-mission problems, we propose a latent sensor forecaster to close the loop at the latent level. In particular, start-ing from past sensor values and control actions at the latent level, we employ a LSTM to predict the next sen-sor measurements, thus enabling continuous monitoring and control of the dynamical system at hand. As demon-strated throughout the test cases in Section IV, the la-tent feedback loop allows us to control the system even when coping with very high probability sensor failures or frequent signal transmission failures. The proposed sensor-based feedback control strategy may be extended in multiple directions in future works. For instance, uncertainty quantification and robust predictions [21, 52] may be helpful to account for noisy sensors, as well as to understand when to trust the controller and when fine-tuning is needed. Moreover, latent dynamics modeling [22, 68], especially with a view of parsimonious and interpretable models [39], would be helpful for control predictions over longer time horizons in extrapolation regimes. Finally, reinforcement learning routines could be helpful for policy fine-tuning, thus further enhancing control robustness under external disturbances, or for directly training the SHRED-ROM policy, without requiring optimal examples from expert demonstrators. 
+
+> DATA AND CODE AVAILABILITY
+
+The data necessary to replicate the test cases detailed in Section IV are publicly available at https://doi.org/ 10.5281/zenodo.20627878 
+
+The implementation of the proposed methodol-ogy and the code necessary to replicate the test cases detailed Section IV are publicly available at 
+
+https://github.com/MatteoTomasetto/shred-c 
+
+> ACKNOWLEDGEMENTS
+
+AM acknowledges the Project “Reduced Order Mod-eling and Deep Learning for the real-time approximation of PDEs (DREAM)” (Starting Grant No. FIS00003154), funded by the Italian Science Fund (FIS) - Ministero dell’Universit` a e della Ricerca and the project FAIR (Future Artificial Intelligence Research), funded by the NextGenerationEU program within the PNRR-PE-AI scheme (M4C2, Investment 1.3, Line on Artificial Intelli-gence).                               
+
+> [1] E. Aggelogiannaki and H. Sarimveis. Nonlinear model predictive control for distributed parameter systems us-ing data driven artificial neural network models. Comput-ers and Chemical Engineering , 32(6):1225–1237, 2008. [2] A. Alla, G. Bertaglia, and E. Calzola. Apinn ap-proach for the online identification and control of un-known pdes. Journal of Optimization Theory and Appli-cations , 206(1), 2025. [3] A. Alla, B. Haasdonk, and A. Schmidt. Feedback con-trol of parametrized PDEs via model order reduction and dynamic programming principle. Advances in Computa-tional Mathematics , 46(9), 2020. [4] A. Alla and M. Hinze. HJB-POD feedback control for navier-stokes equations. In Progress in Industrial Math-ematics at ECMI 2014 ,pages 861–868, Cham, 2016. Springer International Publishing. [5] A. Alla and S. Volkwein. Asymptotic stability of POD based model predictive control for a semilinear parabolic PDE. Advances in Computational Mathemat-ics , 41(5):1073–1102, 2015. [6] D. Amsallem, M. Zahr, Y. Choi, and C. Farhat. Design optimization using hyper-reduced-order models. Struc-tural and Multidisciplinary Optimization , 51(4):919–940, 2015. [7] E. A. Antonelo, E. Camponogara, L. O. Seman, J. P. Jordanou, E. R. de Souza, and J. F. H¨ ubner. Physics-informed neural nets for control of dynamical systems.
+> Neurocomputing , 579:127419, 2024. [8] Y. Bao and J. N. Kutz. Data assimilation and discrep-ancy modeling with shallow recurrent decoders, 2025.
+
+16 
+
+[9] M. Bardi and I. Capuzzo-Dolcetta. Optimal Control and Viscosity Solutions of Hamilton-Jacobi-Bellman Equa-tions . Birkh¨ auser Boston, MA, 2009. [10] J. Barry-Straume, A. Sarshar, A. A. Popov, and A. Sandu. Physics-informed neural networks for PDE-constrained optimization and control. arXiv:2205.03377, 2022. [11] P. Benner, S. Gugercin, and K. Willcox. A survey of projection-based model reduction methods for paramet-ric dynamical systems. SIAM review , 57(4):483–531, 2015. [12] P. Benner, E. Sachs, and S. Volkwein. Model order re-duction for PDE constrained optimization. International Series of Numerical Mathematics , 165:303–326, 2014. [13] K. Bieker, S. Peitz, S. L. Brunton, J. N. Kutz, and M. Dellnitz. Deep model predictive flow control with limited sensor data and online learning. Theoretical and Computational Fluid Dynamics , 34(4):577–591, 2020. [14] E. Camacho and C. Bordons. Model Predictive Control .Springer London, 2004. [15] R. Courant and D. Hilbert. Methods of mathematical physics: partial differential equations . John Wiley & Sons, 2008. [16] N. Demo, M. Strazzullo, and G. Rozza. An extended physics informed neural network for preliminary analysis of parametric optimal control problems. Computers and Mathematics with Applications , 143(May):383–396, 2023. [17] A. Draeger, S. Engell, and H. Ranke. Model predictive control using neural networks. IEEE Control Systems Magazine , 15(5):61–66, 1995. [18] M. R. Ebers, J. P. Williams, K. M. Steele, and J. Nathan Kutz. Leveraging arbitrary mobile sensor trajectories with shallow recurrent decoder networks for full-state reconstruction. IEEE Access , 12:97428–97439, 2024. [19] N. B. Erichson, L. Mathelin, Z. Yao, S. L. Brunton, M. W. Mahoney, and J. N. Kutz. Shallow neural net-works for fluid flow reconstruction with limited sensors. 
+
+Proceedings of the Royal Society A: Mathematical, Physi-cal and Engineering Sciences , 476(2238):20200097, 2020. [20] S. Fresca, L. Dede’, and A. Manzoni. A Comprehensive Deep Learning-Based Approach to Reduced Order Mod-eling of Nonlinear Time-Dependent Parametrized PDEs. 
+
+Journal of Scientific Computing , 87(2):1–36, 2021. [21] M. L. Gao, Y. Bao, A. S. Rude, X. Shen, and J. N. Kutz. Uq-shred: uncertainty quantification of shallow recurrent decoder networks for sparse sensing via engression, 2026. [22] M. L. Gao, J. P. Williams, and J. N. Kutz. Sparse iden-tification of nonlinear dynamics and koopman operators with shallow recurrent decoder networks. Proceedings of the National Academy of Sciences , 123(16):e2508144123, 2026. [23] J. Ghiglieri and S. Ulbrich. Optimal flow control based on POD and MPC and an application to the cancellation of Tollmien–Schlichting waves. Optimization Methods and Software , 29(5):1042–1074, 2014. [24] M. D. Gunzburger, L. Hou, and T. P. Svobodny. Anal-ysis and finite element approximation of optimal control problems for the stationary navier-stokes equations with distributed and neumann controls. Mathematics of Com-putation , 57(195):123–151, 1991. [25] J. Hesthaven and S. Ubbiali. Non-intrusive reduced order modeling of nonlinear problems using neural networks. 
+
+Journal of Computational Physics , 363:55–78, 2018. [26] M. K. Hickner, U. Fasel, A. G. Nair, B. W. Brunton, and S. L. Brunton. Data-Driven Unsteady Aeroelastic Mod-eling for Control. AIAA Journal , 61(2):780–792, 2023. [27] S. Hochreiter and J. Schmidhuber. Long short-term memory. Neural computation , 9(8):1735–1780, 1997. [28] A. Hussein, M. M. Gaber, E. Elyan, and C. Jayne. Im-itation learning: A survey of learning methods. ACM Comput. Surv. , 50(2), 2017. [29] R. Hwang, J. Y. Lee, J. Y. Shin, and H. J. Hwang. Solving PDE-Constrained Control Problems Using Oper-ator Learning. Proceedings of the 36th AAAI Conference on Artificial Intelligence, AAAI 2022 , 36(Phase 1):4504– 4512, 2022. [30] E. Kaiser, J. N. Kutz, and S. L. Brunton. Sparse identi-fication of nonlinear dynamics for model predictive con-trol in the low-data limit. Proceedings of the Royal Soci-ety A: Mathematical, Physical and Engineering Sciences ,474(2219), 2018. [31] G. E. Karniadakis, I. G. Kevrekidis, L. Lu, P. Perdikaris, S. Wang, and L. Yang. Physics-informed machine learn-ing. Nature Reviews Physics , 3(6):422–440, May 2021. [32] D. E. Kirk. Optimal control theory: an introduction .Courier Corporation, 2004. [33] S. Klus, F. N¨ uske, S. Peitz, J. H. Niemann, C. Clementi, and C. Sch¨ utte. Data-driven approximation of the Koop-man generator: Model reduction, system identification, and control. Phys. D Nonlinear Phenom. , 406:1–32, 2020. [34] M. Korda and I. Mezi´ c. Linear predictors for nonlinear dynamical systems: Koopman operator meets model pre-dictive control. Automatica , 93:149–160, 2018. [35] K. Kunisch and S. Volkwein. Control of the Burgers Equation by a Reduced-Order Approach Using Proper Orthogonal Decomposition. Journal of Optimization Theory and Applications , 102(2):345–371, 1999. [36] K. Kunisch and S. Volkwein. Proper orthogonal decom-position for optimality systems. ESAIM: Mod´ elisation math´ ematique et analyse num´ erique , 42(1):1–23, 2008. [37] K. Kunisch, S. Volkwein, and L. Xie. HJB-POD-Based Feedback Design for the Optimal Control of Evolution Problems. SIAM Journal on Applied Dynamical Systems ,3(4):701–722, 2004. [38] J. N. Kutz. Data-driven modeling & scientific computa-tion: methods for complex systems & big data . Oxford University Press, 2013. [39] J. N. Kutz and S. L. Brunton. Parsimony as the ultimate regularizer for physics-informed machine learning. Non-linear Dynamics , 107(3):1801–1817, 2022. [40] J. N. Kutz, M. Reza, F. Faraji, and A. Knoll. Shallow recurrent decoder for reduced order modeling of plasma dynamics, 2024. [41] F. Leibfritz and S. Volkwein. Reduced order output feed-back control design for PDE systems using proper orthog-onal decomposition and nonlinear semidefinite program-ming. Linear Algebra and its Applications , 415(2):542– 575, 2006. Special Issue on Order Reduction of Large-Scale Systems. [42] A. Manzoni, A. Quarteroni, and S. Salsa. Optimal control of partial differential equations . Springer, 2021. [43] S. K. Mitusch, S. W. Funke, and J. S. Dokken. dolfin-adjoint 2018.1: automated adjoints for fenics and fire-drake. Journal of Open Source Software , 4(38):1292, 2019. [44] S. Mowlavi and S. Nabi. Optimal control of PDEs using physics-informed neural networks. Journal of Computa-17 
+
+tional Physics , 473:111731, 2023. [45] F. Negri, A. Manzoni, and G. Rozza. Reduced basis ap-proximation of parametrized optimal flow control prob-lems for the stokes equations. Computers & Mathematics with Applications , 69(4):319–336, 2015. [46] F. Negri, G. Rozza, A. Manzoni, and A. Quarteroni. Re-duced basis method for parametrized elliptic optimal con-trol problems. SIAM Journal on Scientific Computing ,35(5):A2316–A2340, 2013. [47] S. Peitz and K. Bieker. On the universal transformation of data-driven models to control systems. Automatica ,149:110840, 2023. [48] S. Peitz and S. Klus. Koopman operator-based model reduction for switched-system control of PDEs. Auto-matica , 106:184–191, 2019. [49] S. Peitz and S. Klus. Feedback Control of Nonlinear PDEs Using Data-Efficient Reduced Order Models Based on the Koopman Operator , pages 257–282. Springer Interna-tional Publishing, Cham, 2020. [50] A. Quarteroni. Numerical Models for Differential Prob-lems . Springer Cham, 2017. [51] A. Quarteroni, A. Manzoni, and F. Negri. Reduced basis methods for partial differential equations: an introduc-tion , volume 92. Springer, 2015. [52] S. Riva, C. Introini, A. Cammi, and J. N. Kutz. Robust state estimation from partial out-core measurements with shallow recurrent decoder for nuclear reactors. Progress in Nuclear Energy , 189:105928, 2025. [53] T. Sauer, J. Yorke, and M. Casdagli. Embedol-ogy. Journal of Statistical Physics , 65:579–616, 1991. https://doi.org/10.1007/BF01053745. [54] A. Schmidt and B. Haasdonk. Data-driven surrogates of value functions and applications to feedback control for dynamical systems. IFAC-PapersOnLine , 51(2):307–312, 2018. 9th Vienna International Conference on Mathe-matical Modelling. [55] S. C. Shadden, F. Lekien, and J. E. Marsden. Defi-nition and properties of lagrangian coherent structures from finite-time lyapunov exponents in two-dimensional aperiodic flows. Physica D: Nonlinear Phenomena ,212(3):271–304, 2005. [56] J. Stark. Delay embeddings for forced systems. i. deterministic forcing. Journal of Nonlinear Science ,9(3):255–332, 1999. [57] M. Strazzullo, F. Ballarin, T. Iliescu, and C. Canuto. New feedback control and adaptive evolve-filter-relax regularization for the navier-stokes equations in the convection-dominated regime, 2025. [58] M. Strazzullo, F. Ballarin, R. Mosetti, and G. Rozza. Model Reduction for Parametrized Optimal Control problems in Environmental Marine Science and En-gineering. SIAM Journal on Scientific Computing ,40(4):B1055–B1079, 2018. [59] F. Takens. Detecting strange attractors in turbu-lence. In Dynamical Systems and Turbulence, War-wick 1980, Lecture Notes in Mathematics , volume 898, pages 366–381. Springer Berlin Heidelberg, 1981. https://doi.org/10.1007/BFb0091924. [60] M. Tomasetto, F. Braghin, and A. Manzoni. Latent feed-back control of distributed systems in multiple scenar-ios through deep learning-based reduced order models. 
+
+Computer Methods in Applied Mechanics and Engineer-ing , 442:118030, 2025. [61] M. Tomasetto, A. Manzoni, and F. Braghin. Real-time optimal control of high-dimensional parametrized sys-tems by deep learning-based reduced order models. Inter-national Journal for Numerical Methods in Engineering ,127(1):e70237, 2026. [62] M. Tomasetto, J. P. Williams, F. Braghin, A. Manzoni, and J. N. Kutz. Reduced order modeling with shallow recurrent decoder networks. Nature Communications ,16(1), 2025. [63] F. Tr¨ oltzsch. Optimal control of partial differential equa-tions: theory, methods, and applications , volume 112. American Mathematical Soc., 2010. [64] S. Wang, M. A. Bhouri, and P. Perdikaris. Fast PDE-constrained optimization via self-supervised oper-ator learning. arXiv:2110.13297, 2021. [65] J. P. Williams, J. N. Kutz, and K. Manohar. Reservoir computing for system identification and model predictive control. Neural Networks , 202:109031, 2026. [66] J. P. Williams, O. Zahn, and J. N. Kutz. Sensing with shallow recurrent decoder networks. Proceedings of the Royal Society A: Mathematical, Physical and Engineering Sciences , 480(2298):20240054, 2024. [67] D. Ye, J. Williams, M. Gao, S. Riva, M. Tomasetto, D. Zoro, and J. N. Kutz. Pyshred: A python package for shallow recurrent decoding for sparse sensing, model reduction and scientific discovery, 2025. [68] A. Yermakov, D. Zoro, L. M. Gao, and J. N. Kutz. T-shred: symbolic regression for regularization and model discovery with transformer shallow recurrent de-coders. Philosophical Transactions of the Royal Soci-ety A: Mathematical, Physical and Engineering Sciences ,384(2317):20240586, 2026. [69] P. Yin, G. Xiao, K. Tang, and C. Yang. Aonn: An adjoint-oriented neural network method for all-at-once solutions of parametric optimal control problems. 
+
+SIAM Journal on Scientific Computing , 46(1):C127– C153, 2024. [70] Z. Zhang, S. Liu, A. Alla, J. Darbon, and G. E. Karni-adakis. Pinns in pde constrained optimal control prob-lems: Direct vs indirect methods, 2026.
