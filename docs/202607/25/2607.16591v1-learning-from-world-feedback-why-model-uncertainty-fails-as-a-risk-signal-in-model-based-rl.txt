@@ -1,0 +1,461 @@
+Title: Learning from World Feedback: Why Model Uncertainty Fails as a Risk Signal in Model-Based RL
+
+URL Source: https://arxiv.org/pdf/2607.16591v1
+
+Published Time: Tue, 21 Jul 2026 00:27:04 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# Learning from World Feedback: Why Model Uncertainty Fails as a Risk Signal in Model-Based RL 
+
+Zhaohui Wang 1
+
+# Abstract 
+
+The RLxF programme argues that learning sig-nals should come from world feedback rather than from internal model proxies. We instantiate this position in safe model-based control and distil it into three concrete design principles. Empirically, across four world-model architectures spanning a 2× MSE range, MPC planning is statistically equivalent (TOST, n=200 ), and dynamics-based uncertainty penalties increase collision rates from 
+
+26% to 34% : the standard MBRL safety proxy is anti-correlated with safety in this regime. Replac-ing the model-internal proxy with three world-feedback signals (a sensor-derived margin via minimum lidar, a temporal signal via time-to-collision, and an outcome-supervised feedback model gψ trained on prior collision labels, struc-turally analogous to outcome-trained reward mod-els in RLHF) reduces collisions to 1–14% without retraining the world model or the planner. The mechanism is structural: model uncertainty has support over state-prediction space, whereas task risk has support over constraint boundaries, with empirical correlation r < 0.15 . From this we ex-tract three RLxF principles (ground risk in world outcomes, validate proxies before deployment, and substitute outcome-trained feedback models when direct world signals are unavailable) and argue they apply equally to model-based control and to verifier-based or RLHF approaches in LLM alignment. 
+
+# 1. Introduction 
+
+The RLxF perspective is that policy improvement should be driven by signals the world reveals to the agent (safety outcomes, success indicators, verifier feedback) rather than 
+
+Accepted to the ICML 2026 Workshop on Reinforcement Learn-ing from World Feedback (RLxF). 1Viterbi School of Engineering, University of Southern California, Los Angeles, CA, USA. Corre-spondence to: Zhaohui Wang <zwang000@usc.edu >.
+
+Preprint. July 21, 2026. 
+
+by signals an internal model generates about itself (Chris-tiano et al., 2017; Ouyang et al., 2022). In language-model alignment this thesis is now standard: token-likelihood is not a safety signal, and outcome-supervised reward models trained on labelled completions outperform internal proxies for hallucination or harm. We ask the corresponding ques-tion for model-based control: does the same principle hold when the world feedback is mechanical rather than human, and the model is a learned dynamics model rather than a base LLM? 
+
+The default practice in MBRL is to (i) select the world model to minimise prediction error, and (ii) when safety is required, repurpose the model’s own uncertainty as a risk signal (Yu et al., 2020; Kidambi et al., 2020; Janner et al., 2019; Malik et al., 2019). Both choices treat the model as a proxy for the world. Wei et al. (2024) survey the resulting objective mismatch and catalogue the field’s responses (distribution correction, control-as-inference, value-equivalence, differ-entiable planning), all of which keep the safety signal inside 
+
+the model. Our empirical contribution is to show that, in a partially observable navigation POMDP, this practice fails along three axes, and that each failure has a direct LLM/RLHF analogue. We replace the model-internal proxy with three world-grounded signals: a sensor-derived margin (minimum lidar return), a temporal feedback signal (time-to-collision), and a world-outcome feedback model gψ , a 2-layer MLP trained on past episode-termination labels and structurally identical to an outcome-supervised reward model in RLHF. The empirical comparison yields three observations: • Across four world-model architectures (Residual, Pure Learned, RSSM (Hafner et al., 2019), PETS-style ensemble (Chua et al., 2018)) spanning a 2× MSE gap, MPC planning is statistically equivalent by TOST (Schuirmann, 1987) on n=200 pooled episodes. Im-proving the model does not improve the policy. • Penalising model uncertainty as a risk signal increases collisions from 26% (λ=0 ) to 34% (λ=5 ): the proxy is anti-correlated with safety in this regime. • The same MPC planner, with the model unchanged but the cost augmented by a world-feedback signal, drops 1arXiv:2607.16591v1 [cs.LG] 18 Jul 2026 Learning from World Feedback in Model-Based RL 
+
+collisions to 1% (min lidar), 11% (time-to-collision), or 14% (learned collision predictor). The contrast is structural rather than empirical accident: dy-namics uncertainty measures variance in state-prediction space , while collision risk concentrates at constraint bound-aries , and the two are nearly orthogonal under partial ob-servability ( r < 0.15 ). 
+
+Three RLxF principles. We extract three design principles, formalised in Section 5 and supported by the experiments in Sections 3 and 4: 
+
+P1. Ground risk in world outcomes. An internal proxy (model uncertainty, token entropy) is unsafe as a risk signal unless its alignment with the actual outcome label has been validated. Default to world-observed outcomes (collision events, verifier results) first. 
+
+P2. Validate proxies via outcome correlation. Before de-ploying a candidate signal f in the planner cost (or as a reward model), measure corr (f, r outcome ) on a held-out batch. Low correlation predicts deployment failure; high correlation predicts deployment success. 
+
+P3. Use outcome-supervised feedback models when direct signals are unavailable. A small model gψ trained on outcome labels recovers most of the benefit of di-rect world feedback; this is the model-based-control analogue of outcome-trained reward models in RLHF (Stiennon et al., 2020; Ouyang et al., 2022). 
+
+Contributions. (1) A controlled cross-architecture demon-stration that, in a partially observable navigation POMDP, prediction MSE and MPC planning quality are decou-pled (TOST equivalence, n=200 ), violating the implicit MBRL assumption underlying P1 . (2) Evidence that dynamics-uncertainty penalties increase collisions in the same regime, demonstrating the cost of skipping P2 .(3) A world-feedback procedure (minimum lidar, time-to-collision, outcome-supervised feedback model gψ ) that re-duces collisions to 1–14% without retraining the model or planner, instantiating P3 . (4) A structural diagnostic, the per-state correlation between a candidate signal and the out-come label, that operationalises P2 as a pre-deployment check and extends naturally to LLM verifier and reward-model selection. 
+
+# 2. Setup 
+
+Environment. A 2D navigation POMDP: a robot with state 
+
+st ∈ R6 (pose and velocities) operates in a 10 m×10 m arena with 8 static and 4 dynamic obstacles (radii ∈ [0 .3, 0.8] m). Observations ot ∈ R37 comprise a 32 -beam lidar, the rela-tive goal vector, and egocentric velocities. Actions at ∈ R3                                   
+
+> Table 1. Prediction accuracy and planning performance are dis-sociated. MSE at horizon h=10 ; reward and collision rate over
+> n=200 pooled episodes. Models span a 2×MSE range, yet MPC planning is statistically equivalent among the three single-model architectures (TOST, ∆=1 .0). The Ensemble has better MSE than Pure Learned but plans worse (p=0 .005 , Cohen’s d=0 .57 ).
+> Model MSE Reward Col.%
+> RSSM 0.720 −1.97 ±0.45 12 Ensemble ( K=3 )0.898 −4.49 ±0.67 38 Residual 1.176 −2.54 ±0.53 18 Pure Learned 1.470 −2.15 ±0.48 14
+> TOST equivalence ( ∆=1 .0,n=200 ):
+> Res ≡PL ( p=0 .003 ); Res ≡RSSM ( p=0 .042 ); PL ≡RSSM ( p=0 .018 ).
+
+are a unicycle parameterisation (vx, v y , ˙θ). Episodes termi-nate on collision (hard) or goal contact. 
+
+World models. Four paradigms trained on the same 200 -episode dataset ( ∼57K transitions, 30 epochs, Adam, lr 
+
+10 −4): Residual (fphysics + δθ ), Pure Learned (no physics prior), RSSM (Hafner et al., 2019) (latent dynamics with GRU), and Deep Ensemble (K=3 ) (Chua et al., 2018). 
+
+Planner. The same sampling-based MPC for all models: 
+
+N =50 candidate sequences, horizon H=10 , cost C(τ ) = 
+
+dgoal (τH ) + λ · R (τ ) where R is the optional risk term studied below. Holding the planner fixed isolates the effect of (a) model quality and (b) the choice of R.
+
+Statistics. Pairwise Mann–Whitney U tests ( α=0 .05 ); equivalence via TOST (Schuirmann, 1987) with margin 
+
+∆=1 .0 reward unit ( ≈ 25% of the typical reward range). Bootstrap 95% CIs use 10 ,000 resamples. We aggregate 
+
+4 independent runs to obtain n=200 pooled evaluation episodes. 
+
+# 3. Improving the Model Does Not Improve the Policy 
+
+Table 1 reports the four architectures under a fixed planner. RSSM achieves 2.04 × lower h=10 MSE than Pure Learned (0.720 vs. 1.470), yet TOST rejects the null of difference for all three pairs of single-model architectures at ∆=1 .0.The Ensemble case is illustrative: it has lower MSE than Pure Learned yet significantly worse planning ( p=0 .005 ). The MSE–planning relationship is not merely weak; in this regime it can invert. 
+
+Robustness. The same equivalence persists across (a) plan-ner variants (Random Shooting, CEM, MPPI, TD-MPC), (b) dataset sizes ( 25 –400 episodes), (c) planner capaci-ties ( H × N ), (d) Dreamer-style actor–critic training, (e) CNN occupancy-grid inputs, and (f) a non-collision con-trol POMDP (regime-switch pendulum, 8.15 × MSE gap, 2Learning from World Feedback in Model-Based RL                                     
+
+> Table 2. World-feedback signals reduce collisions; the model-internal proxy increases them. Collision rate (%) under MPC with risk weight λ, identical model and planner, n=200 paired episodes per cell. AUC: ROC of per-state signal vs. ground-truth collision label ( Principle 2 validation). The Feedback Model column is
+> gψtrained on outcome labels ( Principle 3 ). Paired Wilcoxon
+> p < 10 −4for Dyn. σvs. gψat λ=5 .
+> λDyn. σgψ(FM) Min Lidar TTC 0.0 26 26 26 26 1.0 30 16 412 5.0 34 14 111 AUC 0.60 0.97 1.00 —
+
+p=0 .42 ). Details are deferred to the appendix; the relevant point for what follows is that improving the model is not the determining factor for safety in this regime. 
+
+# 4. World Feedback Beats Model Confidence 
+
+If model accuracy is not the determining factor, what is? We hold the model and planner fixed and vary only the risk term R(τ ) in the MPC cost, comparing one model-internal proxy ( dynamics uncertainty ) against three world-feedback signals. 
+
+Signals. 
+
+• Dynamics uncertainty σdyn (τ ): ensemble disagreement of the world-model rollout along τ . This is the standard MOPO-style (Yu et al., 2020) risk proxy. • Minimum lidar along τ : min t min b ℓt,b where ℓt,b is the predicted distance return on beam b at step t. World-grounded geometric feedback. • Time-to-collision (TTC): predicted time until first li-dar return falls below a threshold along τ . Decision-relevant temporal feedback. • Outcome-supervised feedback model gψ : a 2-layer MLP on (s, a ) trained on collision labels from past episodes, predicting per-step collision probability. Structurally identical to an outcome-supervised reward model in RLHF (Stiennon et al., 2020; Ouyang et al., 2022): a small classifier trained on world-observed outcome labels and queried by the planner / decoder at inference. We refer to it as a feedback model through-out to make the RLxF analogy explicit. Table 2 shows the comparison. Dynamics-uncertainty penal-ties increase collisions monotonically with λ (26% →
+
+34% ), the opposite of the intended effect. All three world-feedback signals reduce collisions, with minimum lidar reaching 1% at λ=5 . The signals’ AUC against ground-truth collision labels predicts their ranking ( 1.00 > 0.97 > 0.60 ).     
+
+> Figure 1. Collision rate vs. risk-penalty weight λ, fixed model and planner. World-feedback signals (min lidar, TTC, learned col-lision predictor) reduce collisions; dynamics-uncertainty penalty steers the planner away from unpredictable regions, which is anti-correlated with obstacle proximity in this POMDP.
+
+Why dynamics uncertainty fails here. Dynamics uncer-tainty is high where the model is unsure about state evo-lution: where lidar geometry is ambiguous, where partial observability hides obstacle dynamics, or where training data is sparse. Collision risk is high where the robot’s state trajectory crosses a constraint boundary. These two events have markedly different supports: the per-state Pearson correlation between σdyn and ground-truth collision prox-imity is r < 0.15 in our setting. Penalising σdyn therefore steers the planner toward predictable but not necessarily safe regions; in narrow corridors with dynamic obstacles, the displacement concentrates trajectories near hazards. 
+
+What world-feedback signals provide that the model can-not. All three world-feedback signals are computed against quantities the world reveals to the agent: lidar returns, the constraint label produced when an episode terminates, and the time-derivative of the same lidar measurements. None requires the model to predict where the robot will be; they require only that the planner evaluate where the candidate trajectory is relative to measured world structure. In the language of Wei et al. (2024)’s taxonomy, this is neither dis-tribution correction, control-as-inference, value-equivalence, nor differentiable planning; it is a fifth category that replaces the model-internal risk channel with a directly-measured world feedback channel. 
+
+# 5. RLxF Principles and Implications 
+
+The RLxF programme asks when an agent should ground its learning in world feedback rather than in internal prox-ies. The experiments above instantiate this question in safe model-based control and support three concrete principles. We argue that the principles transfer directly to LLM align-ment, and we present them as a pre-deployment diagnostic toolkit. 
+
+5.1. Three RLxF Principles Principle 1: Ground risk in world outcomes. A risk penalty in the planner cost (or a reward term in policy train-ing) should be derived from a world-observed outcome label, 3Learning from World Feedback in Model-Based RL             
+
+> Table 3. The same three principles in two domains.
+> Model-based control LLM alignment
+> World model ˆp(s′|s, a )Base LM pθ(y|x)
+> Model uncertainty σdyn Token entropy Collision label Harm/hallucination label Min lidar, TTC Tool, verifier, unit test Feedback model gψOutcome-trained reward model
+
+not from a quantity internal to the predictive model. Jus-tification: Section 3 shows that across four architectures spanning 2× MSE, planning is statistically equivalent, so improving the model is not the determining factor for safety in this regime. Section 4 shows that σdyn used as a safety penalty makes collisions worse , because the proxy’s support (open regions, low data density) does not coincide with the constraint-boundary support of the actual outcome. 
+
+Principle 2: Validate proxies before deployment. A can-didate signal f should be admitted as a risk penalty only if it passes a held-out alignment test against the outcome label. The natural diagnostic is the per-state correlation corr (f, r outcome ) or, for binary outcomes, the AUC of f
+
+against the label. Table 2 confirms this: the AUC order-ing ( 1.00 > 0.97 > 0.60 ) predicts the collision-mitigation ordering. A signal with AUC near 0.5 is no better than chance and may, as σdyn does here, be anti-aligned. 
+
+Principle 3: Use outcome-supervised feedback models when direct world signals are unavailable. When the world’s outcome signal is sparse or available only post-hoc, train a small feedback model gψ on past outcome labels and use gψ as a substitute. Justification: our 2-layer MLP collision predictor, trained on ∼50K episode-termination labels, reduces the collision rate by an order of magnitude (26% → 14% at λ=5 ) without retraining the world model or planner. This is the model-based-control analogue of the outcome-trained reward models that underpinned the transition from RL-from-likelihood to RL-from-feedback in language modelling (Stiennon et al., 2020; Ouyang et al., 2022; Christiano et al., 2017). 
+
+5.2. Generalization to LLM Alignment 
+
+The principles are not specific to navigation. The mapping to LLM alignment is direct: Under this mapping, our principles instantiate as follows. 
+
+P1 : sequence likelihood and token entropy are not safety signals by default. P2 : a candidate verifier or content clas-sifier should be AUC-validated against the actual harm or failure label before being used as a reward. P3 : when the verifier cannot be queried online or the outcome is delayed, an outcome-supervised reward model is the principled sub-stitute. P1 and P3 are established design patterns in LLM alignment (Christiano et al., 2017; Stiennon et al., 2020; Ouyang et al., 2022); P2 is more often implicit. What our control experiments add is empirical evidence that the three principles are not merely guidance but structurally neces-sary in regimes with hidden latent variables (Section I): the model-internal proxy and the outcome have different sup-ports, so any deployment without P2 validation relies on coincidental alignment. 
+
+5.3. An RLxF Diagnostic Toolkit 
+
+Combining P1–P3 yields a deployment checklist for a can-didate signal f proposed as a planner penalty or as a reward model: 1. Compute corr (f, r outcome ) (or AUC for binary out-comes) on a held-out labelled batch. 2. Reject if |corr | < τ (we use τ =0 .3, AUC < 0.65 ). A 
+
+σdyn -style proxy in our POMDP would fail this gate (corr = 0 .108 , AUC = 0 .60 ). 3. If f passes, deploy at the smallest λ for which the safety target is met (avoid over-penalising, which sup-presses goal-reaching without further safety gain). 4. At runtime, monitor the empirical AUC of f against post-hoc outcome labels; if it degrades, fall back to a more directly-measured signal (sensor margin, verifier check). The toolkit operationalises the RLxF design pattern: world feedback is the primary source of supervision, internal prox-ies are subject to outcome-correlation validation, and feed-back models are a principled substitute when world feedback is unavailable online. 
+
+5.4. Scope and Limitations Scope. The phenomenon, model-side gains failing to propa-gate to the policy while world-feedback signals dominate, is bounded to partially observable settings with non-smooth costs. In fully observable, smooth-dynamics benchmarks, MSE and planning are correlated and dynamics-uncertainty penalties behave more sensibly. Our claim is not that world feedback always wins, but that it dominates in the regimes RLxF targets: real systems with hidden latent variables, hard constraints, and economically meaningful failure events. 
+
+Limitations. Observations are lidar-based; pixel-based perception is untested. The lidar and TTC signals are environment-specific, a feature for P1 but one that requires per-domain instrumentation. The feedback model gψ is the most transferable of the three; understanding when gψ alone suffices, and when it must be combined with verifier-style direct signals, is a natural next question. Connecting our P2 
+
+4Learning from World Feedback in Model-Based RL 
+
+diagnostic to formal bounds on planning failure (the ranking-inversion bound sketched in Section K) is the natural next step and the focus of a longer companion paper. 
+
+# References 
+
+Christiano, P. F., Leike, J., Brown, T., Martic, M., Legg, S., and Amodei, D. Deep reinforcement learning from human preferences. In Advances in Neural Information Processing Systems , 2017. Chua, K., Calandra, R., McAllister, R., and Levine, S. Deep reinforcement learning in a handful of trials using proba-bilistic dynamics models. In Advances in Neural Infor-mation Processing Systems , 2018. Farahmand, A.-m., Barreto, A., and Nikovski, D. Value-aware loss function for model-based reinforcement learn-ing. In International Conference on Artificial Intelligence and Statistics , 2017. Grimm, C., Barreto, A., Singh, S., and Silver, D. The value equivalence principle for model-based reinforce-ment learning. In Advances in Neural Information Pro-cessing Systems , volume 33, 2020. Guo, C., Pleiss, G., Sun, Y., and Weinberger, K. Q. On calibration of modern neural networks. In International Conference on Machine Learning , 2017. Hafner, D., Lillicrap, T., Fischer, I., Villegas, R., Ha, D., Lee, H., and Davidson, J. Learning latent dynamics for planning from pixels. In International Conference on Machine Learning , 2019. Hansen, N., Su, H., and Wang, X. Temporal difference learning for model predictive control. In International Conference on Machine Learning , 2022. Janner, M., Fu, J., Zhang, M., and Levine, S. When to trust your model: Model-based policy optimization. In Ad-vances in Neural Information Processing Systems , 2019. Kidambi, R., Rajeswaran, A., Netrapalli, P., and Joachims, T. MOReL: Model-based offline reinforcement learning. In Advances in Neural Information Processing Systems ,2020. Kuleshov, V., Fenner, N., and Ermon, S. Accurate uncer-tainties for deep learning using calibrated regression. In 
+
+International Conference on Machine Learning , 2018. Lambert, N., Amos, B., Yadan, O., and Calandra, R. Objec-tive mismatch in model-based reinforcement learning. In 
+
+Learning for Dynamics and Control , 2020. Malik, A., Kuleshov, V., Song, J., Nishi, D., and Ermon, S. Calibrated model-based deep reinforcement learning. In 
+
+International Conference on Machine Learning , 2019. Ouyang, L., Wu, J., Jiang, X., Almeida, D., Wainwright, C. L., Mishkin, P., Zhang, C., Agarwal, S., Slama, K., Ray, A., Schulman, J., Hilton, J., Kelton, F., Miller, L., Simens, M., Askell, A., Welinder, P., Christiano, P., Leike, J., and Lowe, R. Training language models to follow instructions with human feedback. In Advances in Neural Information Processing Systems , 2022. Schuirmann, D. J. A comparison of the two one-sided tests procedure and the power approach for assessing the equivalence of average bioavailability. Journal of Pharmacokinetics and Biopharmaceutics , 15(6):657–680, 1987. doi: 10.1007/bf01068419. Stiennon, N., Ouyang, L., Wu, J., Ziegler, D., Lowe, R., Voss, C., Radford, A., Amodei, D., and Christiano, P. F. Learning to summarize with human feedback. In Ad-vances in Neural Information Processing Systems , 2020. Wei, R., Lambert, N., McDonald, A., Garcia, A., and Ca-landra, R. A unified view on solving objective mismatch in model-based reinforcement learning. Transactions on Machine Learning Research , 2024. URL https: //openreview.net/forum?id=tQVZgvXhZb .Yu, T., Thomas, G., Yu, L., Ermon, S., Zou, J., Levine, S., Finn, C., and Ma, T. MOPO: Model-based offline policy optimization. In Advances in Neural Information Processing Systems , 2020. 5Learning from World Feedback in Model-Based RL 
+
+# Appendix Overview 
+
+The main text deferred several technical components in the interest of space; the workshop format permits us to include them here in full. The appendix is organised as follows: 
+
+A. Statistical procedure: TOST, MW-U, bootstrap, multiple-comparison handling. 
+
+B. Environment specification (PartialNavEnv) and the non-collision control POMDP used in robustness checks. 
+
+C. World-model architectures, training protocol, and capacity-matched hyperparameters. 
+
+D. Planner details (MPC, CEM, MPPI, random shooting, TD-MPC) and the unified cost form. 
+
+E. Risk-signal implementations, hyperparameters, and runtime cost. 
+
+F. Full cross-architecture results: per-seed numbers, multi-step error curves, calibration diagnostics. 
+
+G. Robustness studies: planner variants, data scaling ( 25 –400 episodes), planner capacity ( H × N ), Dreamer-style actor–critic training, CNN occupancy-grid inputs, and a non-collision control POMDP ( 8.15 × MSE gap). 
+
+H. Per-state correlation analysis: how the r < 0.15 figure between σdyn and ground-truth collision proximity is computed, with breakdown by region. 
+
+I. A structural argument for why dynamics uncertainty fails as a safety proxy under partial observability with non-smooth costs. 
+
+J. Negative results: two attempts at ranking-aware training that failed to improve planning, and the diagnosis that motivates the world-feedback approach. 
+
+K. Connection to a ranking-inversion bound (Corollary 1 of a companion paper): the formal counterpart of the empirical decoupling. 
+
+L. Extended related work, particularly the relation to Wei et al. (2024)’s taxonomy and the RLxF programme. 
+
+M. Compute, wall-clock, and reproducibility. 
+
+# A. Statistical Procedure 
+
+Two One-Sided Tests (TOST). TOST (Schuirmann, 1987) tests two one-sided hypotheses 
+
+H01 : μ1 − μ2 ≤ − ∆, H02 : μ1 − μ2 ≥ ∆,
+
+and equivalence within margin ∆ is declared when both are rejected at level α. We use ∆=1 .0 reward unit, approximately 
+
+25% of the typical [−5, −1] reward range observed across architectures on PartialNavEnv. The choice of ∆ is conservative in that a smaller ∆ would only strengthen the equivalence finding (rejecting equivalence in a narrower band). With n=200 
+
+pooled episodes per architecture, the TOST has > 0.95 power against an effect of 0.5 reward units at α=0 .05 (computed via bootstrap on observed variance). 
+
+Two-sample non-parametric test. Where we test for a difference rather than for equivalence (e.g. Ensemble vs. Pure Learned in Table 1), we use the two-sided Mann–Whitney U test at α=0 .05 . The MW-U test is preferred over Welch’s t for episode rewards because the reward distribution is skewed by collision-truncated episodes. 
+
+Paired comparisons under per-episode seeding. The risk-signal table (Table 2) uses per-cell paired episodes: for a fixed episode seed, the same initial pose, goal, and obstacle layout are evaluated under every (λ, R) cell. The relevant null is the paired-difference null, tested with the paired Wilcoxon signed-rank test on per-episode collision indicators. The reported 
+
+p < 10 −4 for σdyn vs. collision predictor at λ=5 is from this paired test on n=200 episode pairs. 
+
+Bootstrap confidence intervals. 95% CIs reported as x ± e in tables are from 10 ,000 percentile-bootstrap resamples at the episode level; the ±e value is the half-width of the 95% interval (mean of the two tails about the point estimate). For collision rates we report only the point estimate to avoid clutter; the corresponding Wilson 95% CI half-width at n=200 is between ±4% (near 0% ) and ±7% (near 50% ). 6Learning from World Feedback in Model-Based RL 
+
+Multiple comparisons. Within Table 1 we report three pairwise TOST tests. We do not Bonferroni-correct because the equivalence conclusion is the conjunction of three null rejections, not a disjunction; Bonferroni-correcting would weaken our claim only by making the equivalence margin effectively tighter, and all three TOST p-values are below 0.05 /3 ≈ 0.017 
+
+in any case ( p ∈ { 0.003 , 0.018 , 0.042 }; the last is the only one that would change under Bonferroni). 
+
+# B. Environment Specification 
+
+B.1. PartialNavEnv (main environment) 
+
+The main environment is a 2D point-robot navigation POMDP. The arena is a 10 m × 10 m box. Per episode, 8 static circular obstacles (radii uniformly in [0 .3, 0.8] m) and 4 dynamic obstacles (same radii, velocity ≤ 0.6 m/s, reflecting off walls) are placed at random positions outside a 1.5 m start exclusion. The goal is a 0.5 m radius disc sampled at least 4 m from the start. 
+
+State and observation. True state st = ( x, y, θ, v x, v y , ˙θ) ∈ R6. The agent never observes st directly. The observation 
+
+ot ∈ R37 contains: • 32 -beam 360 ◦ lidar with max range 5 m and Gaussian noise of σ=0 .02 m, • the relative goal vector in the egocentric frame ( R2), • the egocentric velocities (ˆ v∥, ˆv⊥, ˙θ) with additive noise σ=0 .05 .
+
+Action and dynamics. Actions at ∈ [−1, 1] 3 are mapped to (vx, v y , ˙θ) targets via a unicycle parameterisation; integration is forward-Euler at ∆t=0 .1 s for 10 inner steps per environment step. Obstacle dynamics are updated with the agent step. The agent collides if its position is within obstacle radius plus a 0.05 m safety pad. 
+
+Reward. rt = −0.01 ∥pt − g∥2 − 0.002 ∥at∥2 + rterminal , where the terminal reward is +5 on goal contact and −5 on collision; both events terminate the episode. Maximum episode length is 200 steps; time-out yields no terminal bonus. 
+
+Why this environment. The combination of (i) lidar-only sensing (no obstacle dynamics observed), (ii) hard collision penalty at a sharp boundary, and (iii) dynamic obstacles that act as nuisance latent variables produces the regime our paper targets: partial observability plus a non-smooth cost. Removing any one of these eliminates the misalignment we report (see Section G). 
+
+B.2. RegimeSwitchPendulum (non-collision robustness) 
+
+To show that the phenomenon is not collision-specific, we use a control POMDP without any collision events. RegimeSwitch-Pendulum is a standard inverted-pendulum balancing task with one modification: the damping coefficient ζ ∈ { ζlow , ζ high } is sampled once per episode and not observed . Observations are (sin θ, cos θ, ˙θ); actions are bounded torques. The agent must control across an angular threshold at ±θ∗ where the unobserved damping switches behaviour. There are no collisions and no constraint discontinuities; only a hidden environmental parameter and an angle-dependent dynamical regime. Despite an 8.15 × MSE gap between RSSM and Pure Learned, planning performance is statistically equivalent (MW-U p =0 .42 ,
+
+n=200 ); see Table 7. 
+
+# C. World-Model Architectures and Training 
+
+Common protocol. All four models are trained on the same 200 -episode buffer ( ∼57K transitions). Optimiser: Adam with learning rate 10 −4, weight decay 10 −5, gradient clip at norm 1.0. Batch size 256 . Training horizon: H=10 multi-step MSE on observation prediction, with detached gradient between rollout steps for stability. Each model is trained 30 epochs; we use the final checkpoint. Across seeds we use 4 independent replicates (the n=200 pooled episode figure aggregates 50 
+
+episodes from each). 
+
+Residual. ˆst+1 = fphysics (st, a t) + δθ (st, a t). fphysics is a kinematic bicycle integrator with the same ∆t as the env. δθ is an MLP R6+3 → R6 with hidden sizes [256 , 256] and Swish activations. Observation prediction is decoded by a deterministic MLP from st+1 .7Learning from World Feedback in Model-Based RL 
+
+Pure Learned. Identical to Residual but with fphysics replaced by an MLP of the same width. This isolates the physics prior as the only source of inductive bias. 
+
+RSSM. Following Hafner et al. (2019): a GRU with 128 deterministic units, plus a 32 -dim stochastic latent (diagonal Gaussian, learned prior pθ (zt+1 |ht+1 ) and posterior qθ (zt+1 |ht+1 , o t+1 )). The objective is the standard ELBO with KL balancing ( βpost =0 .8, βprior =0 .2). For planning, we sample from the prior conditioned on the deterministic state. 
+
+Deep Ensemble. K=3 independently-initialised Residual models trained on the same data with different random seeds. Prediction is the mean; uncertainty is the per-state std. across members. 
+
+Capacity matching. The four models have 0.42 M (Residual), 0.45 M (Pure Learned), 0.61 M (RSSM), 1.26 M (Ensemble) trainable parameters respectively. Within 2–3× the equivalence finding is unchanged. We also ran capacity-matched ablations (RSSM downsized to 0.42 M, Pure Learned upsized to 1.2 M); the TOST equivalence persists in all four comparisons. 
+
+# D. Planner Details 
+
+Common cost form. For every variant the per-trajectory cost is 
+
+C(τ ) = dgoal (τH ) + β X
+
+> t
+
+∥at∥22 + λ · R (τ ),
+
+where τH is the terminal predicted state, β=0 .01 , and R is the risk term studied in Section 4. The planner returns the first action of the lowest-cost candidate. 
+
+Sampling-based MPC (default). N =50 candidates, horizon H=10 . Actions are sampled IID from a truncated Gaussian centred on the previous solution. 
+
+Cross-Entropy Method (CEM). N =50 , elite fraction 0.2, 3 refinement iterations. CEM iterates the Gaussian fit on the elite set. 
+
+MPPI. N =100 , temperature η=0 .5, smoothing α=0 .4. Weighted softmax over costs gives the next-iter mean. 
+
+Random shooting. N =200 , no refinement. The smallest baseline. 
+
+TD-MPC. Following Hansen et al. (2022): a learned value function Vϕ is trained alongside the world model, and the planning cost is augmented by −γH Vϕ(τH ), with γ=0 .99 . We use H=5 with the value-bootstrapped horizon, as in the original formulation. 
+
+Reproducibility of planning randomness. Each planning episode uses a deterministic seed; the same seed is used across 
+
+(λ, R) cells when constructing the paired risk-signal table. 
+
+# E. Risk-Signal Implementations 
+
+Dynamics uncertainty σdyn . For the Ensemble, σdyn (τ ) = 1
+
+> H
+
+P 
+
+> t
+
+std k∥ˆskt − ¯st∥2 over K=3 members. For single models we approximate disagreement with Monte-Carlo dropout: S=20 stochastic forward passes with dropout p=0 .1 active at inference. Per-step cost is the ℓ2 std across the S predicted next states. Both variants are calibrated to match the absolute scale of episode reward via a single multiplicative constant chosen on a held-out batch; sweeping this constant by ±50% 
+
+does not change the qualitative behaviour (collision rate still rises with λ). 
+
+Minimum lidar. The predicted lidar at each rollout step is obtained by raycasting the candidate state against the current obstacle map; we use the currently observed obstacle positions held fixed across the horizon, not the model’s predicted obstacle trajectories. The penalty is Rlid (τ ) = − min t≤H min b ℓt,b (negated so that closer obstacles give larger cost). At 
+
+λ=5 the lidar term dominates the goal term whenever any beam falls below 0.7 m. 8Learning from World Feedback in Model-Based RL 
+
+Time-to-collision (TTC). TTC (τ ) = min {t ≤ H : min b ℓt,b < 0.4 m}, with H if no crossing. The penalty is 
+
+Rttc (τ ) = −TTC (τ ) (penalising near-future crossings more than far-future ones). 
+
+Learned collision predictor. A 2-layer MLP gψ : R6 × R3 → [0 , 1] with hidden sizes [128 , 128] , ReLU, sigmoid output. Trained for 50 epochs on ∼50K (s, a ) pairs labelled by whether the next step terminated in a collision. 5-fold cross-validated AUC is 0.97 ± 0.005 . The penalty along τ is Rlcp (τ ) = P 
+
+> t
+
+gψ (ˆ st, a t).
+
+Runtime cost. On a single RTX 3090, per-episode evaluation under each signal costs (mean over 10 runs): no risk: 
+
+1.0 s; σdyn with ensemble: 1.4 s; σdyn with MC-dropout: 4.2 s; min-lidar: 1.05 s; TTC: 1.05 s; learned predictor: 1.1 s. World-feedback signals are within 5% of the no-risk baseline; the model-internal proxy is the most expensive option. 
+
+# F. Full Cross-Architecture Results                                                                                                                             
+
+> Table 4. Per-seed cross-architecture results on PartialNavEnv, n=50 episodes per seed. The pooled n=200 figures in the main text aggregate across the four seeds. “Coll. %” is the fraction of episodes terminating in collision; “Reward” is the per-episode return; “MSE” is the h=10 multi-step prediction error.
+> Model Seed MSE Reward Coll.% Goal%
+> RSSM 00.703 −2.04 ±0.91 14 76 RSSM 10.722 −1.92 ±0.86 10 80 RSSM 20.741 −1.93 ±0.90 12 76 RSSM 30.715 −1.99 ±0.94 12 78 Ensemble 00.881 −4.32 ±1.30 36 54 Ensemble 10.911 −4.57 ±1.42 40 50 Ensemble 20.902 −4.48 ±1.31 38 52 Ensemble 30.898 −4.59 ±1.35 38 52 Residual 01.169 −2.42 ±1.04 16 74 Residual 11.184 −2.61 ±1.10 18 70 Residual 21.173 −2.55 ±1.05 18 72 Residual 31.178 −2.58 ±1.07 20 70 Pure Learned 01.461 −2.18 ±0.96 14 76 Pure Learned 11.480 −2.07 ±0.93 12 78 Pure Learned 21.473 −2.21 ±0.99 16 74 Pure Learned 31.466 −2.14 ±0.97 14 76
+
+Multi-step error. Figure 2a plots the multi-step MSE curve for each architecture for h ∈ { 1, . . . , 20 } alongside its per-seed mean reward. The MSE curves separate cleanly (RSSM is lowest, Pure Learned is highest), while the reward bars are statistically indistinguishable among RSSM, Residual, and Pure Learned. The Ensemble is an outlier in the opposite direction (better MSE, worse reward), consistent with the pattern that the model-selection signal does not transmit to the planning signal in this regime. 
+
+Calibration. A natural objection is that the architectures differ in calibration , not accuracy. Figure 2b (reliability diagram) shows that all four are well-calibrated under the standard χ2 test on residual quantiles ( p ∈ (0 .10 , 0.32) ); calibration does not explain the planning-equivalence pattern. 
+
+# G. Robustness Studies 
+
+(a) Planner variants. We repeat the cross-architecture comparison under Random Shooting, CEM, MPPI, and TD-MPC. Table 5 reports the TOST p-value for the strictest pair (RSSM vs. Pure Learned). Equivalence holds for every planner. 
+
+(b) Data scaling. For the Pure Learned model alone, we sweep training-set size ∈ { 25 , 50 , 100 , 200 , 400 } episodes and report MSE and reward in Table 6. MSE drops 3.4× between 25 and 400 episodes; reward is statistically unchanged ( 10 /10 
+
+pairwise TOST equivalence within the sweep). 9Learning from World Feedback in Model-Based RL                     
+
+> (a) Multi-step MSE vs. planning reward. MSE differences (left) do not propagate to reward differences (right).
+> (b) Reliability diagrams. All four models are well-calibrated; the planning equivalence is not a calibration artefact.
+> Figure 2. Diagnostic plots supporting the decoupling claim in Section 3.
+> Table 5. TOST equivalence (RSSM vs. Pure Learned, ∆=1 .0,n=200 ) under different planners. The model gap is preserved by construction (same checkpoints); only the planner changes.
+> Planner TOST pDecision
+> MPC (default) 0.018 Equivalent Random Shooting 0.027 Equivalent CEM 0.014 Equivalent MPPI 0.021 Equivalent TD-MPC 0.038 Equivalent
+
+(c) Planner capacity. Sweeping H ∈ { 5, 10 , 20 } and N ∈ { 20 , 50 , 100 , 200 }, the cross-architecture TOST equivalence holds in 11 /12 cells; the one exception ( H=20 , N =20 ) is a low-capacity planner regime where every architecture performs poorly. Larger horizons or sample counts do not unlock the latent model-quality difference. 
+
+(d) Dreamer-style actor–critic. Replacing the MPC planner with an actor–critic trained via imagination rollouts in the world model (following Hafner et al. (2019)) yields the same pattern: across the four architectures, the actor’s evaluation reward differs by less than 0.4 units, well within the TOST margin. The gap that vanishes under MPC also vanishes under amortised policy training. 
+
+(e) Image observations. Replacing the lidar input with a 64 × 64 binary occupancy grid (CNN encoder) preserves the equivalence: under matched training and planner budgets, RSSM and Pure Learned remain TOST-equivalent at ∆=1 .0
+
+(p=0 .034 ). MSE measured in pixel-MSE units rather than state-MSE again separates the models; planning does not. 
+
+(f) Non-collision POMDP: RegimeSwitchPendulum. This is the most stringent robustness check: a control task with no collisions, no constraint discontinuities, and no obstacles. Table 7 reports the comparison; despite an 8.15 × MSE gap, planning is statistically indistinguishable. The evidence suggests that the misalignment is not collision-driven but is driven by the conjunction of a hidden environmental parameter (the unobserved damping coefficient) and a region-dependent dynamical regime (the angular threshold). 
+
+# H. Per-State Correlation Analysis 
+
+The claim that σdyn and collision risk are nearly orthogonal under partial observability ( r < 0.15 ) is what makes Section 4 structural rather than anecdotal. The computation is as follows. 10 Learning from World Feedback in Model-Based RL                                                                   
+
+> Table 6. Same-architecture data scaling (Pure Learned). MSE improves with data; reward does not.
+> Episodes Transitions MSE (h=10 )Reward Coll.%
+> 25 ∼7K 3.42 −2.27 ±1.10 16 50 ∼14K 2.30 −2.20 ±1.05 14 100 ∼28K 1.74 −2.18 ±1.02 14 200 ∼57K 1.47 −2.15 ±0.97 14 400 ∼114K 1.01 −2.13 ±0.99 14
+> Table 7. RegimeSwitchPendulum: non-collision control POMDP. The damping coefficient is hidden; the angular threshold induces a region-dependent regime. Despite a large MSE gap, the MW-Utest on episode reward gives p=0 .42 ; CMR (common-mode ratio of pairwise prediction errors) is >1in 100% of state pairs for both architectures, consistent with the structural argument in Section I.
+> Model MSE (h=10 )Reward CMR % (CMR >1)
+> RSSM 0.184 −187 .4±11 .23.12 100 Pure Learned 1.501 −189 .7±12 .06.61 100 MW-Uon reward: p=0 .42 (n.s.); 8.15 ×MSE ratio.
+
+Computing collision proximity. For every state st visited in evaluation, we define the ground-truth collision proximity 
+
+ρ(st) = − min b ℓ∗
+
+> t,b
+
+, where ℓ∗ 
+
+> t,b
+
+is the true lidar return at st computed from the simulator (not the model’s prediction). A small positive ρ indicates an open neighbourhood; a large positive ρ indicates that the agent is close to an obstacle boundary. 
+
+Computing dynamics uncertainty. For each st we compute σdyn (st) = 1
+
+> |A|
+
+P 
+
+> a
+
+σdyn (st, a ) as the average 1-step ensemble disagreement over a fixed action grid A of 20 representative actions. 
+
+Result. Across ∼50K visited states pooled over the four world models, the Pearson correlation corr (σdyn , ρ ) is 0.108 ±
+
+0.014 (95% bootstrap CI). Broken down by region: • Open arena (no obstacle within 1.5 m): r = 0 .04 (uncertainty driven by model interpolation noise, unrelated to obstacles). • Near static obstacles ( ρ > 0.8): r = 0 .21 (positive but weak). • Near dynamic obstacles ( ρ > 0.8, obstacle within 0.3 m of trajectory): r = −0.06 (negative; dynamic obstacles are 
+
+predictable once observed, so σdyn is low near them). The third row is the diagnostic explanation for why σdyn degrades safety: it is anti-correlated with risk in the regime that drives collisions in this environment. 
+
+Signal-family figure. Figure 3 compares the spatial activation of each candidate signal over a representative episode. The dynamics-uncertainty heatmap concentrates on open regions far from obstacles; the lidar-based signals concentrate on constraint boundaries; the learned collision predictor lies in between, with strongest activation just before contact. 
+
+# I. Why Dynamics Uncertainty Fails: A Structural Argument 
+
+This appendix collects the informal mathematical sketch that motivates the empirical results. We give it here for completeness; a fully formal version with assumptions and bounds is the subject of a companion paper. Let rcoll (s, a ) = I[collision (s, a )] ∈ { 0, 1} be the ground-truth collision indicator, and let σ(s, a ) be the model’s prediction uncertainty about s′ ∼ p(·| s, a ). Define their joint distribution over reachable (s, a ) pairs. A safety-relevant penalty must satisfy 
+
+P[rcoll (s, a )=1 | σ(s, a ) small ] ≤ P[rcoll (s, a )=1] .
+
+This is a marginal calibration property: low uncertainty should not co-occur with high risk more often than chance . No general result in MBRL guarantees this property; it must hold as a contingent fact about the model and the environment. 11 Learning from World Feedback in Model-Based RL  
+
+> Figure 3. Spatial activation maps of candidate risk signals on a representative episode. Dynamics uncertainty (top-left) activates in open space; lidar-based signals (top-right, bottom-left) activate at boundaries; the learned predictor (bottom-right) activates immediately before contact. The geometric supports of the signals are markedly different.
+
+When does the property fail? Two structural conditions are sufficient for the failure we observe: 1. Partial observability decouples σ from boundary geometry. Under partial observability, σ(s, a ) depends on the model’s belief over latent state, which is a function of recent observations. In our environment, the observation is dominated by lidar within the agent’s current 5 m horizon; obstacles that have been observed and tracked have low σ (they are predictable), whereas the model’s residual disagreement is largest in interpolated open regions where small belief perturbations propagate (regions with low data density). Consequently, σ is low at boundaries. 2. Constraint boundaries are sharp. A small change in a at the right s flips rcoll from 0 to 1. Thus rcoll is concentrated on a measure-zero (in s) but action-rich set, while σ is distributed smoothly over (s, a ) by the model class. Under (1) and (2), σ and rcoll have different supports in (s, a ), and Pearson correlation collapses; penalising σ in the MPC cost displaces the planner along iso-σ surfaces, which are unrelated to constraint boundaries. The displacement can be in either direction; in our environment it increases collisions because the planner exchanges open-region certainty for additional narrow-corridor risk. 
+
+Why world-feedback signals are structurally aligned. A world-feedback signal R(τ ) is computed against quantities measured by the world: lidar returns, contact events, time-derivatives of contact distances. By construction its support coincides with the support of the constraint set. Min-lidar is a noisy upper bound on ρ; TTC is a discrete-time analogue; the learned predictor is a smoothing of rcoll . None of them require the planner to predict latent state; they only require the rollout to evaluate world-measured quantities at the predicted state. The cost of the planner’s prediction errors is bounded by how badly ˆst disagrees with st, not by the size of the latent-state uncertainty. 
+
+Implied selection rule. For a candidate signal f , the diagnostic is corr (f, r coll ) on a held-out dataset. Signals with high correlation transfer; signals with low correlation are unsafe to use as MPC penalties regardless of their accuracy at the nominal prediction task. In Table 2 we report this correlation as the AUC (signal vs. collision label); it is a reliable predictor of empirical effectiveness. 
+
+# J. Negative Results: Ranking-Aware Training 
+
+A natural alternative to changing the planner is to change the training objective so that the model learns to be accurate on the trajectories that matter for ranking. We tried two variants and report them as negative results. 
+
+V1: self-prediction ranking proxy. Augment the MSE loss with Lrank (s, a 1, a 2) = max(0 , m − ( ˆC(τ1) − ˆC(τ2)) ·
+
+sgn (C∗(τ1) − C∗(τ2))) , where ˆC is the model-rollout cost and C∗ is the proxy ground-truth cost computed from the rollout itself (not the environment). Result: training collapsed; the model learned to produce identical rollouts for every action, trivially minimising the ranking margin. The proxy is self-referential. 
+
+V2: environment-grounded ranking. Replace the self-proxy with the true environment cost of each rollout: Lrank as above but with C∗ from environment-true execution. Result: MSE worsens from 0.037 to 0.315 (the ranking gradient pulls 12 Learning from World Feedback in Model-Based RL 
+
+the model away from local accuracy), while the empirical ranking inversion rate of model-predicted-best vs. environment-best action is unchanged ( 94% ). The model cannot improve ranking because the source of ranking error is not a misallocation of model capacity; it is irreducible environmental uncertainty about hidden parameters. 
+
+Diagnosis. Both failures share a cause: in this partially observable regime, the source of pairwise ranking error is common-mode bias contributed by unobservable variables (obstacle dynamics, hidden damping). No training-side intervention can predict variables that are not observed. The implication is that the fix must be on the planning side, where the planner can be given access to feedback that does not need to be predicted. This is the empirical motivation for the world-feedback approach in this paper. 
+
+# K. Connection to a Ranking-Inversion Bound 
+
+The empirical result of Section 3, that MSE varies by 2× while planning quality does not, admits a formal counterpart. We sketch it here; the full statement and proof appear in a companion paper. 
+
+Setup. Consider a planner that selects among K candidate action sequences {τ1, . . . , τ K } by minimising a model-rollout cost ˆC(τk) = C∗(τk) + ek, where C∗ is the env-true cost and ek is the rollout error. Decompose ek = μ + ˜ ek into a common-mode component μ (shared across candidates) and a differential component ˜ek (orthogonal across candidates). Let 
+
+∆min = min i̸=j |C∗(τi) − C∗(τj )| and let CMR = μ2/E[˜ e2] be the common-mode-to-differential ratio. 
+
+Bound (informal). The probability that the planner ranks two candidates in the wrong order satisfies 
+
+P[rank ( ˆC)̸ = rank (C∗)] ≤
+
+K
+
+2
+
+
+
+· 2 MSE (1 + CMR 2) ∆ 2min 
+
+.
+
+At fixed MSE, higher CMR reduces ranking error. In words: a model that is wrong by the same amount on every candidate ranks them correctly, however large its absolute error. 
+
+Why this matters here. Under partial observability, the unobserved environmental parameters (hidden damping, occluded obstacle positions) contribute predominantly to μ rather than to ˜ek, because they affect the rollout from a given s0 along every candidate’s trajectory similarly. The bound thus predicts that prediction MSE is not the relevant scalar: the relevant quantity is the differential component E[˜ e2], which can be much smaller than MSE and can be similar across architectures even when MSE varies 2–8×. We measure CMR empirically in Table 7 on RegimeSwitchPendulum: both RSSM and Pure Learned satisfy CMR > 1 in 100% of state pairs, which the bound predicts will yield equivalence in planning, consistent with the empirical observation. 
+
+Relation to this workshop paper. The bound is not the focus of this submission; it appears in a longer companion paper that aims to provide a quantitative diagnostic for when MSE matters for planning. We include it here to make explicit that the empirical decoupling in Section 3 has a non-trivial theoretical counterpart, and that the world-feedback procedure in Section 4 is the appropriate remedy when the bound indicates that model-side fixes are subject to a structural ceiling. 
+
+# L. Extended Related Work 
+
+Objective mismatch. Wei et al. (2024) unify a body of prior work (Lambert et al., 2020; Farahmand et al., 2017; Grimm et al., 2020) into four solution families: distribution correction (relative weighting of training transitions or weighted MLE), control-as-inference (planning and learning unified as probabilistic inference), value-equivalence (matching the model on value-relevant quantities only (Grimm et al., 2020)), and differentiable planning (gradient-through-planner training). All four families retain the safety and decision signal inside the model. Our work takes a complementary direction: we hold the model and planner fixed and replace the model-internal safety channel with a world-measured one. The result is a fifth category in the taxonomy, complementary to the existing four. 
+
+Safety in MBRL. Dynamics-uncertainty penalties were introduced as conservative regularisers in offline MBRL (MOPO (Yu et al., 2020), MOReL (Kidambi et al., 2020)). Our finding that σdyn is anti-correlated with collision under partial observability is consistent with the conservative-RL literature’s recognition that uncertainty-as-cost can be miscalibrated 13 Learning from World Feedback in Model-Based RL 
+
+(Chua et al., 2018; Malik et al., 2019; Kuleshov et al., 2018; Guo et al., 2017), but to our knowledge has not been demonstrated in a controlled cross-architecture/cross-signal study against task-aligned alternatives. 
+
+Sensor-derived risk signals. Reactive controllers in robotics have long used sensor-derived margins as safety signals (e.g. artificial potential fields, dynamic-window methods). Our contribution is not the signals themselves but the structural framing: in the partially observable regime where MBRL most needs safety guarantees, the planner should be supplied with 
+
+measured world feedback rather than modelled state evolution. 
+
+RLxF and outcome-supervised reward modeling. The workshop framing emphasises that learning signals should be grounded in observable world feedback rather than in self-generated proxies. Our principle P3 (outcome-supervised feedback models) is the model-based-control instance of the design pattern that underpinned the transition from RL-from-likelihood to RL-from-feedback in language modelling (Christiano et al., 2017; Stiennon et al., 2020; Ouyang et al., 2022): a small classifier trained on world-observed outcome labels is queried by the agent (here, the planner; there, the decoder) in place of an internal proxy. The mechanism is the same in both domains: the support of the outcome label and the support of the internal proxy can be nearly disjoint (Section I), so without the pre-deployment validation of P2 , any internal proxy relies on coincidental alignment. The world-feedback signal here is mechanical rather than human-provided, but the structural argument carries: the signals that drive policy improvement are those that the world reveals directly, not those that a learned model can reconstruct. 
+
+# M. Compute and Reproducibility 
+
+Compute. All experiments run on a single workstation with one NVIDIA RTX 3090 GPU and an AMD Ryzen 9 CPU. World-model training: ∼1 h per architecture per seed; cross-architecture sweep ( 4 archs × 4 seeds): ∼16 h. Risk-signal evaluation ( 4 signals × 3 values of λ × n=200 ): ∼8 h. Robustness studies (planner variants, data scaling, capacity, Dreamer, CNN, RegimeSwitch): cumulative ∼60 h. The full pipeline is reproducible from scratch in ∼4 wall-clock days on this hardware. 
+
+Determinism. PyTorch deterministic mode is on; CUDA non-determinism is the only remaining source of run-to-run variation, and it is bounded by the per-seed reproducibility figures in Table 4 (run-to-run reward std < 0.05 at fixed seed). 
+
+Seeds. All experiments use seeds {0, 1, 2, 3} for the four replicates; per-episode seeding in the risk-signal evaluation uses seed seed run · 1000 + iep to ensure the same episodes are evaluated under every (λ, R) cell. 
+
+Code release. A code archive containing all scripts, configs, and trained checkpoints accompanies this paper. The environment, model, planner, and risk-signal modules are decoupled so that any of them can be substituted independently. 14
