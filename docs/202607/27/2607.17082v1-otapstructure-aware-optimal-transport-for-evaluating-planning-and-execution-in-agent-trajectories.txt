@@ -1,0 +1,430 @@
+Title: Otap:Structure-Aware Optimal Transport for Evaluating Planning and Execution in Agent Trajectories
+
+URL Source: https://arxiv.org/pdf/2607.17082v1
+
+Published Time: Tue, 21 Jul 2026 00:56:56 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# Otap : Structure-Aware Optimal Transport for Evaluating Planning and Execution in Agent Trajectories 
+
+# Babak Barazandeh 1∗, Subhabrata Majumdar 2, George Michailidis 3
+
+> 1
+
+Fortinet, 2IIMB, 3UCLA 
+
+Abstract 
+
+Large language model agents solve tasks by generating tra-jectories that interleave planning, tool calls, and intermediate results. Current evaluation metrics reduce such a trajectory to a binary success flag or compare it against a reference by exact matching. A success flag cannot distinguish a sound solution from one that succeeds by luck, and says nothing about why a failed run went wrong. Exact matching penal-izes plans that are valid but reordered or decomposed dif-ferently from the reference. We reframe trajectory evaluation as a distance between the agent’s execution graph and a set of valid solution graphs, and instantiate it via an unbalanced fused Gromov-Wasserstein transport problem over attributed dependency graphs. The resulting score, termed Otap (Opti-mal Transport for Agentic Planning), is a pseudo-metric that is provably invariant to dependency-preserving reorderings and has bounded sensitivity to redundant steps. Its unbal-anced marginals handle missing or hallucinated steps without forcing a match, and its soft coupling accommodates varia-tion in plan granularity. On controlled perturbations and three public benchmarks, Otap separates valid from invalid trajec-tories in a regime where semantics-only metrics score below chance. Its accuracy is highest when the dependency graph is recovered exactly, and drops only when the graph is inferred heuristically from free-text traces. 
+
+# 1 Introduction 
+
+Agentic systems built on large language models (LLMs) de-compose open-ended natural language goals into distinct ex-ecution trajectories. These trajectories interleave high-level planning, explicit tool calls, and dynamic environment in-teractions to manage intermediate execution states. Contem-porary frameworks span explicit plan-and-execute pipelines, ReAct-style interleaved reasoning and acting pipelines (Yao et al. 2023a), and tree- or graph-structured deliberation graphs (Yao et al. 2023b). As agent architectures increasingly transition into production environments, establishing rigor-ous, process-level evaluation methodologies has become a primary bottleneck for both academic research and system-atic deployment. Current agent evaluation metrics generally fall into three paradigms, each exhibiting distinct limitations: 
+
+> ∗
+
+Corresponding author: bbarazandeh@fortinet.com 
+
+• Outcome-only evaluation (e.g., end-task success rates in benchmarks like AgentBench (Liu et al. 2024), GAIA (Mi-alon et al. 2024), or WebArena (Zhou et al. 2024)) offers objective quantification but lacks granularity. It cannot dis-tinguish a sound, efficient trajectory from one that succeeds by chance and provides no diagnostic signals on failed ex-ecution paths. 
+
+• Reference-matching evaluation measures agent trajecto-ries against a gold standard using exact string matching, token-level n-gram overlap (e.g., BLEU/ROUGE), or se-quential embedding similarity. This imposes a restrictive assumption inherited from chain-of-thought datasets: that a task admits a unique and valid decomposition. In prac-tice, valid plans often diverge in step ordering, granularity, tool selection, or overall strategy. 
+
+• LLM-as-a-judge evaluation (Zheng et al. 2023) provides qualitative flexibility but introduces high computational overhead, non-determinism, extreme prompt sensitivity, and systemic self-preference biases, making it difficult to audit or integrate as a reliable optimization signal. For realistic agentic tasks, there are multiple valid solu-tions, for example those differing by dependency-preserving reorderings, step granularity, or interchangeable tools. Hence agent evaluation metrics should measure closeness to this so-lution space rather than identity with one reference sequence. Because of this reason, we argue that the central evaluation paradigm should shift from checking whether an agent re-produced an exact sequence of reference steps to a holistic graph alignment question: 
+
+How close is the agent’s execution graph to the set of valid solution graphs for the task? 
+
+Answering this question requires trajectory comparison metrics that satisfies a few criteria that non-unique but valid solutions to the same task satisfy: (i) semantic awareness to accommodate paraphrased steps, (ii) permutation tolerance paired with causal strictness to permit independent step re-orderings but penalize true causal inversions, (iii) granularity tolerance to support one-to-many step mappings, (iv) cardi-nality robustness to handle missing or hallucinated steps, (v) 
+
+execution-grounding to incorporate tool environments and state changes, and (vi) multi-reference support to reflect di-verse valid planning strategies. A standard baseline approach might align the agent and arXiv:2607.17082v1 [cs.AI] 19 Jul 2026 reference steps via the Hungarian algorithm (Wright 1990) or greedy assignment over a pairwise embedding cost matrix, similar to token-matching metrics of text similarity (Zhang et al. 2020). However, Hungarian matching is inherently re-stricted to rigid one-to-one correspondences, requires equal cardinalities, and discards causal and sequential graph struc-ture entirely. In this paper, we formalize trajectory evalu-ation through the lens of Optimal Transport (OT) to over-come such issues and satisfy the above six requirements. Our use of unbalanced marginal constraints to absorb cardi-nality mismatches and step variations (Chizat et al. 2018a), soft transport plans naturally capture non-uniform plan gran-ularities, and a fused Gromov-Wasserstein objective directly incorporates relational and causal dependencies into a unified geometric alignment (Titouan et al. 2019). More specifically, 1. We formalize agent trajectory evaluation as a divergence computation between attributed dependency graphs and define criteria for valid trajectory metrics (Sec. 3). 2. We introduce Otap , instantiating this divergence via an unbalanced fused Gromov-Wasserstein (UFGW) formula-tion that couples action, argument, effect, tool, and state-transition attributes with signed dependency structures (Sec. 4). 3. We enable Otap to reference ensembles via a temperature-controlled soft-minimum aggregation, using causal mass weighting to emphasize important path dependencies (Sec. 4.2). 4. We establish theoretical guarantees for Otap , including pseudo-metric structure, invariance under dependency-preserving permutations, bounded sensitivity to redun-dant step insertions, and polynomial computational com-plexity (Sec. 5). 5. We empirically validate Otap on a set of hand-curated tasks and public benchmarks (Sec. 6). 
+
+# 2 Related Work 
+
+Agent benchmarks. Existing evaluation suites like Agent-Bench (Liu et al. 2024), GAIA (Mialon et al. 2024), We-bArena (Zhou et al. 2024), ToolBench (Qin et al. 2024), and 
+
+τ -bench (Yao et al. 2024) primarily emphasize environmen-tal task execution. PlanBench (Valmeekam et al. 2023) uti-lizes formal verification to assess planning accuracy, which provides exact ground truth but remains restricted to highly structured deterministic domains. These benchmarks do not offer a graded, open-ended distance metric between struc-tural execution graphs. Some recent papers propose met-rics beyond accuracy to measure agent performance, such as confidence calibration (Zhang, Xiong, and Wu 2026), uncer-tainty quantification (Tayebati et al. 2026), and consistency measurement (Raj et al. 2026). 
+
+Process-level evaluation. Process reward models (PRMs) evaluate intermediate reasoning steps to optimize mathemat-ical and logical execution (Lightman et al. 2024). However, PRMs require extensive step-level manual annotations and act as black-box learned models. Similarly, LLM-as-a-judge methods (Zheng et al. 2023) inherit high inference costs and non-deterministic variations. In contrast, Otap is determin-istic given text embeddings, is computationally lightweight, and provides explicit sub-loss decompositions. 
+
+Text and structure similarity. Output level lexical met-rics (BLEU, ROUGE) and semantic metrics (Raj, Rosati, and Majumdar 2023; Zhang et al. 2020) alike fail to model trajectory-level nuances such as causal dependencies, macro-level plan structure, or tool environments. Classical graph matchers such as Graph Edit Distance (GED) (Sanfeliu and Fu 1983) do capture topological structure, but are gener-ally NP-hard and lack the capacity to incorporate soft, high-dimensional semantic vector spaces over node attributes. 
+
+Optimal transport. Optimal transport provides a math-ematical foundation for aligning probability distribu-tions (Peyré and Cuturi 2019). Computational efficiency is achieved via entropic regularization and Sinkhorn itera-tions (Cuturi 2013), while unbalanced OT variants relax strict marginal constraints to allow mass modification (Chizat et al. 2018b). The Gromov-Wasserstein (GW) formulation enables alignment between disparate relational structures (Mémoli 2011), and Fused GW extends this to attributed graphs (Vayer et al. 2019). OT methods have been adapted to document sim-ilarity (Kusner et al. 2015) and translation evaluation (Zhao et al. 2019)) in NLP. Otap adapts this mathematical machin-ery to the structured, causal constraints of agent trajectories. 
+
+# 3 Problem Formulation 
+
+Definition 1 (Trajectory graph) . An agent execution trajec-tory is represented as an attributed directed acyclic graph 
+
+G = ( V, E, ϕ ), where each vertex si ∈ V defines an executed step: 
+
+si = ( ai, τ i, c i, e i),
+
+comprising an action description ai, an invoked tool iden-tifier τi ∈ T (where τi = ∅ denotes an internal reasoning step), specific contextual arguments ci, and an execution ef-fect or post-state artifact ei. A directed edge (si, s k) ∈ E
+
+indicates a strict data or causal dependency where step sk
+
+consumes an artifact or requires the prior execution of step 
+
+si. The mapping function ϕ projects step fields into a contin-uous vector space. 
+
+Edges are systematically constructed via three mecha-nisms: (a) extracting explicit dependency graphs from plan-and-execute planners; (b) tracing artifact dependencies in ReAct sequences by linking actions to recent observations; or (c) reverting conservatively to a total execution order when structural dependencies are unrecoverable. Let P = (V P , E P ) denote the agent trajectory with 
+
+|V P | = n, and let R = {R1, . . . , R K } represent a set of diverse reference trajectories where |V Rk | = mk. The eval-uation problem requires computing a normalized distance score score( P, R) ∈ [0 , 1] that faithfully reflects structural and semantic deviations from the valid solution space. 
+
+# 4 The Otap Metric 
+
+We now formalize Optimal Transport Agent Plan ( Otap ) to quantify the similarity between am agent trajectory P and a reference set R. Instead of treating agent trajectories as flat text strings or relying on binary success criteria, Otap 
+
+models execution histories as directed acyclic graphs (DAGs) capturing both semantic content and execution dependencies. 4.1 The optimization problem 
+
+We begin by calculating Otap between two individual tra-jectories (say P, R ) in a three-stage process: (i) computing node-level semantic distances between their individual exe-cution steps, (ii) constructing dependency matrices to capture the topology of the plans, and (iii) solving an OT problem that globally aligns the trajectories. 
+
+Step representation and node cost To prevent argument strings from dominating semantic representations, step com-ponents are embedded independently using a text encoder 
+
+ψ(·): ai = ψ(ai), ci = ψ(ci), and ei = ψ(ei). The local node-level cost matrix between agent step i and reference step j is defined as: 
+
+Cij = α d (ai, aj ) + β d (ci, cj ) + γ d (ei, ej )+ δ d T (τi, τ j ) + η d state (i, j ), (1) where d denotes cosine distance and the hyper-parameters satisfy α + β + γ + δ + η = 1 . The tool dissimilarity term dT
+
+evaluates functional equivalence (e.g., scoring 0 for iden-tical tools, a fractional value for substitutable tools like a Python interpreter vs. a calculator, and 1 for completely in-compatible domains). When environment state logs xt are available, dstate (i, j ) evaluates world state congruence via direct property comparison or DOM/file serialization embed-dings, providing an execution-grounded proxy. When states are omitted, we set η = 0 .
+
+Structure representation To model plan topologies, we construct a normalized, signed pairwise dependency distance matrix for each graph. For the agent graph P , let DPik eval-uate the structural distance from step si to sk relative to the maximum DAG height H:
+
+Dik =
+
+
+
++ ρ(i, k )/H i ≺ k (ancestor) ,
+
+0 i ∥ k (incomparable) ,
+
+− ρ(k, i )/H k ≺ i (descendant) ,
+
+(2) where ρ defines the directed shortest path hop distance. The sign preserves causal direction. Consequently, mapping a true causal sequence onto an inverted sequence yields a sub-stantial quadratic penalty within the structural optimization term, whereas permuting order-independent steps (where 
+
+D = 0 ) incurs no penalty. 
+
+Unbalanced Fused Gromov-Wasserstein objective Let 
+
+μi = 1/n and νj = 1/m define the initial marginal mass distributions over the agent and reference nodes, re-spectively. Otap minimizes an unbalanced fused Gromov-Wasserstein objective to compute the optimal coupling ma-trix T ∈ Rn×m 
+
+> ≥0
+
+:
+
+L(P, R ) = min  
+
+> T≥0
+
+(1 − θ) X
+
+> i,j
+
+Cij Tij 
+
++ θ X
+
+> i,k,j,l
+
+DPik − DRjl  
+
+> 2
+
+Tij Tkl 
+
++ λ1 KL( T1 ∥ μ) + λ2 KL  T⊤1 ∥ ν
+
+− ε H (T), (3) where H(T) = − P 
+
+> ij
+
+Tij (log Tij − 1) provides entropic regularization and θ ∈ [0 , 1] modulates the trade-off between local attribute alignment and global structural matching. This formulation overcomes the limitations of one-to-one match-ing baselines via three behaviors: 
+
+• Flexible step granularity: The continuous coupling matrix 
+
+T permits soft mass splitting, allowing a singular high-level reference step to align across multiple decomposed agent sub-steps. 
+
+• Robustness to hallucinations and omissions: The Kullback-Leibler (KL) marginal penalties relax strict mass conservation constraints. Unmatched reference mass represents missing actions (recall failure), while un-aligned agent mass captures hallucinated steps (precision failure). Trajectory-level metrics are extracted via: 
+
+π = ∥T1 ∥1
+
+∥μ∥1
+
+, ρ = ∥T⊤1∥1
+
+∥ν∥1
+
+. (4) 
+
+• Causal topology alignment: By measuring structural vari-ance over signed distance spaces, structural orientation is optimized directly inside the transport alignment. We solve (3) using a conditional gradient scheme. At each outer iteration, the quadratic GW term is linearized, reducing the inner loop to an unbalanced entropic optimal transport problem resolved via generalized Sinkhorn iterations. 
+
+Remark 1 (Hierarchical Execution) . When hierarchical ex-ecution data is provided by the planner, Otap applies Eq. (3) 
+
+recursively. Sub-step alignment costs are aggregated to de-fine parent-node distances, ensuring top-level tasks match effectively if their underlying child DAGs exhibit low struc-tural transport costs. 
+
+4.2 Multiple references and causal mass 
+
+To handle diverse, equally valid plan structures, Otap aggre-gates scores across a reference set R using a temperature-controlled softmin function: 
+
+L(P, R) = − T log 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+exp 
+
+
+
+− L(P, R k)
+
+T
+
+
+
+, (5) which converges to an exact minimum operator as T → 0
+
+and evaluates the arithmetic mean as T → ∞ .To prevent trivial utility steps from skewing evaluation, we introduce non-uniform target marginals based on a step’s structural criticality: 
+
+νj ∝ 1 + κ · crit( j), (6) where crit( j) ∈ { 0, 1} indicates whether removing vertex 
+
+j breaks path reachability between sources and goals within the reference DAG. This ensures that missing a critical step incurs a higher penalty. 
+
+4.3 Final score 
+
+Finally, we report the aggregate similarity score as 
+
+Otap (P, R) = exp   − L (P, R) ∈ (0 , 1] , (7) paired with sub-loss diagnostics, precision/recall metrics 
+
+(π, ρ ), and the optimal coupling matrix T⋆ to provide an au-ditable execution alignment map. Algorithm 1 summarizes the complete procedure. Algorithm 1: Otap evaluation 
+
+Require: agent trace P , references R, encoder ψ, weights 
+
+(α, β, γ, δ, η, θ, λ 1,2, ε, T ) 
+
+> 1:
+
+Parse P into steps (ai, τ i, c i, e i); build DAG EP by ar-tifact tracing; compute DP via (2)  
+
+> 2:
+
+for k = 1 to K do  
+
+> 3:
+
+Build DRk ; embed fields with ψ; form C(k) via (1)  
+
+> 4:
+
+Lk ← solve UFGW (3) by conditional gradient with unbalanced Sinkhorn inner loops  
+
+> 5:
+
+end for  
+
+> 6:
+
+L ← soft-min over {L k} via (5)  
+
+> 7:
+
+return score (7), precision/recall (π, ρ ), component losses, best transport plan T⋆
+
+# 5 Theoretical Properties 
+
+Let L(P, R ) denote the objective function in (3) evaluated at 
+
+ε = 0 .
+
+Proposition 1 (Pseudo-metric structure) . Let d(P, R ) = 
+
+> 12
+
+ L(P, R ) + L(R, P ). Then d ≥ 0, d(P, P ) = 0 , d is symmetric, and d(P, R ) = 0 if there exists an attribute-preserving and dependency-isomorphic mapping between P
+
+and R.Proof sketch. Non-negativity holds directly from the com-ponent bounds. For identical graphs P = R, setting T =diag( μ) zeroes out the attribute cost since Cii = 0 , zeroes out the structural variance since DP = DR, and minimizes the KL divergence to zero since the marginals match per-fectly. Symmetry and graph-isomorphism conditions follow directly from the structural invariance of the matrix opera-tions under isomorphic vertex permutations. 
+
+Proposition 2 (Dependency-respecting permutation invari-ance) . Let P ′ be an execution sequence generated by a valid topological sort of the DAG EP . Then L(P ′, R ) = L(P, R )
+
+for any reference graph R.Proof sketch. The construction of the structural matrix DP
+
+in Eq. (2) and the local cost computation in Eq. (1) depend strictly on the invariant topological reachability relations of the DAG, remaining completely independent of the specific serialization order chosen for execution. 
+
+Proposition 3 (Bounded sensitivity to redundant insertion) .
+
+Let P +r represent an agent trajectory expanded by inserting 
+
+r redundant leaf nodes that carry no downstream dependen-cies, under renormalized uniform mass allocations. Then: 
+
+L(P +r , R )−L (P, R ) ≤ rn + r
+
+
+
+λ1 ω+(1 −θ) ¯C +4 θ
+
+
+
+,
+
+where ¯C ≤ 1 bounds node attribute costs and ω bounds the maximum per-unit-mass KL destruction cost. Score variation scales strictly as O(r/n ).Proof sketch. The proof proceeds by extending the OT cou-pling matrix computed for (P, R ) and leaving the r newly introduced leaf nodes completely unassigned. The resulting objective inflation is strictly bounded by the explicit KL cost Table 1: Pairwise ranking accuracy per perturbation (%) per and valid-vs-invalid AUROC over 20 hand-curated tasks.                                           
+
+> Metric P1 P2 P3 P4 P5 AUROC Exact step match 36.4 44.8 45.8 41.2 53.7 0.485 BLEU 49.2 67.2 52.8 48.3 70.7 0.599 ROUGE-L 56.7 45.8 82.9 84.4 47.7 0.674 Embed greedy F1 41.1 66.7 31.7 25.4 69.2 0.468 Embed +Hungarian 41.7 66.7 28.9 25.5 67.8 0.462
+> Otap 89.4 100 54.7 70.7 93.6 0.820
+
+of leaving r/ (n + r) mass unaligned plus minor renormal-ization perturbations over the remaining structural links. 
+
+Computational Complexity Mapping attributes requires 
+
+O(n + m) embedding generation passes. Structural distance calculation via all-pairs reachability over the DAG scales as 
+
+O(n3) in the worst case, or O(n·| E|) under sparse conditions. For the UFGW optimization, each conditional-gradient pass linearizes the relational term in O(n2m + nm 2) operations, while each inner Sinkhorn iteration requires O(nm ) steps. For common applications where n, m ≤ 50 , total evaluation executes in milliseconds on standard CPUs. 
+
+# 6 Experiments 
+
+We evaluate Otap by comparing it with a range of met-rics (lexical, semantic, and graph-based) in a diverse set of tasks. We hand curate a set of realistic and challeng-ing agentic tasks, as well as use three public benchmarks: PlanBench (Valmeekam et al. 2023), WebArena (Zhou et al. 2024), and GAIA (Mialon et al. 2024). As baseline metrics, we use exact step match, BLEU, and ROUGE-L over concatenated step text, and Otap with the defaults 
+
+α=.35 , β =.20 , γ =.25 , δ =.20 , η =0 (no environment states in these corpora), θ=.35 , ε =.05 , λ 1,2=1 , T =.05 .
+
+6.1 Validity 
+
+We apply five controlled perturbations on the canonical refer-ence trajectories in our hand-curated benchmark, then com-pare with a reference set that contains the canonical trajec-tory, a variant in which instructions are paraphrased and steps are reordered, and a coarse variant with merged steps. The perturbations are: (P1) synonym-level paraphrase of all step texts; (P2) an alternative linear extension of the same DAG; 
+
+(P3) merge of two dependent adjacent steps, or split of a compound step into two chained sub-steps; (P4) causal in-version: swapping two steps across a dependency edge, so the consumer executes before its producer; (P5) corruption: deletion of a critical step, insertion of 1-3 irrelevant distractor steps, incompatible tool swaps, or combinations. Agent-side graphs are re-extracted from the perturbed sequences by ar-tifact tracing, so a P4 inversion manifests exactly as it would in a real trace: an unsatisfiable dependency. Ground truth places the original and P1–P3 in one validity tier, P4 strictly below, and P5 at the bottom. For benign families b ∈ { P1, P2, P3 }, pairwise Ranking Accuracy (PRA) is the fraction of same-task pairs (x, y ) with 
+
+x ∈ b and y ∈ P4 ∪ P5 for which score( x) > score( y) (ties Table 2: Part B on the controlled corpus: correlation with the graded corruption ladder (per-task, averaged). Damaged-only = Q1–Q4.                                 
+
+> All levels Damaged-only Metric ρτρτ
+> Exact step match 0.755 0.655 0.562 0.474 BLEU 0.883 0.765 0.827 0.691 ROUGE-L 0.723 0.619 0.503 0.418 Embed. greedy F1 0.781 0.655 0.829 0.697 Embed. +Hungarian 0.782 0.651 0.819 0.681
+> Otap (ours) 0.923 0.837 0.851 0.748
+
+count 0.5). PRA(P4) and PRA(P5) use x ∈ { original } ∪ 
+
+P1 –P3 against the damaging family. SEV is the fraction of (P4, P5) pairs with the P4 variant scored higher. AUROC separates the valid tier from P4 ∪ P5 , computed per task and averaged. Chance is 50 throughout. Table 1 shows the findings. The embedding baselines score below chance on every corpus, meaning they rank broken plans above valid ones. A causal inversion changes no words, while a valid paraphrase changes many, so a metric that reads only text prefers the broken plan. Otap uses the same encoder and does not have this problem, so the difference comes from the dependency structure in the transport formulation. Order-sensitivity alone is not sufficient either. ROUGE-L detects inversions everywhere but penalizes valid reorderings just as heavily and rates corruptions above inversions. What is needed is sensitivity to the dependency relation rather than to sequence position, which is the content of Prop. 2. Otap 
+
+has the highest AUROC on all four corpora, but its advantage depends on how well the graph is recovered. It is largest where edges follow from PDDL semantics or explicit templates, and reduces under GAIA’s heuristic tracing, where incorrect edges make valid reorderings appear to violate dependencies. The size of this reduction matches ablation (ix), placing the loss in extraction rather than in the transport objective. 
+
+6.2 Robustness to perturbations 
+
+Each task additionally receives a five-level corruption ladder with two samples per level: Q5 = paraphrase + valid reorder; Q4 = Q5 + one causal inversion; Q3 = two inversions; Q2 
+
+= deletion of a critical step; Q1 = deletion + distractor insertions + incompatible tool swaps + inversion. We report Spearman ρ and Kendall τ between metric scores and the quality level, computed per task and averaged; “damaged-only” restricts to Q1–Q4, the analogue of evaluating among 
+
+failed trajectories where outcome metrics are constant. We emphasize that the correlation target is a constructed quality scale, not human judgment. 
+
+Otap leads on every column of Table 2 and has the lowest cross-task variance ( σρ = 0 .056 vs. 0.064 –0.177 for base-lines). Two caveats belong here rather than in fine print. First, BLEU is respectable on this axis ( ρ = 0 .883 ) for a me-chanical reason: the ladder is built by stacking perturbations, so damage is confounded with token divergence—precisely what BLEU measures. A correlation study of this kind sys-Table 3: Ablations on the controlled corpus. Benign = mean PRA over P1–P3; AUROC ×100 ; ρ from Part B (all levels). Each row changes one component of (3).                                                                  
+
+> Variant Benign P4 P5 AUROC ρ
+> Otap (full) 81.4 70.7 93.6 82.0 0.923 no structure ( θ=0 )54.4 19.4 90.6 54.5 0.771 unsigned D81.4 69.7 94.7 82.0 0.925 balanced marginals 78.5 67.0 91.7 79.2 0.929 Hungarian transport 50.7 18.1 85.5 51.4 0.787 whole-step embedding 71.7 72.2 72.7 72.5 0.895 no tool term ( δ=0 )67.8 69.3 68.4 68.9 0.910
+> K=1 reference 64.4 46.5 85.3 65.1 0.909 soft-min T=1 .078.8 66.1 93.3 79.5 0.923 uniform mass 79.5 67.4 93.4 80.3 0.934 total-order edges 64.5 43.8 89.4 65.8 0.949
+
+tematically flatters surface-overlap metrics, which is why we treat Part A, whose contrasts hold text constant while vary-ing validity, as the primary criterion. Second, correlating with a constructed scale demonstrates that Otap behaves as designed under known ground truth; the benchmark studies of Sec. 6.4 test how far that behavior transfers. 
+
+6.3 Ablations 
+
+Table 3 separates the essential from the decorative. 
+
+The structure term is the load-bearing component. Set-ting θ = 0 collapses inversion detection from 70 .7 to 19 .4
+
+and AUROC from 82 .0 to 54 .5: without pairwise dependency geometry, Otap degenerates into a well-dressed unbalanced Wasserstein and inherits the same below-chance pathology as the embedding baselines. Replacing soft transport with Hungarian assignment inside our own fused cost performs no better ( 51 .4 AUROC): the gap between this paper and its seed idea—Hungarian matching on plan steps—is the differ-ence between a working metric and a coin flip. 
+
+Multi-reference aggregation is essential, not garnish. 
+
+A single reference costs 16 .9 AUROC points ( 82 .0 → 65 .1)and halves inversion detection; even with our modest syn-thetic reference diversity, distance-to-a-set is decisively bet-ter than distance-to-a-plan. Aggregation should stay near the minimum: raising the soft-min temperature toward averaging (T = 1 .0) costs 2.5 points. 
+
+Tool grounding and fielded costs each pay for them-selves. Removing the tool term costs 13 .1 AUROC points, concentrated exactly where tools are corrupted (P5: 93 .6 →
+
+68 .4); collapsing the fielded cost to a whole-step embedding costs 9.5 points with the same P5 signature, confirming that separate fields keep opposite actions with shared arguments distinguishable and give the tool term room to act. 
+
+Two components do not earn their complexity, and we say so. Signed versus unsigned dependency distances are in-distinguishable ( 82 .0 vs. 82 .0 AUROC): under artifact trac-ing an inversion deletes the unsatisfiable edge rather than re-versing it, so an ancestor pair becomes incomparable and the magnitude change |DP − DR|2 already fires; the sign could matter only for traces in which a reversed dependency is ex-plicitly recorded. Causal mass weighting is likewise a wash (+1 .7 AUROC, −1.1 ρ against uniform mass); we retain both as options, with uniform unsigned settings a defensible simpler default. 
+
+Balanced marginals degrade gracefully here—but the cardinality gaps are small. Forcing balanced transport costs 
+
+2.8 AUROC points on a corpus whose step counts differ by at most three; larger insertion/deletion regimes should widen this gap, and Prop. 3 is the relevant guarantee. 
+
+An instructive dissociation. The total-order fallback (ix) is the worst configuration for validity discrimination ( 65 .8
+
+AUROC: a chain cannot distinguish valid from invalid re-orderings) yet the best for ladder correlation ( ρ = 0 .949 : a chain registers every perturbation, so its loss tracks raw dam-age count monotonically). Two lessons follow. First, corre-lation with a graded scale is, by itself, a misleading model-selection criterion—it would select a configuration that can-not tell a valid plan from an inverted one; metrics should be selected on the joint (Part A, Part B) evidence. Second, the quality of dependency extraction matters materially: the fall-back degrades discrimination by 16 .2 points—a prediction the GAIA study below confirms on real data. 
+
+6.4 Benchmark evaluations 
+
+The controlled corpus establishes internal validity; we now test transfer on three public benchmarks that differ delib-erately in how much trust each places in the dependency structure and in the labels. 
+
+PlanBench (real LLM plans, oracle labels). The Plan-Bench release (Valmeekam et al. 2023) ships blocksworld plans generated by real LLMs together with VAL-checked validity flags. We convert each LLM plan and the gold plan into trajectory graphs using exact produces/consumes sets from the PDDL operator semantics—dependency DAGs are ground truth here, not heuristic (mechanism (a) of Sec. 3)— and build K=3 genuinely distinct valid references per in-stance with an exact solver (gold plan, an alternative op-timum under a different tie-break, and a state-preserving detour variant). We sample 60 plans per model (balanced across valid/invalid where possible) for 12 models spanning GPT-3.5/4/4o, Claude 3/3.5, Gemini, Llama-3.1, and Qwen families: 720 real trajectories. Our re-implemented validity checker agrees with the shipped VAL labels on 720 /720 
+
+plans. Two studies result: (a) an oracle study —per-metric AUROC of the score against the validity label, the “external check at zero annotation cost”; and (b) the P1–P5/Q1–Q5 pro-tocol run on 20 gold plans ( 520 trajectories), i.e. controlled ground truth over real-domain plans with exact dependency semantics. 
+
+GAIA (real human-authored solutions, heuristic ex-traction). Every GAIA record (Mialon et al. 2024) carries an annotator-written step-by-step solution. We parse 30 of these into trajectory graphs with tool inference by keyword rules and dependency edges from a deterministic salient-token ar-tifact heuristic with a conservative chain fallback—exactly the extraction mechanism (c) that a practitioner would face on free-text traces—and run the full protocol ( 768 trajecto-ries). This corpus stress-tests Otap under noisy structure. 
+
+WebArena (real intents, template-derived references). 
+
+WebArena (Zhou et al. 2024) ships 812 task configurations Table 4: PlanBench oracle study: AUROC ( ×100 ) of each metric’s score against VAL-checked plan validity, over 720 
+
+real LLM plans from 12 models ( 60 per model; macro =
+
+mean over models). Our validity checker agrees with the shipped labels on 720 /720 plans. Here Otap is worst : see text.                  
+
+> Metric Macro Pooled Exact step match 85.3 85.6 BLEU 86.7 86.9
+> ROUGE-L 85.4 85.2 Embed. greedy F1 82.1 82.7 Embed. +Hungarian 84.2 84.1
+> Otap (ours) 79.2 79.3
+
+(intent + evaluation spec) but no gold step trajectories. We derive a reference plan per task from a small rule engine over (intent, sites, eval type)—edges explicit by construction— and run the protocol on 24 template-deduplicated tasks ( 576 
+
+trajectories). We report these references as template-derived; they test the metric over realistic web intents, not over human plans. 
+
+Oracle study: an honest negative result. Table 4 shows that on the task of predicting formal plan validity, every reference-proximity metric is a decent proxy ( 79 –87 AU-ROC over real LLM outputs)—and Otap is the weakest of them, 7.5 points behind BLEU. We report this prominently because it delimits the method’s scope. The oracle asks a dif-ferent question than the one Otap is built to answer: validity in blocksworld is a global executability property of a near-unique optimal plan, so any deviation from the reference— extra steps, missing steps, granularity drift—is evidence of invalidity, and the strictest surface metrics profit from punish-ing all of it. Otap is designed to forgive exactly those devia-tions (unbalanced marginals absorb insertions and deletions; soft transport absorbs granularity), and that deliberate tol-erance costs discrimination when tolerance is unwarranted. The practical reading is unambiguous: when a formal checker exists, use the checker—no proximity metric, ours included, should substitute for it. Reference-based process metrics are for the open-ended domains where no verifier exists, and the perturbation results below measure that regime directly. 
+
+Perturbation protocol on the benchmarks: performance tracks structure fidelity. Tables 5 and 6 arrange the cor-pora by how trustworthy their dependency structure is, and 
+
+Otap ’s behavior follows that gradient. 
+
+With exact or explicit structure, the controlled-corpus picture transfers intact. On PlanBench gold plans—real-domain plans whose edges follow from PDDL operator semantics— Otap attains the best AUROC ( 80 .4 vs. 67 .7
+
+for the best baseline), realizes Prop. 2 exactly once more (P2 
+
+= 100 .0), and leads the graded ladder ( ρ = 0 .92 ). On We-bArena the same holds ( 85 .9 AUROC, P2 = 97 .9, ρ = 0 .90 ), with severity ordering at 96 .3 against ROUGE-L’s inverted 
+
+18 .8. The characteristic baseline pathologies also replicate: the embedding metrics are again at or below chance AUROC on both corpora with P4 in the twenties, and ROUGE-L Table 5: Perturbation protocol on the three benchmark corpora (all values ×100 ; chance = 50; full P1–P5 columns in the released harness output). P2 = valid reordering, P4 = causal inversion, SEV = severity ordering P4 > P5. The corpora are ordered by decreasing dependency-structure fidelity: exact PDDL semantics (PlanBench gold plans), explicit template edges (WebArena), heuristic artifact tracing over free text (GAIA).                                                                                          
+
+> PlanBench (exact DAGs) WebArena (explicit DAGs) GAIA (traced DAGs) Metric P2 P4 SEV AUROC P2 P4 SEV AUROC P2 P4 SEV AUROC Exact step match 30.0 38.0 63.3 48.7 47.9 66.4 51.4 65.4 11.1 14.6 71.1 31.7 BLEU 46.2 27.3 80.0 54.4 88.5 63.7 68.1 68.7 0.0 39.4 71.3 48.2 ROUGE-L 22.1 77.4 23.9 67.7 70.8 100.0 18.8 83.3 0.0 59.7 70.7 58.5 Embed. greedy F1 66.4 25.5 90.8 51.2 62.5 23.1 84.7 47.3 65.7 33.5 85.6 52.3 Embed. +Hungarian 70.0 27.2 90.0 53.9 63.5 25.0 84.0 46.8 68.6 34.4 85.6 55.5
+> Otap (ours) 100.0 66.3 92.8 80.4 97.9 79.2 96.3 85.9 67.3 53.8 68.9 69.8
+
+Table 6: Part B on the benchmark corpora: Spearman ρ with the graded ladder, all levels / damaged-only (Q1–Q4).                                                
+
+> PlanBench WebArena GAIA Metric all dmg all dmg all dmg Exact step match 0.48 0.69 0.83 0.67 0.35 0.77 BLEU 0.79 0.85 0.89 0.84 0.14 0.95
+> ROUGE-L 0.19 0.32 0.73 0.48 0.11 0.93 Embed. greedy F1 0.73 0.78 0.80 0.87 0.82 0.87 Embed. +Hungarian 0.79 0.84 0.80 0.86 0.86 0.88
+> Otap (ours) 0.92 0.85 0.90 0.81 0.53 0.55
+
+again buys inversion detection at the price of punishing valid reorderings and inverting severity. 
+
+With heuristic structure, the advantage persists but shrinks, and we can quantify the cost. On GAIA, Otap still has the best discrimination by a wide margin ( 69 .8 AUROC; no baseline exceeds 58 .5, and four of five are at or below chance), and it is the only metric above 50 on all three be-nign families—the token metrics rank every valid reordering below every corruption (BLEU and ROUGE-L P2 = 0 .0). But the noisy extraction exacts a measurable toll on Otap 
+
+itself: P2 falls from the exact 100 .0 of every clean-structure corpus to 67 .3, severity ordering drops to 68 .9, and the ladder correlation collapses to ρ = 0 .53 while the order-blind em-bedding baselines, immune to edge noise by construction, stay high ( 0.82 –0.86 ). The mechanism is the one ablation (ix) predicted: when salient-token tracing mistakes coinci-dental lexical overlap for a dependency, a valid reordering perturbs the extracted DP and is charged for structure it did not break. The controlled ablation put the extraction-quality cost at 16 .2 AUROC points; GAIA confirms on real human-authored plans that dependency extraction is the binding constraint for structural metrics in the wild. 
+
+6.5 Runtime 
+
+On CPU, one Otap evaluation of a six-step trajectory against 
+
+K=3 references—including all Sinkhorn and conditional-gradient iterations, excluding encoder cache warm-up— takes 28 –33 ms across the controlled, PlanBench, and We-bArena corpora, against 0.006 –22 ms for the baselines. Cost is not flat in trajectory length: on GAIA’s longer human-authored solutions the quadratic Gromov–Wasserstein term raises the mean to 23 .9 s per evaluation (ROUGE-L’s LCS suffers similarly, at 180 s), consistent with the complexity analysis of Sec. 5; sparse structural distances and early-stopped outer iterations are the natural mitigations for long-horizon traces. In the short-horizon regime Otap remains negligible next to an LLM-judge call, which costs seconds of latency and per-token fees and is non-deterministic; Otap 
+
+is deterministic, offline, and cheap enough to run inside a training loop as a process reward. 
+
+6.6 Human evaluation 
+
+Validating a metric requires trajectories whose relative qual-ity is known. Our evidence therefore comes in two tiers. The first is a fully automatic, reproducible protocol in which ground-truth quality orderings hold by construction : a cor-pus of plan DAGs is subjected to controlled perturbations of known severity, and a metric is measured by how often it recovers the resulting ordering (Part A) and by its corre-lation with a graded corruption ladder (Part B). The second tier moves to three public benchmarks: PlanBench, where 
+
+720 real LLM-generated plans carry oracle validity labels at zero annotation cost; and GAIA and WebArena, where the perturbation protocol is re-run on real human-authored solutions and real task intents, respectively. Across all stud-ies ( 3,092 trajectories in total) we use a single fixed seed and the a priori default hyper-parameters of Sec. 4; no tun-ing of any kind was performed on any corpus. We release the full harness—corpora, loaders, perturbation generator, all metric implementations, and seeds—for one-command reproduction. 
+
+# 7 Conclusion 
+
+In this paper, we have proposed Otap as a granular metric for evaluating agent trajectories that account for their het-erogenous graph structure and multiple reference solutions. Beyond evaluation, the differentiable structure of (3) makes 
+
+Otap a candidate dense process reward, and the soft-min over references points toward learned models of the solution manifold. The experiments reveal two open problems that we leave for future work: dependency extraction from free-text traces, and principled granularity invariance. References 
+
+Chizat, L.; Péré, G.; Schmitzer, B.; and Vialard, F.-X. 2018a. Scaling algorithms for unbalanced optimal transport. SIAM Journal on Imaging Sciences , 11(1): 256–282. Chizat, L.; et al. 2018b. Scaling Algorithms for Unbalanced Optimal Transport Problems. Mathematics of Computation ,87: 2563–2609. Cuturi, M. 2013. Sinkhorn Distances: Lightspeed Computa-tion of Optimal Transport. In Advances in Neural Information Processing Systems (NeurIPS) .Kusner, M.; et al. 2015. From Word Embeddings to Doc-ument Distances. In International Conference on Machine Learning (ICML) .Lightman, H.; Kosaraju, V.; Burda, Y.; Edwards, H.; Baker, B.; Lee, T.; Leike, J.; Schulman, J.; Sutskever, I.; and Cobbe, K. 2024. Let’s verify step by step. In International Con-ference on Learning Representations , volume 2024, 39578– 39601. Liu, X.; Yu, H.; Zhang, H.; Xu, Y.; Lei, X.; Lai, H.; Gu, Y.; Ding, H.; Men, K.; Yang, K.; et al. 2024. Agentbench: Evaluating llms as agents. In International Conference on Learning Representations , volume 2024, 52989–53046. Mémoli, F. 2011. Gromov–Wasserstein Distances and the Metric Approach to Object Matching. Foundations of Com-putational Mathematics , 11: 417–487. Mialon, G.; Fourrier, C.; Wolf, T.; LeCun, Y.; and Scialom, T. 2024. Gaia: a benchmark for general ai assistants. In Inter-national Conference on Learning Representations , volume 2024, 9025–9049. Peyré, G.; and Cuturi, M. 2019. Computational Optimal Transport. Foundations and Trends in Machine Learning ,11(5–6): 355–607. Qin, Y.; Liang, S.; Ye, Y.; Zhu, K.; Yan, L.; Lu, Y.; Lin, Y.; Cong, X.; Tang, X.; Qian, B.; et al. 2024. Toolllm: Facilitat-ing large language models to master 16000+ real-world apis. In International Conference on Learning Representations ,volume 2024, 9695–9717. Raj, H.; Orkat, N.; Mukherjee, S.; Guha, A.; Flynn, C.; and Majumdar, S. 2026. Consistency as a Testable Prop-erty: Statistical Methods to Evaluate AI Agent Reliability. arXiv:2605.10516. Raj, H.; Rosati, D.; and Majumdar, S. 2023. Measuring Re-liability of Large Language Models through Semantic Con-sistency. arXiv:2211.05853. Sanfeliu, A.; and Fu, K.-S. 1983. A Distance Measure Be-tween Attributed Relational Graphs for Pattern Recognition. 
+
+IEEE Transactions on Systems, Man, and Cybernetics , 13(3): 353–362. Tayebati, S.; Kumar, D.; Darabi, N.; Ettori, D.; Krishnan, R.; and Trivedi, A. R. 2026. TRACER: Trajectory Risk Aggregation for Critical Episodes in Agentic Reasoning. arXiv:2602.11409. Titouan, V.; Courty, N.; Tavenard, R.; Chapel, L.; and Fla-mary, R. 2019. Optimal Transport for structured data with application on graphs. In International Conference on Ma-chine Learning (ICML) , 6275–6284. Valmeekam, K.; et al. 2023. PlanBench: An Extensible Benchmark for Evaluating Large Language Models on Plan-ning and Reasoning About Change. In NeurIPS Datasets and Benchmarks Track .Vayer, T.; et al. 2019. Optimal Transport for Structured Data with Application on Graphs. In International Conference on Machine Learning (ICML) .Wright, M. B. 1990. Speeding up the Hungarian algorithm. 
+
+Computers & Operations Research , 17(1): 95–96. Yao, S.; et al. 2023a. ReAct: Synergizing Reasoning and Acting in Language Models. In International Conference on Learning Representations (ICLR) .Yao, S.; et al. 2023b. Tree of Thoughts: Deliberate Problem Solving with Large Language Models. In Advances in Neural Information Processing Systems (NeurIPS) .Yao, S.; et al. 2024. τ -bench: A Benchmark for Tool-Agent-User Interaction in Real-World Domains. arXiv preprint arXiv:2406.12045 .Zhang, J.; Xiong, C.; and Wu, C.-S. 2026. Agentic Confi-dence Calibration. arXiv:2601.15778. Zhang, T.; Kishore, V.; Wu, F.; Weinberger, K. Q.; and Artzi, Y. 2020. BERTScore: Evaluating Text Generation with BERT. In International Conference on Learning Rep-resentations (ICLR) .Zhao, W.; et al. 2019. MoverScore: Text Generation Eval-uating with Contextualized Embeddings and Earth Mover Distance. In Conference on Empirical Methods in Natural Language Processing (EMNLP) .Zheng, L.; et al. 2023. Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena. In Advances in Neural Informa-tion Processing Systems (NeurIPS) .Zhou, S.; Xu, F. F.; Zhu, H.; Zhou, X.; Lo, R.; Sridhar, A.; Cheng, X.; Ou, T.; Bisk, Y.; Fried, D.; et al. 2024. Webarena: A realistic web environment for building autonomous agents. In International Conference on Learning Representations ,volume 2024, 15585–15606.
