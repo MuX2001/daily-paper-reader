@@ -1,0 +1,529 @@
+Title: WARL: Wrench-Augmented Reinforcement Learning for Task-Agnostic Learning in Legged Robots
+
+URL Source: https://arxiv.org/pdf/2607.24036v1
+
+Published Time: Tue, 28 Jul 2026 01:34:10 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# WARL: Wrench-Augmented Reinforcement Learning for Task-Agnostic Learning in Legged Robots 
+
+Keita Yoneda 1, Kento Kawaharazuka 1,2, Kei Okada 1
+
+Abstract — While reinforcement learning for legged robots has achieved high motor performance, it has been constrained by the limited exploration capability of actions confined to the joint space. To address this issue, this study proposes a new method, Wrench-Augmented Reinforcement Learning (WARL), which introduces a wrenche (force and torque) into the action space. The proposed method combines wrench-guided exploration with a success rate-based curriculum mech-anism to expand exploration capabilities in the early stages of learning, with the ultimate goal of acquiring behaviors based solely on joint control. Experiments using a quadruped robot demonstrated that WARL can learn robustly across diverse terrains and motor tasks without requiring terrain-specific reward adjustments or complex curriculum designs. Furthermore, an ablation study verified the e ff ectiveness of the Switching Curriculum, which gradually eliminates the wrench. On the other hand, we also show that introducing a wrench can encourage behaviors that do not su ffi ciently exploit the robot’s physical embodiment. These findings suggest that while wrench-based exploration enhancement is e ff ective for improving learning e ffi ciency, designing it in a way that is consistent with the robot’s physical structure is a critical future challenge. 
+
+I. I ntroduction 
+
+Legged robots have garnered attention as highly mobile platforms capable of traversing diverse environments. In recent years, reinforcement learning has become a standard method for achieving dynamic motions such as walking on uneven terrain and jumping [1]–[3]. However, conventional frameworks often involve numerous heuristics in the learning environment and reward design for specific tasks, posing a challenge due to the high design cost for new tasks. For example, in tasks that involve traversing uneven terrain with large steps, a standard approach is to use a heuristic cur-riculum design that gradually increases the height of the steps as learning progresses [4]. Even when not using curriculum-based changes in terrain, task-specific, meticulous reward design, such as reward shaping that incorporates fine-grained behaviors for learning jumping motions, is often necessary [5]. While these methods have been successful in learning specific tasks, they lack the versatility to be applied to a wide range of tasks. In this study, we hypothesize that a primary reason for the need for task-specific design is the di ffi culty of exploration, which stems from the complex relationship between the   
+
+> 1The authors are with the Department of Mechano-Informatics, Graduate School of Information Science and Technology, The University of Tokyo, 7-3-1 Hongo, Bunkyo-ku, Tokyo, 113-8656, Japan.
+
+[yoneda, kawaharazuka, k-okada]@jsk.imi.i.u-tokyo.ac.jp  
+
+> 2The author is with the AI Center, Graduate School of Information Science and Technology, The University of Tokyo, Japan.
+
+wrench  
+
+> (𝒇 ,𝝉 )
+
+joint action 
+
+> (𝒒 ref )
+
+Adaptation to Zero Wrench 
+
+target 
+
+position 
+
+hurdle  
+
+> Fig. 1. Overview of Wrench-Augmented Reinforcement Learning (WARL). By introducing a wrench into the action space, exploration is promoted, and a policy that does not use the wrench is ultimately acquired through a curriculum learning process.
+
+action space and the task space. Here, the task space refers to the space that characterizes the motion of the legged robot, which, for locomotion tasks, includes the robot’s center of mass position and orientation. In conventional reinforcement learning for legged robots, the action space is typically the joint space, such as joint angles or joint torques [6], [7]. In general, the mapping from the joint space to the task space is complex because it is strongly influenced by discrete and nonlinear factors such as contact states and joint configurations. This complexity can lead to slow learning speeds and convergence to local optima. Previous research has attempted to address this problem through modifications in environment and reward design [8]–[10]. However, a more direct solution is to reduce the mismatch between the action and task spaces. For example, in robot arm control, it has been reported that using the end-e ff ector position as the action improves exploration e ffi ciency [11]– [13]. For legged robots, methods have been proposed that use the foot-end space as the action [14], hierarchical methods that combine model-based control with high-level actions such as foot-end position and gait phase [15], [16], and methods that introduce prior structures such as periodic tra-jectories [17]. Although these methods contribute to improv-ing learning e ffi ciency, there are limits to the improvement arXiv:2607.24036v1 [cs.RO] 27 Jul 2026 in exploration performance because nonlinearity still exists between the foot-end space and the robot’s body position and orientation space. Furthermore, design constraints for real-world deployment often limit the choice of action pa-rameterization. One of the essential features of legged robot locomotion is the change in the robot’s position and orientation. By incorporating a wrench ( w = ( f, τ ) ∈ R6), which directly acts on these quantities, into the action space, the relationship to the task space can be simplified, thereby improving exploration. Previous studies have introduced wrenches into motor learning, including EFGCL, which applies external forces to facilitate backflip, barrel roll, and jumping motions [18], ZEST, which uses model-based wrench generation for reference trajectory tracking [19], and A2CF, which outputs wrenches to accelerate learning [20]. However, EFGCL relies on manually designed external forces requiring heuristic intuition, ZEST does not use wrenches for exploration, and A2CF employs them mainly as auxiliary assistance rather than as exploratory actions. Moreover, evaluations have been limited to tasks solvable without wrench assistance, leaving the e ff ectiveness of wrench-guided exploration insu ffi ciently validated. To address these limitations, we propose a method that introduces a wrench as a primary exploratory action and gradually removes its influence through a curriculum learn-ing scheme. During early training, behavior is generated mainly through the wrench, whose contribution is progres-sively reduced as learning proceeds. By directly applying policy-generated wrenches to the robot’s torso, the proposed method promotes e ffi cient exploration in locomotion tasks while ultimately learning an equivalent joint-only control policy. The main contributions of this study are as follows: 1) We show that by introducing a wrench into the ac-tion space in the motor learning of legged robots, exploration can be made more e ffi cient, and versatile learning that does not heavily depend on task-specific environment or reward design becomes possible. 2) We propose a curriculum learning method for acquiring a policy that can be applied to real robots by gradu-ally removing the wrench introduced for exploration guidance. 3) We analyze that there is a trade-o ff between the im-provement in spatial exploration ability by this method and the di ffi culty in acquiring dexterous motions that utilize the environment, such as footholds. Resolving this trade-o ff is a future challenge. II. B ackground 
+
+A. Di ffi culty of Exploration in Reinforcement Learning for Legged Robots 
+
+Reinforcement learning is a framework for optimizing a policy through interaction with an environment, and is typically formulated as a Markov Decision Process (MDP). An MDP consists of a state s, an action a, a reward r, and a transition distribution, and the agent learns a policy π(a|s)that maximizes the expected cumulative reward. In motor learning for legged robots, the state includes the robot’s posture, velocity, and contact information, and the action is output as joint torques or joint angles. Proximal Policy Optimization (PPO) [21] is widely used as an algorithm for reinforcement learning in legged robots. PPO is an algorithm that ensures learning stability by constraining the policy update amount, and it is also easy to combine with curriculum learning. Therefore, this study also adopts PPO as the baseline algorithm. In PPO, which assumes a stochastic policy, exploration is performed by sampling actions based on a Gaussian distribution: 
+
+at ∼ πθ(at|st) = N(μθ(st), Σθ(st)) (1) Since this randomness-based exploration is performed in the action space, its design greatly a ff ects exploration effi ciency. Conventional joint-space actions are typically of the form where the target joint angles are output by a scale transformation as follows, and then converted to joint torques by PD control. 
+
+qref = qrange ⊙ clip( λjoint ajoint , −1, 1) + qoff set (2) Here, a is the action output by the policy, which is converted to the target joint angle qref using a scaling factor λjoint , an action range qrange , and an o ff set qoff set .
+
+B. Di ff erence in Spatial Exploration Capability due to Action Space Design 
+
+We investigate the e ff ect of action space design on spatial exploration capability by comparing a conventional joint-space action with an action space that includes a wrench. Using the quadruped robot KLEIYN [10] in Isaac Gym, we compare the travel distance when Gaussian noise is directly injected into the action outputs before scaling. The joint angle action is scaled to a joint angle in the form of Eq. 2 and then converted to a joint torque by PD control. The wrench action is calculated directly by scale transformation and clipping as follows. 
+
+w = wmax · clip( λwrench awrench , −1, 1) (3) 
+
+wmax = (f max ∈ R3, τmax ∈ R3) ∈ R6 (4) Here, awrench is the wrench action, which is con-verted to the final wrench w using the scaling factor 
+
+λwrench and the maximum wrench value wmax . Here, we set four types of wrench scales ( f max [N], τ max [Nm ]) =
+
+{(0 , 0) , (100 , 10) , (500 , 100) , (1000 , 100) } and compare the ex-ploration range under each condition. The action scales were set to λjoint = 0.2, λ wrench = 0.5, and the joint angle and wrench actions ( ajoint , awrench ) were independently sampled according to a standard normal distribution N(0, I). Figure 2 shows the trajectories when this random action was applied to 100 robots for 10 seconds. In the case of only joint angles with the wrench dis-abled (0 N, 0 Nm ) and when the wrench scale was small (100 N, 10 Nm ), the robots could only move within a𝒓 = 𝟑𝟎 𝒎          
+
+> 𝒓 =𝟏𝟎𝟎 𝒎
+> 𝒓 =𝟏 𝒎
+> 𝒓 =𝟏𝟎 𝒎
+> x
+> y
+> x
+> z
+
+Fig. 2. Comparison of exploration behavior with di ff erent wrench scales. The larger the wrench scale, the more direct exploration in the robot’s position space becomes possible, and the spatial exploration capability is dramatically improved. 
+
+range of about 1m in 10 seconds. In contrast, with a large wrench scale (500 N, 100 Nm ), trajectories of more than 10m in 10 seconds were observed, and with an even larger scale (1000 N, 100 Nm ), vertical displacement also increased substantially. These results indicate that by including a wrench in the action space, it becomes possible to explore directly in the robot’s position space with only Gaussian noise, and the spatial exploration capability is dramatically improved. 
+
+C. Gradual Attenuation of Wrench using Curriculum Learn-ing 
+
+Although introducing a wrench improves exploration ef-ficiency, it is not possible to directly apply a wrench to the robot’s body in reality. Therefore, previous studies [19], [20] have proposed curriculum learning that gradually attenuates the wrench output based on indicators such as success rate and the magnitude of the auxiliary wrench. In this study, we follow the framework of previous studies that gradually attenuate the wrench and propose a curricu-lum learning method that uses only the success rate as an indicator. III. M ethod 
+
+A. Overview of WARL 
+
+We propose Wrench-Augmented Reinforcement Learning (WARL), a framework that exploits wrench-based explo-𝐰 𝑡 ∼ 𝜋 𝑤  𝒘 𝑡 𝒔 𝑡 
+
+> wrench policy wrench policy
+
+α      
+
+> 𝒒 𝑡
+> ref ∼𝜋 𝑗 𝒒 𝑡
+> ref 𝒔 𝑡
+> joint policy joint policy
+> wrench replay
+> buffer
+> “Fixed ”Wrench -
+> Augmented Action
+
+(𝒒 𝑡 
+
+> ref
+
+, σ𝒘 𝑡 
+
+> save
+
+)
+
+> 𝒘 𝑡 𝒒 𝑡
+> ref
+> environment
+
+Observation  𝒔 𝑡 = (𝒐 𝑡 
+
+> prop
+
+, 𝒐 𝑡 
+
+> priv
+
+)
+
+B. Joint -Only Adaptation 
+
+σ      
+
+> decay
+> coefficient
+> 𝒒 𝑡
+> ref ∼𝜋 𝑗 𝒒 𝑡
+> ref 𝒔 𝑡
+> joint policy joint policy
+> wrench replay
+> buffer
+> “Active ”Wrench -
+> Augmented Action
+
+(𝒒 𝑡 
+
+> ref
+
+, α𝒘 𝑡 ) 𝒘 𝑡 𝒒 𝑡 
+
+> ref
+> environment
+
+Observation  𝒔 𝑡 = (𝒐 𝑡 
+
+> prop
+
+, 𝒐 𝑡 
+
+> priv
+
+)
+
+A. Joint+Wrench Learning 
+
+𝒘 𝑡 
+
+> save
+> wrench
+> curriculum
+> coefficient
+
+α𝒘 𝑡         
+
+> If skill learned
+> 1.Joint+Wrench Learning α=1
+> 2. Joint -Only Adaptation α=𝜎
+> If skill learned
+
+C. Switching Curriculum                            
+
+> If skill learned
+> 1.Joint+Wrench Learning α=𝜎 𝑘
+> 2. Joint -Only Adaptation α=𝜎 𝑘 +1
+> If skill learned
+> 𝒘 =σ𝒘 𝑡
+> save
+> 𝒘 =α𝒘 𝑡 =𝜎 𝑘 𝒘 𝒕
+> 𝒘 =σ𝒘 𝑡
+> save
+> 𝒘 =α𝒘 𝑡 =𝒘 𝒕
+> Block 0
+> Block 𝒌
+> No wrench
+> policy
+> curriculum schedule
+> 1.0
+> 𝛼
+> k
+> 01…
+> 𝛼 =𝜎 𝑘
+
+Fig. 3. Learning flow of WARL. Joint +Wrench learning promotes exploration and stores successful wrench sequences. Joint-only adaptation reduces wrench dependence using a decayed coe ffi cient α.
+
+ration while ultimately acquiring a joint-only control policy. As illustrated in Fig. 3, WARL alternates between two phases: (i) a Joint +Wrench learning phase, where both a wrench policy πw and a joint policy π j are optimized, and (ii) a Joint-only adaptation phase, where the motion is reproduced by π j under attenuated previously saved wrenches. This Switching Curriculum enables e ffi cient spa-tial exploration in early learning and gradually removes the dependency on the wrench through a decaying curriculum coe ffi cient α. To make the RL problem tractable, we adopt a Teacher-Student framework [17], where privileged observa-tions are used during training and removed through a student distillation process. 
+
+B. Action Space Design 
+
+The wrench policy πw outputs a 7-dimensional vector: (aforce ∈ R3, atorque ∈ R3, ascale ∈ R) = πw(s). (5) The wrench components are computed as 
+
+λscale = sigmoid( ascale ), (6) 
+
+f = f max · clip( λwrench aforce , −1, 1) · λscale · α, (7) 
+
+τ = τmax · clip( λwrench atorque , −1, 1) · λscale · α. (8) Here, λwrench is a fixed scaling factor and α is the cur-riculum coe ffi cient. The resulting wrench is transformed to the global frame using the torso orientation R ∈ SO(3) and applied to the torso link. Algorithm 1 Wrench-Augmented Reinforcement Learning (WARL)  
+
+> 1:
+
+Initialize πw, π j, α = 1 
+
+> 2:
+
+while α > ϵ do  
+
+> 3:
+
+Joint +Wrench Learning  
+
+> 4:
+
+while ζ < γ or |∆ζ| > δ do  
+
+> 5:
+
+qref  
+
+> t
+
+= π j(st) 
+
+> 6:
+
+wt = πw(st) 
+
+> 7:
+
+st+1, rt = Step( qref  
+
+> t
+
+, α wt) 
+
+> 8:
+
+Update π j, π w 
+
+> 9:
+
+Store wrench sequences from successful episodes  
+
+> 10:
+
+end while  
+
+> 11:
+
+Freeze πw and set α ← σα  
+
+> 12:
+
+Joint-only Adaptation  
+
+> 13:
+
+while ζ < γ or |∆ζ| > δ do  
+
+> 14:
+
+qref  
+
+> t
+
+= π j(st) 
+
+> 15:
+
+wt = Wsaved (t) 
+
+> 16:
+
+st+1, rt = Step( qref  
+
+> t
+
+, σ wt) 
+
+> 17:
+
+Update π j 
+
+> 18:
+
+end while  
+
+> 19:
+
+end while  
+
+> 20:
+
+return π j
+
+C. Switching Curriculum 
+
+Optimizing joint control and wrench-guided exploration simultaneously can cause training instability. To address this, we propose a Switching Curriculum that alternates between the following two phases. 
+
+Joint +Wrench Phase: Both πw and π j are optimized under the scaled wrench αwt. Successful wrench sequences are stored for subsequent adaptation. This phase primarily enhances spatial exploration. 
+
+Joint-only Adaptation Phase: The joint policy π j is trained using attenuated saved wrenches σWsaved to en-courage reproduction of the motion with reduced wrench assistance. Each phase terminates when the success rate ζ exceeds 
+
+γ and its change |∆ζ| falls below δ. After adaptation, α is updated as α ← σα . This process continues until α < ϵ ,yielding a joint-only policy. 
+
+D. Saving Wrench Sequences 
+
+For each successful episode i, we define the 6D wrench sequence Wi, its norm |W i|, and the sum of two sequences 
+
+WA + WB as 
+
+Wi = {wit }Ti 
+
+> t=0
+
+= {(f it , τ it )}Ti
+
+> t=0
+
+. (9) 
+
+|W i| =
+
+> Ti
+
+X
+
+> t=0
+
+q
+
+|| f it || 2 + κ|| τit|| 2. (10) 
+
+WA + WB = {wAt + wBt }Tt=0. (11) 
+
+κ is a weighting factor to balance force and torque mag-nitudes. When the bu ff er accumulates Nsucc sequences, the median sequence is selected and the saved wrench is updated: 
+
+W j 
+
+> saved
+
+= ηW j−1saved + (1 − η)Wi∗
+
+. (12) This median-based weighted update suppresses extreme cases and stabilizes adaptation. 
+
+E. Teacher-Student Learning 
+
+Learning legged locomotion using only proprioceptive in-puts can be unstable due to the high-dimensional state space and sparse rewards. To address this, we adopt a teacher-student framework [17] that stabilizes training by leveraging privileged observations. IV. L earning Setup 
+
+A. Robot Models 
+
+To verify the versatility of our method, we use two quadruped robot models with di ff erent sizes and joint con-figurations: KLEIYN (total length 750 mm, weight 18 kg, max joint torque 24 Nm, max joint speed 480 rpm) and Unitree Go2 (total length 700 mm, weight 15 kg, max joint torque 24 Nm, max joint speed 230 rpm). We select Isaac Gym [22] as our simulation environ-ment. Specifically, we apply wrenches to the robot’s torso link using the apply rigid body force tensor method, and control its joints via torque commands using the 
+
+set dof actuation force tensor method. 
+
+B. Task Settings 
+
+To verify the e ff ect of exploration guidance by wrench, we set up two types of tasks: goal-reaching tasks and dynamic tasks. 
+
+a) Goal-reaching tasks: These consist of four tasks: 
+
+HurdleJump , LedgeJump , GapLeap , and IslandTraverse , all of which require the robot to reach a specified target position 
+
+p∗ and target orientation q∗. Specifically, in HurdleJump ,a 0.5 m obstacle blocks the path to a goal 2 m away. In 
+
+LedgeJump , the goal is located on a 0.5 m high ledge 2 m away. In GapLeap , the robot must clear a 1 m wide gap to reach a destination 2 m away. In IslandTraverse , the path to a destination 2.4 m away includes a 1.4 m gap containing two 0.2 m square footholds. The objective of this learning is to acquire motions to overcome these diverse terrains without relying on reward tuning or environmental curricula. Therefore, a common reward is used for all tasks, and the terrain is also fixed with a fixed height of steps and size of gaps for learning. To also evaluate the ability to remain stationary, with a probability of 10% the target position is set to the robot’s initial position, e ff ectively requiring the robot to stay in place. The success rate was calculated based on the criterion that an episode is considered successful if the distance from the target position |p − p∗| is within 0.2 m and the error from the target orientation |θ| is within 45 °.TABLE I Notation used in observation and reward formulation                                                                                  
+
+> Symbol Description
+> ψ(x, λ )Gaussian shaping kernel : exp( −x2/λ 2)
+> wcur Curriculum weight at iteration i: 0 .01 0.9999 i
+> Ncontact Number of penalized contacts
+> fExternal force component of wrench
+> τExternal torque component of wrench
+> ωBase angular velocity
+> vBase linear velocity
+> gProjected gravity vector in base frame
+> gx,gyx,ycomponents of gpRobot base position
+> p∗Target position
+> ∆p=p∗−pPosition error
+> qJoint configuration
+> qdef Default joint configuration ˙qJoint velocity
+> edof q−qdef
+> θOrientation error (axis-angle form)
+> θTarget rotation angle (pitch /roll)
+> zBase height
+> z∗Standing height of the robot
+> ϕPhase variable : t3/(1 +t3)
+> hMeasured terrain heights ∈R187
+> ωxz Angular velocity with zero ycomponent
+> ωyz Angular velocity with zero xcomponent TABLE II Reward terms for goal -reaching tasks
+> Term Formulation Weight Target position ψ(|p−p∗|,0.5) −|p−p∗|2
+> 52
+> 1.0Stand pose |θ|/π 2ψ(|p−p∗|,0.1) −1.0Stand DOF ψ(|edof |,1) ψ(|p−p∗|,0.1) ψ(|θ|, π/ 2) 1.0Angular velocity |ω|2wcur −0.03 Collision Ncontact wcur −5.0No wrench  |f|2+100 |τ|2wcur −1×10 −5
+
+b) Dynamic tasks: We target two dynamic tasks, Back-flip and Barrel-Roll , to evaluate the e ff ectiveness of wrench-guided exploration for motions involving drastic attitude changes. The goal is to perform a backflip and a barrel roll, respectively. Similarly, in these tasks, with a probability of 10% the target position is set to the robot’s start position so that the robot is required to remain at its initial location. In the Dynamic task, the success rate was calculated based on the criterion that an episode is considered successful if the rotation angle error around the target axis |θ| is within 22 .5° and the di ff erence between the robot’s height z and the target height z∗ is within 0.1 m. 
+
+C. Reward and Observation design 
+
+We define the observations and rewards for the Goal-reaching tasks and Dynamic tasks below. The definitions of each variable are shown in Table I, and the respective reward functions are shown in Table II and Table III. 
+
+a) Observation design: For each task, we define a proprioceptive observation oprop and a privileged observation 
+
+opriv . The proprioceptive observation includes information that can be obtained from a real robot, such as the robot’s posture, velocity, and contact information. The privileged observation includes information that can only be obtained                                         
+
+> TABLE III Reward terms for dynamic tasks
+> Term Formulation Weight Target angle ψ(2 π−θ, π/ 8) 1.0Stand height ψ(2 π−θ, π/ 8) ψ(z−z∗,0.1) 1.0Stand DOF ψ(|edof |,0.5) ψ(2 π−θ, π/ 8) ψ(|θ|, π/ 8) 1.0Angular velocity rω=
+> |ωxz |2wcur ,Backflip
+> |ωyz |2wcur ,Barrel roll −0.03 No tilt rtilt =
+> |gy|,Backflip
+> |gx|,Barrel roll −0.3Collision Ncontact wcur −5.0No wrench  |f|2+100 |τ|2wcur −1×10 −5
+
+in a simulation environment, such as the robot’s position error and terrain information. Here, ϕ is a phase variable introduced for learning stabilization, and is defined as ϕ =
+
+t3/(1 + t3), where t is the time step in the episode. 
+
+Goal-reaching task 
+
+oprop = hω, g, edof , ˙q, ϕ i, opriv = h∆p, θ, h, vi
+
+Dynamic task 
+
+oprop = hω, g, edof , ˙q, ϕ i, opriv = hθ, (z − z∗), vi
+
+D. Learning Parameters 
+
+The scaling factor for the wrench action λwrench was set to 0.5. Based on the results of the exploration capability exper-iment in simulation Fig. 2, the parameters that characterize the exploration capability of WARL, ( f max , τ max ), were set to (1000 N, 100 Nm ). The parameters of the WARL curriculum were set as follows. 
+
+γ = 0.6, δ = 2e − 6, σ = 0.8, ϵ = 0.01 
+
+Nsucc = 100 , η = 0.9, κ = 100 .0Furthermore, the standing height z∗ of each robot was set to the base height at the default joint angle qdef , which was 0.43m for KLEIYN and 0.3m for Unitree Go2. We used PPO for learning, and trained 4096 robots in parallel for 5000 iterations. Each policy was updated at 50Hz, and one iteration consisted of 48 steps (one episode is 4 seconds). The learning time was about 5 hours on a single RTX 3090 Ti. V. L earning Experiments and Results 
+
+A. Learning Results in Simulation 
+
+Using the proposed method WARL, we trained two robots, KLEIYN and Unitree Go2, on the six tasks defined in Sec. IV (four Goal-reaching tasks and two Dynamic tasks). The learning curves and the motions learned by KLEIYN are shown in Fig. 4. Each graph shows the mean and variance of five trials. No robot-specific tuning was performed other than changing the standing height z∗.Learning was successful for both robots on a variety of goal-reaching and dynamic motion tasks. The learning (a -2) HurdleJump                
+
+> (c -2)GapLeap
+> (e -2) Backflip
+> 0.5 m
+> 1
+> m
+> 1
+> m
+> 1m0.7
+> m
+> 0.7 m0.7 m
+> (d -2)IslandTraverse
+> 0.5 m
+> (b -2)LedgeJump
+> (f -2)BarrelRoll
+> (a -1)HurdleJump
+> (d -1)IslandTraverse
+> (b -1)LedgeJump
+> (e -1) Backflip
+> (c -1)GapLeap
+> (f -1)BarrelRoll
+
+Fig. 4. [a-f]-1: Transition of rewards when learning six tasks with KLEIYN and Go2, respectively. [a-f]-2: Snapshots of the learned motions in each task. 
+
+curves show an overall trend of reward improvement, with temporary drops caused by curriculum-driven wrench decay followed by recovery through adaptive learning. Learning also progressed using the same parameters across di ff erent robots. In the IslandTraverse task, the robot acquired a motion that directly jumped over the 1.4 m gap without using the intermediate footholds. This likely occurred because wrench-based exploration dominated the learning process, and motions utilizing footholds were not discovered. The learned wrench and joint motion at iteration 500 in the HurdleJump task are shown in Fig. 5. The results indicate that the hurdle-crossing motion is largely generated by the learned wrench, while coordinated leg motions are also acquired to lift the feet and clear the hurdle. To illustrate how the curriculum weight is updated based on the success rate, the transition of the success rate and curriculum weight during learning of the HurdleJump task is shown in Fig. 6. The success rate temporarily decreases when switching from the Joint +Wrench learning phase to the Joint-only adaptive learning phase, but recovers through subsequent adaptive learning and gradually improves. It takes about 2000 iterations to complete the curriculum, whereas the success rate reaches nearly 1.0 within about 100 iterations in the first Joint +Wrench phase. This suggests that Target 
+
+> Position
+> 𝒇
+> 𝝉
+> force:
+> torque:
+
+Fig. 5. Learned wrench and joint actions in HurdleJump at iteration 500. Wrench assistance is applied to clear the obstacle, while joint control is coordinated to lift the feet. 1. joint+wrench       
+
+> learning
+> 1. joint+wrench
+> learning
+> 2. joint -only
+> adaptation
+> 2. joint -only
+> adaptation |𝒘 |=0
+> No Wrench Phase
+> Success Rate and Curriculum Weight in the HurdleJump Task
+
+Fig. 6. Transition of success rate and curriculum weight up to 2500 iterations in the HurdleJump task. 
+
+the target motion itself can be acquired quickly using the wrench. Most of the training time is spent on adaptive learning to remove wrench dependence and reproduce the motion using only joint control. This indicates that while the rough structure of the motion can be obtained quickly, improving the e ffi ciency of adaptive learning is important for reducing total training time. 
+
+B. Ablation Study 
+
+To verify the e ff ectiveness of each component of the proposed method, we conduct an ablation study under four conditions: (1) WARL, (2) w /o Switch, (3) w /o Wrench Reward, and (4) Baseline. (2) w /o Switch: The adaptation phase is omitted, and learning is always performed in the exploration phase. (3) w /o Wrench Reward: The penalty term for the wrench amount in the exploration phase is removed from the reward function. (4) Baseline: Training is performed using only PPO and joint control, without including the wrench in the action space. All other training conditions, such as the reward function, are identical to the proposed method. We learn the HurdleJump task under these conditions and show the transition of the success rate in Fig. 7. Since condition (2) succeeded in only 3 out of 10 trials, both successful and unsuccessful learning curves are shown. Ablation Study in HurdleJump Task          
+
+> Success ( 3/10 )
+> Failed ( 7/10 )
+> WARL (Ours)
+> w/o Switch (Success)
+> w/o Switch (Failed)
+> w/o Wrench Reward
+> Baseline (PPO only) Fig. 7. Results of the ablation study of the proposed method on the HurdleJump task. Learning was performed under four conditions: (1) WARL, (2) w /o Switch, (3) w /o Wrench Reward, and (4) Baseline, and the transition of the success rate is shown.
+
+(1) WARL showed the most stable improvement in suc-cess rate overall. In (2) w /o Switch, since the Joint-only adaptation phase was omitted, the learned policy depended on the wrench and the success rate tended to decrease in the final stage of the curriculum. Learning success after the curriculum was inconsistent, indicating that the Switching Curriculum stabilizes learning. In (3) w /o Wrench Reward, learning eventually succeeded, but the decrease in success rate at the phase switch was larger than in (1) WARL. Without a penalty on wrench usage, policies with stronger wrench dependence tend to be learned during the Joint +Wrench phase. In (4) Baseline, since the wrench was not included in the action space, exploration guidance was not obtained and the success rate remained low throughout learning. This indicates that the task is di ffi cult to explore using only joint control and that wrench-based exploration guidance is highly e ff ective. These comparisons indicate that the Switching Curriculum plays a central role in removing wrench dependence, while the Wrench Reward helps suppress excessive reliance on the wrench. 
+
+C. Execution of Policy for Real Robot in MuJoCo Simulator 
+
+The policy π j(a|s) acquired by WARL includes privileged observation and cannot be directly applied to a real robot. Therefore, we train a policy πs(a|oprop ) that takes only Pro-prioceptive Observation as input using Teacherˆ a€“Student learning. Snapshots of the HurdleJump, LedgeJump, and GapLeap motions executed on the MuJoCo [23] simulator are shown in Fig. 8. The learned policy successfully reproduces similar mo-tions on the MuJoCo simulator. VI. D iscussion 
+
+a) Advantages and Challenges of Wrench-Based Explo-ration: We experimentally investigated how introducing a (a)  
+
+> (b)
+> (c)
+> Fig. 8. Snapshots of the learned policy executed on the MuJoCo simulator. (a) HurdleJump, (b) LedgeJump, (c) GapLeap
+
+wrench into the action space a ff ects learning characteristics. The advantages and challenges are summarized as follows. The first advantage is accelerated learning. By including a wrench in the action space, the agent obtains higher exploration capability compared to joint-space control alone. This expands the range of exploration that leads to the discovery of target motions and shortens the time required to acquire them. The second advantage is the reduction of heuristic learning design. When learning only with joint actions, the limited exploration capability often requires artificial adjustments such as detailed reward tuning and step-by-step curricula. Introducing a wrench broadens the exploration space, allow-ing learning to progress with less reliance on such auxiliary designs. 
+
+b) Improvement of the Learning Framework: For sim-plicity, the wrench policy and joint policy were trained with the same reward function, although their roles are inherently di ff erent. The primary role of the wrench policy is to facilitate learning of the joint policy. Using the same reward for both policies may cause the system to favor a wrench policy that does not su ffi ciently consider embodiment. To address this issue, the reward for the wrench policy should instead evaluate how e ff ectively it promotes the autonomous achievement of the target motion by the joint policy. One possible approach is to introduce a structure in which joint policy learning forms an inner loop while its progress is optimized externally, similar to hierarchical reinforcement learning. There is also room for improvement on the joint-policy side. The current framework adapts to a gradually decaying wrench, but another approach is to use wrench-generated motions as an imitation target. For example, trajectories obtained from wrench-driven motions could be used as teacher signals, enabling the joint policy to acquire motions that are more consistent with the robot’s embodiment. 
+
+c) Future Development Potential: The idea of incor-porating a wrench into the action space is not limited to a specific robot morphology. Although this study focused on a quadruped robot, the approach may also be e ff ective for robots with di ff erent locomotion forms, such as bipedal or multi-legged systems, particularly in tasks requiring dynamic control. Furthermore, the wrench policy is relatively weakly tied to a specific body structure. This abstraction suggests the pos-sibility of transferring motion knowledge between di ff erent embodiments. By using the wrench as a body-independent representation, it may be possible to construct a framework for sharing and transferring motor knowledge across robots. From this perspective, the proposed approach contributes not only to improving learning e ffi ciency but also to expand-ing the design principles of reinforcement-learning-based robot control. VII. C onclusion 
+
+In this study, we proposed a new method, WARL, which introduces a wrench into the action space to overcome the constraints on exploration capability in reinforcement learning for legged robots. The proposed method integrates wrench-guided exploration and success rate-based curricu-lum learning. The experimental results demonstrated that by using WARL, it is possible to learn motions uniformly under various conditions without requiring individual design for each terrain or task. In addition, an ablation study verified that the Switching Curriculum, which gradually removes the wrench, is e ff ective for the autonomous acquisition of a joint policy. On the other hand, it also became clear that the intro-duction of a wrench tends to lead to the learning of motions that do not fully utilize the robot’s specific embodiment. This issue is attributed to the fact that the wrench is an abstract input that is relatively independent of the body structure. In the future, further refinement of the learning framework is necessary, such as a method for generating wrenches that explicitly considers embodiment and a transition from exploration using wrenches to the acquisition of a joint control policy. References 
+
+[1] J. Hwangbo, J. Lee, A. Dosovitskiy, D. Bellicoso, V. Tsounis, V. Koltun, and M. Hutter, “Learning agile and dynamic motor skills for legged robots,” Science Robotics , vol. 4, no. 26, 2019. [2] Z. Zhuang, Z. Fu, J. Wang, C. Atkeson, S. Schwertfeger, C. Finn, and H. Zhao, “Robot parkour learning,” arXiv preprint arXiv:2309.05665 ,2023. [3] H. Kim, H. Oh, J. Park, Y. Kim, D. Youm, M. Jung, M. Lee, and J. Hwangbo, “High-speed control and navigation for quadrupedal robots on complex and discrete terrain,” Science Robotics , vol. 10, no. 102, p. eads6192, 2025. [4] N. Rudin, D. Hoeller, P. Reist, and M. Hutter, “Learning to walk in minutes using massively parallel deep reinforcement learning,” in 
+
+Proceedings of the 2022 Conference on Robot Learning , 2022, pp. 91–100. [5] V. Atanassov, J. Ding, J. Kober, I. Havoutis, and C. Della Santina, “Curriculum-based reinforcement learning for quadrupedal jumping: A reference-free design,” IEEE Robotics & Automation Magazine , 2024. [6] G. B. Margolis, G. Yang, K. Paigwar, T. Chen, and P. Agrawal, “Rapid locomotion via reinforcement learning,” The International Journal of Robotics Research , vol. 43, no. 4, pp. 572–587, 2024. [7] S. Ha, J. Lee, M. van de Panne, Z. Xie, W. Yu, and M. Khadiv, “Learning-based legged locomotion: State of the art and future per-spectives,” The International Journal of Robotics Research , vol. 44, no. 8, pp. 1396–1427, 2025. [8] D. Vogel, R. Baines, J. Church, J. Lotzer, K. Werner, and M. Hutter, “Robust ladder climbing with a quadrupedal robot,” arXiv preprint arXiv:2409.17731 , 2024. [9] G. Bellegarda, C. Nguyen, and Q. Nguyen, “Robust quadruped jumping via deep reinforcement learning,” Robotics and Autonomous Systems , vol. 182, p. 104799, 2024. [10] K. Yoneda, K. Kawaharazuka, T. Suzuki, T. Hattori, and K. Okada, “Kleiyn: A quadruped robot with an active waist for both locomotion and wall climbing,” arXiv preprint arXiv:2507.06562 , 2025. [11] R. Mart´ ın-Mart´ ın, M. A. Lee, R. Gardner, S. Savarese, J. Bohg, and A. Garg, “Variable impedance control in end-e ff ector space: An action space for reinforcement learning in contact-rich tasks,” in 2019 IEEE /RSJ international conference on intelligent robots and systems (IROS) . IEEE, 2019, pp. 1010–1017. [12] K. Jiang, Z. Fu, J. Guo, W. Zhang, and H. Chen, “Learning whole-body loco-manipulation for omni-directional task space pose tracking with a wheeled-quadrupedal-manipulator,” IEEE Robotics and Automation Letters , vol. 10, no. 2, pp. 1481–1488, 2024. [13] E. Aljalbout, F. Frank, M. Karl, and P. van der Smagt, “On the role of the action space in robot manipulation learning and sim-to-real transfer,” IEEE Robotics and Automation Letters , vol. 9, no. 6, pp. 5895–5902, 2024. [14] H. Duan, J. Dao, K. Green, T. Apgar, A. Fern, and J. Hurst, “Learning task space actions for bipedal locomotion,” in 2021 IEEE International Conference on Robotics and Automation (ICRA) . IEEE, 2021, pp. 1276–1282. [15] G. Bellegarda and A. Ijspeert, “Cpg-rl: Learning central pattern generators for quadruped locomotion,” IEEE Robotics and Automation Letters , vol. 7, no. 4, pp. 12 547–12 554, 2022. [16] D. Kang, M.-G. Kim, T.-G. Song, H. Kim, S. Ha, and H.-W. Park, “Dy-namic policy learning for legged robot with simplified model pretrain-ing and model homotopy transfer,” arXiv preprint arXiv:2512.24698 ,2025. [17] T. Miki, J. Lee, J. Hwangbo, L. Wellhausen, V. Koltun, and M. Hutter, “Learning robust perceptive locomotion for quadrupedal robots in the wild,” Science Robotics , vol. 7, no. 62, 2022. [18] K. Yoneda, K. Kawaharazuka, and K. Okada, “Efgcl: Learning dy-namic motion through spotting-inspired external force-guided curricu-lum learning,” IEEE Robotics and Automation Letters , vol. 11, no. 5, pp. 5907–5913, 2026. [19] J. P. Sleiman, H. Li, A. Adu-Bredu, R. Deits, A. Kumar, K. Bergamin, M. Bhardwaj, S. Biddlestone, N. Burger, M. A. Estrada et al. , “Zest: Zero-shot embodied skill transfer for athletic robot control,” arXiv preprint arXiv:2602.00401 , 2026. [20] Z. Cao, Y. Zhang, B. Nie, H. Lin, H. Li, and Y. Gao, “Learning motion skills with adaptive assistive curriculum force in humanoid robots,” 
+
+arXiv preprint arXiv:2506.23125 , 2025. [21] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov, “Proximal policy optimization algorithms,” 2017. [22] J. Liang, V. Makoviychuk, A. Handa, N. Chentanez, M. Macklin, and D. Fox, “Gpu-accelerated robotic simulation for distributed reinforce-ment learning,” 2018. [23] E. Todorov, T. Erez, and Y. Tassa, “MuJoCo: A physics engine for model-based control,” in Proceedings of the 2012 IEEE /RSJ Interna-tional Conference on Intelligent Robots and Systems , 2012, pp. 5026– 5033.
