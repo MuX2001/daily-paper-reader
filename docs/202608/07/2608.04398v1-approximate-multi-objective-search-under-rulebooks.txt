@@ -1,0 +1,982 @@
+Title: Approximate Multi-Objective Search Under Rulebooks
+
+URL Source: https://arxiv.org/pdf/2608.04398v1
+
+Published Time: Thu, 06 Aug 2026 00:24:55 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# Approximate Multi-Objective Search Under Rulebooks 
+
+Omar Muhammetkulyyev 1, Oren Salzman 2, and Tichakorn Wongpiromsarn 1 
+
+> 1
+
+Iowa State University, Ames IA 50010, USA 
+
+omar99@iastate.edu , nok@iastate  
+
+> 2
+
+Technion - Israel Institute of Technology, Haifa 3200003, Israel 
+
+osalzman@cs.technion.ac.il 
+
+Abstract. Robotic planning often involves multiple objectives with com-plex priority relationships, such as safety, efficiency, and regulatory com-pliance. Rulebooks formalize these relationships, allowing partial order-ing of objectives that generalizes both Pareto and lexicographic domi-nance. Computing the full set of rulebook-optimal solutions, however, is computationally expensive. To address this challenge, we introduce the concept of ε-rule-dominance, a principled notion of approximate dom-inance under rulebooks, and propose RA*pex , a best-first search algo-rithm that efficiently computes a compact set of ε-approximate rulebook-optimal solutions. RA*pex leverages dimensionality reduction, a tech-nique used to speed up existing multi-objective search algorithms, while respecting rule hierarchies by maintaining separate closed sets and per-forming dominance checks over truncated and residual rule sets. We pro-vide a formal analysis of RA*pex , proving that every rulebook-optimal solution is ε-rule-dominated (a generalization of approximate dominance we introduce) by at least one solution in the returned set. Empirical re-sults demonstrate that our approach achieves computation times over two orders of magnitude faster than existing methods. 
+
+Keywords: Multi-objective search · Motion and path planning. 
+
+# 1 Introduction 
+
+Robotic planning and navigation problems often require reasoning over multiple, potentially conflicting objectives, including safety, efficiency, and task-related constraints. For example, an autonomous vehicle must avoid collisions, respect traffic rules, and minimize travel time and energy consumption. These require-ments naturally lead to multi-objective search (MOS), in which planning is per-formed on graphs whose edge weights are represented by vectors of multiple cost components, each representing a distinct objective. In classical MOS, solution paths are compared using Pareto dominance, i.e., a path π dominates another path π′ if every cost component of π is no larger than the corresponding component of π′ and at least one component is strictly smaller. Instead of returning a single optimal solution, MOS aims to compute the complete set of non-dominated solution paths. While this formulation captures trade-offs among objectives without requiring manual weighting, it is computa-tionally demanding as the number of non-dominated paths grows exponentially with the size of the graph [3, 8]. Moreover, unlike a single objective search where arXiv:2608.04398v1 [cs.RO] 5 Aug 2026 2 O. Muhammetkulyyev et al. 
+
+there is only one optimal cost, the number of optimal cost vectors in MOS are also exponential in terms of the graph size. The inherent complexity of MOS has motivated the development of approxi-mate algorithms [9, 20]. Instead of computing the complete set of non-dominated solutions, these methods aim to compute a reduced representative subset that approximates the Pareto frontier within a specified tolerance. Many robotic applications, however, impose additional structure on objective relationships that is not captured by Pareto dominance alone [14]. In particular, safety-critical objectives are often strictly more important than efficiency-related objectives. This observation has led to lexicographic formulations that impose a strict priority ordering among objectives [18]. Lexicographic search can sub-stantially reduce the solution space, but it requires a strict total ordering and cannot handle partial or mixed priority relationships. In practice, robotic planning problems frequently involve a combination of hierarchical and non-comparable objectives. For example, collision avoidance may be strictly prioritized over regulatory compliance, while objectives such as minimizing energy consumption and travel time may remain mutually non-comparable. We adopt the rulebooks formalism [6] to formalize complex rela-tionships among objectives. Rulebooks capture partial priority structures that subsume both Pareto dominance and lexicographic ordering. However, comput-ing the set of non-dominated solutions under a rulebook remains computationally expensive and exhibits exponential worst-case complexity [19]. This paper addresses the computational challenges of MOS under rulebooks. Our contributions are threefold. First, we introduce the notion of ε-dominance with respect to rulebooks, which provides a principled approximation of the rulebook non-dominated solution set. Second, we propose an algorithm that computes a set of approximate solutions such that every solution path is ε-rule-dominated by at least one path in the returned set. Finally, we present extensive experimental results demonstrating that our approach achieves significant com-putational improvements (up to two orders of magnitude faster) over existing algorithms that compute the complete set of rulebook non-dominated solutions, while preserving the intended objective priorities. 
+
+# 2 Preliminaries 
+
+This section presents formal definitions and concepts of MOS [17] and rule-books [6, 19]. Throughout the paper, we let R, R≥0, R>0 and N denote the set of real, non-negative real, positive real, and natural numbers, respectively. Bold-face symbols denote vectors or vector-valued functions and vi denotes the i-th component of a vector or vector function v.Let p and q be N -dimensional vectors. We write p + q to denote component-wise addition. For a minimization problem, we say that p weakly dominates q,denoted p ⪯ q, if pi ≤ qi for all i. We say that p dominates q, denoted p ≺ q,if p ⪯ q and pj < q j for at least one index j. Finally, let ε ∈ RN 
+
+> ≥0
+
+be another non-negative N -dimensional vector. We say that p approximately dominates q
+
+with an approximation factor ε, denoted p ⪯ε q, if pi ≤ (1 + εi)qi for all i.Approximate Multi-Objective Search Under Rulebooks 3
+
+2.1 Multi-Objective Search (MOS) 
+
+In Multi-Objective Search (MOS), we are given a directed graph G = ( V, E )
+
+where each edge e ∈ E has a nonnegative cost vector c(e) ∈ RN
+
+> ≥0
+
+, where N > 0
+
+is the number of objectives. A path is a sequence of vertices π = ⟨v1, . . . , v k⟩
+
+such that vi ∈ V and (vi, v i+1 ) ∈ E for all i. We let Π denote the set of all paths in G. The cost of a path π ∈ Π is defined as the component-wise sum of the cost vectors of its edges: c(π) = P 
+
+> i
+
+c(vi, v i+1 ).Given start and target vertices s, t ∈ V , a path from s to t is called a solution .A solution is Pareto-optimal iff its cost is not dominated by any other solution. The objective of the basic MOS problem is to compute the set Π⋆ ⊆ Π of Pareto-optimal solutions, also known as the Pareto front (PF), for given s, t ∈ V .As the size of Π⋆ may be exponential in |V |, computing the entire PF is often impractical. Thus, we instead seek its bounded approximation. Specifically, given an approximation factor ε ∈ RN
+
+> ≥0
+
+, the ε-approximate PF , denoted Π⋆ 
+
+> ε
+
+, is a set of solutions such that ∀π ∈ Π⋆, ∃π′ ∈ Π⋆ 
+
+> ε
+
+s.t. c(π′) ⪯ε c(π). Namely, every solution in Π⋆ is approximately dominated by some solution in Π∗ 
+
+> ε
+
+.
+
+Exact MOS algorithms and dimensionality reduction. Arguably, the most common approach to MOS is using a best-first search approach [2, 4, 5, 12, 13, 16] which generalizes the celebrated A∗ algorithm [10] to the MOS setting. A key insight that dramatically improved the efficiency of these algorithms was to order the nodes in the priority queue in increasing lexicographic or-der and apply the notion of dimensionality reduction [15]. More specifically, when the search frontier is ordered lexicographically, the value of the first ob-jective is guaranteed to be non-decreasing throughout the expansion process. This monotonicity implies that any newly generated node will essentially have a first-objective cost that is equal to or greater than that of any previously ex-panded node, rendering explicit comparisons for this dimension redundant. As a result, the dominance check can be restricted to the remaining objectives, effec-tively reducing the dimensionality of the problem by one. This was shown (see, e.g., [11, 15]) to have a dramatic impact on the running time of the algorithm. For additional details, see [15, 17]. 
+
+Approximate MOS algorithms. Arguably, the state-of-the-art algorithm to compute an ε-approximate PF is A*pex [20], which also serves as the algorithmic foundation of our algorithm. Similar to exact MOS heuristic search algorithms, 
+
+A*pex performs a best-first search over the search space. The efficiency of A*pex 
+
+stems from the fact that instead of reasoning about single paths, A*pex reasons about sets of paths with the same last vertex and similar costs, which results in small numbers of search-node expansions and thus small runtimes. Specifically, each node of A*pex is represented by an apex-path pair AP =
+
+⟨A, π ⟩, where A ∈ RN 
+
+> ≥0
+
+is called the node’s apex and π ∈ Π is called the node’s 
+
+representative path , with the requirement that A ⪯ c(π), i.e., the apex weakly dominates the cost of the representative path. The vertex v(AP ) of AP is defined as v(AP ) := v(π), where v(π) ∈ V is the last vertex of path π. Each apex-path pair AP = ⟨A, π ⟩ corresponds to a set of paths ΠAP (which includes π)with the same last vertex v(AP ). Instead of storing ΠAP explicitly, A*pex only 4 O. Muhammetkulyyev et al. 
+
+stores the apex A = min π′∈ΠAP {c(π′)}, which is the component-wise minimum of (and hence weakly dominates) the costs of all paths in ΠAP , including the representative path π ∈ ΠAP . Given a heuristic function h : V → RN
+
+> ≥0
+
+, the 
+
+g-value and f -value of AP = ⟨A, π ⟩ are defined as g(AP ) := A and f (AP ) := 
+
+A + h(v(AP )) . Finally, we say that AP is ε-bounded iff f (π) ⪯ε f (AP ), where 
+
+f (π) := c(π) + h(v(π)) . As we will see, all nodes in A*pex will be ε-bounded. Before we explain how apex-path pairs are used, let us define the operations on apex-path pairs: First, extending an apex-path pair AP = ⟨A, π ⟩ by an edge e results in an apex-path pair AP ′ = ⟨A + c(e), π ′⟩, where π′ is a path π
+
+extended by edge e. Conceptually, apex-path pair AP ′ corresponds to the set of paths ΠAP ′ that extends every path in ΠAP by e. It is easy to verify that the apex of AP ′ is the component-wise minimum of the costs of the paths in ΠAP ′ .The second operation is merging two apex-path pairs that contain the same vertex. Conceptually, merging two apex-path pairs corresponds to merging the two sets of paths that these two apex-path pairs correspond to. Hence, the apex of the merged apex-path pair is the component-wise minimum of the apexes of the two apex-path pairs. The representative path of the merged apex-path pair is either one of the two representative paths of the two apex-path pairs. 
+
+A*pex starts with a single apex-path pair ⟨0, [s]⟩ in a priority-queue Open .In each iteration, A*pex extracts an apex-path pair AP from Open with the lex-icographically smallest f -value. The algorithm then performs dominance checks and discards AP if either (i) there exists a solution already found whose cost 
+
+ε-dominates the f -value of AP or if (ii) there exists an expanded apex-path pair that contains v(AP ) and whose g-value weakly dominates g(AP )
+
+When A*pex expands an apex-path pair that contains the goal vertex t, it adds the representative path of this apex-path pair to the set of found solutions. When A*pex expands an apex-path pair that does not contain t, it generates a child apex-path pair AP for each vertex v′ such that (v, v ′) ∈ E by extending the expanded apex-path pair with edge (v, v ′). Consider that the child apex-path pair AP is not discarded after the dominance checks, and let Open [v] be the set of apex-path pairs in Open that contains vertex v. A*pex then checks if there exists an apex-path pair AP ′ in Open [v(AP )] that results in an ε-bounded apex-path pair when merged with AP . If so, A*pex removes AP ′ from Open 
+
+and then adds the merged apex-path pair to Open . Otherwise, it adds AP to 
+
+Open . When Open becomes empty, A*pex terminates and returns the set of solutions as an ε-approximate Pareto frontier. 
+
+2.2 Rulebooks 
+
+To avoid ambiguity in terminology, we fix the following conventions for the re-mainder of the paper. Specifically, we follow standard robotics terminology and use the term state to refer to what is commonly called a vertex in graph-search literature, and realization to refer to a path . Readers familiar with graph termi-nology may interpret these terms interchangeably. A rulebook is evaluated over a set of possible outcomes, referred to as the set of realizations and denoted by Σ. In the context of multi-objective search, a realization corresponds to a path in the underlying graph. A rulebook con-Approximate Multi-Objective Search Under Rulebooks 5
+
+sists of two main components: a set of rules and a preorder that specifies their relative importance. Each rule corresponds to a distinct objective and assigns a non-negative cost that reflects the degree to which the realization violates the objective. The preorder encodes priority relationships among rules, allowing the representation of both hierarchical objectives and objectives that are not comparable. 
+
+Definition 1. A rule is a function r : Σ → R≥0 that measures the degree of violation of its argument. 
+
+For any realizations x, y ∈ Σ, r(x) < r (y) indicates that y violates the rule r
+
+to a greater extent than x. In particular, r(x) = 0 indicates that x fully satisfies the rule. Although we refer to these functions as “rules”, they are not limited to regulatory constraint. A rule may represent performance-related objectives like efficiency or user preferences that are desirable but not strictly required. 
+
+Definition 2. A preorder on a set S is a binary relation ≲ that is reflexive (s ≲ s for all s ∈ S), and transitive ( s1 ≲ s2 and s2 ≲ s3 imply s1 ≲ s3 for all 
+
+s1, s 2, s 3 ∈ S). 
+
+A preorder generalizes a partial order by relaxing the antisymmetry require-ment. In particular, it allows both s1 ≲ s2 and s2 ≲ s1 to hold for distinct elements s1̸ = s2. This property enables the representation of objectives that are of equal priority [19]. One can define an equivalence relation ∼ on S so that 
+
+s1 ∼ s2 if and only if s1 ≲ s2 and s2 ≲ s1. The preorder on S can then be viewed as a partial order on S \ ∼ where each element is an equivalence class of ∼.
+
+Definition 3. A rulebook is defined as a tuple R = ⟨R, ≲⟩, where R is the set of rules and ≲ is a preorder on R that specifies their relative importance. 
+
+As proved by Slutsky et al. [6], a rulebook R induces a preorder ≲R on Σ,ensuring consistency and preventing cyclic preferences among realizations. Intu-itively, a realization x is considered “at least as desirable as” a realization y if any increased violation in a lower-priority rule is compensated by an improvement in a higher-priority rule. Formally, we say that x weakly rule-dominates y, denoted 
+
+x ≲R y, if for any rule r′ ∈ R such that r′(x) > r ′(y), there exists a higher priority rule r > r ′ such that r(x) < r (y). We say that x rule-dominates y,denoted by x < R y, if x ≲R y but y̸ ≲R x.
+
+# 3 Problem Formulation 
+
+We consider multi-objective search on a graph G = ( S, E ), where S is a finite set of states and E ⊆ S × S is a finite set of edges. A realization is any path in G,regardless of its start or end states. We let Σ denote the set of all realizations. The quality of a realization is evaluated using a rulebook R = ⟨R, ≲⟩ where 
+
+R = {r1, . . . , r N }, which induces a preorder ≲R on Σ as defined in Section 2.2. Let sstart ∈ S and sgoal ∈ S denote the start and goal states, respectively. We define the set of solutions as the subset of realizations that start at sstart 
+
+and end at sgoal and denote this set by Σsol ⊆ Σ.We first define the notion of optimality with respect to a rulebook. A solution is said to be rulebook-optimal if it is not rule-dominated by any other solution. The set of all such solutions forms the rulebook-optimal solution set .6 O. Muhammetkulyyev et al. 
+
+Definition 4. The rulebook-optimal solution set is defined as PR = {x ∈
+
+Σsol |̸ ∃y ∈ Σsol such that y < R x}
+
+The set PR generalizes the classical Pareto-optimal set and captures both hi-erarchical and non-comparable objectives. As in standard multi-objective search, the size of PR can grow exponentially in the size of the graph, making exact computation impractical for large problems. To enable approximation of PR, we introduce a relaxed notion of rule-dominance. 
+
+Definition 5. Let R = ⟨R, ≲⟩ be a rulebook, where R = {r1, . . . , r N }, and 
+
+ε ∈ RN
+
+> ≥0
+
+. For realizations x, y ∈ Σ, we say that x ε-rule-dominates y, denoted 
+
+x ≲ε 
+
+> R
+
+y if for any rule rj ∈ R such that rj (x) > (1 + εj )rj (y), there exists a higher-priority rule ri > r j such that ri(x) < (1 + εi)ri(y).Example 1. Consider a rulebook R = ⟨R, ≲⟩ with R = {r1, r 2, r 3}, r1 > r 2 and 
+
+r1 > r 3, i.e., r1 is the highest priority rule while r2 and r3 are not comparable. Consider two realizations x, y ∈ Σ with r1(x) = 1 .9, r2(x) = r3(x) = 2 and 
+
+r1(y) = r2(y) = r3(y) = 1 . Then, y ≲R x but x̸ ≲R y because r1(x) > r 1(y) and there is no rule ri satisfying ri > r 1. However, with ε = 1, we get y ≲ε 
+
+> R
+
+x and 
+
+x ≲ε 
+
+> R
+
+y because r1(x) < (1 + ε1)r1(y).This definition relaxes rule-dominance by allowing bounded degradation, con-trolled by ε. Using ε-rule-dominance, we define a notion of an approximate op-timal solution set. 
+
+Definition 6. A set Pε 
+
+> R
+
+⊆ Σsol is an ε-approximate rulebook-optimal solution set if for every rulebook-optimal solution x′ ∈ P R, there exists a solution x ∈ P ε
+
+> R
+
+such that x ≲ε 
+
+> R
+
+x′.
+
+We note that this definition does not require the elements of Pε 
+
+> R
+
+to be rulebook-optimal or even near-optimal. In the extreme case, the entire solu-tion set Σsol trivially satisfies this definition. Our goal is not to minimize the suboptimality of the returned solutions, but to efficiently compute Pε
+
+> R
+
+, ideally one of small size. 
+
+Problem 1 (Approximate Multi-Objective Search under Rulebooks:). Given a graph 
+
+G = ( S, E ), start and goal states sstart , s goal ∈ S, a rulebook R = ⟨R =
+
+{r1, . . . , r N }, ≲⟩, and a tolerance vector ε ∈ RN 
+
+> ≥0
+
+, compute an ε-approximate rulebook-optimal solution set Pε
+
+> R
+
+.
+
+# 4 Rulebook-A*pex (RA*pex )
+
+This section presents rulebook-A*pex (RA*pex ), our algorithm for Problem 1. At a high level, RA*pex follows the same best-first “expand-and-prune” template as 
+
+A*pex , but replaces component-wise ε-dominance ⪯ε with the rulebook-based relation ≲ε
+
+> R
+
+. This change is conceptually simple, yet it has two important con-sequences that drive the technical development in the rest of the section. 
+
+A*pex can rely on purely component-wise reasoning: when Open is ordered lexicographically by f , the first component becomes monotone along the search and can be ignored in dominance checks (dimensionality reduction). Under rule-books, dominance depends on the priority structure among rules and, crucially, on whether a difference is strict (an improvement in a higher-priority rule can Approximate Multi-Objective Search Under Rulebooks 7
+
+compensate for a degradation in a lower-priority rule). As a result, the simple component-wise dominance machinery of A*pex no longer applies directly. We first give a baseline RA*pex that operates on full rule-value vectors and uses ≲R and ≲ε 
+
+> R
+
+directly for pruning. This baseline introduces the algorithmic logic but does not benefit from dimensionality reduction. We then develop a dimensionality-reduction variant: we explain why the A*pex argument fails under rulebooks, and show how to restore an efficient dominance test by partitioning expanded nodes while preserving correctness. 
+
+4.1 Baseline RA*pex 
+
+To simplify notation, we define a mapping that associates each realization with its vector representation of rule-violation values. 
+
+Definition 7. Let R = ⟨R, ≲⟩ be a rulebook with R = {r1, . . . , r N }. We define the mapping cR : Σ → RN 
+
+> ≥0
+
+by cR(x) = [ r1(x), . . . , r N (x)] so that the i-th component of cR(x) represents the degree to which realization x violates rule ri.
+
+This vector representation allows us to reason directly about N -dimensional vectors (similar to the way that A*pex reasons about path costs). In particular, both rule-dominance and ε-rule-dominance can be defined and evaluated purely at the vector level, without reference to the underlying realization. 
+
+Definition 8. Let R = ⟨R, ≲⟩ be a rulebook with R = {r1, . . . , r N } and let 
+
+u, v ∈ RN 
+
+> ≥0
+
+be N -dimensional vectors. We say that u ≲R v, if for any rule 
+
+rj ∈ R such that uj > v j , there exists a higher-priority rule ri > r j such that 
+
+ui < v i.
+
+Similarly, ε-rule-dominance ≲ε 
+
+> R
+
+can be defined for vectors in the same way as for realizations in Definition 5. Motivated by A*pex , we represent each node by a rule-apex-realization pair .
+
+Definition 9. A rule-apex-realization pair RP = ⟨r, x ⟩ consists of a rule apex 
+
+r ∈ RN 
+
+> ≥0
+
+and a representative realization r ≲R cR(x).
+
+A state of RP = ⟨r, x ⟩, denoted s(RP ), is defined as the last state of x.Similar to A*pex , for a given heuristic function h : S → RN
+
+> ≥0
+
+, we define the 
+
+g-value and f -value of RP as g(RP ) := r and f (RP ) := r + h(s(RP )) . We say that RP is ε-bounded iff f (x) ≲ε 
+
+> R
+
+f (RP ), where f (x) := cR(x) + h(s(x)) .
+
+RA*pex ensures that all the rule-apex-realization pairs are ε-bounded. The baseline version of RA*pex , outlined in Alg. 1 closely follows the structure of A*pex , but replaces vector-based dominance ( ⪯ and ⪯ε) with rule-dominance (≲R and ≲ε
+
+> R
+
+) to account for hierarchical rule priorities. This difference is re-flected in the is _dominated function, outlined in Alg. 2. 
+
+RA*pex maintains three main data structures throughout the search: (i) the priority queue Open , storing candidate rule-apex-realization pairs and ordered according to rule-dominance ≲R (instead of lexicographic ordering as in A*pex ), since dominance checks are performed over the full rule-value vectors; (ii) the set solutions , storing the current representative solutions; and (iii) a per-state closed structure Gcl (·) (initialized in Line 4), storing the f -values of rule-apex-realization pairs that have already been expanded at state s.At each iteration, RA*pex extracts a rule-apex-realization pair RP = ⟨r, x ⟩
+
+from Open (Line 6) and immediately applies the pruning test is _dominated 8 O. Muhammetkulyyev et al. 
+
+Algorithm 1: RA ∗pex (S, E, R, s start , s goal , h, ε) 
+
+> 1
+
+Open ← {⟨ 0, [sstart ]⟩} ; // ordered according to rule-dominance ≲R 
+
+> 2
+
+solutions ← ∅ ; 
+
+> 3
+
+for s ∈ S do  
+
+> 4
+
+Gcl (s) ← ∅ ; 
+
+> 5
+
+while Open ̸ = ∅ do  
+
+> 6
+
+RP = ⟨r, x ⟩ ← Open .extract _min ()  
+
+> 7
+
+if is _dominated (RP , G cl , solutions ) then // Alg. 2  
+
+> 8
+
+continue ; 
+
+> 9
+
+Gcl (s(RP )) .add (f (RP )) ; 
+
+> 10
+
+if s(RP ) = sgoal  
+
+> 11
+
+insert (RP , solutions ) ; // Alg. 4  
+
+> 12
+
+continue ; 
+
+> 13
+
+for s′ ∈ succ (s(RP )) do  
+
+> 14
+
+RP ′ ← ⟨ r + cR(⟨s(RP ), s ′⟩), extend (x, ⟨s(RP ), s ′⟩)⟩ ; 
+
+> 15
+
+if is _dominated (RP ′, G cl , solutions ) then // Alg. 2  
+
+> 16
+
+continue ; 
+
+> 17
+
+insert (RP ′, Open ) ; // Alg. 4  
+
+> 18
+
+return {x : ⟨r, x ⟩ ∈ solutions }
+
+Algorithm 2: is _dominated (RP = ⟨r, x ⟩, G cl , solutions ) 
+
+> 1
+
+if ∃RP ′ = ⟨r′, x ′⟩ ∈ solutions : f (x′) ≲εR f (RP ) then // Alg. 3  
+
+> 2
+
+remove ⟨r′, x ′⟩ from solutions ; 
+
+> 3
+
+add ⟨comp _wise _min (r, r′), x ′⟩ to solutions ; 
+
+> 4
+
+return TRUE ; 
+
+> 5
+
+if ∃w ∈ Gcl (s(RP )) : w ≲R r then  
+
+> 6
+
+return TRUE ; 
+
+> 7
+
+return FALSE ;
+
+(Line 7, implemented in Alg. 2). This test consults both solutions and the state-local closed set Gcl (s(RP )) to decide whether RP can be discarded; the approximate dominance checks within is _dominated rely on Alg. 3. If RP is not pruned, we insert its f -value into Gcl (s(RP )) (Line 9). If RP reaches the goal state (Line 10), we insert it into solutions (Line 11) using Alg. 4. Similar to A*pex , RA*pex merges rule-apex-realization pairs by taking the component-wise minimum of their rule apexes (i.e., the merged apex is min {r, r′}) and keeping one of the two representative realizations; this is per-formed by merge in Alg. 4, Line 2. Otherwise, we generate successors (Line 14); each child RP ′ is again filtered by the same pruning test (Line 15) and, if it sur-vives, inserted into Open via Alg. 4 (Line 17). Upon termination, the algorithm returns the representative realizations stored in solutions (Line 18). The core operation underlying all dominance checks is the ε-rule-dominance test ≲ε
+
+> R
+
+, shown in Alg. 3. Since the rulebook R forms a partial order on R\ ∼ ,it can be represented by a directed acyclic graph GR = ( VR, E R). Every vertex 
+
+vR 
+
+> i
+
+∈ VR represents a set of equivalent rules [vR 
+
+> i
+
+] ⊆ R, such that r ∼ r′ for all 
+
+r, r ′ ∈ [vR 
+
+> i
+
+]. An edge vR 
+
+> i
+
+→ vR 
+
+> j
+
+means that there are rules ri ∈ [vR 
+
+> i
+
+] and rj ∈ [vR 
+
+> j
+
+]
+
+such that ri > r j , meaning that ri has a higher rank that rj , also implying that the rules in [vR 
+
+> i
+
+] have a higher rank than the rules in [rR 
+
+> j
+
+]. The procedure in Alg. Approximate Multi-Objective Search Under Rulebooks 9
+
+Algorithm 3: Approximate dominance check x ≲ε 
+
+> R
+
+y                                                    
+
+> 1Let ⟨vR
+> 1, v R
+> 2. . . v R
+> M⟩be a topological order of R\ ∼ ;
+> 2Q← ⟨ vR
+> 1, v R
+> 2, . . . , v R
+> M⟩;
+> 3while Q̸=∅do
+> 4v=Q.pop () ;
+> 5if ∃r∈[v]such that r(x)>(1 + ε)r(y)then
+> 6return FALSE ;
+> 7else if ∃r∈[v]such that r(x)<(1 + ε)r(y)
+> 8remove all successors of vfrom Q;
+> 9return TRUE ;
+
+Algorithm 4: insert (RP , list )                                 
+
+> 1for RP ′∈list do
+> 2RP new ←merge (RP ,RP ′);
+> 3if RP new is ε-bounded
+> 4remove RP ′from list ;
+> 5add RP new to list ;
+> 6return ;
+> 7add RP to list ;
+> 8return ;
+
+3 follows the rulebook structure by traversing the rules in the topological order 
+
+⟨vR 
+
+> 1
+
+, v R 
+
+> 2
+
+, . . . , v R 
+
+> M
+
+⟩ of their equivalence classes in VR, where M ≤ N is the number of equivalence classes. It checks for violations that exceed the allowed ε bound and prunes the lower-priority rules once sufficient improvement is detected at a higher level. This hierarchical filtering is what fundamentally distinguishes 
+
+RA*pex from A*pex and explains why dominance checks are more complex in the rulebook setting. 
+
+4.2 Dimensionality Reduction 
+
+Recall that dimensionality reduction is more challenging with rulebooks because of the structure of rule-dominance. In A*pex , Open is ordered lexicographically by the f -values. Thus, when an apex-path pair AP is extracted from Open ,lexicographic best-first ordering guarantees that the first component of f (AP )
+
+cannot improve upon that of any previously expanded pair that ends at the same state or any pair already in the solution set, i.e., f1(AP ) ≥ f1(AP ′) for all AP ′ ∈ Gcl (s(AP )) ∪ solutions . This property enables a simple form of di-mensionality reduction, i.e., when checking whether f (AP ) is dominated by any vector in Gcl (s(AP )) ∪ solutions , the first component can be ignored and dom-inance checks reduce to comparisons over the remaining components only. 
+
+Example 2. Given three vectors u = [1 , 3, 4] , v = [2 , 3, 4] , and w = [2 , 4, 1] ,consider testing whether u ⪯ w or v ⪯ w. Since u1 ≤ w1, it suffices to compare the suffixes [3 , 4] and [4 , 1] . Since [3 , 4] ̸ ⪯ [4 , 1] , we can conclude that u̸ ⪯ w. The same reasoning applies to v, yielding v̸ ⪯ w.When there are hierarchies among the rules, this simplification no longer applies. Although RA*pex also guarantees that the first component of f (RP )
+
+is not smaller than that of any previously expanded pair that ends at s(RP )10 O. Muhammetkulyyev et al. 
+
+Algorithm 5: is _dominated dr (RP = ⟨r, x ⟩, G =cl , G < 
+
+> cl
+
+, solutions ) 
+
+> 1
+
+if ∃RP = ∈ G=cl (s(RP )) : f1(RP =) < f 1(RP ) then // transfer G=cl to G< 
+
+> cl
+> 2
+
+for RP ′ ∈ G< 
+
+> cl
+
+(s(RP )) do  
+
+> 3
+
+if ∃RP ′′ ∈ G=cl (s(RP )) : T r (f (RP ′′ )) ≲R T r (f (RP ′))  
+
+> 4
+
+remove RP ′ from G< 
+
+> cl
+
+(s(RP )) ; 
+
+> 5
+
+G< 
+
+> cl
+
+(s(RP )) ← G< 
+
+> cl
+
+(s(RP )) ∪ G=cl (s(RP )) ; 
+
+> 6
+
+G=cl (s(RP )) ← ∅ ; 
+
+> 7
+
+if ∃RP = ∈ G=cl (s(RP )) : T r (f (RP =)) ≲R T r (f (RP )) then  
+
+> 8
+
+return TRUE ; 
+
+> 9
+
+if ∃RP < ∈ G< 
+
+> cl
+
+(s(RP )) : α(f (RP <)) ≲R α(f (RP )) then  
+
+> 10
+
+return TRUE ; 
+
+> 11
+
+if ∃RP ′ = ⟨r′, x ′⟩ ∈ solutions : f (x′) ≲εR f (RP ) then  
+
+> 12
+
+remove ⟨r′, x ′⟩ from solutions ; 
+
+> 13
+
+add ⟨comp _wise _min (r, r′), x ′) to solutions ; 
+
+> 14
+
+return TRUE ; 
+
+> 15
+
+return FALSE ;
+
+or any pair in solutions , this information alone is insufficient to determine rule-dominance. Unlike component-wise dominance, rule-dominance depends not only on non-inferiority at higher-priority rules, but also on the presence of strict im-provements that may compensate for degradations at lower-priority rules. Con-sequently, lexicographic ordering cannot isolate a single component, and domi-nance checks must explicitly account for the rule hierarchy and distinguish strict from non-strict improvements, as illustrated in the following example. 
+
+Example 3. Consider the same rulebook as in Example 1, namely R = ⟨R, ≲⟩
+
+with R = {r1, r 2, r 3}, r1 > r 2 and r1 > r 3. Let x, y, z be realizations with 
+
+cR(x) = [1 , 3, 4] , cR(y) = [2 , 3, 4] and cR(z) = [2 , 4, 1] . For consistency with Example 2, let u = cR(x), v = cR(y) and w = cR(z).First, consider whether u ≲R w. As in Example 2, we have u1 ≤ w1 and the suffixes satisfy [3 , 4] ̸ ≲R [4 , 1] because u3 > w 3. Under component-wise dominance, this would be sufficient to conclude non-dominance. However, under rule-dominance, the degradation at r3 is offset by a strict improvement at a higher-priority rule r1 > r 3 where u1 < w 1. This strict improvement at a more important rule compensates for the degradation at r3, and therefore u ≲R w.Now consider whether v ≲R w. Again, the suffixes satisfy [3 , 4] ̸ ≲R [4 , 1] .However, unlike the previous case, there is no strict improvement at any higher-priority rule since v1 = w1. Since the degradation at r3 is not compensated by a strict improvement at a more important rule, we conclude that v̸ ≲R w.Note that in both this example and Example 2, we have v1, u 1 ≤ w1. Under rule-dominance, however, the distinction between a strict improvement ( u1 <w1) and equality ( v1 = w1) is critical. This illustrates why lexicographic ordering alone is insufficient for dimensionality reduction under rule-dominance. Supporting dimensionality reduction under rule-dominance thus requires main-taining two closed sets for each state s instead of a single set Gcl (s) used in the baseline RA*pex (see Alg. 1) and in A*pex . Specifically, RA*pex maintains G<
+
+> cl
+
+and G=cl for local dominance checks at each state. Intuitively, for any rule-apex-realization pair RP , the set G=cl (s(RP )) stores previously expanded pairs RP ′Approximate Multi-Objective Search Under Rulebooks 11 
+
+that end at the same state and have the same f1-value, i.e., s(RP ′) = s(RP )
+
+and f1(RP ′) = f1(RP ), while G< 
+
+> cl
+
+(s(RP )) stores those that end at the same state but have strictly smaller f1-value. Formally, whenever RP is checked for dominance, it holds that ∀RP ′ ∈ G=cl (s(RP )) , f 1(RP ′) = f1(RP ) and 
+
+∀RP ′ ∈ G< 
+
+> cl
+
+(s(RP )) : f1(RP ′) < f 1(RP ).With this partitioning, we update the dominance test by introducing the 
+
+is _dominated dr function presented in Alg. 5 and using it in Alg. 1 Lines 7 and 15. To formalize the dimensionality reduction, we first compute a topological order-ing [7] ⟨vR 
+
+> 1
+
+, v R 
+
+> 2
+
+, . . . , v R 
+
+> M
+
+⟩ of the directed acyclic graph GR. We then obtain an ordering ⟨rσ(1) , r σ(2) , . . . , r σ(N )⟩ of rules such that rσ(i)̸ < r σ(j) for all i > j by simply expanding each equivalence class [vR 
+
+> i
+
+] in their topological order. Intu-itively, this ordering arranges rules in non-increasing priority. Given a rule-value vector u = [ u1, . . . , u N ], we reorder its components according to this permu-tation to obtain uσ = [ uσ(1) , u σ(2) , . . . , u σ(N )]. Open is subsequently ordered lexicographically with respect to these reordered rule-value vectors, as in A*pex .For notational simplicity, we henceforth assume that the rules are indexed in topological order, so that ri̸ < r j for all i > j .Under this convention, r1 is a highest-priority rule, meaning that there is no rule ri ∈ R such that ri > r 1 (ri may have equal priority as r1). We then define the truncated rule set T r (R) := {r2, . . . , r N }, which excludes r1 as in A*pex .Additionally, we define the residual rule set α(R) := {ri ∈ T r (R) | ¬ (ri < r 1)},which excludes r1 and any rule that is strictly lower in priority than r1. By a slight abuse of notation, we use the same operator T r (·) and α(·) to denote the corresponding operations on rule-value vectors. Specifically, for any u ∈ RN ,we define T r (u) and α(u) as the subvector of u obtained by keeping only the components corresponding to the rules in T r (R) and α(R), respectively, with the original order preserved. Alg. 5 uses T r (·) and α(·) to perform dimensional-ity reduction-based rule-dominance. Conceptually, the algorithm maintains two state-local closed sets: G=cl (s) for expanded pairs whose extracted f1-value equals the current best-known value at s, and G< 
+
+> cl
+
+(s) for expanded pairs with strictly smaller f1. Whenever the extracted f1 at s increases (Line 1), all pairs in G=cl (s)
+
+become “strictly better in r1” than the new pair and are therefore moved into 
+
+G< 
+
+> cl
+
+(s) (Lines 5–6), after filtering out entries that are already dominated in the residual space α(·).After this bookkeeping, the dominance test proceeds in three stages. First, it checks for a witness in G=cl (s(RP )) using only the truncated vector T r (f (·)) 
+
+(Line 7): since all candidates have the same f1-value, rule-dominance cannot rely on a strict improvement in r1, and we can safely ignore r1 and compare the remaining rules. Second, it checks G< 
+
+> cl
+
+(s(RP )) in the residual space α(·) (Line 9): here every candidate already has a strict improvement in r1, so any rule that is strictly lower priority than r1 is automatically “covered” and can be removed from the comparison. Finally, it performs the global approximate-dominance check against solutions exactly as in the baseline algorithm (Line 11). 12 O. Muhammetkulyyev et al. 
+
+# 5 Theoretical Analysis 
+
+This section provides a formal guarantee that RA*pex solves Problem 1. In sum-mary, the correctness of RA*pex hinges on a key structural property of ε-rule-dominance ≲ε
+
+> R
+
+, namely its one-sided transitivity with respect to exact rule-dominance ≲R.
+
+Definition 10. Let ≾ and ≾′ be two binary relations on a set X. We say that 
+
+≾′ is one-sided transitive with respect to ≾ if, for any x, y, z ∈ X, x ≾′ y and 
+
+y ≾ z implies x ≾′ z.
+
+With the definition of ε-rule-dominance given in Definition 5, it can be shown that ≲ε 
+
+> R
+
+is one-sided transitive with respect to ≲R (see Lemma 5 below). This property is not guaranteed for alternative notions of ε-rule-dominance as demon-strated in the following example. 
+
+Example 4. Consider an alternative definition of ≲ε
+
+> R
+
+: Given realizations x, y ∈ Σ
+
+and a vector ε ≥ 0, define x ≲ε 
+
+> R
+
+y if for any rule rj ∈ R such that rj (x) >
+
+(1 + εj )rj (y), there exists a higher-priority rule ri > r j such that ri(x) < ri(y)1+ εi .Intuitively, any degradation at a rule beyond the allowed tolerance must be compensated by a sufficiently strong improvement at a higher-priority rule. The motivation behind this definition is to treat small relative differences at higher-priority rules as negligible under approximation. In particular, if two realizations differ only slightly at a high-priority rule, then differences at lower-priority rules may still be considered meaningful. For example, consider rules R = {r1, r 2} with 
+
+r1 > r 2 and rule-value vectors u = [1 , 10 6] and v = [1 .001 , 1] . With ε = [0 .1, 0.1] ,the relative difference at the higher-priority rule r1 is within tolerance, while v is significantly better at the lower-priority rule r2. Under this alternative definition, we obtain v ≲ε 
+
+> R
+
+u but u̸ ≲ε 
+
+> R
+
+v, i.e., v is strictly preferred to u. In contrast, under Definition 5, we have both v ≲ε 
+
+> R
+
+u and u ≲ε 
+
+> R
+
+v, so u and v are treated as equivalent. Despite this intuition, this alternative definition does not satisfy one-sided transitivity. Consider rules R = {r1, r 2, r 3} with r1 > r 2 and r1 > r 3, and rule-value vectors u = [2 , 2, 2] , v = [4 , 1, 1] , w = [3 , 4, 2] with ε = [1 , 1, 1] . It is easy to check that w ≲ε 
+
+> R
+
+u (since there is no rule rj such that wj > 2uj ) and u ≲R v
+
+(since u1 < v 1). However, based on the alternative definition, w̸ ≲ε 
+
+> R
+
+v because 
+
+w1 = 3 ̸ < 0.5v1 = 2 .One-sided transitivity allows us to reason about sets of realizations with ε-bounded rule-apex-realization pairs and ensures that dominance relations are safely propagated across search expansions. The following lemmas and the theo-rem, with ε-rule-dominance defined in Definition 5, show that RA*pex correctly solves Problem 1. We begin by establishing a fundamental property of the search order. 
+
+Lemma 1. The sequence of extracted rule-apex-realization pairs has monotoni-cally non-decreasing f1-values. Approximate Multi-Objective Search Under Rulebooks 13 
+
+Proof. The rule-apex-realization pair extracted from Open has the smallest f1-value due to the lexicographic ordering. Also, any newly generated pair has an 
+
+f1-value that is greater than or equal to that of its parent pair, and the resulting pair of a merge can not have an f1-value smaller than both of its merged pairs (their rule apexes). Thus, the sequence of extracted pairs has monotonically non-decreasing f1-values. The next two lemmas justify the correctness of pruning based on previously expanded nodes. 
+
+Lemma 2. If there exists a rule-apex-realization pair RP ′ in G=cl (s(RP )) the truncated f -value of which weakly rule-dominates the truncated f -value of some realization-pair RP on Line 7 of the Algorithm 5, then the f -value of RP ′ weakly rule-dominates the f -value of RP .Proof. The rule-apex-realization pair RP ′ has been expanded and added to 
+
+G=cl (s(RP )) before RP was extracted from Open . Let 
+
+RP 0 = RP ′, RP 1, RP 2, . . . RP k = RP 
+
+be the sequence of rule-apex-realization pairs extracted since then. Because RP ′
+
+is still in G=cl (s(RP )) , the Line 1 of the Algorithm 5 never held. According to Lemma 1 and since the heuristic function is consistent, it follows that f1(RP i) = 
+
+f1(RP i+1 ) for all i < k . Thus, f1(RP ′) = f1(RP ) which along with the premise in the lemma implies f (RP ′) ≲R f (RP ).
+
+Lemma 3. If there exists a rule-apex-realization pair RP ′ in G< 
+
+> cl
+
+(s(RP )) the residual f -value of which weakly rule-dominates the residual f -value of some rule-apex-realization pair RP on Line 9 of the Algorithm 5, then it also holds that the f -value of RP ′ weakly rule-dominates the f -value of RP .Proof. Since RP ′ was previously expanded and added to G< 
+
+> cl
+
+(s(RP )) , the condi-tion on Line 1 of the Algorithm 5 held at least once. According to Lemma 1 and because the heuristic function is consistent, it holds that f1(RP ′) < f 1(RP ).Thus, the f -value of RP ′ weakly rule-dominates the one of RP .We then turn to the correctness of the solution-set maintenance. 
+
+Lemma 4. Let RP = ⟨r, x ⟩ be a rule-apex-realization pair and y be any realiza-tion such that r ≲R cR(y). If we merge RP with another rule-apex-realization pair then the rule apex of the resulting rule-apex-realization pair will still weakly rule-dominate ( ≲R) y.Proof. The rule apex of the resulting rule-apex-realization pair is the component-wise minimum of the two merged rule apexes. The next lemma shows that ε-rule-dominance satisfies one-sided transitivity with respect to exact rule-dominance. In other words, approximate dominance is preserved when composed with exact dominance. This property allows RA*pex 14 O. Muhammetkulyyev et al. 
+
+to reason about sets of realizations using rule-apex-realization pairs and is cru-cial for establishing the algorithm’s approximation guarantees. Specifically, for a given ε-bounded rule-apex-realization pair RP = ⟨r, x ⟩, it allows the representa-tive realization x to ε-rule-dominate all the realizations that the pair represents. 
+
+Lemma 5. Let x, y, z be realizations such that x ≲ε 
+
+> R
+
+y and y ≲R z, then x ≲ε
+
+> R
+
+z.Proof. Let R = ⟨R, ≤⟩ be a rulebook with R = {r1, . . . , r N }. Assume x ≲ε 
+
+> R
+
+y
+
+and y ≲R z. To show that x ≲ε 
+
+> R
+
+z, suppose there is a rule ri ∈ R such that 
+
+ri(x) > (1 + εi)ri(z). We need to show that there exists a more important rule 
+
+rj > r i such that rj (x) < (1 + εj )rj (z). Consider two possibilities. 
+
+– ri(x)̸ = (1 + εi)ri(y). If ri(x) > (1 + εi)ri(y), then x ≲ε 
+
+> R
+
+y guarantees that there exists a rule rk > r i such that rk(x) < (1 + εk)rk(y). If instead 
+
+ri(x) < (1 + εi)ri(y), then we can set rk = ri. Thus, in either case, there exists rk ≥ ri such that rk(x) < (1 + εk)rk(y). We are done if rk(y) ≤ rk(z),since we can take rj = rk. Otherwise, rk(y) > r k(z) and y ≲R z imply that there exists rl > r k such that rl(y) < r l(z). Again, we are done if 
+
+rl(x) ≤ (1 + εl)rl(y), and if not, there has to be some rule rm > r l such that 
+
+rm(x) < (1 + εm)rm(y). Repeating this argument construncts an increasing chain ri ≤ rk < r l < r m . . . . Since R is finite, the chain has to stop, which is only possible if there exists n ∈ { 1, . . . , N } such that rn(x) < (1 + εn)rn(z).
+
+– ri(x) = (1 + εi)ri(y). Then ri(x) > (1 + εi)ri(z) implies that ri(y) > r i(z).Because y ≲R z, there must exist a rule rk > r i such that rk(y) < r k(z).We are done if rk(x) ≤ (1 + εk)rk(y), since one can take rj = rk. Otherwise, there must exist a rule rl > r k such that rl(x) < (1 + εl)rl(y). Applying the same reasoning as in the previous case, we again obtain an increasing chain 
+
+ri ≤ rk < r l . . . which must terminate at some rn with rn(x) < (1+ εn)rn(z).
+
+Lemma 6. For any prefix xl = [ s1, s 2 . . . s l] of any solution 
+
+x = [ s1(= sstart ), s 2 . . . s L(= sgoal )] 
+
+with 1 ≤ l ≤ L, when the algorithm terminates, there exists either ( Case 1: )an expanded rule-apex-realization pair RP (that is, one that reaches Line 9 of the Alg 1) that ends at the state sl and whose rule apex weakly rule-dominates the g-value of the realization xl or ( Case 2: ) a rule-apex-realization pair RP 
+
+in the solution set such that the f -value of its representative realization ε-rule-dominates the f -value of the realization xl.Proof. The proof is done via induction. The lemma holds for l = 1 and any solution since the realization pair RP = ⟨0, [sstart ]⟩ gets expanded and has the properties required for Case 1. Now assume that the lemma holds for some l < L 
+
+and any solution. Then, we prove that it is also true for l + 1 and this solution. Assume that Case 1 holds for l and consider both RP - the realization-pair mentioned there and its potential child realization pair RP ′ created on Line 14 Approximate Multi-Objective Search Under Rulebooks 15 
+
+of the Algorithm 1 for s′ = sl+1 . The realization pair RP ′ ends at the state sl+1 
+
+and its rule apex weakly rule-dominates the g-value of the realization xl+1 , which implies that its f -value weakly rule-dominates the f -value of the realization xl+1 .We distinguish three cases: 1. First, the condition on Line 11 in Alg 5 (or Line 1 in the Alg 2) holds for some realization pair in the solution set, meaning, the f -value of the representative path of this realization pair ε-rule-dominates the f -value of the realization pair RP ′. The algorithm replaces this realization pair with a new realization-pair RP ′′ in the solution set on Line 13 in the Alg 5 (or Line 3 in the Alg 2). The pair RP ′′ stays in the solution set but the algorithm might merge it several times with other rule-apex-realization pairs on Line 2 of Algorithm 4 before it terminates. The rule apex of the pair RP ′′ weakly rule-dominates the f -value of the realization xl+1 (since this rule apex is the component-wise minimum of the f -value of the pair RP ′ and another rule apex, and hence weakly rule-dominates the f -value of the pair RP ′, which in turn weakly rule-dominates the f -value of the realization xl+1 ) and merging it with other realization-pairs does not change this property according to Lemma 4. Since the pair RP ′′ also remains ε-bounded, the f -value of its representative path always ε-rule-dominates the f -value of itself, which equals its rule-apex. Put together, according to Lemma 5 the f -value of its representative path ε-rule-dominates the f -value of the realization xl+1 . Thus, the merged realization pair satisfies Case 2 for l + 1 .2. Second, the condition on Line 7 or Line 9 of the Alg 5 (or Line 5 in the Alg 2) holds , meaning, there exists a rule-apex-realization realization pair RP =
+
+in G=cl (s(RP ′)) the truncated f -value of which weakly rule-dominates the truncated f -value of the rule-apex-realization pair RP ′ or there exists a rule-apex-realization pair RP < in G<rmcl (s(RP ′)) the residual f -value of which weakly rule-dominates that of the pair RP ′. In either case, the expanded pairs RP = and RP < ending at the state sl+1 have f -values that weakly rule-dominate the f -value of the pair RP ′ according to Lemmas 2 and 3 respectively. Thus, their rule apex weakly rule-dominate the rule apex of the pair RP ′. Thus, either RP = or RP < satisfies Case 1 for l + 1 since the rule apex of the pair RP ′ in turn weakly rule-dominates the g-value of the realization xl+1 .3. Otherwise, the algorithm executes Line 17 of the Alg 1 for the rule-apex-realization pair RP ′, where the pair is inserted into Open , perhaps after having been merged with another realization-pair in the Algorithm 4. The algorithm might merge it several more times before finally extracting it. Its rule apex weakly rule-dominates the g-value of the realization xl+1 and merging it with other realization pairs does not change this property accord-ing to Lemma 4. Thus, if this realization pair is expanded, it satisfies Case 1 for l + 1 . If it is extracted but not expanded, then the pruning conditions in the Alg 5 (or the Alg 2) hold, and as we have already proved, Case 1 or Case 2 holds. 16 O. Muhammetkulyyev et al. 
+
+Assume that Case 2 holds for l and consider the rule-apex-realization pair mentioned there. The f -value of the representative realization of this pair ε-rule-dominates the f -value of the realization xl. Since the heuristic function is consistent, the f -value of the realization xl in turn weakly rule-dominates the 
+
+f -value of the realization xl+1 . Thus, according to Lemma 5, this realization-pair satisfies Case 2 for l + 1 .Finally, we combine these results to prove Theorem 1. 
+
+Theorem 1. Upon termination of RA*pex , for every solution y ∈ Σsol , there exists a rule-apex-realization RP = ⟨r, x ⟩ ∈ solution whose representative path 
+
+ε-rule-dominates y, i.e, x ≲ε 
+
+> R
+
+y.Proof. Lemma 6 holds for prefix xL = x of any solution x. In case its Case 2 holds, the theorem holds by definition for realization x since the f -values of the solutions are equal to their costs. In case its Case 1 holds, consider the rule-apex-realization pair as mentioned. This pair ends at the the goal state, and the algorithm thus executed the Line 11 in Alg 1 for it, where the pair was inserted into the solution set, maybe after having been merged with another rule-apex-realization pair on Line 2 of the Algorithm 4. The pair stays in the solution set, and might be merged several more times with other rule-apex-realization pairs before the algorithm terminates. The rule apex of the pair weakly rule-dominates the g-value of the path x according to Lemma 6 and merging it with other pairs does not change this fact according to Lemma 4. Since the pair also remains 
+
+ε-bounded (due to the conditions on Line 3 in Alg 4, Line 11 in Alg 5, Lemma 1, and the consistency of the heuristic function), the f -value of its representative realization always ε-rule-dominates the f -value of itself, which equals its rule apex. Putting it all together, the f -value of its representative realization ε-rule-dominates the g-value of the realization x according to Lemma 5. Thus, the theorem holds by definition for the realization x since the g- and f -values of the solutions are equal to their costs. 
+
+# 6 Experimental Results 
+
+We evaluate the efficiency of RA*pex across three different problem settings that differ in both the presence of an objective hierarchy and the use of approxima-tion. In setting (S1) objectives are non-hierarchical while in setting (S2) and 
+
+(S3) objectives are hierarchical and we do not / do allow an approximation, respectively. Consequentially, we compare RA*pex against a state-of-the-art al-gorithm appropriate for each setting: in (S1) against A*pex , in (S2) against rulebook-based complete control synthesis [19], which we refer to as RB-Exact 
+
+and in (S3) against an approximate extension of RB-Exact , which we refer to as RB-Approx . The experiments were conducted on the BAY roadmap from the 9th DIMACS Implementation Challenge: Shortest Path [1], as well as on ran-domly generated graphs. All experiments were run on the Macbook Air with an Apple M4 Chip, 24GB of memory, and a five-minute runtime limit per instance. Approximate Multi-Objective Search Under Rulebooks 17       
+
+> 10 −410 −310 −210 −1
+> 0
+> 2
+> 4
+> 6
+> 8
+> ε
+> Average runtime (seconds)
+> A*pex
+> RA*pex
+> 10 −410 −310 −210 −1
+> 0
+> 50
+> 100
+> ε
+> Average solution set size
+> A*pex
+> RA*pex
+
+Fig. 1. Comparison of average runtimes (left) and average solution set sizes (right) on 3-objective roadmap instances with 321,270 states and 794,830 edges, for different approximation factors ε.
+
+All algorithms were implemented in C++ , reusing common code from A*pex and 
+
+RB-Exact wherever possible. 3
+
+We used the same 25 generated 3-objective roadmap instances that Zhang et al. [20] used with randomly selected start and goal states for each roadmap. A fourth objective was added by assigning to each edge a value randomly drawn from {0, 1}. The heuristic function h was set as a vector, where each component corresponds to a single objective and is given by the minimum achievable cost from a state s to the goal with respect to that objective, computed using Dijk-stra’s algorithm. Since computing h accounted for only a small fraction of the total runtime, all reported runtimes exclude this preprocessing step. While RA*pex outperforms the existing methods in both settings (S2) and 
+
+(S3) , we observed that it performs the best in the setting (S3) since the approx-imated planning takes advantage of the grouping of the similar cost paths in the search frontier, making it up to two orders of magnitude faster than the exact planning in (S2) on the 4-objective roadmap instances from the BAY dataset. 
+
+Setting (S1): Approximate Planning without Objective Hierarchy 
+
+Fig. 1 shows the average runtimes (in seconds) of A*pex and RA*pex over all roadmap instances in the BAY dataset, plotted as a function of the approxima-tion factor. In these experiments, ε is a vector whose components are set to the same scalar value ε, which is now represented on the x-axis for clarity.. Across all instances, the runtime of RA*pex is within 1.5× the runtime of 
+
+A*pex while producing approximate solution sets of comparable size. This shows that, in the absence of objective hierarchies, RA*pex incurs only modest overhead relative to A*pex while maintaining similar solution quality. 
+
+Setting (S2): Exact Planning with Hierarchical Objectives 
+
+Fig. 2 (Left) compares RA*pex and RB-Exact on 3-objective random graph in-stances of increasing size, reporting both runtime (in seconds) and the size of the returned solution sets. The rule hierarchy is r1 > r 2 and r1 > r 3. On the smallest instances, both algorithms exhibit comparable runtimes. As graph size increases, however, the runtime of RB-Exact grows rapidly, becoming more than two orders of magnitude slower than RA*pex on the largest instances.  
+
+> 3
+
+https://github.com/Infus3d/Rulebook_approximation 18 O. Muhammetkulyyev et al.          
+
+> 0200 400 600
+> 10 −4
+> 10 −1
+> 10 2
+> Graph size
+> Runtime (seconds)
+> RB-Exact runtime
+> RA*pex runtime
+> Solution set size
+> 4
+> 6
+> 8
+> Solution set size
+> 2468
+> 0
+> 0.5
+> 1.0
+> 1.5
+> Instance
+> Number of nodes ( ×10 6)
+> Nodes explored
+> Nodes expanded
+> RA*pex runtime
+> 10 1
+> 10 2
+> Runtime (seconds)
+
+Fig. 2. (Left) Runtimes (in seconds) and sizes of solution sets for RB-Exact and RA*pex 
+
+on random graphs with 3 rules ( r1 > r 2, r 3) under exact dominance (i.e., for ε = 0). (Right) Runtimes (in seconds) for RA*pex on roadmap instances with 4 rules ( r4 >r1, r 2, r 3), along with the number of nodes explored and expanded during the search. r3 r4 r1 r2       
+
+> 200 400
+> 8
+> 10
+> 12
+> Graph size
+> Average solution set size
+> RB-Exact (solution)
+> RB-Approx (solution)
+> RA*pex (solution)
+> RB-Approx (runtime)
+> RA*pex (runtime)
+> 10 −2
+> 10 −1
+> 10 0
+> Average runtime (seconds)
+
+Fig. 3. (Left) A preorder of four rules in (S3) ). (Right) The average solution set sizes and runtimes for RB-Exact , RB-Approx and RA*pex on random graphs with this rulebook under the approximation ε = [0 .01 , 0.01 , 0.01 , 0.01] .
+
+Fig. 2 (Right) shows detailed results for 4-objective roadmap instances from the BAY dataset, with rule hierarchy r4 > r 1, r4 > r 2, and r4 > r 3. In all of the instances, RB-Exact failed to finish within five minutes, while RA*pex completed all but the three largest instances. For instances with up to one million explored nodes, RA*pex found the solution set in about a minute, while for instances with up to 100,000 explored nodes, it completed in under 5 seconds. 
+
+Setting (S3): Approximate Planning with Hierarchical Objectives 
+
+Lastly, we report the performance of RA*pex in the presence of rule hierarchies with non-zero approximation vector ε. Due to the absence of a prior work done on this, we compared the results against the approximate extension of RB-Exact ,where an additional global dominance check was incorporated. In this variant, which we call RB-Approx , whenever a new candidate realization x is constructed, this global dominance check examines whether or not the cost of x is approxi-mately dominated by some realization x′ already present in the solution set. If so, then the realization x is discarded since the cost of any realization with the pre-fix x will also be approximately dominated by x′. Consequently, RB-Approx not only finds an ε-approximate rulebook-optimal solution set but also guarantees that every solution is rulebook-optimal. Approximate Multi-Objective Search Under Rulebooks 19              
+
+> 1x
+> 5x
+> 17x
+> 10 −110 010 110 2
+> 10 −1
+> 10 0
+> 10 1
+> 10 2
+> Baseline RA*pex
+> RA*pex
+> ε= 0.01
+> ε= 0.001
+> ε= 0.0001
+> 1x
+> 10 010 110 2
+> 10 0
+> 10 1
+> 10 2
+> Baseline RA*pex
+> RA*pex
+> ε= 0.01
+> ε= 0.001
+> ε= 0.0001
+
+Fig. 4. Individual runtimes (left) and solution sizes (right) of the baseline RA*pex and 
+
+RA*pex with dimensionality reduction on 4-objective road map instances with 321,270 states and 794,830 edges for varying ε approximations with the rule hierarchy being 
+
+r1 ∼ r2, r1 > r 3, r2 > r 4 (similar to Figure 3). 
+
+For this experiment, we randomly generated graphs of varying sizes with 4 objectives. The rule hierarchy assigns equal importance to r3 and r4, while 
+
+r1 and r2 have lower priority than both. Specifically, the hierarchy (illustrated in Fig. 3) is given by r3 ≲ r4, r4 ≲ r3, r2 < r 3, r1 < r 4. Fig. 3 shows the average runtimes and the solution sizes for RB-Approx and RA*pex . In all of them, RA*pex runs more than an order of magnitude faster than RB-Approx , with the difference growing more and going up to 16 × the runtime of RB-Approx on the largest graph. The solution set sizes, however, remain relatively comparable, with RA*pex having a slight advantage on average while RB-Approx being closer to the rulebook-optimal frontier sizes. This makes sense when we consider that the solution set returned by RB-Approx is also a subset of the rulebook-optimal frontier, and hence might require more solutions from the frontier to cover what a few solutions not on the frontier could approximately cover. We also evaluate the effect of dimensionality reduction in RA*pex by com-paring it against a baseline version that operates in the full objective space. As shown in Figure 4, dimensionality reduction leads to a substantial decrease in runtime, often by an order of magnitude (up to 17 ×) for better ε factors, while producing solution sets of comparable size. Although the extent of this improvement depends on the specific rule hierarchy, these results demonstrate that exploiting rulebook structure to reduce effective dimensionality can signifi-cantly improve computational efficiency without sacrificing solution quality. 
+
+# 7 Conclusions 
+
+We presented RA*pex , an approximate multi-objective search algorithm that leverages the rulebook formalism to precisely express complex relationships among objectives, while providing provable approximation guarantees. RA*pex general-izes A*pex to settings where objectives are partially ordered by priority. A key theoretical contribution of this work is the identification of one-sided transitivity as a crucial structural property for approximate rule-dominance. We showed that the proposed definition of ε-rule-dominance satisfies one-sided transitivity with respect to exact rule-dominance, which allows dominance relations to be safely propagated across search expansions and establish the correctness of RA*pex .20 O. Muhammetkulyyev et al. 
+
+Our experimental results evaluated RA*pex across three problem settings that vary in the presence of objective hierarchy and the use of approximation. Across all settings, RA*pex consistently matched or significantly outperformed specialized state-of-the-art algorithms. Overall, RA*pex bridges the gap between exact rulebook-based planning and approximate multi-objective search, offering a principled and efficient approach to approximate multi-objective search under rulebooks. We believe this approach opens the door to scalable planning and control synthesis in complex systems where objectives are partially ordered and exact optimality is neither required nor tractable. 
+
+This work was supported in part by NSF under Grant CNS-2141153. 
+
+# References 
+
+1. DIMACS implementation challenge: Shortest paths. https://www.diag.uniroma1.it/challenge9/download.shtml 2. Ahmadi, S., Tack, G., Harabor, D., Kilby, P.: Bi-objective search with bi-directional A*. In: European Symposium on Algorithms (ESA). LIPIcs, vol. 204, pp. 3:1–3:15 (2021) 3. Breugem, T., Dollevoet, T., van den Heuvel, W.: Analysis of fptases for the multi-objective shortest path problem. Computers & Operations Research 78 , 44–58 (2017) 4. de las Casas, P.M., Sedeño-Noda, A., Borndörfer, R.: An improved multiobjective shortest path algorithm. Comput. Oper. Res. 135 , 105424 (2021) 5. de las Casas, P.M., Kraus, L., Sedeño-Noda, A., Borndörfer, R.: Targeted multi-objective dijkstra algorithm. Networks 82 (3), 277–298 (2023) 6. Censi, A., Slutsky, K., Wongpiromsarn, T., Yershov, D., Pendleton, S., Fu, J., Frazzoli, E.: Liability, ethics, and culture-aware behavior specification using rule-books. In: 2019 International Conference on Robotics and Automation (ICRA). pp. 8536–8542 (2019) 7. Cormen, T.H., Leiserson, C.E., Rivest, R.L., Stein, C.: Introduction to Algorithms. The MIT Press, 4th edn. (2022) 8. Ehrgott, M.: Multicriteria Optimization (2nd ed.). Springer (2005) 9. Goldin, B., Salzman, O.: Approximate bi-criteria search by efficient representa-tion of subsets of the Pareto-optimal frontier. In: International Conference on Automated Planning and Scheduling (ICAPS). pp. 149–158 (2021) 10. Hart, P.E., Nilsson, N.J., Raphael, B.: A formal basis for the heuristic determina-tion of minimum cost paths. IEEE Transactions on Systems Science and Cyber-netics 4(2), 100–107 (1968) 11. Hernández, C., Yeoh, W., Baier, J.A., Zhang, H., Suazo, L., Koenig, S., Salzman, O.: Simple and efficient bi-objective search algorithms via fast dominance checks. Artificial intelligence 314 , 103807 (2023) 12. Mandow, L., De La Cruz, J.L.P.: A new approach to multiobjective A* search. In: International Joint Conferences on Artificial Intelligence (IJCAI). pp. 218–223 (2005) 13. Mandow, L., De La Cruz, J.L.P.: Multiobjective A* search with consistent heuris-tics. J. ACM 57 (5), 1–25 (2010) 14. Peer, H., Weiss, E., Alterovitz, R., Salzman, O.: Generalizing multi-objective search via objective-aggregation functions. CoRR abs/2509.22085 (2025) Approximate Multi-Objective Search Under Rulebooks 21 15. Pulido, F.J., Mandow, L., Pérez-de-la-Cruz, J.L.: Dimensionality reduction in mul-tiobjective shortest path search. Computers & Operations Research 64 , 60–70 (2015) 16. Ren, Z., Hernández, C., Likhachev, M., Felner, A., Koenig, S., Salzman, O., Rathi-nam, S., Choset, H.: EMOA*: A framework for search-based multi-objective path planning. Artificial intelligence 339 , 104260 (2025) 17. Salzman, O., Felner, A., Hernández, C., Zhang, H., Chan, S., Koenig, S.: Heuristic-search approaches for the multi-objective shortest-path problem: Progress and re-search opportunities. In: International Joint Conferences on Artificial Intelligence (IJCAI). pp. 6759–6768 (2023) 18. Slutsky, K., Yershov, D., Wongpiromsarn, T., Frazzoli, E.: Hierarchical multiob-jective shortest path problems. In: LaValle, S.M., Lin, M., Ojala, T., Shell, D., Yu, J. (eds.) Algorithmic Foundations of Robotics XIV. pp. 261–276. Springer Inter-national Publishing, Cham (2021) 19. Wongpiromsarn, T., Slutsky, K., Frazzoli, E.: Formal specification and control syn-thesis of autonomous robots using rulebooks. IEEE Trans. Robotics (2026), to appear, included in supplementary material 20. Zhang, H., Salzman, O., Kumar, T.S., Felner, A., Ulloa, C.H., Koenig, S.: A*pex: Efficient approximate multi-objective search on graphs. In: International Confer-ence on Automated Planning and Scheduling (ICAPS). vol. 32, pp. 394–403 (2022)
