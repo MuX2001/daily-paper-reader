@@ -7,115 +7,106 @@
 
 ## 每次日报
 - 最新运行日期：2026-08-07
-- 运行时间：2026-08-07 01:05:43 UTC
+- 运行时间：2026-08-07 21:46:48 UTC
 - 运行状态：成功
-- 本次总论文数：32
-- 精读区：21
-- 速读区：11
+- 本次总论文数：29
+- 精读区：17
+- 速读区：12
 
 ### 今日简报（AI）
-今日共读32篇论文，精读21篇、速读11篇，核心聚焦视觉-语言-动作模型与跨具身迁移。最值得关注的是满分论文BridgeVLA++，其数据高效、可泛化且带记忆增强的3D操控框架，以及9分的Cross-Embodiment Transfer行为对齐表示方法。建议优先精读这两篇，速读时可留意DexDirect动觉示教采集与DLAM时序约束两个方向。
+今日29篇论文聚焦视觉-语言-行动模型（VLA）轨迹建模与移动操作，17篇精读亮点密集；最值得看Hermite曲线轨迹先验与DreamTrajectory世界模型对齐，双双获9.0高分；建议优先跟进轨迹引导生成+世界模型校准方向，速读RoboBRIDGE可作工程参考。
 - 详情：[/202608/07/README](/202608/07/README)
 
 ### 精读区论文标签
-1. [BridgeVLA++: A Data-Efficient, Generalizable, and Memory-Augmented Vision-Language-Action Framework for 3D Manipulation](/202608/07/2608.05042v1-bridgevla-a-data-efficient-generalizable-and-memory-augmented-vision-language-action-framework-for-3d-manipulation)  
-   标签：评分：10.0/10、query:vla
-   evidence：面向3D操作的VLA模型，强调数据效率、泛化与记忆增强
-2. [Cross-Embodiment Transfer via Behavior-Aligned Representations](/202608/07/2607.27549v1-cross-embodiment-transfer-via-behavior-aligned-representations)  
+1. [Hermite Curves as Trajectory Priors for Vision-Language-Action Models](/202608/07/2608.01265v1-hermite-curves-as-trajectory-priors-for-vision-language-action-models)  
    标签：评分：9.0/10、query:vla
-   evidence：基于行为对齐表征的VLA模型实现跨具身机器人操作迁移
-3. [RoboBRIDGE: A Modular Framework for Bridging Policies to Robust Real-World Robotic Agents](/202608/07/2607.27881v1-robobridge-a-modular-framework-for-bridging-policies-to-robust-real-world-robotic-agents)  
-   标签：评分：9.0/10、query:vla
-   evidence：将VLA模型转化为鲁棒真实世界机器人智能体的模块化框架
-4. [ST-WAM: Semantic-Temporal World Action Model for Robust Manipulation under Visual Distribution Shifts](/202608/07/2607.28993v1-st-wam-semantic-temporal-world-action-model-for-robust-manipulation-under-visual-distribution-shifts)  
-   标签：评分：9.0/10、query:world-model
-   evidence：联合建模动作与未来视觉动态的语义-时间世界动作模型，用于鲁棒操作
-5. [OC-VLA++: Monocular Geometry-Guided Cross-View Consistency for Viewpoint-Robust Robotic Manipulation](/202608/07/2608.01066v1-oc-vla-monocular-geometry-guided-cross-view-consistency-for-viewpoint-robust-robotic-manipulation)  
-   标签：评分：9.0/10、query:vla
-   evidence：基于单目几何引导的跨视角一致性，提升VLA机器人操作的视角泛化能力。
-6. [Complete Motion Planning using Workspace-Fibered Decomposition for nR-Planar Manipulator](/202608/07/2608.01172v1-complete-motion-planning-using-workspace-fibered-decomposition-for-nr-planar-manipulator)  
+   evidence：使用Hermite曲线作为VLA模型动作块的轨迹先验
+2. [DreamTrajectory: Trajectory-Guided Action Generation with World Model Alignment for Mobile Manipulation](/202608/07/2608.01381v1-dreamtrajectory-trajectory-guided-action-generation-with-world-model-alignment-for-mobile-manipulation)  
    标签：评分：9.0/10、query:robot-learn
-   evidence：利用工作空间纤维分解实现nR平面机械臂的完备运动规划
-7. [Hermite Curves as Trajectory Priors for Vision-Language-Action Models](/202608/07/2608.01265v1-hermite-curves-as-trajectory-priors-for-vision-language-action-models)  
-   标签：评分：9.0/10、query:vla
-   evidence：将动作块参数化为Hermite曲线作为轨迹先验，改善VLA操作模型的平滑性与连续性。
-8. [DreamTrajectory: Trajectory-Guided Action Generation with World Model Alignment for Mobile Manipulation](/202608/07/2608.01381v1-dreamtrajectory-trajectory-guided-action-generation-with-world-model-alignment-for-mobile-manipulation)  
-   标签：评分：9.0/10、query:vla
-   evidence：提出轨迹引导的视觉语言动作模型动作生成，并结合世界模型对齐用于移动操作
-9. [ReTouch: Empowering Contact-Rich Dexterous Manipulation with Online-Refined Tactile Prediction](/202608/07/2608.01824v1-retouch-empowering-contact-rich-dexterous-manipulation-with-online-refined-tactile-prediction)  
-   标签：评分：9.0/10、query:vla
-   evidence：带有在线触觉预测的视觉语言动作模型用于灵巧操作
-10. [Weights or Skills? A Survey of Robot-Learning Techniques: from Action-Predicting Weights to Robots that Write their Own Skills](/202608/07/2608.01851v1-weights-or-skills-a-survey-of-robot-learning-techniques-from-action-predicting-weights-to-robots-that-write-their-own-skills)  
+   evidence：机器人操作技能；移动操作VLA与世界模型对齐
+3. [ReTouch: Empowering Contact-Rich Dexterous Manipulation with Online-Refined Tactile Prediction](/202608/07/2608.01824v1-retouch-empowering-contact-rich-dexterous-manipulation-with-online-refined-tactile-prediction)  
    标签：评分：9.0/10、query:robot-learn
-   evidence：综述了VLA模型与技能编程等机器人学习新技术
-11. [Look Where It Matters: Adaptive Visual Refinement for Vision-Language-Action Models](/202608/07/2608.02197v1-look-where-it-matters-adaptive-visual-refinement-for-vision-language-action-models)  
-   标签：评分：9.0/10、query:vla
-   evidence：利用注册令牌精炼VLA视觉编码器
-12. [Learning Panorama-Aware VLA for Mobile Manipulation with Whole-Body Teleoperation](/202608/07/2608.02257v1-learning-panorama-aware-vla-for-mobile-manipulation-with-whole-body-teleoperation)  
-   标签：评分：9.0/10、query:vla
-   evidence：面向移动操作的全景感知视觉语言动作模型，结合全身遥操作数据采集。
-13. [Grounded Semantic Re-Binding for Robust Instruction Generalization in Vision-Language-Action Models](/202608/07/2608.02497v1-grounded-semantic-re-binding-for-robust-instruction-generalization-in-vision-language-action-models)  
-   标签：评分：9.0/10、query:vla
-   evidence：通过语义重绑定提升VLA指令鲁棒性
-14. [ValueFormer: A Causal Transformer Value Function with Stage-Aware Labels for Semi-Autonomous Vision-Language-Action Policies](/202608/07/2608.02958v1-valueformer-a-causal-transformer-value-function-with-stage-aware-labels-for-semi-autonomous-vision-language-action-policies)  
-   标签：评分：9.0/10、query:vla
-   evidence：为视觉-语言-动作策略提供阶段感知标签的价值函数
-15. [EmbodiedVAE: Disentangled Video VAE for Efficient and Controllable Embodied Manipulation](/202608/07/2608.02990v1-embodiedvae-disentangled-video-vae-for-efficient-and-controllable-embodied-manipulation)  
-   标签：评分：9.0/10、query:world-model
-   evidence：面向具身操作世界模型的可控视频潜变量表示
-16. [Stochastic Multiple Shooting Trajectory Optimization via Sequential Local Policy Evaluation](/202608/07/2608.03978v1-stochastic-multiple-shooting-trajectory-optimization-via-sequential-local-policy-evaluation)  
+   evidence：面向接触丰富灵巧操作的视觉-语言-动作模型，直接匹配机器人操作技能需求
+4. [Stochastic Multiple Shooting Trajectory Optimization via Sequential Local Policy Evaluation](/202608/07/2608.03978v1-stochastic-multiple-shooting-trajectory-optimization-via-sequential-local-policy-evaluation)  
    标签：评分：9.0/10、query:control
-   evidence：随机多次打靶轨迹优化直接改进MPPI式模型预测控制方法
-17. [Kitchen Robotic Manipulation utilizing Foundation Models](/202608/07/2608.04042v1-kitchen-robotic-manipulation-utilizing-foundation-models)  
+   evidence：基于局部反馈策略的随机多重打靶轨迹优化方法
+5. [GASP: GPU-Accelerated Safe Planner for Real-Time Collision-Aware Motion Generation with Latent Trajectory Sampling](/202608/07/2608.04612v1-gasp-gpu-accelerated-safe-planner-for-real-time-collision-aware-motion-generation-with-latent-trajectory-sampling)  
    标签：评分：9.0/10、query:robot-learn
-   evidence：面向厨房操作的模块化感知流程，含6D位姿估计与抓取规划
-18. [CofactVLA: Deconfounding Vision-Language-Action Models via Counterfactual Intervention](/202608/07/2608.04396v1-cofactvla-deconfounding-vision-language-action-models-via-counterfactual-intervention)  
-   标签：评分：9.0/10、query:vla
-   evidence：面向机器人操作的视觉语言动作模型，用反事实干预缓解视觉覆盖偏差
-19. [Faster-WAM: Efficient Inference-Time Future Conditioning for Robust World Action Models](/202608/07/2608.04404v1-faster-wam-efficient-inference-time-future-conditioning-for-robust-world-action-models)  
+   evidence：GPU加速的碰撞感知运动生成与轨迹采样
+6. [MobileWAM: Bridging World Action Models to Mobile Manipulation with Chain-of-Foresight](/202608/07/2608.04657v2-mobilewam-bridging-world-action-models-to-mobile-manipulation-with-chain-of-foresight)  
    标签：评分：9.0/10、query:world-model
-   evidence：高效推理时未来条件化方法，提升世界动作模型的鲁棒性
-20. [Explicit Language Memory for Long-Horizon Planning in Vision-Language-Action Models](/202608/07/2608.04765v1-explicit-language-memory-for-long-horizon-planning-in-vision-language-action-models)  
+   evidence：将世界动作模型应用到移动操作，属于世界模型在机器人中的应用
+7. [Explicit Language Memory for Long-Horizon Planning in Vision-Language-Action Models](/202608/07/2608.04765v1-explicit-language-memory-for-long-horizon-planning-in-vision-language-action-models)  
    标签：评分：9.0/10、query:vla
-   evidence：在VLA模型中引入显式语言记忆支持长时程规划
-21. [DreamWAM: Beyond RGB Future Prediction for World Action Models](/202608/07/2608.04996v1-dreamwam-beyond-rgb-future-prediction-for-world-action-models)  
+   evidence：提出带显式语言记忆的分层长时程VLA架构
+8. [VLAff: Vision-Language-Affordance Model for Unified Actionable Affordances](/202608/07/2608.05215v1-vlaff-vision-language-affordance-model-for-unified-actionable-affordances)  
+   标签：评分：9.0/10、query:robot-learn
+   evidence：从人类视频中学习操作技能与抓取/轨迹可供性
+9. [World-to-Wrist: Task-Conditioned Future Wrist Modeling for Fine-Grained Robot Manipulation](/202608/07/2608.05369v1-world-to-wrist-task-conditioned-future-wrist-modeling-for-fine-grained-robot-manipulation)  
+   标签：评分：9.0/10、query:robot-learn
+   evidence：机器人操作技能；带有未来腕部建模的视觉语言动作模型
+10. [JoyAI-RA 0.5: Scaling Robot Manipulation Learning via Dual Action Alignment](/202608/07/2608.05674v1-joyai-ra-05-scaling-robot-manipulation-learning-via-dual-action-alignment)  
+   标签：评分：9.0/10、query:robot-learn
+   evidence：机器人操作技能；通过双动作对齐利用异构数据源进行规模化学习
+11. [LAWM-3D: Learning 3D-Aware Latent Actions from Human Videos for Generalizable Robot World Models](/202608/07/2608.05706v1-lawm-3d-learning-3d-aware-latent-actions-from-human-videos-for-generalizable-robot-world-models)  
    标签：评分：9.0/10、query:world-model
-   evidence：超越RGB的结构化未来预测世界行动模型
+   evidence：从人类视频学习三维感知潜在动作的世界模型
+12. [SkillMemo: Expert-guided Skill Memory Framework for Compositional Embodied Manipulation](/202608/07/2608.05970v1-skillmemo-expert-guided-skill-memory-framework-for-compositional-embodied-manipulation)  
+   标签：评分：9.0/10、query:robot-learn
+   evidence：基于技能记忆框架的组合式机器人操作
+13. [Beyond Flat Policies: Hierarchical Post-Training for Embodied Agents in Robotic Manipulation](/202608/07/2608.05999v1-beyond-flat-policies-hierarchical-post-training-for-embodied-agents-in-robotic-manipulation)  
+   标签：评分：9.0/10、query:vla
+   evidence：面向机器人操作的VLA模型层次化后训练
+14. [VIDP: Variable Impedance Diffusion Policy for Compliant Robot Manipulation from Diverse Demonstrations](/202608/07/2608.06210v1-vidp-variable-impedance-diffusion-policy-for-compliant-robot-manipulation-from-diverse-demonstrations)  
+   标签：评分：9.0/10、query:robot-learn
+   evidence：基于示范的可变阻抗扩散策略用于柔顺机器人操作
+15. [GeniWorld: A Generalizable Interactive World Model for Robotic Manipulation via Visual Actions](/202608/07/2608.06332v1-geniworld-a-generalizable-interactive-world-model-for-robotic-manipulation-via-visual-actions)  
+   标签：评分：9.0/10、query:world-model
+   evidence：用于机器人操作的交互式世界模型，通过视觉动作泛化到未见场景
+16. [DyPES-VLA: Learning Shared Dynamics Priors and Embodiment-Specific Control for Cross-Embodiment Manipulation](/202608/07/2608.06374v1-dypes-vla-learning-shared-dynamics-priors-and-embodiment-specific-control-for-cross-embodiment-manipulation)  
+   标签：评分：9.0/10、query:vla
+   evidence：跨本体视觉语言动作模型，共享动力学先验与本体特定控制
+17. [$ω$-0: A Latent Predictive World Action Model for Concurrent Humanoid Loco-Manipulation](/202608/07/2608.06375v1--0-a-latent-predictive-world-action-model-for-concurrent-humanoid-loco-manipulation)  
+   标签：评分：9.0/10、query:world-model
+   evidence：面向人形机器人全身移动操作的潜在预测世界动作模型
 
 ### 速读区论文标签
-1. [DLAM: Distributional Latent Actions with Temporal Constraints](/202608/07/2607.27138v1-dlam-distributional-latent-actions-with-temporal-constraints)  
+1. [RoboBRIDGE: A Modular Framework for Bridging Policies to Robust Real-World Robotic Agents](/202608/07/2607.27881v1-robobridge-a-modular-framework-for-bridging-policies-to-robust-real-world-robotic-agents)  
    标签：评分：8.0/10、query:vla
-   evidence：用于视觉语言动作模型的分布潜动作建模
-2. [DexDirect: Direct Kinesthetic Arm Guidance for Efficient Dexterous Demonstration Collection](/202608/07/2607.27784v1-dexdirect-direct-kinesthetic-arm-guidance-for-efficient-dexterous-demonstration-collection)  
-   标签：评分：8.0/10、query:robot-learn
-   evidence：直接力觉引导的灵巧示教数据采集
-3. [Developing Combined Manipulation and Locomotion Skills with Interaction Representation and Skill Composition](/202608/07/2608.00208v1-developing-combined-manipulation-and-locomotion-skills-with-interaction-representation-and-skill-composition)  
-   标签：评分：8.0/10、query:robot-learn
-   evidence：全身抓取策略学习与技能组合
-4. [Shooting for Contact: Contact-Implicit Multiple Shooting for Dynamic Motion Retargeting](/202608/07/2608.03116v1-shooting-for-contact-contact-implicit-multiple-shooting-for-dynamic-motion-retargeting)  
-   标签：评分：8.0/10、query:robot-learn
-   evidence：用于动态运动重定向的接触隐式多重打靶
-5. [Continue or Replan? Bernoulli-Continuation Policy Learning for Adaptive Horizon Execution](/202608/07/2608.03483v1-continue-or-replan-bernoulli-continuation-policy-learning-for-adaptive-horizon-execution)  
+   evidence：面向VLA模型鲁棒部署的模块化框架，属于视觉-语言-动作模型在机器人中的应用
+2. [Learning Panorama-Aware VLA for Mobile Manipulation with Whole-Body Teleoperation](/202608/07/2608.02257v1-learning-panorama-aware-vla-for-mobile-manipulation-with-whole-body-teleoperation)  
    标签：评分：8.0/10、query:vla
-   evidence：针对VLA模型的自适应执行时域选择方法
-6. [Contingency Detection Integrated Model Predictive Control for Resilient Load Frequency Control](/202608/07/2608.04370v1-contingency-detection-integrated-model-predictive-control-for-resilient-load-frequency-control)  
-   标签：评分：8.0/10、query:control
-   evidence：集成意外事件检测的模型预测控制用于弹性负荷频率控制
-7. [MobileWAM: Bridging World Action Models to Mobile Manipulation with Chain-of-Foresight](/202608/07/2608.04657v1-mobilewam-bridging-world-action-models-to-mobile-manipulation-with-chain-of-foresight)  
+   evidence：全景感知VLA策略应用于移动操作，是VLA模型在机器人中的具体应用
+3. [ValueFormer: A Causal Transformer Value Function with Stage-Aware Labels for Semi-Autonomous Vision-Language-Action Policies](/202608/07/2608.02958v1-valueformer-a-causal-transformer-value-function-with-stage-aware-labels-for-semi-autonomous-vision-language-action-policies)  
+   标签：评分：8.0/10、query:vla
+   evidence：为VLA策略学习密集进度标签与价值函数，直接关系视觉-语言-动作模型
+4. [Continue or Replan? Bernoulli-Continuation Policy Learning for Adaptive Horizon Execution](/202608/07/2608.03483v1-continue-or-replan-bernoulli-continuation-policy-learning-for-adaptive-horizon-execution)  
+   标签：评分：8.0/10、query:vla
+   evidence：针对分块VLA模型的自适应执行视界，属于VLA在机器人中的应用
+5. [Kitchen Robotic Manipulation utilizing Foundation Models](/202608/07/2608.04042v1-kitchen-robotic-manipulation-utilizing-foundation-models)  
+   标签：评分：8.0/10、query:robot-learn
+   evidence：面向餐具处理的机器人操作流水线与抓取规划
+6. [Approximate Multi-Objective Search Under Rulebooks](/202608/07/2608.04398v1-approximate-multi-objective-search-under-rulebooks)  
+   标签：评分：8.0/10、query:robot-learn
+   evidence：面向规则书约束下机器人规划的多目标搜索算法
+7. [Faster-WAM: Efficient Inference-Time Future Conditioning for Robust World Action Models](/202608/07/2608.04404v1-faster-wam-efficient-inference-time-future-conditioning-for-robust-world-action-models)  
    标签：评分：8.0/10、query:world-model
-   evidence：将世界动作模型桥接到移动操作，融合视频扩散变压器与轻量动作专家
-8. [Toward Integrating Adaptive Experience Replay and Online Uncertainty Estimation in Safe Actor-Critic Optimal Control](/202608/07/2608.04732v1-toward-integrating-adaptive-experience-replay-and-online-uncertainty-estimation-in-safe-actor-critic-optimal-control)  
-   标签：评分：8.0/10、query:control
-   evidence：将自适应经验回放、在线不确定性估计与安全actor-critic最优控制集成为一个架构
-9. [Approximate Multi-Objective Search Under Rulebooks](/202608/07/2608.04398v1-approximate-multi-objective-search-under-rulebooks)  
+   evidence：用于机器人操作世界动作模型的高效未来条件化方法
+8. [Search-Aided Joint Agent-Environment Reinforcement Learning for Robust Lifelong Multi-Agent Path Finding with Rotations](/202608/07/2608.05588v1-search-aided-joint-agent-environment-reinforcement-learning-for-robust-lifelong-multi-agent-path-finding-with-rotations)  
+   标签：评分：8.0/10、query:robot-learn
+   evidence：针对多智能体路径规划的强化学习方法，直接涉及机器人运动规划算法
+9. [ARGUS: Aligning Robot Scene Geometry Under Shifting Views with Large 3D Vision Models](/202608/07/2608.05579v1-argus-aligning-robot-scene-geometry-under-shifting-views-with-large-3d-vision-models)  
    标签：评分：7.0/10、query:robot-learn
-   evidence：面向机器人规划的规则书多目标搜索
-10. [Beyond Linear Dynamics: Neural Bilinear Dynamical Models for Time Series Forecasting](/202608/07/2608.04471v1-beyond-linear-dynamics-neural-bilinear-dynamical-models-for-time-series-forecasting)  
-   标签：评分：7.0/10、query:world-model
-   evidence：利用Koopman理论构建双线性潜在动力学模型用于状态演化
+   evidence：面向视觉运动操作策略的视角对齐观测预处理方法
+10. [ErgoSurf: Ergodic Control for the Coverage of Unknown Surfaces](/202608/07/2608.06208v1-ergosurf-ergodic-control-for-the-coverage-of-unknown-surfaces)  
+   标签：评分：7.0/10、query:control
+   evidence：用于未知表面最优覆盖的遍历控制框架
 11. [The Bayesian Reflex: A Predictive Coding Engine for Artificial Intelligence](/202608/07/2608.00492v1-the-bayesian-reflex-a-predictive-coding-engine-for-artificial-intelligence)  
    标签：评分：6.0/10、query:world-model
-   evidence：分层生成模型与主动推理，支撑世界模型的预测与规划
+   evidence：基于预测编码和主动推断的分层生成世界模型框架
+12. [TRACE: Learned Proprioceptive Odometry for Legged Robots under Unreliable Contact Conditions](/202608/07/2608.05975v1-trace-learned-proprioceptive-odometry-for-legged-robots-under-unreliable-contact-conditions)  
+   标签：评分：6.0/10、query:robot-learn
+   evidence：面向四足机器人的端到端学习式本体感状态估计
 
 
 <div class="dpr-home-promo-card">
