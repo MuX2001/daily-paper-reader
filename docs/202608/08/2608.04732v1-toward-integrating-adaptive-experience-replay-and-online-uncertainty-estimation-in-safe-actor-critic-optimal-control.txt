@@ -1,0 +1,2102 @@
+Toward Integrating Adaptive Experience Replay and Online Uncertainty
+Estimation in Safe Actor-Critic Optimal Control
+Mahshad Rastegarmoghaddama,∗, Davoud Nikkhouya, Shima Samadzadeha
+aDepartment of Mechanical Engineering, Politecnico di Milano, Milan, Italy
+Abstract
+Safe actor–critic control often treats barrier filtering, uncertainty estimation, and experience replay as separate
+modules, even though each changes the data used for learning and control. We develop an integrated architecture
+in which the uncertainty estimate updates the obstacle geometry used by a control barrier function, filter inter-
+ventions and estimation residuals determine replay priority, and the critic learns from the executed rather than
+nominal action. We instantiate the architecture on a two-dimensional robot-navigation task with corrupted obsta-
+cle measurements and compare six component-matched configurations under common training budgets, random
+seeds, sensor streams, exploration, and disturbances. Evaluation includes a moderate post-training test, an eleven-
+level perception-noise sweep, and an exploratory extreme-stress test at multiplier 6.0. In the extreme test, the
+integrated configuration recorded no contacts and reached the goal in all five evaluation seeds. Its mean cost was
+7.63 ± 0.44 and its obstacle-belief root-mean-square error was 3.52 ± 0.55 cm. The uncertainty-estimation abla-
+tion also recorded no contacts but reached the goal in four of five seeds, with mean cost 8.96 ± 2.08 and belief
+error 11.08 ± 1.23 cm. A finite-training bound clarifies replay exposure, and a robust barrier condition states the
+required estimation-error and feasibility assumptions. The results support coupling estimation, safety filtering, and
+replay on this benchmark; broader safety and convergence claims require further study.
+Keywords: Reinforcement learning, Actor-critic control, Control barrier functions, Experience replay, Online
+uncertainty estimation, Nonlinear optimal control, Safe optimal control
+Data and code availability
+All numerical results were generated specifically for this study by executing the accompanying im-
+plementation on the common benchmark; none was copied from a prior publication.
+Code, determin-
+istic seeds, data, figures, and protocol files are archived as version v1.1.0 at https://doi.org/10.
+5281/zenodo.21515850;
+the development repository is available at https://github.com/SDNT8810/
+safe-actor-critic-aer-ue-reproducibility. For the reader’s convenience, the Supplementary Material
+has been appended to the end of this arXiv version. References to “Table S#” and “Figure S#” indicate the
+corresponding items in the Supplementary Material section.
+1. Introduction
+The control of nonlinear systems under state and input constraints remains a central problem in modern control,
+robotics, and intelligent decision-making. In many practical settings, the controller must optimize a performance
+criterion while simultaneously handling safety restrictions, partial model knowledge, exogenous disturbances, and
+limited data. Reinforcement learning (RL), especially in its actor-critic form, offers a flexible route toward ap-
+proximate optimal control in such settings because it can combine value-function approximation, online policy
+improvement, and nonlinear function approximation within one computational pipeline [1, 2]. However, the suc-
+cessful deployment of RL-based controllers in safety-critical systems is still far from routine.
+Two obstacles have become especially prominent. The first is safety during learning and execution. Standard
+actor-critic methods may generate transient actions that are locally useful from a reward viewpoint but unacceptable
+with respect to hard state or input constraints. The second is performance degradation under uncertainty. Even
+when a safe policy is found for a nominal model, the closed loop may deteriorate substantially if the environment
+contains unmodeled dynamics, time-varying disturbances, or distribution shifts. In addition, sample reuse—the
+∗Corresponding author
+Email addresses: mahshad.rastegarmoghaddam@mail.polimi.it (Mahshad Rastegarmoghaddam), davoudnikkhoy@gmail.com
+(Davoud Nikkhouy), shima.samadzade@gmail.com (Shima Samadzadeh)
+arXiv:2608.04732v1  [eess.SY]  5 Aug 2026
+
+
+mechanism that makes off-policy RL computationally attractive - is itself a double-edged sword: naive replay can
+introduce stale, redundant, or misleading information, especially near constraint boundaries.
+Recent literature has addressed these issues from different angles. A strong line of work integrates control
+barrier functions (CBFs) into RL to create safety filters or safety-aware Bellman updates [3, 4, 5, 6, 7, 8]. A second
+line revisits replay design, emphasizing that the quality, diversity, and temporal relevance of retained transitions
+can strongly affect learning stability and efficiency [9, 10, 11, 12, 13]. A third line studies uncertainty-aware
+or disturbance-aware optimal control, often in continuous time, where recurrent networks, adaptive critics, and
+observer-based designs are used to estimate unknown dynamics online [14, 15, 16, 17, 18, 19]. Yet these directions
+are still often developed in partial isolation.
+This paper argues that safe actor-critic optimal control should be designed as an integrated architecture rather
+than as a sequence of loosely connected add-ons. In particular, replay and uncertainty estimation should not be
+treated as auxiliary implementation choices. They should be regarded as structural components that determine
+what the critic learns, what the safety layer observes, and how the policy responds near the safe-set boundary. This
+viewpoint is motivated by three recent lines of work: (i) safe actor-critic reinforcement learning with CBFs and
+experience replay for constrained optimal control problems [20]; (ii) a bi-level architecture that combines a long
+short-term memory (LSTM) uncertainty estimator with an actor-critic policy for nonlinear systems with uncertain
+dynamics [21]; and (iii) a self-organizing dual-buffer adaptive clustering experience replay mechanism for safe
+optimal control, with emphasis on memory efficiency and safety-critical replay selection [22]. The present work
+implements four interfaces: estimator-to-CBF geometry [20], estimator-to-replay priority [21], CBF-to-replay pri-
+ority [22], and executed-transition-to-critic learning. The central message is straightforward: safe actor-critic
+control, adaptive replay, and online uncertainty estimation should be co-designed. When this co-design principle
+is ignored, one often obtains good nominal learning but fragile safety, robust safety but poor sample efficiency, or
+accurate adaptation with insufficient replay diversity. When it is respected, a more balanced architecture becomes
+possible.
+The main contributions of the present manuscript can be summarized as follows:
+1. The paper synthesizes three research directions that are often treated separately in safe reinforcement learning
+for nonlinear optimal control: safety filtering, adaptive experience replay, and online uncertainty estimation.
+2. It formulates an integrated architectural viewpoint in which the nominal actor-critic policy, the safety filter, the
+replay manager, and the uncertainty estimator are explicitly co-designed.
+3. It clarifies the integration gap in the recent literature through a structured comparison of representative work
+strands.
+4. It provides a compact design template for future methods, including an augmented replay representation, a
+modular learning loop, and a formal result on the relevance of boundary-critical samples.
+5. It highlights the applicability of the proposed perspective across distinct domains, including robotics, au-
+tonomous systems, and epidemiological control.
+6. It makes the template testable through explicit replay scores, a finite-training bound, a conditional robust-CBF
+inequality, and a six-configuration simulation study.
+The remainder of the paper is organized as follows. Section 2 reviews the literature. Section 3 formulates
+the continuous-time constrained control problem. Section 4 presents the integrated viewpoint and algorithmic
+template. Section 5 reports the controlled numerical validation. Section 6 discusses the evidence, limitations, and
+application bridges. Section 7 concludes the paper.
+2. Related Literature
+The literature that motivates the present paper is scattered across several communities that do not always
+speak to one another directly. Control-theoretic studies emphasize stability, constraint satisfaction, and continuous-
+time structure; reinforcement-learning papers emphasize data efficiency and policy improvement; and application
+papers often focus on domain performance without isolating the architectural causes of success or failure. For that
+reason, the following review is organized around four recurring themes rather than around application areas alone.
+This organization makes it easier to see where the current literature already offers solid foundations and where a
+genuine integration problem still remains.
+2.1. Safe actor-critic optimal control
+A major advance in safe RL has been the incorporation of barrier-based conditions into policy learning or
+policy execution. CBF-based quadratic programs provide one rigorous way to ensure forward invariance of a safe
+2
+
+
+set for safety-critical systems [3]. Building on this principle, safe RL methods have employed barrier inequalities
+either as online action-correction filters or as terms embedded directly in learning updates. Marvi and Kiumarsi
+[4] formulated safe RL through CBF optimization, while more recent studies have extended the approach to off-
+policy learning, affine nonlinear systems with saturation, and transportation applications [5, 6, 7, 8]. These works
+demonstrate that safety need not be treated as an external supervisory layer only; it can also be reflected in the
+value-update mechanism itself.
+At the same time, the existing literature reveals a recurring trade-off. Strong safety filters protect the system
+but may distort the exploratory data on which the actor and critic are trained. If this distortion is ignored, the
+critic may learn an inconsistent value landscape. Conversely, if the actor is trained only on nominal transitions
+while the executed control is filtered, policy improvement may become unnecessarily slow. This observation
+already suggests that replay management must become safety-aware, since the buffer effectively determines what
+distribution the critic sees.
+The application-oriented literature confirms the same point. In autonomous driving, safe soft actor-critic meth-
+ods combined with disturbance-observer-based CBF filters improve robustness when the nominal vehicle model is
+inaccurate [7]. In powertrain control and motion planning, safe RL methods also benefit from explicit constrained
+optimal-control formulations [23, 8]. These contributions are valuable, but they also indicate that safety alone is
+not enough. Once the model is uncertain or the data are nonstationary, safety filtering must interact with adaptation
+and replay.
+2.2. Experience replay beyond uniform sampling
+Experience replay is one of the most consequential ideas in modern RL because it decouples sample collection
+from parameter updates and therefore improves both data efficiency and numerical stability [9, 11]. Prioritized
+replay further refines this idea by sampling transitions with larger temporal-difference error more frequently [12].
+In practice, however, neither uniform replay nor simple priority scores are sufficient for safety-critical optimal
+control.
+The reason is structural. In control tasks with state constraints, not all experiences carry equal information.
+Transitions near the safe-set boundary often contain disproportionately valuable information about the action-
+correction mechanism, barrier tightness, and feasibility margin. Likewise, transitions associated with abrupt dis-
+turbance changes can be more informative for uncertainty-aware policy adaptation than transitions collected in
+well-behaved nominal regimes. From this perspective, the replay buffer is not a passive data store; it is a com-
+pressed representation of the system’s operational history.
+Some application works already point in this direction. Hindsight experience replay has been shown to im-
+prove shared-control and robotic-manipulation settings by retaining task-relevant alternative outcomes [13]. Safe
+manipulation formulations under constrained Markov decision processes also show that task success and safe data
+efficiency must be handled jointly [24]. Recent investigations of hybrid safe RL under distribution shift similarly
+underline the need for replay and uncertainty modeling to work together rather than separately [25]. These studies
+motivate a more adaptive replay design, especially when the control task is nonlinear, continuous-time, and safety-
+constrained. Khalili-Amirabadi et al. [22] use fast and clustered slow buffers to preserve recency, diversity, and
+safety relevance. The present experiment instead uses a simpler finite mixed-priority buffer and does not claim to
+reproduce their complete algorithm.
+2.3. Online uncertainty estimation in continuous-time optimal control
+The literature on continuous-time adaptive critic control and approximate dynamic programming has long rec-
+ognized that optimality and robustness cannot be separated cleanly [14, 15]. If disturbances or model mismatches
+are ignored, the critic approximates the wrong value function; if uncertainty estimation is inaccurate, policy updates
+can become either overly conservative or unstable.
+Recent work has expanded this viewpoint. Echo-state and recurrent neural networks have been used for fault-
+tolerant and adaptive control, indicating that temporal memory can improve disturbance representation beyond
+static feedforward approximators [16, 19]. Event-based and value-iteration-based robust adaptive critics continue
+this line by combining identification mechanisms with performance guarantees for nonaffine or disturbed systems
+[17, 18]. In parallel, application studies such as underwater-vehicle tracking demonstrate that recurrent archi-
+tectures and attention mechanisms can be useful when disturbances evolve over time rather than appearing as
+white-noise perturbations [26].
+A relevant recent study is the bi-level LSTM-empowered actor-critic framework [21]. There, the policy-
+optimization problem and the uncertainty-estimation problem are treated as two coupled layers. This separation
+improves interpretability and supports stability analysis under uncertain continuous-time dynamics. Conceptually,
+the importance of that result extends beyond the particular robot example. It indicates that uncertainty estimation
+should not be appended after policy training. It should shape the learning loop itself.
+3
+
+
+2.4. Application bridges: robotics, autonomous systems, and health
+A useful test of any integrated perspective is whether it transfers across domains. Safe RL for navigation
+and cooperative manipulation shows that barrier-based safety and adaptive decision-making can be productive in
+robotics [27, 28]. At the same time, epidemiological control offers a quite different testbed, with slow state evolu-
+tion, constrained interventions, and strong policy-safety interpretation. The HPV study by Khalili-Amirabadi et al.
+[20] is important in this regard because it demonstrates that safe actor-critic ideas are not confined to mechanical
+systems; they can also support constrained public-health decision-making.
+Taken together, the literature suggests a clear gap. Safety, replay design, and uncertainty estimation are all
+recognized as important, but a unifying control-oriented view is still missing. The next sections aim to articulate
+such a view.
+2.5. Recent event-triggered ADP and relevant CAEE studies
+Recent event-triggered adaptive dynamic programming (ADP) papers address adjacent but distinct questions.
+Hu et al. [29] combine integral RL, prescribed-performance transformation, and event triggering for multiplayer
+nonlinear games. Qin et al. [30] use barrier transformation, a dynamic trigger, and critic-only experience re-
+play for safe mixed zero-sum control. Related studies treat discontinuous state constraints [31] and actuator fail-
+ures with full-state time-varying constraints [32]. These papers provide stronger plant-specific Lyapunov and
+event-triggering analyses than the present benchmark. The present contribution is complementary: it focuses on
+uncertainty-informed barrier geometry, executed-action critic learning, and realized finite-buffer safety/uncertainty
+replay. Direct numerical ranking would be invalid because the plants, objectives, communication assumptions, and
+constraint transformations differ.
+Table 1 summarizes the main strands of related work from the viewpoint adopted in this paper and highlights
+the still-open integration gap among safety filtering, replay design, and online uncertainty estimation.
+Table 1: Comparison of representative related-work strands. Existing studies typically emphasize safety, replay, or uncertainty
+adaptation in isolation; the present architecture co-designs the three components.
+Work strand
+Safety mechanism
+Replay mechanism
+Uncertainty estimator
+Time setting
+Main limitation
+Safe RL with CBFs [4, 5, 3,
+6]
+CBF/QP safety filter
+Usually standard replay
+or not central
+Usually none or implicit
+nominal model
+Both
+Safety is explicit, but replay and uncertainty han-
+dling are only weakly integrated.
+Replay-centric RL [9, 11,
+12, 13]
+Usually none
+Uniform, PER, or HER
+None
+Mostly discrete
+Data efficiency improves, but safety-critical and
+uncertainty-informative samples are not explicitly
+preserved.
+Adaptive critic/robust ADP
+[15, 17, 18, 14]
+Implicit
+robustness,
+rarely
+explicit
+safety
+filtering
+Usually absent
+Identification or robust-
+ness terms, but not mod-
+ular replay-aware estima-
+tion
+Continuous
+Strong control-theoretic basis, but limited replay de-
+sign and weak explicit safety integration.
+Recurrent uncertainty-aware
+control [19, 16, 26]
+Application-dependent
+Usually absent
+RNN, echo-state network,
+attention, or LSTM
+Continuous/
+mixed
+Good temporal uncertainty modeling, but not tightly
+coupled with replay and safe actor-critic learning.
+Application-level safe RL
+[20, 7, 24, 27]
+Domain-specific safety
+layer or explicit con-
+straints
+Standard or moderate re-
+play use
+Sometimes
+observer-
+based
+or
+application-
+specific
+Mixed
+Demonstrates practical value, but leaves the broader
+integration problem unresolved.
+Event-triggered constrained
+ADP [29, 30, 31, 32]
+Barrier transformation
+or constrained control
+Experience replay in se-
+lected designs
+Plant/fault observers in se-
+lected designs
+Continuous
+Strong plant-specific stability and resource analysis;
+uncertainty-aware finite-buffer replay is not the cen-
+tral interface.
+Related
+HPV
+component
+study [20]
+CBF-based safe actor-
+critic control
+Experience replay
+No dedicated recurrent un-
+certainty module
+Continuous
+Strong safety-oriented application bridge, but uncer-
+tainty estimation is not a first-class coupled module.
+Related LSTM bi-level com-
+ponent study [21]
+Safe/robust
+control
+structure
+Replay
+for
+actor-critic
+learning
+LSTM-based online un-
+certainty estimator
+Continuous
+Strong uncertainty estimation, but replay is not ex-
+plicitly safety- and diversity-aware.
+Related SODACER compo-
+nent study [22]
+Safe RL with CBFs
+Dual-buffer clustered re-
+play
+No dedicated recurrent es-
+timator
+Continuous
+Strong replay design, but uncertainty estimation is
+not integrated as a coupled module.
+Present work
+CBF-based safe action
+projection
+Finite uniform, PER, or
+mixed adaptive replay
+Online causal obstacle be-
+lief and scale
+Continuous
+plant/discrete
+implementation
+Evaluated on the stated two-dimensional bench-
+mark; no general convergence or hardware claim.
+3. Problem Formulation
+We consider a class of nonlinear continuous-time control systems
+˙x(t) = f(x(t))+g(x(t))u(t)+d(t),
+(1)
+where x(t) ∈Rn denotes the state, u(t) ∈Rm is the control input, f and g are smooth dynamics, and d(t) denotes
+a lumped uncertainty term that may include exogenous disturbances, parametric mismatch, unmodeled nonlinear-
+ities, and measurement-related effects. The control must satisfy admissibility bounds
+u(t) ∈U := {u ∈Rm : |ui| ≤¯ui, i = 1,...,m},
+(2)
+and the state must remain in a safe set
+Xsafe := {x ∈Rn : h j(x) ≥0, j = 1,...,r}.
+(3)
+4
+
+
+The nominal optimal-control objective is to minimize an infinite-horizon performance index of the form
+J(x0,u) =
+Z ∞
+0 e−νtℓ(x(t),u(t))dt,
+(4)
+where ν > 0 is a discount factor and ℓ(x,u) is a positive-definite running cost, often chosen as a weighted sum
+of tracking error and control effort. In continuous-time actor-critic formulations, the value function V(x) satisfies
+a Hamilton-Jacobi-Bellman relation at least approximately, and the actor is updated using the critic gradient or a
+policy-gradient surrogate [14, 15].
+If safety were absent and d(t) were known, one could attempt a standard approximate dynamic-programming
+or actor-critic construction. In the present setting, however, three complications must be addressed simultaneously:
+1. the system should remain inside Xsafe during learning and execution;
+2. the critic should learn from replayed data without being dominated by redundant or stale transitions; and
+3. the uncertainty d(t) should be estimated online well enough to preserve both performance and safety.
+These three requirements motivate the integrated architecture developed in the next section. For convenience,
+Table 2 summarizes the principal symbols that appear in the integrated architecture and the subsequent discussion.
+Table 2: Core notation used in the integrated safe actor-critic architecture.
+Symbol
+Meaning
+xt,xt+1
+Current and next states
+ua,t
+Nominal actor action before safety correction
+ut
+Executed safe action after safety filtering
+rt
+Instantaneous reward or cost feedback
+ˆdt
+Estimated lumped uncertainty
+ζt
+Recent trajectory window for uncertainty estimation
+Πsafe
+Safety filter based on barrier constraints
+Vω(x)
+Critic value approximation
+πθ(x)
+Actor policy
+ξt
+Augmented replay transition
+st,et,nt
+Safety, uncertainty, and novelty scores for replay prioritization
+δt
+Temporal-difference error
+pt
+Replay priority
+λ•
+Weights in mixed replay prioritization, where • represents TD, safe, unc, or
+nov
+4. Toward an Integrated Architecture
+The preceding discussion suggests that the next step is not merely to add another component to an existing safe
+RL pipeline, but to rethink the way the main modules exchange information. In particular, the replay buffer should
+not be treated as a passive storage unit, the uncertainty estimator should not be viewed as an optional add-on, and
+the safety filter should not be regarded as a purely post hoc correction layer. Instead, these modules should be
+designed as coupled elements of one learning architecture. The purpose of this section is therefore to articulate a
+compact design view that can support future algorithm development in a principled and application-independent
+manner.
+4.1. Design principle
+The key idea is to separate the learning system into four interacting modules:
+1. a nominal actor-critic module that proposes control actions for approximate optimality;
+2. a safety filter based on CBF inequalities that corrects unsafe actions;
+3. an online uncertainty estimator that provides a running estimate ˆd(t) of the lumped uncertainty; and
+4. an adaptive replay manager that decides which transitions should be retained and how they should be resampled.
+5
+
+
+The novelty of the viewpoint advocated here lies not in the mere identification of these components, but in the
+way their interactions are explicitly structured. The safety filter should use the uncertainty estimate, because barrier
+feasibility and future-state prediction depend on disturbance knowledge. The replay manager should use both the
+safety layer and the uncertainty estimator, because transitions close to barrier activation or with large estimation
+residuals are especially informative. The critic should be updated on the basis of the executed safe control, not
+merely the nominal actor output, because that is the action that truly determines the closed-loop trajectory.
+Figure 1 summarizes the integrated viewpoint advocated in this paper. Rather than treating safety filtering,
+replay design, and uncertainty estimation as loosely connected auxiliary mechanisms, the diagram emphasizes
+their mutual dependence within a single learning-and-control loop. In particular, the executed safe action, rather
+than the nominal actor output alone, determines the plant trajectory, the replay content, and ultimately the critic
+update. Likewise, the uncertainty estimator informs safety correction, while the replay manager preserves the
+transitions that are most informative for both safe control and adaptive learning.
+Figure 1: Integrated four-module architecture for safe actor-critic optimal control with adaptive experience replay and online
+uncertainty estimation.
+In the generic formulation, ˆd represents uncertainty in the plant dynamics. The experiment instantiates the
+same estimator-to-safety interface for perception uncertainty: a causal filter estimates static obstacle centers and
+their scales from detector data, these estimates define the barrier geometry, and plant disturbance is handled only
+through the fixed allowance ¯d. The experiment therefore does not implement online disturbance identification, an
+LSTM, or a clustered dual buffer. The controller uses only observable states, detector outputs, estimator beliefs,
+actions, filter activity, and contact events. True obstacle centers and clearances are reserved for simulation and
+evaluation; Supplementary Table S2 gives the complete information contract and its invariance audit.
+4.2. Nominal actor-critic and safe action correction
+Let the critic approximate a value function Vω(x) with parameters ω, and let the nominal actor produce an
+action ua = πθ(x) with parameters θ. The executed control is then obtained from a safety-correction stage,
+u(t) = Πsafe
+ x(t),ua(t), ˆd(t)
+
+,
+(5)
+where Πsafe denotes a filter that returns the closest admissible action satisfying the CBF constraints. In a standard
+formulation, the filter may solve a quadratic program of the form
+min
+u∈U
+∥u−ua∥2
+R
+s.t.
+∇hj(x)⊤ f(x)+g(x)u+ ˆd(x)
+
++αj
+ hj(x)
+
+≥0,
+(6)
+for all active safety constraints j = 1,...,r, where R ≻0 and αj(·) is an extended class-K function [3, 4]. Equa-
+tion (6) highlights a point that is sometimes understated in the RL literature: the safety filter is model-dependent.
+6
+
+
+If the estimate ˆd is poor, the filter may either become too conservative or fail to protect the true system adequately.
+Hence, uncertainty estimation and safety correction should be treated as coupled computations.
+This coupling does not by itself guarantee recursive feasibility. Suppose
+d(x)−ˆd(x)
+ ≤¯ed and the error in
+the estimated barrier geometry contributes at most ¯eh to its derivative. A sufficient robust inequality is
+∇ˆh(x)⊤ f(x)+g(x)u+ ˆd(x)
+
++α(ˆh(x)) ≥
+∇ˆh(x)
+ ¯ed + ¯eh.
+If these bounds are valid and the robust admissible-action set is nonempty at every relevant state, the true derivative
+satisfies the intended CBF condition. If a bound is underestimated, the estimator is miscalibrated, the relative de-
+gree changes, or the input constraints make the robust set empty, forward invariance and recursive feasibility are not
+guaranteed. The benchmark filter below is therefore reported as an empirical robustification, not an unconditional
+certificate.
+4.3. Online uncertainty estimation
+The uncertainty estimator can be implemented in several ways, depending on the domain and computational
+budget. Observer-based adaptive critics, echo-state networks, diagonal recurrent neural networks, and LSTM
+architectures are all reasonable candidates [16, 19, 17, 26]. In the present perspective, the estimator is updated
+online from recent state-control trajectories,
+ˆd(t) = Eφ(ζt),
+(7)
+where Eφ is a parameterized estimator and ζt denotes a window of current and past states and controls. The
+LSTM-based bi-level framework in Khalili-Amirabadi et al. [21] is especially relevant because it demonstrates
+how uncertainty estimation can be separated from, yet still coupled to, policy optimization.
+For conceptual clarity, we recommend two design rules:
+1. uncertainty estimation should be trained on transitions collected under the executed safe policy, not a purely
+nominal one; and
+2. estimator confidence or residual magnitude should be made available to the replay manager.
+The second rule is important. A transition with a large temporal-difference error may be useful for critic training,
+but a transition with a small temporal-difference error and a very large uncertainty residual may still be crucial for
+model adaptation and future safety.
+4.4. Adaptive experience replay
+In standard replay, each transition is stored as (xt,ut,rt,xt+1). In safe actor-critic control, this tuple is often
+insufficient. We advocate storing an augmented tuple,
+ξt = (xt,ua,t,ut,rt,xt+1,σt,ρt,ηt),
+(8)
+where ua,t is the nominal actor action, ut is the executed safe action, σt is a safety-related observable such as barrier
+slack or filter activation, ρt is an uncertainty-related observable such as an estimation residual norm, and ηt is a
+recency or context descriptor.
+The experimental implementation also stores the exploration vector and active waypoint index required by its
+replayed actor update. Supplementary Table S2 lists the complete controller-visible record, including filter activity,
+estimator innovation, detector validity, and observable jump scores; evaluator-only true geometry is excluded.
+This augmented representation allows the replay manager to preserve three types of transitions:
+1. safety-critical transitions, for which the CBF filter was active or nearly active;
+2. uncertainty-informative transitions, for which the estimator residual was large or the operating regime changed
+abruptly; and
+3. representative nominal transitions, which preserve coverage of the ordinary operating regime.
+This view naturally motivates dual-buffer or clustered replay. The SODACER work provides one implementa-
+tion by combining a fast buffer for short-horizon adaptation with a clustered slow buffer for long-horizon diversity
+and redundancy control [22]. Conceptually, the clustered slow buffer is appealing because it compresses repeated
+nominal experiences and reserves memory for rare but structurally important transitions.
+A generic sampling score may be written as
+pt = λTD ¯δt +λsafest +λuncet +λnovnt,
+(9)
+where ¯δt is a normalized temporal-difference score, st is a safety-importance score, et is an uncertainty score, and
+nt is a novelty or diversity score. The weights λ• are design parameters.
+7
+
+
+The implementation converts the raw observables (σt,ρt,ηt) in Eq. (8) into bounded dimensionless scores in
+Eq. (9):
+¯δt = min
+
+1, |δt|
+2.5
+
+,
+(10)
+st = min
+ 
+1,e−max(˜ht,0)/0.075 +0.341CBF,t
++0.30min
+
+1, ∥ut −ua,t∥
+0.11
+
++0.751contact,t
+!
+,
+(11)
+et = min
+ 
+1, 0.58
+K
+K
+∑
+i=1
+νi,t
+max(2.5σi,t,0.030)
++0.30 ¯jt +0.28(1−¯vt)),
+(12)
+nt = min
+ 
+1,
+1
+p
+1+Nt(cell(xt))
+!
+.
+(13)
+where ˜ht is estimated barrier slack, νi,t is causal estimator innovation, ¯jt is the mean observable detector-jump
+score, ¯vt is the mean measurement-validity indicator, and Nt is the prior occupancy of the state cell. All distances
+in the denominators are in meters. The mixed weights are
+(λTD,λsafe,λunc,λnov) = (0.18,0.39,0.30,0.13),
+(14)
+and 10−5 is added to every priority. For a retained buffer D, the executable sampler tempers the priority and
+samples a mini-batch without replacement. At each sequential draw it uses
+Pr(i | D) =
+pβ
+i
+∑k∈D pβ
+k
+,
+β = 0.78 for AER/Full,
+(15)
+with the denominator recomputed over the not-yet-selected entries. PER uses temporal-difference priority alone
+and β = 0.68, whereas the uniform methods sample without replacement with equal probability. Thus Eq. (9) is
+not left as an unnormalized heuristic. The values are fixed engineering choices, not claimed global optima; the
+Supplementary Material reports a post-hoc one-at-a-time weight sensitivity diagnostic and does not use it to select
+the reported configuration.
+Proposition 1 (finite-training exposure of a retained critical transition). Consider a finite replay buffer
+and M subsequent replay draws. Let i be a safety-critical transition that remains stored during those draws. If its
+conditional probability of selection at draw m, given the complete history Fm−1, satisfies
+Pr(i selected at draw m | Fm−1) ≥pmin > 0,
+(16)
+then
+Pr(i is never selected in the next M draws) ≤(1−pmin)M ≤e−Mpmin,
+(17)
+and consequently
+Pr(i is selected at least once) ≥1−e−Mpmin.
+(18)
+If the total conditional sampling mass assigned to the currently retained critical set C is at least qmin > 0 on every
+draw, then the probability that no critical transition is sampled in M draws is at most e−Mqmin, and the expected
+number of critical draws is at least Mqmin.
+Proof. By the chain rule,
+Pr(i never selected) =
+M
+∏
+m=1
+Pr(i not selected at m | i was not selected earlier)
+(19)
+≤(1−pmin)M ≤e−Mpmin.
+(20)
+The critical-set statement follows by replacing the individual event with selection from C . If Zm indicates a critical
+draw, then E[Zm | Fm−1] ≥qmin, and linearity of expectation gives E[∑M
+m=1 Zm] ≥Mqmin.
+□
+The retained-transition condition is essential. Proposition 1 is a replay-exposure result, not an eviction guar-
+antee, actor-critic convergence theorem, or closed-loop invariance theorem. This is why the experiment audits
+generated, retained, and sampled event fractions separately.
+8
+
+
+For the implemented N = 360 buffer, the priority floor gives the deliberately loose bound pmin ≥3.51×10−7
+and only 1 −e−Mpmin ≈0.00123 over M = 3520 draw positions. This M is the maximum available across a full
+run for a transition inserted before the first replay update and retained throughout; later arrivals have fewer oppor-
+tunities. We therefore assess practical coverage using the observed generation, retention, and sampling fractions
+in Supplementary Table S10 rather than this worst-case floor.
+4.5. Integrated learning loop
+Algorithm 1 summarizes the proposed perspective.
+Algorithm 1 Integrated safe actor-critic learning with adaptive replay and uncertainty estimation
+1: Initialize critic parameters ω, actor parameters θ, estimator parameters φ, and replay memory D.
+2: for each interaction step t do
+3:
+Observe state xt.
+4:
+Compute nominal action ua,t = πθ(xt).
+5:
+Estimate uncertainty ˆdt = Eφ(ζt).
+6:
+Compute safe executed action ut = Πsafe(xt,ua,t, ˆdt).
+7:
+Apply ut; observe reward rt and next state xt+1.
+8:
+Compute safety score st, uncertainty score et, and novelty score nt.
+9:
+Store augmented transition ξt in replay memory D.
+10:
+Sample a mini-batch using a mixed priority based on TD, safety, uncertainty, and diversity.
+11:
+Update the critic using executed safe transitions.
+12:
+Update the actor using the current critic and safety-aware targets.
+13:
+Update the estimator using recent trajectory windows or replayed uncertainty-informative samples.
+14:
+Periodically compress, cluster, or rebalance the replay memory when the chosen replay design requires it.
+15: end for
+In the experiment, belief and action updates occur at every step, whereas actor–critic replay updates occur after
+each episode. The critic is fitted to realized costs and next states following the executed safe action. The waypoint
+actor uses the critic’s clipped temporal-difference residual and stored exploration draw in a replay-weighted score-
+function update. Because no importance ratios are used, this is a biased off-policy surrogate; no isolated gain from
+the learned value baseline is claimed.
+4.6. Why integration matters
+The expected advantages of the integrated architecture can be summarized in four points:
+1. Critic consistency. If the critic is updated using executed safe actions and safety-aware replay, then the learned
+value function is more closely aligned with the true closed-loop behavior than in a nominal-only training setup.
+This reduces the mismatch between the policy that is proposed and the policy that is actually executed.
+2. Informative replay. Adaptive replay can preserve rare but highly informative transitions associated with bar-
+rier activation, abrupt disturbance changes, or regime shifts. These are precisely the transitions that standard
+uniform replay tends to under-represent.
+3. Reliable safety filtering. If the safety filter receives online uncertainty estimates rather than relying on a fixed
+nominal model, then barrier constraints can better reflect the true local dynamics. This improves the practical
+reliability of action correction under model mismatch.
+4. Cross-domain transferability. Because the architecture is modular, it can inform designs across applications
+with very different physical interpretations. In robotics, d(t) may represent slip, contact variation, or actua-
+tor uncertainty; in epidemiological control, it may reflect time-varying transmission, compliance variation, or
+intervention mismatch.
+Taken together, these four points explain why the proposed perspective is more than a simple aggregation
+of existing ingredients. Its value lies in making the interactions among learning, safety, replay, and uncertainty
+estimation explicit at the architectural level.
+Figure 2 provides a compact design map that situates the proposed perspective within a broader class of safe
+actor-critic architectures. The figure is not intended as a rigid taxonomy, but as a practical guideline: as uncertainty
+becomes more structured and safety requirements become more stringent, the architecture must evolve from a basic
+actor-critic controller toward a fully integrated design in which safety filtering, replay management, and online
+uncertainty estimation are explicitly co-designed.
+9
+
+
+Figure 2: A design map for selecting an appropriate safe actor-critic architecture based on uncertainty complexity and safety
+criticality. The upper-right quadrant corresponds to the main focus of this paper, namely settings in which safety-aware replay
+and online uncertainty estimation should be co-designed with the nominal actor-critic policy and the safety filter.
+Figure 3 summarizes when basic replay is sufficient and when safety, structured uncertainty, and replay non-
+stationarity motivate a more integrated design. The complementary design taxonomy is retained as Supplementary
+Figure S8.
+Figure 3: Practical guide for selecting replay and uncertainty-estimation components.
+Figure 3 and Supplementary Figure S8 are conceptual guides rather than descriptions of the implemented
+estimator and buffer. The static-center filter used below is appropriate only for physically static obstacles.
+5. Experimental Validation
+5.1. Benchmark, observation process, and data partition
+The benchmark is a 3.20m × 3.20m cluttered workspace with known rectangular obstacles and two hidden-
+center circular obstacles. The robot radius is 0.062m, the continuous planar velocity is limited to 0.72m/s, and
+10
+
+
+the integration step is 0.055s. The start and goal are (0.22,2.82)m and (1.62,1.58)m. The two uncertain obstacle
+centers are (0.82,1.60)m and (1.82,0.92)m, with radii 0.070m and 0.100m. These physical obstacles remain
+static.
+For uncertain obstacle i, the common detector reports
+zi(t) = ci +bi +wcorr
+i
+(t)+vi(t)+dsin
+i (t)+ ji(t),
+(21)
+when a measurement is valid. Here ci is the hidden static center, bi is episode-level registration bias, wcorr
+i
+is colored
+drift, vi is white jitter, dsin
+i
+is smooth drift, and ji is a temporary localization jump. During an intermittent hold, the
+prior report is repeated and the validity bit is set to zero. For a fixed seed, episode identifier, and severity, every
+method receives the same arrays of detector centers, validity bits, observable jump scores, exploration draws, and
+plant disturbance.
+Each method is trained for 10 episodes of 115 transitions and evaluated, without further learning, for 280
+transitions over five paired seeds. Goal success is entry into a 5.5 cm tolerance. The procedurally generated
+experiment has a training partition but no independent validation set. Evaluation comprises a moderate multiplier
+2.2, an eleven-level perception-noise sweep, and an exploratory multiplier-6.0 test selected after the initial analysis.
+Supplementary Tables S1–S3 give the complete protocol and parameters.
+At multiplier 6.0, detector bias is 6.0–11.4 cm, smooth drift reaches 5.4 cm, temporary jumps begin at 30–42
+cm, and intermittent holds repeat stale measurements. The detector nevertheless reports a 1 cm standard deviation,
+representing overconfidence under distribution shift. The plant-disturbance multiplier remains 1.0; Supplementary
+Table S1 gives the full timing and noise model.
+The simulated plant and evaluation objective are fully discrete and use the executed post-filter velocity:
+pt+1 = clipΩ[pt +0.055(ut +dt)],
+∥ut∥≤0.72,
+(22)
+ℓt = 0.036∥pt −g∥2 +0.020∥ut∥2 +0.012∥ut −ua,t∥2 +0.036∥ut −ua,t∥
++5.21contact,t +max
+
+0,0.010−hknown
+t
+2
+.
+(23)
+Here dt is the shared exogenous velocity disturbance, Ωclips the robot center to the workspace after accounting for
+its radius, g is the goal, and hknown
+t
+is signed clearance from the known map. The contact indicator is an observable
+bumper event; hidden true geometry is used to generate and evaluate contact but is not stored as a continuous
+learning signal. Supplementary Tables S1–S3 give the complete protocol, stored-field schema, waypoint/corridor
+constraints, and all actor, critic, potential-field, estimator, CBF, and buffer constants.
+5.2. Progressive comparison configurations and common tuning budget
+The comparison is progressive and component-matched. AC is the common waypoint actor–critic with uni-
+form replay. AC+CBF adds CBF projection [3, 4]; AC+CBF+PER adds temporal-difference prioritized replay [12];
+AC+CBF+UE adds online uncertainty estimation [7, 21]; and AC+CBF+AER adds adaptive safety-aware replay [22].
+Full combines the estimator and adaptive replay with the safety filter. These are controlled in-house configura-
+tions, not copied results or exact reproductions of the cited methods, whose plants and objectives differ.
+Table 3: Progressive component-wise comparison. All configurations share the plant, cost, actor–critic update, training budget,
+seeds, and sensor, exploration, and disturbance streams. References identify the motivating literature strand.
+Method
+CBF
+PER
+UE
+AER
+Description
+AC [1]
+no
+no
+no
+no
+Waypoint actor–critic with a replay-weighted TD-residual score-
+function surrogate and uniform replay.
+AC+CBF [3, 4]
+yes
+no
+no
+no
+CBF uses the common raw or held detector center.
+AC+CBF+PER [12]
+yes
+yes
+no
+no
+Temporal-difference priority only.
+AC+CBF+UE [21]
+yes
+no
+yes
+no
+Robust online static-center filter with uniform replay.
+AC+CBF+AER [22]
+yes
+no
+no
+yes
+Mixed adaptive replay; the CBF still uses the raw or held center.
+Full (present)
+yes
+no
+yes
+yes
+Online filter, replay-calibrated static anchor, robust CBF, and mixed
+replay.
+All configurations use the same 10 training episodes, buffer capacity 360, batch size 44, eight replay updates
+per episode, and five seeds. No method-specific hyperparameter search or independent validation set was used;
+the common hand-fixed values are listed in Supplementary Table S3. The post-hoc ±20% replay-weight check in
+Table S4 was not used to choose the reported configuration. This controls differential tuning but does not make
+every ablation individually optimal.
+11
+
+
+The estimator produces a causal center belief ˆci,t, scale σi,t, and innovation νi,t =
+zi,t −ˆci,t|t−1
+; invalid mea-
+surements receive zero gain, and no true center label is used. For a circular obstacle, the filter uses
+ˆhi(p,t) = ∥p−ˆci(t)∥−
+ ri +rR +ρi(t)
+
+,
+ρi(t) = 0.009+1.20σi(t),
+(24)
+and projects the velocity onto active half-space approximations of
+∇ˆhi(p,t)⊤u ≥−α ˆhi(p,t)+ ¯d +(0.18s−1)ρi(t),
+(25)
+subject to the input limits. Here ¯d = 0.012m/s is a design allowance, not a hard stochastic bound, and 0.18s−1 con-
+verts the distance envelope ρi into a velocity margin. Known rectangles and workspace walls receive a discrete-time
+guard; the experiment therefore evaluates an empirical robustification rather than a certified stochastic guarantee.
+5.3. Metrics and statistical analysis
+Safety is evaluated against hidden true geometry. The signed clearance is
+ht = min
+i
+ pt −ctrue
+i
+−ri −rR
+
+,
+(26)
+combined with distances to known rectangles and workspace walls. True clearance is evaluation-only. We report
+cost, violations, clearance, belief RMSE, goal performance, filter intervention, and runtime as mean ± sample
+standard deviation over five paired seeds. Friedman tests compare all configurations and paired Wilcoxon tests
+compare each ablation with Full; the p-values are unadjusted exploratory diagnostics. Supplementary Tables S5–
+S10 and Figures S1–S2 provide seed-level results, complete tests, replay fractions, and additional plots.
+5.4. Additional exploratory extreme-stress results
+Table 4 reports the multiplier-6.0 test. Safety, goal completion, cost, and estimation error are interpreted jointly.
+Table 4: Selected metrics from the extreme perception-stress test at multiplier 6.0 (mean ± sample standard deviation over five
+seeds). Best means are bold; arrows indicate the preferred direction. Supplementary Table S6 reports all metrics.
+Method
+Cost ↓
+Viol. ↓
+Min. global h ↑
+Uncertain clear. ↑
+Belief RMSE ↓
+Goal success ↑
+(%)
+(cm)
+(cm)
+(cm)
+(%)
+AC [1, 2]
+46.99±19.28
+2.79±1.32
+−1.76±0.80
+−1.76±0.80
+16.71±1.55
+100.0±0.0
+AC+CBF [3, 4]
+31.00±12.43
+1.64±0.86
+−1.26±0.40
+−1.26±0.40
+16.71±1.55
+100.0±0.0
+AC+CBF+PER [12]
+39.08±24.08
+2.21±1.64
+−1.04±1.91
+−1.04±1.91
+16.71±1.55
+100.0±0.0
+AC+CBF+UE [21]
+8.96±2.08
+0.00±0.00
+3.22±2.81
+3.94±3.37
+11.08±1.23
+80.0±44.7
+AC+CBF+AER [22]
+22.62±12.82
+1.07±0.87
+−0.35±1.55
+−0.35±1.55
+16.71±1.55
+100.0±0.0
+Full (present)
+7.63±0.44
+0.00±0.00
+2.71±0.23
+6.95±0.26
+3.52±0.55
+100.0±0.0
+UE and Full are the only configurations with zero contacts; Full reaches the goal in five of five seeds versus
+four of five for UE and has lower mean cost and belief error. Friedman tests detect differences in cost, violations,
+clearance, and belief RMSE (p ≤0.0045), but the paired Full–UE tests do not reach p < 0.05. The result is
+therefore a practically relevant joint trend on this benchmark, not proof of universal superiority. Complete seed-
+level and statistical results are in Supplementary Tables S6–S9.
+5.5. Finite-buffer replay audit
+Supplementary Table S10 separates event generation, finite-buffer retention, and replay sampling. AER and
+Full retain boundary events strongly, while Full also increases retention and sampling of observable uncertainty
+events.
+5.6. Moderate test, learning behavior, and robustness sweep
+At multiplier 2.2, every CBF configuration is collision-free in all five seeds, whereas AC records contact in two.
+Full has the lowest belief RMSE and the largest clearance; the complete moderate results are in Supplementary
+Table S5.
+The sweep and multiplier-6.0 test characterize the chosen observation model; they do not define a certified
+uncertainty radius.
+5.7. Computation and reproducibility
+With I projection sweeps, J active constraints, and action dimension m = 2, the safety projection costs O(IJm).
+Uniform replay retrieval is O(B), whereas the present transparent priority implementation scans N = 360 entries
+and costs O(N + B) per batch; tree-based sampling could reduce priority operations to O(logN). Table 4 reports
+machine-specific runtimes.
+The executable code, protocol, common streams, seed-level results, and diagnostic tests are supplied as supple-
+mentary software at https://github.com/SDNT8810/safe-actor-critic-aer-ue-reproducibility.
+12
+
+
+(a) Trajectories for visualization seed 4.
+(b) True signed clearance over the displayed interval; h(t) < 0 is unsafe. Reported numerical metrics use the complete
+registered evaluation horizon.
+Figure 4: Extreme-stress trajectories and clearance. Hidden geometry is used only for evaluation.
+13
+
+
+Figure 5: Finite-buffer replay composition and sampling; numerical fractions are in Supplementary Table S10.
+(a) Training cost under the increasing-severity curriculum; this is not
+a fixed-task convergence curve.
+(b) Violation rate versus perception severity.
+Figure 6: Learning and robustness summaries. The sweep uses a fixed episode identifier across severity levels to reduce the
+severity/random-realization confound.
+14
+
+
+6. Discussion and Application Bridges
+Although the integrated viewpoint developed in this paper is intentionally general, it is useful to connect it
+to recent studies that make its individual components concrete. Such a connection clarifies that the proposed
+perspective is not speculative; its ingredients already appear in recent works, albeit in partially separated forms.
+It also helps identify promising future contributions, not by repeating the individual components, but by showing
+how they can be combined more systematically.
+The present perspective is strongly motivated by recent studies that each illuminate one part of the integrated
+architecture. Safe actor-critic control with experience replay and CBF-based constraints can be formulated mean-
+ingfully even when the system is not mechanical. Khalili-Amirabadi et al. [20] show that safe RL can support
+public-health intervention design under operational constraints, thereby establishing an application bridge for
+safety-constrained actor-critic control. Their LSTM-based bi-level control study [21] demonstrates that online
+uncertainty estimation and policy optimization can be decomposed into coupled layers for continuous-time non-
+linear control. That work supplies the uncertainty-estimation bridge and shows why recurrent architectures may
+be preferable to memoryless approximators when disturbances are temporally correlated. Moreover, replay should
+explicitly balance short-term responsiveness and long-horizon diversity through dual-buffer and clustering mech-
+anisms, as shown in the SODACER study [22]. That work supplies the adaptive replay bridge. Taken together,
+these studies motivate the integrated view developed here.
+6.1. What the ablation supports and why integration matters
+The ablation supports three linked observations: corrupted geometry can defeat a nominal CBF, temporal-
+difference priority does not reliably preserve uncertainty events, and adaptive replay cannot correct a wrong obsta-
+cle belief without an estimator. Full combines uncertainty-informed geometry with boundary- and residual-aware
+replay, yielding zero contacts and five-of-five goal completion in the extreme test. This is a joint benchmark result
+rather than evidence that every component improves every metric.
+6.2. Robotics, autonomous systems, and health-related design transfer
+The most direct applications are mobile robotics and autonomous systems, where estimator error changes colli-
+sion geometry and filter interventions identify valuable replay events [7, 27, 28]. The same interfaces could inform
+constrained health-control models such as vaccination or treatment allocation [20], but this is a design-transfer
+hypothesis only: the present experiment validates robot navigation, not clinical or public-health performance.
+6.3. Modularity and its cost
+Modularity is an engineering interface, not a plug-and-play convergence theorem. Replacing the static-center
+filter with an LSTM, Kalman filter, ensemble, or disturbance observer changes the residual distribution, uncertainty
+calibration, update timing, and valid error bound in the robust CBF inequality. A replacement must expose a
+documented estimate, calibrated scale, innovation signal, and update rate. Stability and convergence must then be
+re-established for the selected modules and time scales.
+6.4. Limitations and open challenges
+Despite its appeal, the integrated viewpoint raises several nontrivial challenges. From a theoretical standpoint,
+combining adaptive replay, recurrent uncertainty estimation, and safety filtering substantially complicates closed-
+loop analysis. Existing results typically address these components in isolation. A mature theory will likely require
+separation arguments, incremental-stability tools, or restricted update schedules, in a manner broadly consistent
+with recent bi-level analyses [21].
+Computational burden is another important concern. Safety filters, recurrent estimators, and replay clustering
+all introduce additional overhead. The practical question is whether the resulting gains in safety, robustness, and
+sample efficiency justify this extra complexity. Cluster maintenance and asynchronous buffer updates, as suggested
+in recent replay designs, may help mitigate this cost [22].
+Replay prioritization also remains application-dependent. Although the mixed-priority form in Eq. (9) is con-
+ceptually appealing, selecting appropriate weights and scales is not straightforward. Excessive emphasis on safety-
+critical transitions may bias the critic toward boundary behavior, whereas insufficient emphasis may weaken safety
+awareness. Similar considerations apply to uncertainty-related sampling.
+Distribution shift and stale data remain persistent concerns in off-policy safe RL. Replayed samples may reflect
+outdated operating regimes, especially in highly nonstationary environments. In such settings, hybrid offline-online
+strategies and more robust uncertainty models may be necessary [25].
+15
+
+
+Finally, evaluation protocols should extend beyond reward or cost alone. Meaningful assessment should also
+include constraint-violation rates, safety margins, estimator residuals, replay diversity, and computational load.
+Without such a multi-metric evaluation framework, fair comparison among integrated methods remains difficult.
+The validation is a two-dimensional simulation with lightweight function approximators, static physical obsta-
+cles, five seeds, no independent validation set, and a synthetic extreme detector model selected after initial analysis.
+The actor update lacks importance correction, the local weight check is post hoc, and the Gaussian disturbance has
+no hard bound. Proposition 1 concerns replay exposure, not convergence or closed-loop invariance. These limits
+restrict the evidence to this benchmark and motivate hardware, moving-obstacle, calibrated-sensing, and formal
+multi-time-scale studies.
+7. Conclusion
+This paper has argued that safe actor-critic optimal control should be viewed as an integrated learning-and-
+control architecture rather than as a nominal reinforcement-learning algorithm supplemented by a few auxiliary
+corrections. The central thesis is that adaptive experience replay and online uncertainty estimation are not pe-
+ripheral implementation details. They shape the data seen by the critic, the reliability of the safety filter, and the
+responsiveness of the policy under model mismatch. From this standpoint, the proposed perspective contributes
+three concrete messages. First, replay should preserve safety-critical and uncertainty-informative transitions rather
+than relying exclusively on uniform or temporal-difference-error-based sampling. Second, uncertainty estimation
+should be coupled to safe control, because barrier feasibility depends on the true local dynamics. Third, real-
+ized transitions produced by the executed safe action, not only the nominal actor output, should drive state-value
+critic learning and replay formation. The recent literature already contains strong building blocks for this agenda,
+including CBF-based safe RL, robust adaptive critic control, recurrent uncertainty estimation, clustered or dual-
+buffer replay, safe HPV control, bi-level LSTM-enhanced nonlinear optimal control, and SODACER-based replay
+design. These studies make the complementarity of these building blocks particularly visible.
+The finite-training bound, robust barrier condition, and component-wise experiment make the proposed inter-
+faces testable. In the extreme test, Full records no contacts, reaches the goal in every seed, and has the lowest mean
+cost and belief error. This supports the co-design hypothesis on the stated benchmark while leaving convergence,
+certified safety, and hardware validation open.
+Declaration of generative AI and AI-assisted technologies in the manuscript preparation process
+During the preparation of this work, the authors used ChatGPT (OpenAI) solely for language editing to improve
+English grammar. The authors reviewed and edited the output as needed and take full responsibility for the content
+of the published article.
+Declaration of competing interest
+The authors declare that they have no known competing financial interests or personal relationships that could
+have appeared to influence the work reported in this paper.
+References
+[1] R. S. Sutton and A. G. Barto, Reinforcement Learning: An Introduction, 2nd ed., MIT Press, 2018.
+[2] S. E. Li, “Deep reinforcement learning,” in Reinforcement Learning for Sequential Decision and Optimal
+Control, Springer, Singapore, 2023, pp. 365–402.
+[3] A. D. Ames, X. Xu, J. W. Grizzle, and P. Tabuada, “Control barrier function based quadratic programs for
+safety critical systems,” IEEE Transactions on Automatic Control, vol. 62, no. 8, pp. 3861–3876, 2017, doi:
+10.1109/TAC.2016.2638961.
+[4] Z. Marvi and B. Kiumarsi, “Safe reinforcement learning: A control barrier function optimization ap-
+proach,” International Journal of Robust and Nonlinear Control, vol. 31, no. 6, pp. 1923–1940, 2021, doi:
+10.1002/rnc.5392.
+[5] M. S. Jha and B. Kiumarsi, “Off-policy safe reinforcement learning for nonlinear discrete-time systems,”
+Neurocomputing, vol. 611, 128677, 2025, doi: 10.1016/j.neucom.2024.128677.
+16
+
+
+[6] S. Liu, L. Liu, and Z. Yu, “Safe reinforcement learning for affine nonlinear systems with state constraints
+and input saturation using control barrier functions,” Neurocomputing, vol. 518, pp. 562–576, 2023, doi:
+10.1016/j.neucom.2022.11.006.
+[7] Z. Hou, W. Liu, and A. Knoll, “Safe reinforcement learning for autonomous driving by using disturbance-
+observer-based control barrier functions,” IEEE Transactions on Intelligent Vehicles, vol. 10, no. 6, pp. 3782–
+3791, 2025, doi: 10.1109/TIV.2024.3463468.
+[8] F. Zhang and G.-H. Yang, “Safe reinforcement learning for constrained optimal control with provable guar-
+antees: Applications to motion planning,” IEEE Transactions on Intelligent Transportation Systems, vol. 26,
+no. 10, pp. 14780–14791, 2025, doi: 10.1109/TITS.2025.3583083.
+[9] S. Adam, L. Busoniu, and R. Babuska, “Experience replay for real-time reinforcement learning control,”
+IEEE Transactions on Systems, Man, and Cybernetics, Part C, vol. 42, no. 2, pp. 201–212, 2012, doi:
+10.1109/TSMCC.2011.2106494.
+[10] R. Khalili-Amirabadi,
+M. Jalaeian-Farimani,
+and O. Solaymani-Fard,
+“Experience replay in re-
+inforcement learning:
+A systematic review,”
+Neurocomputing,
+vol. 700,
+p. 134403,
+2026,
+doi:
+10.1016/j.neucom.2026.134403.
+[11] V. Mnih et al., “Human-level control through deep reinforcement learning,” Nature, vol. 518, no. 7540, pp.
+529–533, 2015, doi: 10.1038/nature14236.
+[12] T. Schaul, J. Quan, I. Antonoglou, and D. Silver, “Prioritized experience replay,” arXiv:1511.05952, 2015.
+[13] Z. Gao, R. Tang, L. Chen, Q. Huang, and J. He, “Continuous shared control in prosthetic hand grasp tasks
+by deep deterministic policy gradient with hindsight experience replay,” International Journal of Advanced
+Robotic Systems, vol. 17, no. 4, 2020, doi: 10.1177/1729881420936851.
+[14] T. Bian and Z.-P. Jiang, “Reinforcement learning and adaptive optimal control for continuous-time nonlinear
+systems: A value iteration approach,” IEEE Transactions on Neural Networks and Learning Systems, vol. 33,
+no. 7, pp. 2781–2790, 2022, doi: 10.1109/TNNLS.2020.3045087.
+[15] D. Wang, “Intelligent critic control with robustness guarantee of disturbed nonlinear plants,” IEEE Transac-
+tions on Cybernetics, vol. 50, no. 6, pp. 2740–2748, 2020, doi: 10.1109/TCYB.2019.2903117.
+[16] Q. Chen, Y. Jin, and Y. Song, “Fault-tolerant adaptive tracking control of Euler–Lagrange systems: An echo-
+state-network approach driven by reinforcement learning,” Neurocomputing, vol. 484, pp. 109–116, 2022,
+doi: 10.1016/j.neucom.2021.10.083.
+[17] D. Wang, Z. Zhou, M. Li, J. Ren, and J. Qiao, “Event-based robust performance guarantee for nonaffine
+plants via system identification,” International Journal of Robust and Nonlinear Control, vol. 33, no. 10, pp.
+5365–5387, 2023, doi: 10.1002/rnc.6646.
+[18] A. Liu, D. Wang, Y. He, K. Ye, and J. Qiao, “Value-iteration-based robust adaptive critic for disturbed non-
+affine continuous-time systems,” International Journal of Robust and Nonlinear Control, vol. 35, no. 10, pp.
+4407–4415, 2025, doi: 10.1002/rnc.7914.
+[19] A. Elkenawy, A. M. El-Nagar, M. El-Bardini, and N. M. El-Rabaie, “Diagonal recurrent neural network
+observer-based adaptive control for unknown nonlinear systems,” Transactions of the Institute of Measure-
+ment and Control, vol. 42, no. 15, pp. 2833–2856, 2020, doi: 10.1177/0142331220921259.
+[20] R. Khalili-Amirabadi, O. S. Fard, and M. Jalaeian-Farimani, “Towards optimal control of HPV model using
+safe reinforcement learning with actor-critic neural networks,” Expert Systems with Applications, vol. 264,
+125783, 2025, doi: 10.1016/j.eswa.2024.125783.
+[21] R. Khalili-Amirabadi, M. Jalaeian-Farimani, and O. S. Fard, “LSTM-empowered reinforcement learning in
+bi-level optimal control for nonlinear systems with uncertain dynamics,” ISA Transactions, vol. 168, pp.
+465–478, 2026, doi: 10.1016/j.isatra.2025.11.027.
+[22] R. Khalili-Amirabadi, M. Jalaeian-Farimani, and O. S. Fard, “Self-organizing dual-buffer adaptive clustering
+experience replay (SODACER) for safe reinforcement learning in optimal control,” Scientific Reports, vol.
+16, 14960, 2026, doi: 10.1038/s41598-026-44517-1.
+17
+
+
+[23] H. Hailemichael, B. Ayalew, and A. Ivanco, “Optimal control barrier functions for RL based safe powertrain
+control,” IFAC-PapersOnLine, vol. 56, pp. 385–390, 2023, doi: 10.1016/j.ifacol.2023.12.054.
+[24] P. Adjei, N. Tasfi, S. Gomez-Rosero, and M. A. M. Capretz, “Safe reinforcement learning for arm
+manipulation with constrained Markov decision process,” Robotics, vol. 13, no. 4, 63, 2024, doi:
+10.3390/robotics13040063.
+[25] X. Hickman,
+Y. Lu,
+and D. Prince,
+“Hybrid safe reinforcement learning:
+Tackling distribu-
+tion shift and outliers with the Student-t process,” Neurocomputing, vol. 634, 129912, 2025, doi:
+10.1016/j.neucom.2025.129912.
+[26] X. Tian, H. Zhou, H. Zhang, L. Zhang, and L. Shi, “LSTM and attention-based meta-reinforcement learning
+for trajectory tracking of underwater gliders with varying buoyancy loss and current disturbance,” Ocean
+Engineering, vol. 326, 120906, 2025, doi: 10.1016/j.oceaneng.2025.120906.
+[27] L. Song, L. Ferderer, and S. Wu, “Safe reinforcement learning for LiDAR-based navigation via control barrier
+function,” in Proceedings of the 21st IEEE International Conference on Machine Learning and Applications,
+2022, pp. 264–269, doi: 10.1109/ICMLA55696.2022.00045.
+[28] I. Ganie and S. Jagannathan, “Optimal control in human-robotic agent teams for cooperative manipu-
+lation,” in Proceedings of the IEEE Conference on Decision and Control, 2025, pp. 3308–3313, doi:
+10.1109/CDC57313.2025.11312132.
+[29] Y. Hu, J. Chen, and C. Qin, “Event-triggered prescribed performance control of the multiplayer game non-
+linear system via integral reinforcement learning,” Applied Mathematics and Computation, vol. 511, 129716,
+2026, doi: 10.1016/j.amc.2025.129716.
+[30] C. Qin, Z. Wang, S. Hou, M. Pang, G. Wang, Y. Wang, J. Zhang, and X. Wang, “Mixed zero-sum
+game based dynamic event-triggered optimal control of multi-input nonlinear system with safety con-
+straints,” Communications in Nonlinear Science and Numerical Simulation, vol. 152, 109376, 2026, doi:
+10.1016/j.cnsns.2025.109376.
+[31] C. Qin, K. Sun, A. Sun, D. Zhang, J. Zhang, G. Wang, Y. Wang, and Q. Qiu, “Dynamic event-triggered
+optimal safety control of interconnected nonlinear systems with discontinuous state constraints by adaptive
+dynamic programming,” Neurocomputing, vol. 669, 132467, 2026, doi: 10.1016/j.neucom.2025.132467.
+[32] C. Qin, M. Pang, Z. Wang, S. Hou, and Q. Qiu, “ADP-based dynamic event-triggered fault-tolerant con-
+trol for nonlinear systems with actuator failures and full-state time-varying constraints,” Communications in
+Nonlinear Science and Numerical Simulation, vol. 157, 109676, 2026, doi: 10.1016/j.cnsns.2026.109676.
+18
+
+
+Supplementary Material
+Toward Integrating Adaptive Experience Replay and Online Uncertainty Estimation in Safe
+Actor-Critic Optimal Control
+Mahshad Rastegarmoghaddam, Davoud Nikkhouy, Shima Samadzadeh
+8. Purpose and reproducibility scope
+This supplement reports the detailed protocol, moderate and exploratory extreme-stress seed-level results,
+finite-buffer replay audit, fairness tests, information-leakage tests, statistical comparisons, and additional figures
+supporting the manuscript. All numerical values are generated by the bundled code with 10 training episodes and
+five seeds. The two uncertain physical obstacles remain static; all six methods receive the same raw noisy detector,
+exploration, and disturbance streams for a fixed seed and episode. True obstacle centers and true clearance are re-
+served for simulation evaluation and are excluded from actor, critic, estimator, control-barrier-function (CBF), and
+replay updates. Multiplier 6.0 was added after an earlier 4.0 run and is reported descriptively, not as a preregistered
+confirmatory test.
+9. Experimental protocol
+Table S1: Common protocol and implementation settings.
+Setting
+Value
+Workspace
+3.20m × 3.20m cluttered map with exact rectangular obstacles and two hidden-center
+circular obstacles.
+Robot
+Radius 0.062m; planar velocity limit 0.72m/s; integration step 0.055s.
+Start and goal
+(0.22,2.82)m and (1.62,1.58)m.
+Uncertain obstacles
+Fixed centers (0.82,1.60)m and (1.82,0.92)m; radii 0.070m and 0.100m.
+Training
+10 episodes, 115 steps/episode, five seeds; common perception curriculum 1.0+0.06e.
+Evaluation
+280 transitions ending at 15.400s; last pre-transition sample at 15.345s; no actor/critic
+updates.
+Goal success
+Trajectory enters the 5.5 cm goal tolerance at least once.
+Tests
+Nominal diagnostic 1.0; moderate post-training evaluation 2.2; exploratory sweep 0.8–
+4.5; additional extreme rerun 6.0; disturbance multiplier 1.0.
+Sweep
+0.8,1.0,1.3,1.6,2.0,2.2,2.6,3.0,3.5,4.0,4.5.
+Replay
+Capacity 360, batch size 44, eight replay updates per training episode.
+AER/Full weights
+(λTD,λsafe,λunc,λnov) = (0.18,0.39,0.30,0.13).
+The simulator advances the executed closed-loop transition and evaluates the common objective as
+pt+1 = clipΩ[pt +0.055(ut +dt)],
+∥ut∥2 ≤0.72,
+(S1)
+ℓt = 0.036∥pt −g∥2
+2 +0.020∥ut∥2
+2 +0.012∥ut −ua,t∥2
+2 +0.036∥ut −ua,t∥2
++5.2Icontact,t +max(0,0.010−hknown
+t
+)2.
+(S2)
+Here dt is the common exogenous velocity disturbance, Ωis the robot-center workspace, and the contact bit is an
+observable bumper event. The hidden true geometry is used to generate physical contact and evaluation metrics,
+but continuous true clearance, true obstacle centers, true center error, and true gradients are excluded from the
+replay record and all controller updates.
+19
+
+
+Table S2: Exact controller-visible replay schema. The compact generic tuple in the main manuscript is an interface; this table
+records the implementation-specific fields required to reproduce the replayed critic, actor, estimator, replacement, and sampling
+updates.
+Group
+Stored fields or meaning
+Executed transition
+pt, pt+1; nominal ua,t; executed ut; realized instantaneous cost; TD residual and bounded TD
+score.
+Replayed actor state
+Common Gaussian exploration vector εt = (εx,t,εy,t) and active waypoint index kt. These are
+required by the replayed waypoint update. No behavior-policy likelihood or importance ratio
+is stored.
+Safety interface
+Estimated barrier slack and active perceived constraint; estimated-barrier gradient; CBF acti-
+vation; correction ∥ut −ua,t∥; observable contact bit; safety score; boundary-event bit.
+Uncertainty interface
+For each obstacle: raw center zi,t, causal belief ˆci,t, posterior scale, detector-reported scale,
+innovation norm, estimator outlier bit, measurement-validity/hold bit, observable jump score,
+and known obstacle radius.
+Replay management
+Uncertainty score, state-cell novelty score, uncertainty-event bit, priority, method/configuration
+identifier, seed, episode, step, time, training flag, severity values, and common sensor-stream
+hash.
+Explicitly excluded
+True obstacle centers, continuous true clearance, true active constraint and gradient, hidden
+detector-event label, raw/belief error against truth, and evaluator-only collision-source diag-
+nostics. Evaluation output may contain these fields, but the replay sanitation function cannot
+copy them.
+9.1. Complete hyperparameters and selection provenance
+No validation-set grid search, random search, Bayesian optimization, or method-specific parameter search was
+performed. The values below are one common hand-fixed engineering configuration used for the six exploratory
+ablations; they are not called tuned optima. This removes differential parameter budgets but does not establish that
+each method is individually optimal. The additional multiplier-6.0 condition was introduced after an earlier 4.0
+run. The local replay-weight perturbation in Table S4 is post hoc and descriptive and was not used to choose or
+revise the reported weights.
+Table S3. Complete code-grounded implementation constants. Distances are meters and velocities are meters per
+second unless stated otherwise.
+Module
+Parameter
+Fixed value or rule
+Plant
+Integration and clipping
+Eq. (S1); ∆t = 0.055; ∥u∥≤0.72; post-step position
+clipped to [rR,3.20−rR]2, rR = 0.062.
+Plant
+Horizons and goal
+115 training transitions; 280 evaluation transitions;
+goal tolerance 0.055; success if any of p0,..., p280
+enters the tolerance.
+Objective
+Per-transition cost
+Eq. (S2); common to all six rows.
+Training
+Budget
+10 episodes, 8 replay batches per episode, batch size
+44, seeds 0,...,4; training perception 1+0.06e.
+Random streams
+Integer seed rules
+actor 12345+s; sensor 17000003+100003s+1009e;
+disturbance 19001007+200003s+1013e; exploration
+81021+1000s+53e; replay 202401+101s.
+Actor
+Initial waypoints
+(0.22,2.82), (0.31,2.43), (0.62,2.25), (0.87,1.99),
+(0.90,1.62), (1.04,1.27), (1.06,0.82), (1.44,0.70),
+(2.18,0.70), (2.34,1.14), (1.82,1.39), (1.62,1.58).
+Actor
+Initialization/exploration
+Internal-waypoint jitter standard deviation 0.006;
+Gaussian training exploration standard deviation 0.017
+per velocity component; no exploration in evaluation.
+Actor
+Nominal tracking
+waypoint attraction gain 2.25; terminal-goal gain 0.28;
+waypoint switches when current distance < 0.118 or
+next distance plus 0.030 is below current distance.
+Actor
+Replayed policy term
+actor learning rate 0.0040; TD-policy gain 0.18;
+cost-TD residual clipped to [−2.2,2.2]; normalized
+exploration clipped componentwise to [−2.5,2.5].
+Actor
+Auxiliary shaping/smoothing
+safety, uncertainty, contact pressure weights
+(0.58,0.27,0.15); waypoint smoothing weights
+(current, previous, next) (0.74,0.13,0.13).
+Continued on next page
+20
+
+
+Table S3 (continued)
+Module
+Parameter
+Fixed value or rule
+Actor
+Waypoint corridor bounds
+For internal indices 1:10: [.24,.38]×[2.31,2.46],
+[.53,.77]×[2.10,2.36], [.77,1.07]×[1.84,2.14],
+[.84,1.13]×[1.52,1.86], [.88,1.11]×[1.16,1.47],
+[.97,1.11]×[.73,.89], [1.29,1.60]×[.65,.77],
+[2.02,2.31]×[.65,.78], [2.16,2.43]×[1.00,1.26],
+[1.70,1.94]×[1.33,1.55].
+Critic
+Features
+Seven state-value features
+[1,gx,gy,g2x,g2y, px/3.2, py/3.2], where g = pgoal −p.
+Critic
+Bellman update
+discount γ = 0.985; learning rate 0.016; TD clip
+[−2.2,2.2]; normalized increment denominator
+1+∥φ∥2
+2.
+Known potential field
+Rectangles/walls
+rectangles: robot-radius inflation plus 0.022, influence
+0.18, gain 0.42; walls: robot-radius margin plus 0.025,
+influence 0.14, gain 0.34.
+Perceived potential
+field
+Circular obstacles
+inflation ri +rR +0.010+0.35σi; influence 0.31; gain
+0.31.
+Estimator
+Initialization/reset
+learned nominal scale 0.018; learned gate 0.050; reset
+scale floor 0.014; default causal innovation gate 0.060.
+Estimator
+Online gain
+base gain 0.24 for UE and 0.18 for Full; robust weight
+min(1,gate/∥ν∥); gain-denominator floor 0.035; zero
+gain on invalid measurements.
+Estimator
+Outlier/variance
+jump threshold 0.60 for non-UE observable flags and
+0.72 for UE; variance EMA 0.93/0.07; posterior
+σ = clip(0.008+1.35√v+a,0.014,0.075) with
+outlier addition a = 0.012 for UE and 0.008 for Full.
+Estimator
+Full anchor pull
+episode reset blend (anchor, first raw) (0.78,0.22);
+online anchor pull 0.018+0.10Ioutlier.
+Estimator
+Replay calibration
+minimum 8 samples; geometric median (50 iterations
+maximum, tolerance 10−8); lower-distance quantile
+0.60; nominal multiplier 1.45 clipped to [0.009,0.030];
+gate multiplier 2.7 clipped to [0.030,0.058]; anchor
+EMA 0.86/0.14; nominal-scale/gate EMA 0.88/0.12.
+CBF
+Belief geometry
+known inflation rR +0.018; uncertain robust inflation
+ρ = 0.009+1.20σ; candidate ranges 0.30 known, 0.40
+uncertain, and 0.26 walls.
+CBF
+Half-space rule
+active when h < 0.20; class-K gain 2.9; right-side
+allowance 0.012+0.18ρ at physical-disturbance
+multiplier 1.0. The Gaussian disturbance is not hard
+bounded.
+CBF
+Projection/guard passes
+4 outer cycles; per cycle 1 all-barrier pass, 2
+known-barrier passes, speed clip, then 2 known passes;
+guard margin 0.0015+0.055(0.012) with at most 10
+iterations; final 3 known-barrier passes.
+Replay
+Capacity/update
+capacity 360; batch 44 without replacement; 8 batches
+after every training episode; priority floor 10−5.
+Replay
+Scores/events
+score formulas are the main manuscript’s TD, safety,
+uncertainty, and novelty score equations; novelty grid
+0.18; boundary if ˜h < 0.115, CBF active, correction
+> 0.020, or contact; uncertainty event if score > 0.48
+or estimator outlier.
+Replay
+Priority/sampling
+AER/Full weights (0.18,0.39,0.30,0.13) and exponent
+β = 0.78; PER uses TD-only priority and β = 0.68;
+uniform rows use equal-probability sampling.
+Replay
+Replacement
+uniform rows use reservoir replacement; prioritized
+rows choose a random replacement candidate with
+probability 0.16, otherwise the current
+minimum-priority entry, and accept if the new priority
+is no smaller or with fallback probability 0.035.
+Continued on next page
+21
+
+
+Table S3 (continued)
+Module
+Parameter
+Fixed value or rule
+Replay
+Priority refresh
+After each critic update, TD scores/priorities are
+refreshed for the sampled entries only; the whole buffer
+is not rescored.
+Sensor
+Bias/noise/drift
+registration magnitude U(0.010,0.019)× severity;
+colored AR coefficient 0.82 with innovation standard
+deviation 0.0032√severity; white jitter
+0.0026√severity; sinusoidal amplitudes
+(0.009,0.008)× severity.
+Sensor
+Jumps/holds
+jump magnitude U(0.050,0.070)× severity, direction
+noise 0.22 rad, decay factor 0.955, nominal 16–22
+affected samples; hold-onset probability
+min(0.012severity,0.055) and duration 2–4 samples;
+reported scale 0.010.
+Disturbance
+Shared process
+AR coefficient 0.90, Gaussian innovation standard
+deviation 0.0018 at multiplier 1.0, sinusoidal
+amplitudes (0.0040,0.0035); stochastic process is not
+hard bounded.
+9.2. Post-hoc local replay-weight sensitivity
+A post-hoc local sensitivity diagnostic changes one nominal AER/Full weight by −20% or +20%, renor-
+malizes the four weights to sum to one, retrains Full with the unchanged five seeds and ten-episode curriculum,
+and evaluates episode identifier 1001 at multipliers 2.2 and 6.0. The nominal rerun reproduces the reported
+Full seed metrics to within 1.8 × 10−15.
+This analysis was performed after the reported configuration was
+fixed and was not used for selection. Across all nine configurations, both tiers remain contact-free and reach
+the goal in all five seeds.
+The complete 90 seed rows and unrounded 18 aggregate rows are exported in
+posthoc_aer_weight_sensitivity_seed_metrics.csv and posthoc_aer_weight_sensitivity_aggregate.csv.
+Table S4: Descriptive one-at-a-time replay-weight sensitivity for Full. Each changed component is multiplied by 0.8 or 1.2 and
+all four weights are then renormalized. Values are mean ± sample standard deviation over five seeds; C is cost, H is minimum
+global clearance (cm), and R is belief RMSE (cm). All rows have zero contacts and five successful seeds at both tiers.
+Configuration
+(λTD,λsafe,λunc,λnov)
+C2.2
+H2.2
+R2.2
+C6.0
+H6.0
+R6.0
+Nominal
+(.180,.390,.300,.130)
+6.94±.30
+3.73±.36
+3.44±.22
+7.63±.44
+2.71±.23
+3.52±.55
+TD −20%
+(.149,.405,.311,.135)
+6.97±.29
+3.76±.37
+3.44±.21
+7.65±.44
+2.70±.21
+3.54±.70
+TD +20%
+(.208,.376,.290,.125)
+6.99±.27
+3.77±.34
+3.44±.20
+7.66±.44
+2.68±.19
+3.50±.62
+Safety −20%
+(.195,.338,.325,.141)
+6.96±.24
+3.77±.37
+3.46±.20
+7.65±.35
+2.68±.21
+3.58±.67
+Safety +20%
+(.167,.434,.278,.121)
+6.98±.29
+3.74±.40
+3.43±.22
+7.64±.42
+2.70±.22
+3.49±.65
+Uncertainty −20%
+(.191,.415,.255,.138)
+6.99±.28
+3.78±.36
+3.45±.21
+7.66±.43
+2.71±.22
+3.55±.69
+Uncertainty +20%
+(.170,.368,.340,.123)
+6.96±.29
+3.78±.35
+3.46±.19
+7.64±.43
+2.72±.22
+3.58±.70
+Novelty −20%
+(.185,.400,.308,.107)
+6.98±.22
+3.76±.39
+3.43±.22
+7.67±.39
+2.69±.22
+3.53±.68
+Novelty +20%
+(.175,.380,.292,.152)
+6.96±.25
+3.76±.33
+3.42±.21
+7.64±.39
+2.71±.22
+3.47±.57
+The largest absolute shift from the nominal mean is 0.0490 in moderate cost, 0.0551 cm in moderate global
+clearance, 0.0198 cm in moderate belief RMSE, 0.0421 in extreme cost, 0.0277 cm in extreme global clearance,
+and 0.0616 cm in extreme belief RMSE. This local stability is evidence only for the tested ±20% neighborhood;
+it is not a global sensitivity surface, an optimality result, or an independent validation study.
+At multiplier 6.0, the shared detector has persistent registration-bias amplitude 6.0–11.4 cm, smooth drift up
+to 5.4 cm in x and 4.8 cm in y, and temporary center jumps of 30–42 cm. Each injected jump has a nominal
+16–22-sample (0.88–1.21 s) decay and scheduled injections can overlap. While no hold is active, the hold-onset
+probability is 5.5% per step and each onset repeats the prior measurement for two to four frames. The detector
+nevertheless reports a standard deviation of only 1 cm, representing a deliberately overconfident sensor under
+distribution shift. The CBF’s 0.012m/s disturbance term is a design allowance; the common Gaussian AR(1)-
+plus-sinusoid disturbance is not hard bounded.
+Comparison-method provenance.. Reference numbers follow the main-manuscript comparison table.
+AC is
+the uniform-replay reference configuration [1,2]; AC+CBF is linked to the CBF-safe-control literature [3,4];
+AC+CBF+PER adds temporal-difference-prioritized replay [11]; AC+CBF+UE adds online uncertainty estima-
+tion [33,20]; AC+CBF+AER adds adaptive safety-aware replay [21]; and Full combines CBF, online uncertainty
+estimation, and adaptive replay. These labels identify component provenance, not exact reproductions of the cited
+22
+
+
+algorithms. Every numerical value in the following tables was generated by executing the six local configurations
+on the common benchmark with shared streams and seeds; no numerical result was copied from a cited publication.
+Actor-update scope.. The linear state-value critic is fitted from realized cost and next state produced by the ex-
+ecuted post-filter action. Its clipped cost-TD residual directly enters a replay-weighted score-function waypoint
+update, together with auxiliary controller-visible barrier shaping. Replayed samples contain neither behavior-
+policy likelihoods nor importance ratios; consequently, this is a biased off-policy surrogate rather than an unbiased
+on-policy policy-gradient estimator. The benchmark establishes a direct critic-to-actor code path but does not
+isolate or claim a performance gain caused by the learned value baseline alone.
+10. Moderate post-training results
+Table S5: Moderate perception-stress results at multiplier 2.2 (mean ± standard deviation over five seeds). Main-manuscript
+reference numbers beside methods identify motivating strands; all values were generated on the common benchmark. For CBF
+intervention, ↓means lower intervention workload, not greater safety.
+Method
+Cost ↓
+Viol. ↓
+Min. global h ↑
+Uncertain clearance ↑
+Belief RMSE ↓
+Goal error ↓
+Goal success ↑
+CBF int. ↓
+Runtime ↓
+(%)
+(cm)
+(cm)
+(cm)
+(cm)
+(%)
+(%)
+(ms/280-transition episode)
+AC[1,2]
+11.62±7.35
+0.36±0.51
+0.03±0.36
+0.03±0.36
+6.01±0.53
+4.67±0.81
+100.0±0.0
+N/A
+139.61±10.51
+AC+CBF[3,4]
+6.89±0.17
+0.00±0.00
+1.00±0.69
+1.00±0.69
+6.01±0.53
+4.44±0.60
+100.0±0.0
+18.29±2.06
+229.70±12.19
+AC+CBF+PER[11]
+6.68±0.20
+0.00±0.00
+1.41±1.00
+1.41±1.00
+6.01±0.53
+4.43±0.61
+100.0±0.0
+19.07±1.93
+221.31±12.57
+AC+CBF+UE[33,20]
+7.36±0.32
+0.00±0.00
+3.23±1.13
+3.83±1.85
+5.09±0.58
+4.52±0.66
+100.0±0.0
+27.29±4.57
+224.80±17.99
+AC+CBF+AER[21]
+6.72±0.15
+0.00±0.00
+1.97±0.88
+1.97±0.88
+6.01±0.53
+4.39±0.69
+100.0±0.0
+18.21±1.79
+215.69±15.70
+Full (present)
+6.94±0.30
+0.00±0.00
+3.73±0.36
+4.55±1.26
+3.44±0.22
+4.40±0.75
+100.0±0.0
+21.50±3.27
+229.91±10.60
+11. Additional exploratory extreme-stress results
+Table S6: Additional exploratory extreme-stress results at multiplier 6.0 (mean ± sample standard deviation over five seeds).
+Main-manuscript reference numbers beside methods identify motivating strands; all values were generated on the common
+benchmark. For CBF intervention, ↓means lower intervention workload, not greater safety.
+Method
+Cost ↓
+Viol. ↓
+Min. global h ↑
+Uncertain clearance ↑
+Belief RMSE ↓
+Goal error ↓
+Goal success ↑
+CBF int. ↓
+Runtime ↓
+(%)
+(cm)
+(cm)
+(cm)
+(cm)
+(%)
+(%)
+(ms/280-transition episode)
+AC[1,2]
+46.99±19.28
+2.79±1.32
+−1.76±0.80
+−1.76±0.80
+16.71±1.55
+4.00±0.69
+100.0±0.0
+N/A
+142.03±13.87
+AC+CBF[3,4]
+31.00±12.43
+1.64±0.86
+−1.26±0.40
+−1.26±0.40
+16.71±1.55
+4.62±0.69
+100.0±0.0
+19.79±4.38
+223.44±10.32
+AC+CBF+PER[11]
+39.08±24.08
+2.21±1.64
+−1.04±1.91
+−1.04±1.91
+16.71±1.55
+4.47±0.76
+100.0±0.0
+18.36±2.38
+220.59±15.82
+AC+CBF+UE[33,20]
+8.96±2.08
+0.00±0.00
+3.22±2.81
+3.94±3.37
+11.08±1.23
+17.72±29.14
+80.0±44.7
+47.64±28.19
+236.34±17.71
+AC+CBF+AER[21]
+22.62±12.82
+1.07±0.87
+−0.35±1.55
+−0.35±1.55
+16.71±1.55
+4.37±0.67
+100.0±0.0
+21.64±3.66
+217.80±12.77
+Full (present)
+7.63±0.44
+0.00±0.00
+2.71±0.23
+6.95±0.26
+3.52±0.55
+4.70±0.51
+100.0±0.0
+29.14±4.69
+228.76±15.32
+11.1. Seed-level exploratory extreme-stress outcomes
+Table S7: Seed-level outcomes in the additional multiplier-6.0 rerun.
+Method
+Seed
+Cost
+Viol. count
+Min. h (cm)
+Belief RMSE (cm)
+Goal error (cm)
+Reached
+AC
+0
+42.80
+7
+-1.12
+17.03
+3.30
+yes
+AC
+1
+63.49
+11
+-2.65
+17.14
+4.61
+yes
+AC
+2
+16.80
+2
+-0.80
+17.87
+3.42
+yes
+AC
+3
+63.86
+11
+-2.43
+14.00
+3.86
+yes
+AC
+4
+48.01
+8
+-1.79
+17.50
+4.81
+yes
+AC+CBF
+0
+27.98
+4
+-1.14
+17.03
+5.20
+yes
+AC+CBF
+1
+48.60
+8
+-1.81
+17.14
+4.21
+yes
+AC+CBF
+2
+17.24
+2
+-0.73
+17.87
+3.84
+yes
+AC+CBF
+3
+23.19
+3
+-1.44
+14.00
+4.39
+yes
+AC+CBF
+4
+37.99
+6
+-1.18
+17.50
+5.49
+yes
+AC+CBF+PER
+0
+38.21
+6
+-1.29
+17.03
+4.87
+yes
+AC+CBF+PER
+1
+74.49
+13
+-2.81
+17.14
+4.21
+yes
+AC+CBF+PER
+2
+6.49
+0
+2.16
+17.87
+3.42
+yes
+AC+CBF+PER
+3
+38.59
+6
+-2.09
+14.00
+4.37
+yes
+AC+CBF+PER
+4
+37.64
+6
+-1.19
+17.50
+5.47
+yes
+AC+CBF+UE
+0
+7.44
+0
+0.66
+12.17
+5.06
+yes
+AC+CBF+UE
+1
+11.13
+0
+7.83
+12.60
+69.83
+no
+AC+CBF+UE
+2
+7.30
+0
+3.05
+10.30
+3.61
+yes
+AC+CBF+UE
+3
+11.34
+0
+3.23
+9.82
+5.15
+yes
+AC+CBF+UE
+4
+7.60
+0
+1.31
+10.51
+4.96
+yes
+AC+CBF+AER
+0
+27.82
+4
+-1.16
+17.03
+5.09
+yes
+AC+CBF+AER
+1
+38.54
+6
+-1.65
+17.14
+4.25
+yes
+AC+CBF+AER
+2
+6.71
+0
+2.26
+17.87
+3.37
+yes
+AC+CBF+AER
+3
+12.59
+1
+-0.17
+14.00
+4.26
+yes
+AC+CBF+AER
+4
+27.43
+4
+-1.02
+17.50
+4.88
+yes
+Full
+0
+7.55
+0
+2.64
+3.07
+5.32
+yes
+Full
+1
+7.48
+0
+2.90
+3.92
+4.44
+yes
+23
+
+
+Method
+Seed
+Cost
+Viol. count
+Min. h (cm)
+Belief RMSE (cm)
+Goal error (cm)
+Reached
+Full
+2
+7.21
+0
+2.94
+3.89
+3.99
+yes
+Full
+3
+8.38
+0
+2.37
+2.77
+4.74
+yes
+Full
+4
+7.53
+0
+2.68
+3.94
+4.98
+yes
+12. Statistical comparisons
+The omnibus Friedman tests across the six paired methods give χ2
+F = 17.00 (p = 0.00450) for cost, χ2
+F = 21.23 (p = 7.32×10−4) for violation rate, χ2
+F = 20.43
+(p = 0.00104) for minimum clearance, and χ2
+F = 25.00 (p = 1.39 × 10−4) for belief RMSE. Goal error is not significant (χ2
+F = 10.37, p = 0.0654). For CBF
+intervention among the five CBF methods, χ2
+F = 18.40 and p = 0.00103. Because only five pairs are available, the two-sided Wilcoxon tests have coarse resolution
+and are reported as exploratory paired comparisons alongside the seed-level outcomes; they do not establish statistical superiority. All p-values are unadjusted
+across the reported metrics and pairs, and no multiplicity-adjusted confirmatory inference is made. Both test families and the SciPy version are exported by the
+bundled software.
+Table S8: Complete exported Friedman tests for the additional extreme-stress evaluation. The CBF-intervention row excludes
+AC because intervention is not defined without a CBF. Values are unadjusted exploratory diagnostics.
+Scope
+Metric
+Methods
+χ2
+F
+p value
+All six
+Cost
+6
+17.0000
+0.0044998
+All six
+Violation rate
+6
+21.2342
+0.0007315
+All six
+Minimum global clearance
+6
+20.4286
+0.0010382
+All six
+Belief-center RMSE
+6
+25.0000
+0.0001393
+All six
+Goal error
+6
+10.3714
+0.0653696
+Five CBF rows
+CBF intervention rate
+5
+18.4000
+0.0010306
+Table S9: Two-sided paired Wilcoxon comparisons against Full in the additional extreme-stress test. With five pairs and ties,
+the results are exploratory; p-values are unadjusted.
+Comparison
+Metric
+Statistic
+p value
+AC vs Full
+cost / violation / min clearance / belief RMSE
+0/0/0/0
+0.0625/0.0625/0.0625/0.0625
+AC+CBF vs Full
+cost / violation / min clearance / belief RMSE
+0/0/0/0
+0.0625/0.0625/0.0625/0.0625
+AC+CBF+PER vs Full
+cost / violation / min clearance / belief RMSE
+1/0/0/0
+0.125/0.125/0.0625/0.0625
+AC+CBF+UE vs Full
+cost / violation / min clearance / belief RMSE
+3/0/7/0
+0.3125/1.000/1.000/0.0625
+AC+CBF+AER vs Full
+cost / violation / min clearance / belief RMSE
+1/0/0/0
+0.125/0.125/0.0625/0.0625
+13. Finite-buffer replay audit
+Table S10: Generated, retained, and sampled event fractions (mean ± standard deviation over five seeds). Main-manuscript
+method-reference mapping is AC [1,2], AC+CBF [3,4], AC+CBF+PER [11], AC+CBF+UE [33,20], AC+CBF+AER [21], and
+Full (present).
+Method
+Generated boundary
+Stored boundary
+Sampled boundary
+Generated uncertainty
+Stored uncertainty
+Sampled uncertainty
+AC
+0.804±0.004
+0.793±0.025
+0.790±0.019
+0.115±0.016
+0.113±0.010
+0.102±0.015
+AC+CBF
+0.805±0.004
+0.788±0.027
+0.802±0.016
+0.115±0.016
+0.113±0.010
+0.102±0.015
+AC+CBF+PER
+0.813±0.004
+0.868±0.009
+0.818±0.009
+0.115±0.016
+0.079±0.021
+0.073±0.015
+AC+CBF+UE
+0.815±0.002
+0.803±0.029
+0.813±0.013
+0.128±0.016
+0.127±0.018
+0.108±0.020
+AC+CBF+AER
+0.807±0.005
+0.985±0.002
+0.950±0.005
+0.115±0.016
+0.170±0.030
+0.143±0.026
+Full
+0.821±0.004
+1.000±0.000
+0.963±0.004
+0.184±0.024
+0.264±0.026
+0.229±0.036
+14. Fairness, no-oracle, and collision-source audits
+• Shared sensor stream: for all 15 nominal/moderate/extreme seed-evaluation groups, six methods are present, there is exactly one within-run composite sensor-
+stream hash covering raw centers, validity bits, jump scores, and reported scales, and the across-method ranges of raw sensor RMSE, hold fraction, and jump
+mean are all zero. The hash certifies within-run equality; it is not claimed to be portable across arbitrary numerical-library platforms.
+• Hidden-truth invariance: translating hidden true centers by (0.43,−0.31) m while keeping all controller-visible signals fixed gives maximum nominal- and
+executed-action differences of zero for every method.
+• Known-map collisions: the audit reports known-wall/rectangle violations separately from uncertain-obstacle contacts in the additional extreme test.
+• Replay sanitation: true obstacle center, true signed clearance, true center error, and true gradients are absent from stored learning transitions.
+24
+
+
+15. Additional figures
+(a) Violation ablation.
+(b) Minimum uncertain-obstacle clearance.
+Figure S1: Additional extreme-stress safety summaries. Bars show means and error bars show sample standard deviations over
+five seeds; individual seed points are not overlaid.
+(a) Cost.
+(b) Belief RMSE.
+Figure S2: Exploratory extreme-stress performance and estimation summaries; bars show mean ± sample standard deviation
+over five seeds.
+(a) Violation rate.
+(b) Minimum true clearance.
+Figure S3: Eleven-level perception-uncertainty sweep.
+25
+
+
+Figure S4: Obstacle-center belief error over time in the severe visualization episode.
+Figure S5: Time-sequence panels illustrating fixed physical obstacles and changing detector/belief centers.
+26
