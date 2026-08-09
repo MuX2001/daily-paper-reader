@@ -1,76 +1,108 @@
-<div class="dpr-home-notice-card">
-  <h3 class="dpr-home-notice-title">🚀 Start Here</h3>
-  <ul class="dpr-home-notice-list">
-    <li><a href="#/tutorial/README">使用教程</a></li>
-  </ul>
+<div class="dpr-home-notice-card dpr-home-panel">
+  <div class="dpr-home-notice-header dpr-home-panel-header">
+    <h3 class="dpr-home-notice-title">公告与更新</h3>
+    <a class="dpr-home-notice-tutorial" href="#/tutorial/README">使用教程 <span aria-hidden="true">›</span></a>
+  </div>
+  <div class="dpr-home-notice-entry">
+    <time class="dpr-home-notice-date" datetime="2026-07-20">07.20</time>
+    <div>
+      <strong class="dpr-home-notice-entry-title">反馈功能上线</strong>
+      <span class="dpr-home-notice-entry-summary">新增反馈功能，欢迎大家踊跃反馈各种建议，我们会第一时间查看并协调处理。</span>
+    </div>
+  </div>
+  <div class="dpr-home-notice-entry">
+    <time class="dpr-home-notice-date" datetime="2026-07-19">07.19</time>
+    <div>
+      <strong class="dpr-home-notice-entry-title">首页新增社区统计</strong>
+      <span class="dpr-home-notice-entry-summary">现在可以看到今天看论文的人数和项目加入人数。</span>
+    </div>
+  </div>
+  <div class="dpr-home-site-stats" data-dpr-site-stats hidden aria-live="polite">
+    <span>今天有 <strong class="dpr-home-site-stat-value" data-dpr-daily-readers>--</strong> 人在看论文</span>
+    <span class="dpr-home-site-stat-separator" aria-hidden="true">·</span>
+    <span>昨天有 <strong class="dpr-home-site-stat-value" data-dpr-yesterday-readers>--</strong> 人在看论文</span>
+    <span class="dpr-home-site-stat-separator" aria-hidden="true">·</span>
+    <span>已有 <strong class="dpr-home-site-stat-value" data-dpr-fork-count>--</strong> 人加入 Daily Paper Reader</span>
+    <span class="dpr-home-history">
+      <button type="button" class="dpr-home-history-trigger" data-dpr-history-trigger aria-label="查看最近 14 天阅读趋势"><span aria-hidden="true">🔍</span></button>
+      <span class="dpr-home-history-popover" data-dpr-history-popover role="tooltip">
+        <span class="dpr-home-history-header">近 14 天阅读趋势</span>
+        <span class="dpr-home-history-meta">
+          <span data-dpr-history-range>--</span>
+          <span>峰值 <strong data-dpr-history-peak>--</strong></span>
+        </span>
+        <span class="dpr-home-history-chart" data-dpr-history-chart></span>
+      </span>
+    </span>
+  </div>
 </div>
 
-## 每次日报
-- 最新运行日期：2026-08-08
-- 运行时间：2026-08-08 21:07:23 UTC
-- 运行状态：成功
-- 本次总论文数：15
-- 精读区：9
-- 速读区：6
+<div class="dpr-home-dashboard-grid">
+<section class="dpr-home-dashboard-card dpr-home-report-card">
+  <div class="dpr-home-dashboard-header">
+    <div>
+      <span class="dpr-home-dashboard-kicker">2026-08-09</span>
+      <h3 class="dpr-home-dashboard-title">今日汇总</h3>
+    </div>
+    <strong class="dpr-home-dashboard-count">共 20 篇</strong>
+  </div>
+  <dl class="dpr-home-dashboard-stats">
+    <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>15</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>5</dd></div>
+  </dl>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-09 21:03:06 UTC<br>状态：成功</p>
+</section>
+<section class="dpr-home-dashboard-card dpr-home-brief-card">
+  <div class="dpr-home-dashboard-header">
+    <div>
+      <span class="dpr-home-dashboard-kicker">合并后生成</span>
+      <h3 class="dpr-home-dashboard-title">今日简报</h3>
+    </div>
+    <strong class="dpr-home-dashboard-count">AI</strong>
+  </div>
+  <div class="dpr-home-dashboard-body">
+<p>今日精读20篇论文，聚焦具身智能与运动规划，其中VLA模型与最优路径规划两篇表现最佳。</p>
+<p>重点看云端协同的VLA系统延迟优化，以及自适应代价的轨迹规划方法，代表了具身控制的实用进展。</p>
+<p>建议读者优先跟踪视觉-语言-动作模型在真实部署中的效率问题，可搭配Hermite曲线轨迹先验一文深入。</p>
+  </div>
+</section>
+<section class="dpr-home-dashboard-card dpr-home-deep-card">
+  <div class="dpr-home-dashboard-header">
+    <div>
+      <span class="dpr-home-dashboard-kicker">今日累计</span>
+      <h3 class="dpr-home-dashboard-title">精读推荐</h3>
+    </div>
+    <strong class="dpr-home-dashboard-count">15 篇</strong>
+  </div>
+  <div class="dpr-home-dashboard-body">
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Latency-Tolerant Cloud-Edge Collaborative Vision-Language-Action Models via Emergent Representational Specialization">Latency-Tolerant Cloud-Edge Collaborative Vision-Language-Action Models via Emergent Representational Specialization</span></li><li><span class="dpr-home-dashboard-paper-title" title="RIT*: Riemannian Informed Trees for Cost-Adaptive Optimal Motion Planning">RIT*: Riemannian Informed Trees for Cost-Adaptive Optimal Motion Planning</span></li><li><span class="dpr-home-dashboard-paper-title" title="Look Where It Matters: Adaptive Visual Refinement for Vision-Language-Action Models">Look Where It Matters: Adaptive Visual Refinement for Vision-Language-Action Models</span></li></ul>
+  </div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>10</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>2</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>2</strong></span><span class="dpr-home-dashboard-tag">control <strong>1</strong></span></div>
+</section>
+<section class="dpr-home-dashboard-card dpr-home-skim-card">
+  <div class="dpr-home-dashboard-header">
+    <div>
+      <span class="dpr-home-dashboard-kicker">今日累计</span>
+      <h3 class="dpr-home-dashboard-title">速读推荐</h3>
+    </div>
+    <strong class="dpr-home-dashboard-count">5 篇</strong>
+  </div>
+  <div class="dpr-home-dashboard-body">
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Hermite Curves as Trajectory Priors for Vision-Language-Action Models">Hermite Curves as Trajectory Priors for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Learning When to Stop: Prefix-Optimal Dynamic Diffusion Policies for Continuous Control">Learning When to Stop: Prefix-Optimal Dynamic Diffusion Policies for Continuous Control</span></li><li><span class="dpr-home-dashboard-paper-title" title="Structured LLM Reasoning for Zero-Shot Human--Robot Coordination Under Hidden Goals">Structured LLM Reasoning for Zero-Shot Human--Robot Coordination Under Hidden Goals</span></li></ul>
+  </div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>3</strong></span><span class="dpr-home-dashboard-tag">control <strong>1</strong></span><span class="dpr-home-dashboard-tag">vla <strong>1</strong></span></div>
+</section>
+</div>
 
-### 今日简报（AI）
-今日精读15篇论文，重点聚焦视觉-语言-动作（VLA）模型的安全性与云边协同推理，其中两篇精读均获9.0高分。最值得关注的是利用障碍增强流匹配提升动作安全，以及通过表征特化实现低延迟的云边协同VLA框架。建议普通读者优先关注这两篇高分工作，速读中的轻量动作模块与自适应执行策略可作延伸参考。
-- 详情：[/202608/08/README](/202608/08/README)
-
-### 精读区论文标签
-1. [Safe Vision Language Action Models via Barrier Enhanced Flow Matching](/202608/08/2607.29569v1-safe-vision-language-action-models-via-barrier-enhanced-flow-matching)  
-   标签：评分：9.0/10、query:vla
-   evidence：将控制屏障函数与流匹配融合，为VLA模型生成安全动作
-2. [Latency-Tolerant Cloud-Edge Collaborative Vision-Language-Action Models via Emergent Representational Specialization](/202608/08/2608.00569v1-latency-tolerant-cloud-edge-collaborative-vision-language-action-models-via-emergent-representational-specialization)  
-   标签：评分：9.0/10、query:vla
-   evidence：面向移动机器人的云边协同视触语言动作模型策略
-3. [Complete Motion Planning using Workspace-Fibered Decomposition for nR-Planar Manipulator](/202608/08/2608.01172v1-complete-motion-planning-using-workspace-fibered-decomposition-for-nr-planar-manipulator)  
-   标签：评分：9.0/10、query:robot-learn
-   evidence：机械臂运动规划算法，基于工作空间纤维分解
-4. [Hermite Curves as Trajectory Priors for Vision-Language-Action Models](/202608/08/2608.01265v1-hermite-curves-as-trajectory-priors-for-vision-language-action-models)  
-   标签：评分：9.0/10、query:vla
-   evidence：视觉-语言-动作模型的轨迹先验
-5. [Look Where It Matters: Adaptive Visual Refinement for Vision-Language-Action Models](/202608/08/2608.02197v1-look-where-it-matters-adaptive-visual-refinement-for-vision-language-action-models)  
-   标签：评分：9.0/10、query:vla
-   evidence：利用寄存器token细化VLA视觉表征，提升空间精确操作
-6. [Learning Panorama-Aware VLA for Mobile Manipulation with Whole-Body Teleoperation](/202608/08/2608.02257v1-learning-panorama-aware-vla-for-mobile-manipulation-with-whole-body-teleoperation)  
-   标签：评分：9.0/10、query:vla
-   evidence：用于移动操作的全景感知VLA策略
-7. [Explicit Language Memory for Long-Horizon Planning in Vision-Language-Action Models](/202608/08/2608.04765v1-explicit-language-memory-for-long-horizon-planning-in-vision-language-action-models)  
-   标签：评分：9.0/10、query:vla
-   evidence：带显式语言记忆的层次化长时程VLA
-8. [Beyond Flat Policies: Hierarchical Post-Training for Embodied Agents in Robotic Manipulation](/202608/08/2608.05999v1-beyond-flat-policies-hierarchical-post-training-for-embodied-agents-in-robotic-manipulation)  
-   标签：评分：9.0/10、query:vla
-   evidence：面向机器人操作的VLA模型层次化后训练
-9. [DyPES-VLA: Learning Shared Dynamics Priors and Embodiment-Specific Control for Cross-Embodiment Manipulation](/202608/08/2608.06374v1-dypes-vla-learning-shared-dynamics-priors-and-embodiment-specific-control-for-cross-embodiment-manipulation)  
-   标签：评分：9.0/10、query:vla
-   evidence：跨本体操控的VLA方法，学习共享动力学先验
-
-### 速读区论文标签
-1. [Faster-WAM: Do World Action Models Need Deep Action Modules?](/202608/08/2608.02365v1-faster-wam-do-world-action-models-need-deep-action-modules)  
-   标签：评分：8.0/10、query:world-model
-   evidence：高效动作模块设计，降低世界动作模型推理延迟
-2. [ValueFormer: A Causal Transformer Value Function with Stage-Aware Labels for Semi-Autonomous Vision-Language-Action Policies](/202608/08/2608.02958v1-valueformer-a-causal-transformer-value-function-with-stage-aware-labels-for-semi-autonomous-vision-language-action-policies)  
-   标签：评分：8.0/10、query:vla
-   evidence：为VLA策略设计的因果Transformer价值函数
-3. [Continue or Replan? Bernoulli-Continuation Policy Learning for Adaptive Horizon Execution](/202608/08/2608.03483v1-continue-or-replan-bernoulli-continuation-policy-learning-for-adaptive-horizon-execution)  
-   标签：评分：8.0/10、query:vla
-   evidence：视觉-语言-动作模型的自适应执行时域
-4. [Toward Integrating Adaptive Experience Replay and Online Uncertainty Estimation in Safe Actor-Critic Optimal Control](/202608/08/2608.04732v1-toward-integrating-adaptive-experience-replay-and-online-uncertainty-estimation-in-safe-actor-critic-optimal-control)  
-   标签：评分：8.0/10、query:control
-   evidence：安全演员-评论家最优控制，结合自适应经验回放与不确定性估计
-5. [MDGAM-Based Cooperative Task Scheduling for Communication-Constrained Distributed Multi-Agent Systems](/202608/08/2608.00648v1-mdgam-based-cooperative-task-scheduling-for-communication-constrained-distributed-multi-agent-systems)  
-   标签：评分：7.0/10、query:robot-learn
-   evidence：多机器人任务分配与图注意力策略学习
-6. [PRISM: Privileged Probabilistic Latent Supervision for End-to-End Autonomous Driving Motion Planning](/202608/08/2608.01201v1-prism-privileged-probabilistic-latent-supervision-for-end-to-end-autonomous-driving-motion-planning)  
-   标签：评分：7.0/10、query:robot-learn
-   evidence：端到端自动驾驶运动规划中的潜在监督方法
-
-
-<div class="dpr-home-promo-card">
-  <h3 class="dpr-home-promo-title">💬 社区与支持</h3>
-  <ul class="dpr-home-promo-list">
-    <li>欢迎 Star / Fork / Issue / PR</li>
-    <li>QQ群：583867967（欢迎交流，已有：1151人）</li>
-  </ul>
+<div class="dpr-home-promo-card dpr-home-panel">
+  <div class="dpr-home-panel-header">
+    <h3 class="dpr-home-promo-title">社区与支持</h3>
+  </div>
+  <p class="dpr-home-promo-copy">欢迎通过 Star、Fork、Issue 或 PR 一起完善 Daily Paper Reader。</p>
+  <div class="dpr-home-promo-meta">
+    <span>QQ群 <strong>583867967</strong></span>
+    <span class="dpr-home-promo-separator" aria-hidden="true">·</span>
+    <span>已有 <strong>1,491</strong> 人参与交流</span>
+  </div>
 </div>
