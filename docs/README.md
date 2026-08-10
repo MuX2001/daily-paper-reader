@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-09</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-10</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 20 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 28 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>15</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>5</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-09 21:03:06 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-10 21:22:47 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读20篇论文，聚焦具身智能与运动规划，其中VLA模型与最优路径规划两篇表现最佳。</p>
-<p>重点看云端协同的VLA系统延迟优化，以及自适应代价的轨迹规划方法，代表了具身控制的实用进展。</p>
-<p>建议读者优先跟踪视觉-语言-动作模型在真实部署中的效率问题，可搭配Hermite曲线轨迹先验一文深入。</p>
+<p>今日聚焦视觉-语言-动作模型（VLA），共精读15篇、速读13篇，核心难点集中在长时操作与视角鲁棒性。</p>
+<p>最值得关注的是满分论文《ChainVLA》，它通过统一执行状态串联VLA查询，显著提升长时操控能力；另可参考《OC-VLA++》的几何引导跨视角一致性方法。</p>
+<p>建议优先精读ChainVLA，并顺带扫读速读列表中关于自适应视觉精炼与本体感觉使用的三篇8分工作，以把握VLA最新优化方向。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -76,9 +76,9 @@
     <strong class="dpr-home-dashboard-count">15 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Latency-Tolerant Cloud-Edge Collaborative Vision-Language-Action Models via Emergent Representational Specialization">Latency-Tolerant Cloud-Edge Collaborative Vision-Language-Action Models via Emergent Representational Specialization</span></li><li><span class="dpr-home-dashboard-paper-title" title="RIT*: Riemannian Informed Trees for Cost-Adaptive Optimal Motion Planning">RIT*: Riemannian Informed Trees for Cost-Adaptive Optimal Motion Planning</span></li><li><span class="dpr-home-dashboard-paper-title" title="Look Where It Matters: Adaptive Visual Refinement for Vision-Language-Action Models">Look Where It Matters: Adaptive Visual Refinement for Vision-Language-Action Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="ChainVLA: Chaining Vision-Language-Action Queries through a Unified Execution State for Long-Horizon Manipulation">ChainVLA: Chaining Vision-Language-Action Queries through a Unified Execution State for Long-Horizon Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="OC-VLA++: Monocular Geometry-Guided Cross-View Consistency for Viewpoint-Robust Robotic Manipulation">OC-VLA++: Monocular Geometry-Guided Cross-View Consistency for Viewpoint-Robust Robotic Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Hermite Curves as Trajectory Priors for Vision-Language-Action Models">Hermite Curves as Trajectory Priors for Vision-Language-Action Models</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>10</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>2</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>2</strong></span><span class="dpr-home-dashboard-tag">control <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>8</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>3</strong></span><span class="dpr-home-dashboard-tag">control <strong>2</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>2</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -86,12 +86,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">5 篇</strong>
+    <strong class="dpr-home-dashboard-count">13 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Hermite Curves as Trajectory Priors for Vision-Language-Action Models">Hermite Curves as Trajectory Priors for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Learning When to Stop: Prefix-Optimal Dynamic Diffusion Policies for Continuous Control">Learning When to Stop: Prefix-Optimal Dynamic Diffusion Policies for Continuous Control</span></li><li><span class="dpr-home-dashboard-paper-title" title="Structured LLM Reasoning for Zero-Shot Human--Robot Coordination Under Hidden Goals">Structured LLM Reasoning for Zero-Shot Human--Robot Coordination Under Hidden Goals</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Look Where It Matters: Adaptive Visual Refinement for Vision-Language-Action Models">Look Where It Matters: Adaptive Visual Refinement for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Learning Panorama-Aware VLA for Mobile Manipulation with Whole-Body Teleoperation">Learning Panorama-Aware VLA for Mobile Manipulation with Whole-Body Teleoperation</span></li><li><span class="dpr-home-dashboard-paper-title" title="How Should Vision-Language-Action Models Use Proprioceptive State?">How Should Vision-Language-Action Models Use Proprioceptive State?</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>3</strong></span><span class="dpr-home-dashboard-tag">control <strong>1</strong></span><span class="dpr-home-dashboard-tag">vla <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>5</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>4</strong></span><span class="dpr-home-dashboard-tag">control <strong>3</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>1</strong></span></div>
 </section>
 </div>
 

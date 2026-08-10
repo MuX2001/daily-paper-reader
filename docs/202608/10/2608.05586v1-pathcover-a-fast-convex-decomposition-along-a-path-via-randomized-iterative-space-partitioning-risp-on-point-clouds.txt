@@ -1,0 +1,1031 @@
+Title: PathCover: A Fast Convex Decomposition along a Path via Randomized Iterative Space Partitioning (RISP) on Point Clouds
+
+URL Source: https://arxiv.org/pdf/2608.05586v1
+
+Published Time: Fri, 07 Aug 2026 00:32:49 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+> 1
+
+# PathCover : A Fast Convex Decomposition along a Path via Randomized Iterative Space Partitioning ( RISP ) on Point Clouds 
+
+Kunal S. Narkhede 1, Abhijeet M. Kulkarni 1, Guoquan Huang 1 and Ioannis Poulakakis 2
+
+Abstract —Autonomous robot navigation requires the rapid generation of obstacle-free regions for trajectory planning. How-ever, existing corridor generators struggle to meet real-time, sensor-rate computational constraints. To resolve this bottleneck, we introduce PathCover , a framework driven by Randomized Iterative Space Partitioning (RISP ); a novel randomized algo-rithm that constructs convex polytopes directly from raw point cloud data in expected linear time under a mild probabilistic elimination condition. PathCover generates sequences of over-lapping, obstacle-free polytopes that safely constrain downstream Model Predictive Control (MPC) and trajectory optimization. We mathematically guarantee that the algorithm terminates in finite steps while ensuring continuous progress along any obstacle-free reference path. Extensive benchmarks on synthetic and real-world LiDAR datasets demonstrate an order-of-magnitude speedup over state-of-the-art methods while maintaining compa-rable corridor volumes. The complete pipeline is validated via high-fidelity quadrotor simulations and physical deployment on a quadrupedal robot navigating constrained environments using live LiDAR perception. 
+
+Note to Practitioners —This paper is motivated by a prac-tical, recurring challenge: keeping autonomous robots moving smoothly and reliably through unknown, cluttered environments. To navigate safely, a robot’s onboard computer must continuously convert raw sensor data into obstacle-free regions. When this computation is too slow, or its timing is unpredictable, the robot must slow down, hover, or stop to avoid collisions, which directly reduces its productivity and usefulness. We address this bottleneck with a new method that constructs obstacle-free regions substantially faster, and more consistently, than existing approaches. The key idea is a fast, randomized procedure that operates directly on raw sensor measurements, such as 3D points or grid cells, to carve out safe regions in a time that scales predictably with the amount of data. This predictability lets the robot’s control system react in real time, enabling continuous mo-tion through tight spaces without pausing. The method also rests on a single, simple geometric operation rather than a complex op-timization pipeline, so its working principle is easy to understand, implement, debug, and trust in the field. It does produce more conservative regions than optimization-intensive methods, but in exchange offers an order-of-magnitude speed increase suited to real-time use. Because it functions as a drop-in module that does not disrupt the rest of the motion-planning stack, it applies broadly, from drones, wheeled, and legged robots to autonomous driving and warehouse automation. The source code of the full repository: https://github.com/kunalnk123690/PathCover.git. 
+
+I. I NTRODUCTION 
+
+> 1
+
+K. S. Narkhede, A. M. Kulkarni and G. Huang are with the Department of Mechanical Engineering, University of Delaware, Newark, DE 19716, USA 
+
+{kunalnk, amkulk, ghuang }@udel.edu 
+
+> 2
+
+I. Poulakakis is with Robotics Institute, Athena Research Cen-ter, Marousi, Greece; School of Mechanical Engineering, National Technical University of Athens, Greece; HERON–Center of Excel-lence in Robotics, Athens, Greece poulakas@mail.ntua.gr, i.poulakakis@athenarc.gr 
+
+Figure 1. Overview of PathCover : from a raw point cloud and a reference path (red) connecting the robot to the goal (green), the method builds overlapping convex polytopes whose union forms a corridor covering the path. 
+
+# AUTONOMOUS navigation through cluttered, unstruc-tured environments is a fundamental requirement for modern automation. The same need recurs, in nearly iden-tical form, in autonomous urban driving [1], legged robot locomotion [2], aerial manipulation [3], Autonomous Ground Vehicles (AGV) operation in logistics [4], and multi-agent quadrotor coordination [5], [6]. Despite large differences in dynamics, payload, and operating envelope, these systems share a common constraint: live sensor data must be converted into guaranteed obstacle-free geometric constraints, and this conversion lies on the critical path of the onboard perception– planning–control loop. When it exceeds the control timing budget, or varies substantially from cycle to cycle, the system must revert to conservative fallback behavior such as drastic deceleration or emergency hovering [7]. For deployment-grade automation, therefore, free-space generation is not a pre-processing step to be optimized in isolation; it is the link that determines whether continuous perception translates into safe, uninterrupted motion. Given this constraint, the concept of Safe Corridor ( SC );a sequence of overlapping convex polytopes; has become the standard geometric abstraction in robot motion planning [8], [9]. It decomposes obstacle avoidance into three tractable stages: a global planner that computes a path to the goal, a corridor generator that encloses that path in convex re-gions [10], [11], and a trajectory optimizer that synthesizes dynamically feasible motion within these regions. The final stage is well established, commonly implemented through mixed-integer programming [10], polynomial spline genera-tion [11], [12], or receding-horizon control that treats the corridor as a time-varying state constraint [7], [13]. This architecture has been widely adopted because it replaces obstacle avoidance, a combinatorially hard problem, with a convex optimization over a polytopic free space, enabling arXiv:2608.05586v1 [cs.RO] 6 Aug 2026 2
+
+real-time planning on commodity embedded hardware. This decomposition also reveals where the pipeline’s performance is ultimately determined. Once the optimization reduces to a well-posed convex problem, the throughput, reliability, and responsiveness of the overall system are governed primarily by a single upstream component: the size, coverage, and generation speed of the corridor. In practice, corridor-generation algorithms often fail to keep pace with sensor-rate replanning. Optimization-centric methods produce large-volume, high-quality free-space but at significant computational cost. Iterative Regional Inflation by Semidefinite Programming ( IRIS ) [14] inflates ellipsoids via Semidefinite Program (SDP) toward maximal coverage, yet its iterative inflation is too slow for dynamic environ-ments. Configuration space extensions [15], [16], [17] improve the results but retain the expensive optimization inner loop. Fast Iterative Region Inflation ( FIRI ) [9] reformulates the geometry yet remains limited by repeated SDP evaluations. Configuration-Space Iterative Regional Inflation ( CIRI ) [18] carries this line into the robot configuration space and, dis-tinctively, operates directly on raw point clouds without prior map inflation, but it inherits FIRI’s iterative conic-optimization inner loop and thus the same per-cycle latency. Parallel efforts to optimize the convex cover directly face the same latency limits [19]. Optimization-free methods trade this cost at the expense of other factors. Decomp [11] avoids optimization by inflating one polytope per piecewise-linear segment, but this couples the polytope count to the path resolution and fragments the corridor. Stereographic-projection and convex-hull constructions [20], [21], [22] require processing the full point cloud [23], and segment-sorting schemes [24] scale poorly as sensor density increases. Across these frameworks, achieving runtime behavior that is sufficiently predictable for reliable synchronization with a high-rate control cycle remains challenging. A parallel line of work relies on voxel-based decomposi-tion [25], [26], aggregating raw sensor streams into structured volumetric maps, such as OctoMaps [27], and extracting corri-dors through grid-level geometry [28]. For global planning and multi-query reuse, such maps are highly valuable. Over long missions, however, this very strength becomes a drawback: as occupied cells accumulate during exploration, corridor-extraction latency scales with the aggregate global map. Fine resolutions, which are needed to capture narrow regions, often require power-intensive GPU acceleration [29], whereas more coarse resolutions may fail to properly represent these regions. As a result, the longer a mission runs, the larger the map grows and the slower corridor generation becomes introducing a bottleneck that limits the scalability of long-term autonomous deployments. To resolve this computational bottleneck, we propose a formulation in which free-space geometric construction scales linearly with the size of the local input point cloud. Whether the environmental data comes from raw depth sensors or a subset of occupied voxels, constructing a (strictly) separating polytope of free space from a set of obstacle points can be performed in linear time. We realize this objective with a novel randomized construction algorithm that iteratively samples obstacle points, constructs separating hyperplanes, and rapidly prunes eliminated points. For structured point distributions typical in real-world settings, each random sample eliminates a significant fraction of the remaining dataset, inducing a geometric decay in point reduction. This yields an expected 
+
+O(n) construction time, avoiding complex optimization loops, iterative inflation-based procedures, and dense convex-hull preprocessing. In particular, motivated by the requirements of robust, deployable automation, this paper makes the following contributions:  
+
+> •
+
+RISP , a novel randomized algorithm that constructs obstacle-free convex polytopes directly from finite point sets, with an expected running time of O(n) and a worst-case bound of O(n2); 
+
+> •
+
+PathCover , a complete path-coverage framework that applies RISP iteratively to generate a SC, together with a proof of finite-time termination and complete coverage of any obstacle-free reference path;  
+
+> •
+
+A comprehensive comparison against state-of-the-art SC generators [11], [9], [18], [21], [14], showing an order-of-magnitude reduction in computation time at comparable corridor volume and with low geometric variance, an important property for real time motion planning;  
+
+> •
+
+Empirical validation in dynamic Gazebo simulations and real-world LiDAR data, confirming that the expected 
+
+O(n) behavior holds across structured sensor data, en-abling real-time operation on a simulated quadrotor and on a physical Ghost Robotics Vision60 1 quadruped nav-igating constrained environments. II. P ATH COVERAGE VIA SAFE CORRIDORS 
+
+Consider a robot navigating within a workspace W ⊂ Rd
+
+(where d = 2 or 3) filled with obstacles O ⊂ W and let 
+
+F = W \ O be the obstacle-free space. The robot travels from initial position yinit ∈ F to goal position ygoal ∈ F and perceives obstacles in O through sensor information as a finite point cloud: 
+
+P =
+
+{
+
+pi = [xi yi zi
+
+]⊤ ∈ ∂O | i = 1 , 2, . . . , n 
+
+}
+
+(1) where each point pi represents a sampled location on the boundary ∂O of O, typically obtained from 3D sensors such as LiDAR, RGB-D cameras, or stereo vision systems. 
+
+Path Coverage Problem: Given a collision-free collection of waypoints Π = {y0, . . . , yL} ⊂ F defining a piecewise linear path Γ(Π) from the robot’s initial position y0 = y init to the goal (local or global) yL = y goal , and a point cloud P rep-resenting obstacles, generate J ≥ 1 sequentially intersecting polytopes 2 G = {H 1, . . . , HJ },
+
+Hj = {y ∈ Rd | Aj y ≤ bj , A j ∈ Rnj ×d, b j ∈ Rnj } (2) with nj ≥ d + 1 , j ∈ { 1, . . . , J } satisfying the following path coverage conditions (PCC): 
+
+> 1https://www.ghostrobotics.io/vision-60
+> 2Terminology: A polytope is defined as the intersection of finitely many closed half-spaces with the additional requirement that it be bounded. By definition, polytopes are convex and compact. 3
+
+PCC.1) each polytope Hj , j ∈ { 1, . . . , J }, is strictly sepa-rated from every point in P;PCC.2) Hj ∩ H j+1 6 = ∅, j ∈ { 1, . . . , J − 1} (sequentially intersected polytopes) PCC.3) Γ(Π) ⊂ ⋃Jj=1 Hj (the path is covered) These sequentially intersecting polytopes form a SC and define obstacle avoidance constraints in trajectory optimization frameworks [10], [11], [28]. 
+
+A. The PathCover Algorithm 
+
+Algorithm 1 outlines the PathCover algorithm for con-structing safe corridors along a predefined reference path, rep-resented as a collection of waypoints Π = {y0, . . . , yL} ⊂ F 
+
+within a point cloud environment P ⊂ W . The reference path can be generated using any sampling-based or graph-based planning method [30]; in our implementation, we use Jump Point Search ( JPS ) [31]. The algorithm generates a sequence of polytopes G that safely enclose the reference path for use in downstream motion planning. The algorithm begins by invoking the novel RISP function (Algorithm 2, detailed in Section II-B) at the starting point y0
+
+to generate the initial convex polytope Hnew that is strictly separated from the points in P. This polytope is appended to the corridor list G, and the algorithm proceeds further by iterating over waypoints in the reference path. The main loop continues until the final waypoint yL lies within the most recently generated polytope Hnew or until a maximum number of iterations is reached. At each iteration, the algorithm processes the waypoints in Π and checks whether the current waypoint yℓ lies within Hnew . If so, the waypoint is already covered, the index is incremented to the next waypoint, and the loop proceeds. If yℓ lies outside Hnew , the algorithm computes the intersection point between the current corridor and the line segment connecting the last known interior point yin and the current point yℓ using the PolyLineIntersect function. 
+
+Algorithm 1 PathCover (Π , P, max iter , α ) 
+
+> 1:
+
+Inputs : Π = {y0, ..., yL}, P ∈ O , α ∈ (0 , 1)  
+
+> 2:
+
+Outputs : Polytope list G 
+
+> 3:
+
+Hnew ← RISP (y 0, P, α ), ℓ ← 0 
+
+> 4:
+
+Initialize list: G.append (Hnew ) 
+
+> 5:
+
+while ygoal /∈ H new OR ℓ < L do  
+
+> 6:
+
+if yℓ ∈ H new then  
+
+> 7:
+
+yin ← yℓ 
+
+> 8:
+
+ℓ ← ℓ + 1  
+
+> 9:
+
+continue  
+
+> 10:
+
+else  
+
+> 11:
+
+if size (G) = max iter then  
+
+> 12:
+
+break  
+
+> 13:
+
+end if  
+
+> 14:
+
+yin ← PolyLineIntersect (Hnew , yin , yℓ) 
+
+> 15:
+
+Hnew ← RISP (y in , P, α ) 
+
+> 16:
+
+G.append (Hnew ) 
+
+> 17:
+
+end if  
+
+> 18:
+
+end while  
+
+> 19:
+
+return G
+
+This intersection point serves as the seed for constructing the next polytope in the corridor, which is generated using 
+
+RISP and added to G. The end result is a sequence of overlapping polytopes that collectively cover the reference path while remaining in collision-free regions. Fig. 2 illustrates this incremental process. 
+
+B. The RISP Algorithm 
+
+Here we describe the RISP algorithm (Algorithm 2). RISP 
+
+is a randomized linear-time algorithm that constructs convex polytopes directly from unordered point cloud data. This is done by iteratively sampling and eliminating points from the point cloud until no such points remain around a given seed point yseed . In more detail, at each iteration, the algorithm samples an obstacle point p from the point cloud P and constructs the hyperplane 
+
+h = {x ∈ Rd | a⊤x = b , a ∈ Rd, b ∈ R} (3) with 
+
+a = p − yseed and b = a ⊤yseed + (1 − α)‖a‖22 . (4) By construction, the hyperplane h is orthogonal to the vector a
+
+connecting the seed point yseed with the sampled point p and passes through the point y⋆ = αyseed + (1 − α)p , where α ∈
+
+(0 , 1) is a small parameter selected by the user. Furthermore, 
+
+h strictly separates the sampled point p from the (open) ball of radius ρ = (1 − α)‖a‖2 that is centered at the seed point 
+
+yseed . The algorithm then discards all obstacle points that lie on the side of h opposite to yseed .This procedure repeats by selecting a new obstacle point from the remaining points in P until no points remain, thus yielding a set of half-space constraints that collectively separate yseed from the obstacle point cloud P. Finally, the boundary constraints of the workspace W are appended and redundant constraints are removed. The latter is done by first mapping each half-space a⊤
+
+> m
+
+x ≤ bm to a point 
+
+dm = a m/(b m − a⊤
+
+> m
+
+yseed ) in the dual space; this mapping is well defined since the seed point yseed is in the interior of the primal polytope, implying that bm − a⊤
+
+> m
+
+yseed > 0. This 
+
+Algorithm 2 RISP (y seed , P, α) 
+
+> 1:
+
+Input : yseed , P, α ∈ (0 , 1)  
+
+> 2:
+
+Output : H 
+
+> 3:
+
+while P is not empty do  
+
+> 4:
+
+Randomly select a point p from P 
+
+> 5:
+
+Compute a and b according to (4)  
+
+> 6:
+
+for ∀q ∈ P do  
+
+> 7:
+
+if a⊤q > b then  
+
+> 8:
+
+Remove q from P 
+
+> 9:
+
+end if  
+
+> 10:
+
+end for  
+
+> 11:
+
+H.append ((a , b))  
+
+> 12:
+
+end while  
+
+> 13:
+
+Append workspace boundary constraints to H 
+
+> 14:
+
+Remove redundant hyperplanes from H 
+
+> 15:
+
+return H4                   
+
+> (a) (b) (c) (d) Figure 2. Incremental application of RISP along a path to generate corridor using Algorithm 1. The path (blue) is Π = {y0,y1,y2}. The algorithm begins with y0as seed to generate the first polytope Hnew (a). It then computes the intersection point yin between the polytope and the line segment connecting
+> y1and y0 , uses this point as a seed, and generates another polytope (b–c). The algorithm continues until the goal is inside the last generated polytope (d).
+
+way, facets of the primal polytope correspond to vertices {dm}
+
+in the dual space. Then, redundant constraints are eliminated by computing the convex hull using the Quickhull 3 algo-rithm [23] of {dm} and retaining only those constraints whose dual points lie on the hull. III. P ROPERTIES OF THE ALGORITHM 
+
+This section begins by analyzing the completeness of PathCover followed by time complexities of the 
+
+PathCover and RISP algorithms. 
+
+A. Completeness of the PathCover Algorithm 
+
+We now establish the completeness of the PathCover 
+
+algorithm. Specifically, we state here and prove in Appendix A that for any obstacle-free path Π, the algorithm is guaranteed to terminate in finite time and to produce a sequence of mutually intersecting convex polytopes that fully covers the path. To this end, we make the following assumptions. 
+
+Assumption 1. The workspace W ⊂ Rd is a polytope and the obstacle set O ⊂ W is closed in W.
+
+Assumption 2. The line segment connecting any two succes-sive waypoints yℓ−1 and yℓ in the path Π lies entirely in the interior of the free space F = W \ O .
+
+Both assumptions are commonly satisfied in practical set-tings. Assumption 1 is naturally satisfied when operating within a bounding box introduced for computational purposes. It implies that the obstacle-free region F is open relative to W.Assumption 2 ensures that, for every point on the line segment connecting yℓ−1 and yℓ, there exists a ball centered at that point that is entirely contained in F. With these assumptions, we now state the following theorem, which establishes that the collection of waypoints and the piecewise-linear path connecting them can be covered by finitely many polytopes. 
+
+Theorem 1. Let W ⊂ Rd and O ⊂ W satisfy Assumption 1 and define the free space F = W \ O . Let P be a finite set of points sampled from the boundaries of the obstacles O.Let Π = {y0, . . . , yL} be a collection of waypoints satisfying Assumption 2. Then, the PathCover algorithm (Algorithm 1)  
+
+> 3http://www.qhull.org/
+
+computes a finite sequence of polytopes G = {H 1, . . . , HJ }
+
+satisfying the path coverage conditions PCC.1)-PCC.3). 
+
+A proof of Theorem 1 is provided in Appendix A. The proof shows that Algorithm 1 bounds the number J of polytopes required to cover the path in terms of the path’s geometry and clearance, rather than its combinatorial resolution. This contrasts with state-of-the-art segment-based decomposition methods such as Decomp [11], which construct one polytope per piecewise-linear segment and thus fix J to the number of segments by design. PathCover , instead, allows a single polytope to span multiple consecutive segments whenever the local clearance permits. This flexibility directly reduces the number of constraints passed to the downstream planner at each replanning step. 
+
+Remark 1. Although Theorem 1 guarantees coverage of the entire path Γ(Π) , PathCover need not be run over the full path which can be very long in a single call; in practice it is applied in a receding-horizon fashion to the leading portion of Π within the latest sensor measurement, with max_iter 
+
+capping the horizon length (cf. Section V). The completeness guarantee still applies to this local sub-path. B. Complexity Analysis of the RISP Algorithm 
+
+The complexity of RISP depends on the rate at which the point cloud P shrinks across iterations. To formalize this, set 
+
+P0 = P and denote its cardinality by N0 = |P 0|. Given a seed point yseed in the interior of F, RISP samples p0 ∈ P 0
+
+(Algorithm 2, line 4), defines the hyperplane h0 = {x ∈ Rd |
+
+a⊤ 
+
+> 0
+
+x = b 0} via (4), and discards Q0 = {q ∈ P 0 | a⊤ 
+
+> 0
+
+q >
+
+b0} (Algorithm 2, lines 7–9), yielding the set P1 = P0 \ Q 0
+
+of remaining points. Iteratively, for each m ≥ 1, let Pm ⊂P0 denote the remaining points. A hyperplane hm = {x ∈
+
+Rd | a⊤
+
+> m
+
+x = b m} is constructed via (4) from the (uniformly) sampled point pm ∈ P m, and the set Qm = {q ∈ P m | a⊤
+
+> m
+
+q >
+
+bm} is removed from Pm. Clearly, for a fixed seed yseed , hm
+
+depends on pm, and thus the size of the eliminated set Qm
+
+is determined by pm. The key question is therefore how often a uniformly sampled point pm induces a hyperplane hm that removes a nontrivial fraction of Pm.This question is particularly relevant for the dense, locally coplanar point clouds produced by LiDAR and depth cameras, where samples cluster into extended near-planar regions. In 5
+
+such settings, a hyperplane passing near a single sample typically removes an entire neighborhood from Pm. The following lemma formalizes this intuition and derives the resulting complexity of RISP ; Section V-C provides empirical validation on both simulated and real-world datasets. 
+
+Theorem 2. Let W, O, F and P be as in Theorem 1. Fix a seed yseed in the interior of F, and set P0 = P with 
+
+N0 = |P 0| = n. Apply RISP . For each iteration m ≥ 0, let 
+
+Pm ⊂ P 0 denote the remaining set of points with Nm = |P m|.Given a sampled point pm, define Pm+1 = Pm \ Q m, where 
+
+Qm = {q ∈ Pm | a⊤
+
+> m
+
+q > bm} is the set of points removed by the hyperplane hm defined by (3) –(4) . Assume there exist constants β ∈ (0 , 1) and r ∈ (0 , 1] , such that, for all m < τ = inf {m ≥ 0 | Nm = 0 },
+
+Pr {Nm+1 ≤ (1 − β) Nm | P m} ≥ r (5) 
+
+where the probability is taken over the uniform choice of 
+
+pm ∈ P m. Then, RISP has expected time complexity O(n)
+
+and worst-case time complexity O(n2).
+
+A proof of Theorem 2 is presented in Appendix B. To build intuition, (5) states that, with probability at least r,a uniformly sampled point pm induces a hyperplane hm
+
+that removes at least a fraction β of the remaining points at iteration m. Essentially, β quantifies how aggressive asuccessful elimination is and r measures how often it occurs; their product βr represents the effective drift rate that results in a geometric decay of the remaining number of points Nm
+
+in the point cloud. In general, β and r depend on the seed 
+
+yseed and the geometry of P. The condition (5) is particularly relevant for structured point clouds, such as locally coplanar LiDAR or depth-camera clusters, where hyperplanes induced by uniformly sampled points tend to discard a significant portion of the cluster. In such cases, both β and r can be bounded away from zero. Section V-C provides empirical estimates of these constants on three datasets and confirms the predicted geometric decay of Nm from Theorem 2. 
+
+Remark 2. The O(n2) worst case arises only under a highly contrived geometric configuration in which each sample elim-inates exactly one point (the sampled point), a scenario that is essentially absent in real point-cloud data. In all evaluated configurations, RISP exhibits the linear expected performance predicted by Theorem 2 (see Fig. 5). C. Complexity Analysis of the PathCover Algorithm 
+
+The following theorem characterizes the expected and worst-case computational complexities of the PathCover 
+
+algorithm. 
+
+Theorem 3. Let W, O, F, P be as in Theorem 1 and define 
+
+n = |P| . Given a collection of waypoints Π = {y0, . . . , y L} as in Theorem 1, let J be the number of polytopes returned by the 
+
+PathCover algorithm (Algorithm 1). Then, the PathCover 
+
+algorithm has expected time complexity O(( J + L)n) and worst-case time complexity O(Jn 2 + Ln ).
+
+A proof of this theorem is provided in Appendix C. We briefly note here that the total computational cost of the  
+
+> Figure 3. Corridor generation (blue) along a path (red) in an environment with cloud size of 218302 points.
+
+algorithm is driven by two components: the J sequential 
+
+RISP calls, one for each polytope in the collection G =
+
+{H 1, ..., HJ } returned by PathCover (Algorithm 1, line 15), and the per-polytope membership and intersection checks (Algorithm 1, lines 5 and 6), whose cost scales linearly with the size of the current polytope Hnew .IV. P ERFORMANCE EVALUATION AND BENCHMARKING 
+
+We evaluate PathCover and RISP against state-of-the-art free-space decomposition methods on two complementary benchmarks. The first measures end-to-end path coverage in real-world-scale environments and directly captures the metrics that govern online planning performance; namely, (i) computation time, (ii) coverage volume, and (iii) polytope count. The second benchmark isolates per-polytope construc-tion cost over a much denser point cloud than those typi-cally encountered in navigation environments, stress-testing the scalability of RISP itself. The baselines include four state of the art methods: Decomp 4 [11], which inflates axis-aligned boxes iteratively; FIRI 5 [9], which refines polytopes through repeated halfspace optimization seeded by a skele-ton; CIRI 6 [18], which extends FIRI ’s conic-optimization inflation to the configuration space and operates directly on raw point clouds; and IRIS 7 [14], which alternates ellipsoid maximization with halfspace separation and serves as the quality upper bound. Galaxy 8 [21] is included in 2D as a convex-hull-based alternative. All benchmarks, simulations and experiments in this and the subsequent sections were conducted on an Intel machine with i7 -9750H processor 
+
+> 4https://github.com/sikang/DecompROS
+> 5https://github.com/ZJU-FAST-Lab/Aerobatic-Planner (A 3D implementa-tion is available).
+> 6https://github.com/hku-mars/SUPER
+> 7https://github.com/rdeits/iris-distro
+> 8https://github.com/StarryN/Galaxy (A 2D implementation is available). 6
+
+(2.6 GHz) and 16GB RAM. Everything was implemented in C/C++; for the baseline methods, we used the publicly available implementations without algorithmic modification. 
+
+A. Path Coverage Performance 
+
+We evaluate end-to-end path coverage in a 50 × 50 × 5 mworkspace across three obstacle-density configurations: sparse (59857 points), medium (178562 points), and dense (549119 points); see Fig. 3 for an example. These settings are chosen to span the range of point-cloud densities encountered in typical robot navigation environments using LiDAR or Depth camera. For each configuration, we sample 100 random start–goal pairs and generate collision-free reference paths using JPS [31]. Only paths longer than 25m are retained, so that the resulting corridor sequences correspond to non-trivial navigation tasks. Each path is then processed by PathCover , FIRI , CIRI ,and Decomp to generate a sequence of SCs. For each method, we report corridor generation time, the number of polytopes per path, and per-polytope volume statistics over all generated polytopes. Table I reveals a consistent pattern: PathCover achieves the lowest computation time and produces the most compact corridor representation across all obstacle-density levels, while 
+
+FIRI generates larger individual polytopes at substantially higher computational cost. Among the optimization-based baselines, CIRI is the fastest, running roughly 1.5–2× faster than Decomp and 2–3× faster than FIRI by operating directly on point clouds; nonetheless, it remains far slower than PathCover . At medium density, PathCover achieves speedups of 44 × over FIRI , 31 × over Decomp , and 17 ×
+
+over the fastest optimization-based competitor CIRI , while remaining below 10ms in sparse environments. It also gen-erates between roughly 50% (dense) and 75% (sparse) fewer polytopes than the competing methods, directly reducing the number of workspace constraints passed to the downstream trajectory optimizer. This significant reduction in computation time is accompa-nied by a reduction in per-polytope volume. FIRI produces individual polytopes with roughly 2 to 9× larger mean volume depending on density, but its volume statistics exhibit high variability; in dense scenes, the standard deviation exceeds the mean. Such variability can lead to inconsistent constraint-set sizes across replanning cycles. CIRI , by contrast, yields vol-umes only marginally above Decomp and well below FIRI ,confining its larger free space to a smaller, more consistent margin. In contrast, PathCover produces more conservative but tightly concentrated polytopes. Across all three density levels, the measured generation time increases approximately linearly with point-cloud size, while PathCover maintains a substantial computational advantage. 
+
+B. Synthetic Stress Test: Individual Polytope Scalability 
+
+The path-level results reported in the previous section demonstrate end-to-end performance, but they combine single-polytope construction with path-dependent operations, such as corridor chaining, waypoint membership tests, and inter-section queries. To isolate the scaling behavior of RISP , we constructed a controlled synthetic benchmark that stress-tests individual polytope generation over three orders of magnitude in point-cloud size. In more detail, for both 2D and 3D cases, obstacle point clouds were sampled in the fixed domain 
+
+[−50 , 50] m along each coordinate axis, with a centrally located obstacle-free safety region of side length 3 m and a single seed at the origin. Environments were divided into three density regimes: sparse (1×10 4–5×10 4 points), medium 
+
+(1×10 5–5×10 5 points), and dense (1×10 6–5×10 6 points). For each dimension and density regime, we generated 100 
+
+independent environments, yielding 600 total trials. Table II confirms the near-linear growth with obstacle count predicted by Theorem 2 (and reflected in the empirical scaling curves of Fig. 5 of Section V-C below). RISP attains the low-est runtime in all cases except sparse 2D, while maintaining low variance across trials. Its advantage ranges from a 3–10 ×
+
+speedup over Decomp and FIRI to a 370 × speedup over 
+
+IRIS in dense 3D scenes, where RISP requires 96ms on average compared with 35 .6s for IRIS . This gap reflects the cost of the iterative optimization loops in IRIS and FIRI ,whereas Decomp and Galaxy reduce runtime through faster dilation or hull construction but do not match the consistently faster computation of RISP .                                                                                                                                   
+
+> Table I COMPARATIVE ANALYSIS OF CORRIDOR GENERATION FOR PA T H CO V E R ,CIRI ,DE C O M P ,AND FIRI
+> Metric Method Sparse Medium Dense Mean Std Max Mean Std Max Mean Std Max Time (ms)
+> PathCover 4.75 1.18 7.94 17.50 4.78 31.44 106.30 28.26 178.48
+> CIRI 81.98 17.06 139.52 297.56 90.02 553.67 1286.42 421.19 2494.55
+> Decomp 145.49 32.71 256.77 543.72 172.54 1041.43 1951.46 688.95 4119.10
+> FIRI 233.65 48.45 375.05 762.56 217.98 1452.92 2474.00 766.61 4716.64 Volume per polytope (m 3)
+> PathCover 338.30 202.38 1329.17 140.74 91.30 542.38 41.79 24.45 134.18
+> CIRI 471.42 238.84 1566.88 209.53 105.40 1023.36 76.36 136.35 4578.99
+> Decomp 441.81 235.61 1408.74 195.98 105.96 583.50 59.06 30.64 225.02
+> FIRI 744.23 402.83 4345.75 337.95 333.15 5006.61 366.32 1034.95 5072.82
+> No. of Polytopes
+> PathCover 10 316 14 425 21 636
+> CIRI 34 758 39 12 73 41 14 82
+> Decomp 34 758 39 12 73 41 14 82
+> FIRI 41 863 43 12 77 45 14 88 7
+
+In terms of polytope quality, RISP attains 40–50% of the IRIS baseline volume in 3D, reflecting the conserva-tive nature of the randomized separator. FIRI achieves the largest volume ratios, approximately 82–85% across density levels, but at a substantially higher runtime cost. This speed– volume trade-off is central for online robot navigation, where corridor generation must fit within replanning windows of tens of milliseconds. Among the evaluated methods, RISP 
+
+is the only one that consistently satisfies this budget across all density regimes. This computational gain is accompanied by a reduction in polytope volume. RISP produces more conservative regions than optimization-based methods, such as 
+
+FIRI , but avoids their expensive iterative optimization steps and therefore remains suitable for online replanning. V. A PPLICATION TO AUTONOMOUS NAVIGATION 
+
+We validate the complete framework on two robots, a quadrotor and a quadruped, navigating a priori unknown, cluttered environments using only onboard range sensing. In both cases, the robot carries a LiDAR and replans a SC at the sensor rate: as it moves, the local point cloud Pk
+
+and a global reference path Πk (computed with JPS [31], implementation in [11]) are refreshed with every incoming scan, and PathCover converts the current view into a safe corridor ahead of the robot. To validate the framework, we consider two robotic systems with different planners. The first is a simulated quadrotor and the second a physical implementation on the Ghost Robotics Vision60 quadruped and serves as a hardware validation under realistic LiDAR noise. In both cases, the goal is considered reached when the robot enters a sphere of radius 0.2 m centered at it. 
+
+A. Quadrotor: Flatness-Based Trajectory Optimization 
+
+We deploy PathCover in a receding-horizon loop on a quadrotor simulated in Gazebo, navigating an office-like 
+
+40 m × 20 m × 2 m space cluttered with walls and box-like obstacles that form narrow passages and dead ends (Fig. 4(a)). At each cycle k, the incoming LiDAR scan is used to update the map point cloud and refresh the global path Πk to the goal; note here that the map size increases as the robot moves toward the goal. Starting from the robot’s current position, PathCover is then executed with a horizon of 
+
+Jk ≤ 6 polytopes, which is automatically adapted based on the goal-polytope membership check (Algorithm 1, line 5). The algorithm then generates a SC Gk = {H k, 1, . . . , Hk,J k }.Concurrently, it also computes the local target yint , defined as the intersection of Πk with the terminal boundary of the corridor Gk (see Fig. 4(a)). The planner then optimizes a trajectory over Gk, of which only the initial segment is tracked before the next scan prompts the construction of a new corridor and a subsequent replanning step. The corridor slides forward with the robot at each scan, reflecting the receding-horizon operation of the planning loop. The manner in which the planner exploits Gk is dictated by the robot dynamics. The quadrotor is differentially flat, with the Center of Mass (COM) position and yaw being the flat outputs [32]: any sufficiently smooth trajectory in these outputs is dynamically feasible and is tracked by a geometric con-troller [33]. We can therefore plan directly in the workspace 
+
+y( t), subject only to corridor membership constraints and kinodynamic bounds on velocity and acceleration, with each of the Jk polytopes containing a corresponding segment of a smooth trajectory. Following [28], the trajectory is parametrized as Jk piece-wise B´ ezier polynomials of degree ν, with the j’th segment written in the Bernstein basis as 
+
+y( t) = σk,j (t) = 
+
+> ν
+
+∑
+
+> i=0
+
+cij βij (t), t ∈ [tk,j −1 , t k,j ], (6) where βij is the i-th Bernstein basis polynomial on [tk,j −1 , t k,j ]
+
+and cij ∈ Rd are the control points. Three groups of linear constraints render this trajectory feasible. First, since a B´ ezier curve lies in the convex hull of its control points, confining the control points of segment j to the j-th corridor polytope keeps the entire segment collision-free: 
+
+cij ∈ H k,j , i ∈ { 0, . . . , ν }, j ∈ { 1, . . . , J k}. (7)                                                                                                                                                      
+
+> Table II COMPUTATION TIME (MS )AND AREA /V OLUME RATIOS WITH IRIS BASELINE FOR INDIVIDUAL POLYTOPE GENERATION
+> Dim. Metric Method Sparse Medium Dense Mean Std Max Mean Std Max Mean Std Max 2-D Time (ms)
+> RISP 0.94 0.46 2.30 6.55 1.75 10.71 45.48 19.30 94.20
+> Decomp 0.78 0.40 2.03 9.47 2.68 15.69 107.58 58.38 259.99
+> Galaxy 2.70 1.31 7.27 35.67 11.30 65.42 512.59 264.52 1118.22
+> IRIS 462.71 200.51 942.45 2155.17 916.12 4852.21 10685.06 4943.57 27320.87 Area ratio (%)
+> RISP 54.39 30.84 101.03 68.44 20.39 104.98 88.56 9.81 100.12
+> Decomp 60.42 30.08 102.29 74.43 19.71 106.29 92.03 9.62 102.44
+> Galaxy 83.53 24.06 166.15 95.13 17.94 161.32 95.08 13.27 141.28
+> 3-D Time (ms)
+> RISP 1.47 0.81 3.63 12.48 3.94 22.40 96.37 45.37 200.61
+> Decomp 2.84 1.35 8.24 29.25 10.04 62.23 279.32 133.84 652.82
+> FIRI 7.47 3.20 17.16 60.60 18.34 102.74 656.26 295.79 1340.33
+> IRIS 941.23 270.31 1621.85 5499.06 1703.42 9358.74 35604.09 16277.74 77271.76 Volume ratio (%)
+> RISP 32.15 26.14 93.97 34.23 26.79 96.88 43.89 24.85 101.04
+> Decomp 38.95 29.18 128.30 38.57 27.88 97.69 48.27 25.47 102.65
+> FIRI 81.93 27.87 27.87 81.24 25.46 121.29 84.97 22.59 107.90 8
+
+This single substitution is the mechanism by which the corri-dor enters the planner: it binds each segment to one polytope of Gk. Second, the boundary conditions pin the trajectory to the current state and the local target, 
+
+σk, 1 (tk, 0) = y k, ˙σk, 1(tk, 0) = ˙ yk,σk,J k (tk,J k ) = y int , ˙σk,J k (tk,J k ) = 0 (8) while continuity up to order r < ν at each segment junction keeps the trajectory smooth across polytopes, 
+
+dℓσk,j 
+
+dt ℓ
+
+∣∣∣∣tk,j 
+
+= dℓσk,j +1 
+
+dt ℓ
+
+∣∣∣∣tk,j 
+
+(9) where ℓ ∈ { 0, . . . , r } and j ∈ { 1, . . . , J k−1}. Third, kino-dynamic feasibility is imposed through the first and second control-point differences ∆c ij = c ij − ci−1 
+
+> j
+
+and ∆2cij = c ij −
+
+2c i−1 
+
+> j
+
++c i−2 
+
+> j
+
+, which upper-bound the velocity and acceleration of the whole segment, 
+
+∥∥∥ ν ∆c ij
+
+> ∆tj
+
+∥∥∥∞ ≤ vmax ,
+
+∥∥∥ ν(ν−1) ∆ 2cij
+
+> ∆t2
+> j
+
+∥∥∥∞ ≤ amax (10) with ∆tj = tk,j − tk,j −1. Minimizing the integrated squared 
+
+ν-th derivative subject to these constraints, 
+
+min  
+
+> {cij}
+
+∫ tk,J k
+
+> tk, 0
+
+∥∥∥ dν y( t)
+
+> dt ν
+
+∥∥∥22 dt 
+
+s.t. (7) , (8) , (9) , (10) (11) yields a smooth trajectory. Here, we use a cubic polynomial and minimize its jerk. For a fixed time allocation, (11) is a Quadratic Program (QP), which we formulate in CasADi [34] and solve with OSQP [35]. Replanning is event-driven, triggered by each scan of a simulated Velodyne VLP-16 at its maximum 20 Hz frame rate; the optimized trajectory is tracked by the geometric controller at 1 kHz , and the quadrotor holds a hover command whenever a feasible corridor or trajectory is momentarily unavailable. Across the run, computing Πk and generating Gk
+
+took 16 .19 ms on average (with standard deviation 11 .99 ms ), where the slowest cycle completed in 36 .91 ms . These timings were achieved on point clouds growing from 6.2×10 3 to 
+
+3.7×10 5 points as the map builds up. Fig. 4(a) shows a snapshot with Jk = 6 ; from the LiDAR returns outlining the surrounding walls, PathCover builds a local 3D corridor at each replanning event, and the quadrotor traverses the narrow passages along smooth, collision-free B´ ezier trajectories. 
+
+B. Quadruped: Unicycle-Based MPC Navigation 
+
+We next validate the framework in hardware, on the Vi-sion60 quadruped traversing a narrow indoor corridor formed by two parallel walls of box-shaped obstacles. The platform carries a Velodyne VLP-16 LiDAR streaming 3D point clouds at 15 –20 Hz ; the robot’s proprietary controller handles low-level joint control, while our planner issues higher-level body-velocity commands, giving a hardware validation under realis-tic LiDAR noise. Given the quadruped’s modest speed and the short prediction horizon, a single look-ahead polytope suffices: 
+
+PathCover is invoked with max iter = 1 (corridor horizon 
+
+Jk = 1 at each cycle k), returning one polytope Hk = {y |
+
+Aky ≤ bk} per cycle. Unlike the quadrotor example, we retain the full robot dynamics inside the optimization and solve a receding-horizon MPC against this polytope. We model the quadruped’s body motion with the unicycle kinematics. The state stacks the COM planar position and torso yaw, χk = [xk yk φk
+
+]⊤, and evolves under the Euler-discretized model 
+
+χk+1 = f (χk, u k) = χk + ∆ t [vk cos φk vk sin φk ˙φk
+
+]⊤ ,
+
+(12) with body-velocity input uk = [vk ˙φk
+
+]⊤ ∈ U , step ∆t =0.05 s , and U a compact polytopic set encoding the saturation bounds. The corridor constraint acts on the position yk =[xk yk
+
+]⊤ directly. At each cycle the robot is driven toward the desired state χdes = [y⊤ 
+
+> int
+
+φdes 
+
+]⊤, where yint is the local goal computed as in Section V-A (see Fig. 4(b)) and φdes is the heading of the vector connecting yk to yint [8]. With running cost Jκ(χκ, u κ) = ‖χκ − χdes ‖2 
+
+> Q
+
++ ‖uκ‖2 
+
+> R
+
+and terminal cost 
+
+Jk+H (χk+H ) = ‖χk+H − χdes ‖2 
+
+> Qf
+
+(Q, R, Q f ≻ 0), the receding-horizon problem solved at each cycle is minimize 
+
+> X,U k+H−1
+
+∑
+
+> κ=k
+
+Jκ(χκ, u κ) + Jk+H (χk+H )
+
+subject to χκ+1 = f (χk, u k), χk = χinit ,
+
+yκ ∈ H k, yk+H ∈ H k, uκ ∈ U ,
+
+where X = {χk+1 , . . . , χ k+H } and U = {uk, . . . , u k+H−1}.The polytope Hk is held constant over the time horizon H
+
+and refreshed only between cycles, at the LiDAR rate. We use a time horizon of H = 20 steps and solve (13) with FATROP [36]. Fig. 4(b) shows the Vision60 quadruped clearing the corri-dor: the robot tracks yint while Hk is regenerated in real time from each incoming scan, its boundary reshaping as the robot advances. Over the experiment, planning Πk and generating 
+
+Hk took 2.93 ms on average (with standard deviation 0.87 ms ), and the slowest cycle completed in 7.08 ms on point clouds ranging from 2.6×10 4 to 1.5×10 5 points. Beyond timing considerations, the experiment supports the central claim of this section: the framework transfers from simulation to hard-ware without requiring any algorithmic modifications. The same PathCover pipeline, differing only in the downstream planner it feeds, enables continuous closed-loop navigation in unknown environments under realistic noisy sensor data. 
+
+C. Empirical Support for Theorem 2 
+
+Having validated the framework end-to-end, we revisit the theoretical analysis of RISP and examine whether its complexity guarantees are reflected in practice. Theorem 2 establishes O(n) expected time complexity under condition (5), which requires that each iteration eliminates at least some constant fraction of the remaining points with nonzero prob-ability. While this condition is difficult to verify analytically for arbitrary point clouds, we evaluate whether it is consistent with the empirical behavior of RISP across all experimental datasets. For each RISP call, we record the full sequence 
+
+{Nk} of remaining point counts across iterations, and compute 9                  
+
+> (a) (b) Figure 4. Receding-horizon corridor planning. (a) Quadrotor in Gazebo/RViz tracking a smooth B´ ezier trajectory toward the local target yint , confined inside the multi-polytope safe corridor Gk(blue, here Jk= 6 ) generated along the global path (red) toward ygoal (green). (b) Vision60 quadruped running the single-polytope unicycle MPC (13) ( Jk= 1 ), tracking yint (black) at the intersection of Hkand Πkwhile advancing toward ygoal .
+
+the per-step fractional elimination ηk = ( Nk − Nk+1 )/N k.Under Theorem 2, a step eliminates at least β fraction of points if ηk ≥ β; accordingly, we define the empirical β
+
+elimination probability as ˆr(β) = Pr {ηk ≥ β}, estimated across all steps and runs in each dataset. The effective decay rate of the geometric envelope is βˆr(β), which trades off the elimination threshold β against how frequently it is achieved. We estimate the tightest such rate by computing 
+
+β∗ = arg max   
+
+> β∈(0 ,1)
+
+β · ˆr(β) and ˆr∗ = ˆ r(β∗ )
+
+over a uniform grid of β. This directly identifies the pair 
+
+(β∗, ˆr∗) consistent with Theorem 2 that yields the fastest predicted convergence. The empirical mean E[Nk] is then computed by averaging the sequences of Nk across all runs and compared against the geometric envelope n(1 − β∗ ˆr∗)k
+
+from (20) in the proof of Theorem 2 presented in Appendix B, where n is the mean initial point count. Fig. 5 reports the empirical E[Nk] for both scenarios, averaged over 1709 RISP calls for the Gazebo quadrotor simulation (mean initial count n ≈ 2.02 ×10 5 points) and 
+
+991 calls for the real-world quadrupedal experiments ( n ≈
+
+1.12 ×10 5 points). In both cases E[Nk] decays geometrically and remains below the fitted envelope n(1 − β∗ ˆr∗)k , with optimal effective decay rates β∗ ˆr∗ = 0 .063 (quadrotor) and 
+
+β∗ ˆr∗ = 0 .087 (quadruped). The consistency of these estimates across datasets with different sensor characteristics, obstacle geometries, and initial point counts confirms that real LiDAR point clouds exhibit the multiplicative drift required by The-orem 2 in a distributional sense. The key quantitative check is whether termination occurs within the drift-theoretic bound. The predicted iteration bounds (1 + ln n)/(β∗ ˆr∗) evaluate to 
+
+208 and 145 iterations for the quadrotor and quadruped clouds, respectively, whereas the observed mean termination times are 62 and 43 iterations, comfortably inside those bounds, as the vertical dashed lines in Fig. 5 indicate. Together, these results explain the consistent O(n) runtime and O(log n)
+
+iteration count of RISP observed throughout both simulated and real-world experiments, and provide strong evidence that Theorem 2 is an intrinsic property of structured sensor data.                      
+
+> Figure 5. Empirical support for Theorem 2. For the Gazebo quadrotor simulation (Sec. V-A) (red) and the real-world quadrupedal experiments (Sec. V-B) (blue). Each solid curve is the empirical E[Nk]averaged over all RISP calls in the dataset, and the dashed curve is the corresponding fitted geometric envelope n(1 −β∗ˆr∗)kfrom (20). In both cases E[Nk]decays geometrically and stays below its envelope, and termination (vertical dashed lines) occurs well within the predicted bound (see App. B); consistent with the O(log n)expected iteration count predicted by the theorem.
+
+VI. C ONCLUSION 
+
+We presented PathCover , a path-coverage framework for generating safe corridors from point-cloud obstacle data for real-time autonomous navigation. The framework is built on the novel randomized polytope construction algorithm RISP 
+
+that separates a seed point from a finite obstacle point set and enables the sequential construction of overlapping con-vex polytopes along a reference path. We proved finite-time termination and path coverage under stated clearance assump-tions, and established the expected linear-time complexity of RISP under a probabilistic point-elimination condition. Benchmark evaluations show that PathCover substantially reduces corridor generation time compared with existing safe corridor construction methods, producing more conservative yet consistent corridor geometry. Synthetic scalability tests further support the expected near-linear behavior of RISP 
+
+over a wide range of point cloud sizes. Finally, we vali-dated the resulting corridors in closed-loop navigation through quadrotor simulation and physical quadrupedal deployment. These results indicate that randomized point cloud corridor construction is a promising approach for sensor-rate replanning on autonomous robotic systems, particularly when predictable 10 
+
+computation time is prioritized over maximizing individual polytope volume. APPENDIX APROOF OF THEOREM 1To prove Theorem 1, we first state and prove two lemmas. 
+
+Lemma 1 (Properties of the RISP output) . Let W ⊂ Rd
+
+and O ⊂ W satisfy Assumption 1 and define the free space 
+
+F = W \ O . Let yseed be a seed point in the interior of F,and let P be a finite set of points sampled from the boundaries of the obstacles O. Choose α ∈ (0 , 1) . Then, the output H of the RISP algorithm satisfies the following: (i) H is a polytope that contains yseed in its interior; (ii) H is strictly separated from every point p ∈ P .Proof. Fix α ∈ (0 , 1) . We first prove part (i) by examining the process by which the RISP algorithm constructs polytopes. Set P0 = P. Given a seed point yseed in the interior of 
+
+F, execute line 4 of Algorithm 2 to select a point from 
+
+P0 uniformly at random; let p0 be this point. Then, execute line 5 of Algorithm 2 to compute a0 = p0 − yseed and 
+
+b0 = a⊤ 
+
+> 0
+
+yseed + (1 − α)‖a0‖22 by (4). This defines the hyperplane h0 generated by p0 according to (3)–(4); by construction, h0 is orthogonal to a0 and passes through the point αyseed + (1 − α)p 0. Now, let B0(y seed ) be the (open) ball of radius ρ0 = (1 − α) ‖a0‖2 centered at the point yseed ,and define the affine function f0(x) = a ⊤ 
+
+> 0
+
+x − b0. Then, 
+
+f0(x) = a ⊤ 
+
+> 0
+
+x − b0
+
+= a ⊤ 
+
+> 0
+
+(x − yseed ) − (1 − α)‖a0‖22
+
+≤ ‖ a0‖2 · ‖ x − yseed ‖2 − (1 − α)‖a0‖22
+
+= ‖a0‖2 (‖x − yseed ‖2 − ρ0)
+
+implying f0(x) < 0 for all x ∈ B 0(y seed ); note that the Cauchy-Schwarz inequality was used to pass from the second to the third line. As a result, the open ball B0(y seed ) is entirely contained in the closed halfspace h− 
+
+> 0
+
+= {x ∈ Rd | a⊤ 
+
+> 0
+
+x ≤ b0}
+
+and so yseed is an interior point of h− 
+
+> 0
+
+. Note also that p0 /∈ h−
+
+> 0
+
+since f0(p 0) > 0. Next, following lines 7–9 of Algorithm 2, discard all points in P0 that lie in the side of h0 opposite to 
+
+yseed ; i.e., discard all points in Q0 = {q ∈ P 0 | a⊤ 
+
+> 0
+
+q > b0}.Let P1 = P0 \ Q 0 be the set of remaining points. Repeating the same procedure, at iteration m ≥ 1, the set of remaining points is Pm = Pm−1 \ Q m−1. A new point 
+
+pm ∈ P m is selected uniformly at random and used to generate the closed halfspace h−
+
+> m
+
+, as above. This halfspace includes the open ball Bm(y seed ) in its interior and excludes the corresponding generating point pm. Furthermore, its boundary, 
+
+hm, is used to discard all points in Pm that lie in the side of 
+
+hm opposite to yseed . After finitely many iterations, all points in the point cloud are exhausted, yielding a finite collection of closed halfspaces, {h−
+
+> m
+
+, m = 0 , ..., M }. The intersection of these halfspaces, h⋆ = ⋂Mm=0 h−
+
+> m
+
+, is a non-empty polyhedron that includes the open ball B⋆(y seed ) = ⋂Mm=0 Bm(y seed ) in its interior. Next, line 13 of Algorithm 2 augments the halfspace de-scription of h⋆ with the constraints defining W. Since, by Assumption 1, W is a polytope (i.e., a bounded polyhedron), 
+
+h⋆ ∩ W is the bounded intersection of finitely many halfs-paces, and is therefore itself a polytope H; thus, the output 
+
+H = h⋆ ∩W of the RISP algorithm is a polytope. To show that 
+
+H contains yseed in its interior, note that yseed is an interior point of F = W \ O . Hence, by possibly reducing the radius of B⋆(y seed ) ⊂ h⋆ one obtains an open ball entirely included in F, therefore in W and consequently in H = h⋆ ∩ W , thus completing the proof of part (i). To show part (ii), note first that h⋆ does not include any of the points in P. This can be seen by a contradiction argument. Suppose, ad absurdum , that there a point p∗ ∈ P with p∗ ∈
+
+h⋆. This implies that 
+
+a⊤
+
+> m
+
+p∗ ≤ bm, for all m = 0 , . . . , M. (14) By the construction of h⋆, however, p∗ was either used to generate a hyperplane that forms a boundary of h⋆ or has been discarded. In either case, a⊤
+
+> m
+
+p∗ > b m for at least one m,which contradicts (14), implying that h⋆ cannot contain any point in P. Since, H = h⋆ ∩ W is the polytope returned by 
+
+RISP , no point in the point cloud P can be in H; that is, 
+
+H ∩ P = ∅. To show that H is strictly separated from every point p ∈ P and complete the proof of part (ii), follow the arguments in [37, Example 2.20], noting that H is a closed convex set and p /∈ H for any p ∈ P .In the statement of the following lemma, we use the following notation 
+
+[y 1, y2] = {(1 − t)y 1 + ty2 | t ∈ [0 , 1] }
+
+to denote the line segment connecting two points y1 and y2.
+
+Lemma 2 (Uniform clearance bound) . Let W, O, F, P
+
+and α ∈ (0 , 1) be as in Lemma 1. Let Π = {y0, . . . , yL}
+
+be a sequence of waypoints satisfying Assumption 2 and define Γ(Π) = ⋃Lℓ=1 [y ℓ−1, yℓ] as the path formed by the line segments connecting consecutive waypoints. Then, for any seed point yseed ∈ Γ(Π) , the polytope H returned by RISP 
+
+contains the open ball Bδmin (y seed ), δ min = (1 − α)ǫΓ, where 
+
+ǫΓ = min { min  
+
+> y∈Γ(Π)
+
+dist (y , P), min  
+
+> y∈Γ(Π)
+
+dist (y , ∂ W)} (15) 
+
+denotes the clearance of Γ(Π) from the point cloud P and the boundary ∂W of the workspace W.Proof. First, note that ǫΓ > 0 is well defined. Indeed, since P
+
+is finite and ∂W closed, the distances in (15) are given by 
+
+dist (y , P) = min  
+
+> p∈P
+
+‖y−p‖2 and dist (y , ∂ W) = min  
+
+> a∈∂W
+
+‖y−a‖2
+
+Moreover, by Assumption 2, each line segment [y ℓ−1, yℓ]
+
+lies in int( F), and hence Γ(Π) is disjoint from both P
+
+and ∂W. As a result, the distances in (15) are strictly positive for all y ∈ Γ(Π) . Finally, since the functions 
+
+dist ( · , P) and dist ( · , ∂ W) are continuous, and each seg-ment [y ℓ−1, yℓ], and hence the path Γ(Π) , is compact, it fol-lows that min y∈Γ(Π) dist (y , P) and min y∈Γ(Π) dist (y , ∂ W)
+
+are attained, and hence ǫΓ is well defined and stritly positive. Next, consider a seed point yseed ∈ Γ(Π) . By Lemma 1, each halfspace h− 
+
+> m
+
+= {x ∈ Rd | a⊤
+
+> m
+
+x ≤ bm} generated by 11 
+
+RISP from a sampled obstacle point pm ∈ P contains the open ball Bρm (y seed ) of radius ρm = (1 − α)a m where am =
+
+‖pm − yseed ‖2. Clearly, 
+
+ǫΓ ≤ min  
+
+> y∈Γ(Π)
+
+dist (y , P) ≤ dist (y seed , P)= min  
+
+> p∈P
+
+‖yseed − pm‖2
+
+≤ ‖ yseed − pm‖2
+
+for any pm ∈ P . Multiplying both sides by 1 − α > 0 yields 
+
+δmin = (1 −α)ǫΓ ≤ ρm for any sampled point pm ∈ P . Hence, all the halfspaces generated by RISP by sampling points 
+
+pm ∈ P contain the ball Bδmin (y seed ). Taking the intersection over all these halfspaces gives Bδmin (y seed ) ⊂ ⋂ 
+
+> m
+
+h− 
+
+> m
+
+= h⋆.Similarly, since 1 − α > 0, we have δmin = (1 − α)ǫΓ < ǫ Γ ≤
+
+dist (y seed , ∂ W), implying Bδmin (y seed ) ⊂ W . Combining these results, i.e., Bδmin (y seed ) ⊂ h⋆ and Bδmin (y seed ) ⊂ W ,with the fact that H = h⋆ ∩ W , as defined in the proof of Lemma 1, results in Bδmin (y seed ) ⊂ H .We are now ready to proceed with a proof of Theorem 1. 
+
+Proof of Theorem 1. Our proof begins by constructing H1,and then proceeds inductively to generate a sequence of polytopes Hj , j ≥ 2, via repeated application of Lemma 1 using seed points as specified by Algorithm 1. The proof ends by showing that J < ∞, which implies that Algorithm 1 terminates after finitely many steps and produces a finite sequence of polytopes G = {H 1, . . . , HJ }.To construct H1, RISP is executed with seed point y(1) seed =y0, the first waypoint in Π, which coincides with the robot’s initial position. By Lemma 1, the polytope H1 returned by 
+
+RISP contains y(1) seed in its interior and is strictly separated from every point in P, thus satisfying condition PCC.1). For j ≥ 2 the result follows by induction. We first consider the base case j = 2 . To construct H2, the algorithm proceeds sequentially through the waypoints in Π until it encounters the first waypoint that does not lie in H1; denote this waypoint by yℓ1 . By construction, all preceding waypoints yℓ ∈ Π for 
+
+ℓ = 1 , ..., ℓ 1 − 1 are contained in H1; i.e., are covered by 
+
+H1. Since yℓ1−1 ∈ H 1, yℓ1 /∈ H 1, and H1 is convex, the line segment connecting yℓ1−1 and yℓ1 intersects the boundary of 
+
+H1 at a unique point. This point is used as the new seed for 
+
+RISP , denoted by y(2) seed . Then, by Lemma 1, RISP returns a new polytope H2 that contains y(2) seed in its interior and is strictly separated from all points in P; hence, H2 satisfies condition PCC.1). Furthermore, since y(2) seed is in the line segment connecting two consecutive waypoints yℓ1−1 and yℓ1 ,Lemma 2 implies that H2 contains the open ball Bδmin (y (2) seed ),
+
+δmin > 0. Since the center y(2) seed of this ball belongs in the boundary of H1, and Bδmin (y (2) seed ) ⊂ H 2 it follows that 
+
+H1 ∩ H 2 6 = ∅ and so H1 and H2 satisfy condition PCC.2) For the inductive step, assume that, for some j > 2,the polytopes H2, . . . , Hj have been constructed and satisfy conditions PCC.1)-PCC.2). Assume that all waypoints up to some index ℓj − 1 are covered by H1 and the collection Hi,
+
+i = 2 , . . . , j , i.e., yℓ ∈ ⋃ji=1 Hi for ℓ = 0 , . . . , ℓ j − 1, and let 
+
+yℓj be the first waypoint in Π that does not lie in ⋃ji=1 Hi.Then, exactly as in the base case above, the new seed point 
+
+y(j+1) seed used in RISP is defined as the unique intersection point between the boundary of Hj and the line segment joining 
+
+yℓj −1 and yℓj . By Lemma 1, RISP returns a new polytope 
+
+Hj+1 that contains y(j+1) seed in its interior and satisfies PCC.1). Furthermore, since y(j+1) seed lies in the line segment connecting consecutive waypoints, Lemma 2 implies that Hj+1 contains the ball Bδmin (y (j+1) seed ); since y(j+1) seed belongs in the boundary of Hj , we have Hj ∩ H j+1 6 = ∅ and PCC.2) is satisfied. Thus, the sequence of polytopes can be extended to include Hj+1 ,completing the inductive step. It remains to show that J is finite. The proof relies on the observation that for any collection {H 1, ..., Hj } with 
+
+1 ≤ j < J , constructed as above, the subsequent polytope 
+
+Hj+1 guarantees progress along the path Γ(Π) . To see this, note that the seed point y(j+1) seed used to construct Hj+1 lies in the line segment connecting the last covered waypoint 
+
+yℓj −1 ∈ ∪ ji=1 Hi with the first waypoint yℓj /∈ ∪ ji=1 Hi that is not yet covered. Let vℓj+1 denote the unit vector pointing from 
+
+y(j+1) seed toward yℓj along the line segment connecting these two points. Since by Lemma 2, the polytope Hj+1 contains 
+
+Bδmin (y (j+1) seed ), the point y(j+1) seed + δmin vℓj+1 lies inside Hj+1 ,demonstrating that Hj+1 extends at least distance δmin > 0
+
+toward yℓj . Consequently, each polytope extends at least 
+
+δmin > 0 toward the end of the path Γ(Π) . Now, since at most 
+
+⌈‖ yℓ − yℓ−1‖2/δ min ⌉ polytopes are required per line segment, summing over all segments forming the path Γ(Π) yields 
+
+J ≤ Jmax = ∑Lℓ=1 ⌈‖ yℓ − yℓ−1‖2/δ min ⌉ < ∞. This implies that the PathCover algorithm terminates in finitely many steps, producing a sequence of polytopes G = {H 1, . . . , HJ }
+
+satisfying conditions PCC.1)–PCC.3). APPENDIX BPROOF OF THEOREM 2
+
+Proof of Theorem 2. Fix yseed ∈ int( F). We begin with the expected time complexity. Since we process Nm points at each iteration, the per-iteration cost is proportional to Nm and the total cost is 
+
+T (n) =  
+
+> τ−1
+
+∑
+
+> m=0
+
+Nm
+
+where τ = inf {m ≥ 0 | Nm = 0 } is the maximum number of iterations until exhaustion of all points in P. To find a bound on the expected time complexity E[T (n)] , define the event 
+
+Am = { Nm+1 ≤ (1 − β) Nm} that iteration m eliminates at least a fraction β of the remaining points, and let pm =Pr( Am | P m) be the corresponding probability conditioned on the current point cloud Pm; this event captures both the geometric structure and the cardinality of the point cloud. If 
+
+Acm denotes the complement of the event Am, the law of total expectation implies 
+
+E[Nm+1 | P m] = pm E[Nm+1 | A m, Pm]+ (1 − pm) E[Nm+1 | A cm, Pm] . (16) 12 
+
+For the first term in (16), we use the fact that Nm+1 ≤
+
+(1 − β)Nm on Am and the monotonicity of expectation to get 
+
+E[Nm+1 | A m, Pm] ≤ E[(1 − β)Nm | A m, Pm] = (1 − β)Nm
+
+(17) where the last equality follows from E[Nm | A m, Pm] = Nm
+
+since |P m| = Nm. For the second term in (16), observe that 
+
+Nm+1 ≤ Nm − 1 deterministically, since at every iteration the point pm itself is always removed. As a result, 
+
+E[Nm+1 | A cm, Pm] ≤ E[Nm − 1 | A cm, Pm]
+
+≤ E[Nm | A cm, Pm] = Nm (18) where the second inequality follows from monotonicity of the expectation and the last equality follows from E[Nm |Acm, Pm] = Nm since |P m| = Nm. Substituting the bounds (17) and (18) in (16) results in 
+
+E[Nm+1 | P m] ≤ pm(1 − β)Nm + (1 − pm)Nm
+
+= (1 − pmβ)Nm ≤ (1 − rβ )Nm (19) where the last inequality follows from (5). Now, given an instance P for the initial point cloud P0, i.e. 
+
+P0 = P and |P| = |P 0| = N0 = n, using (19) and applying induction on m yields 
+
+E[Nm] ≤ (1 − rβ )m n . (20) Then, noting that Nm = 0 deterministically for all m ≥ τ ,
+
+E[T (n)] = 
+
+> ∞
+
+∑
+
+> m=0
+
+E[Nm] ≤ n
+
+> ∞
+
+∑
+
+> m=0
+
+(1 − rβ )m = nrβ ,
+
+which, since r > 0 and β > 0, implies that E[T (n)] = O(n).It remains to account for redundant-constraint removal (Algorithm 2, line 14), whose cost is dominated by the 
+
+Quickhull algorithm operating on the τ accumulated dual points at expected cost O(τ log τ ) [23]. It thus suffices to bound E[τ ], which we do via the multiplicative drift theo-rem [38, Theorem 7]; we verify its hypotheses below. By Algorithm 2, Pm+1 depends only on Pm and the uniform sample pm ∈ P m, so {P m}m≥0 is a Markov process; since points are removed at every iteration, Pm ⊆ P 0 for all m, and the state space lies in the finite power set 2P0 (of cardinality 
+
+2n < ∞). The cardinality map | · | : 2 P0 → Z≥0 is the integer-valued, bounded potential required by [38, Theorem 7], with first hitting time of zero τ = inf {m ≥ 0 | Nm = 0 }. It remains to verify the multiplicative drift condition for Nm. Let l ≥ 1
+
+be an integer with Pr {Nm = l} > 0; since l ≥ 1, the event 
+
+{Nm = l} lies in {m < τ }, where (19) holds. Evaluating 
+
+E[Nm+1 | Nm] using the law of iterated expectations yields 
+
+E[Nm+1 | Nm] = E[ E[Nm+1 | P m] ∣∣ Nm
+
+]
+
+≤ E[(1 − rβ ) Nm
+
+∣∣ Nm
+
+] = (1 − rβ ) Nm
+
+where the bound (19) was used. Now conditioning the differ-ence Nm − Nm+1 on the event Nm = l, we obtain 
+
+E[Nm − Nm+1 | Nm = l] = l − E[Nm+1 | Nm = l] ≥ rβ l 
+
+for all integers l ≥ 1, which is the multiplicative drift condition of [38, Theorem 7] with rate rβ > 0. Hence, applying the theorem yields 
+
+E[τ | P 0] ≤ 1 + ln( |P 0|)
+
+rβ = 1 + ln nrβ = O(log n) .
+
+Combining with the deterministic bound τ ≤ n gives 
+
+E[τ log τ | P 0] ≤ (log n) E[τ | P 0] = O(log 2 n) .
+
+Since O(log 2 n) is dominated by the O(n) term, the overall expected time complexity of RISP is O(n).Finally, we turn our attention to the worst-case complexity. If at every iteration the sampled point pm is the only point removed, then τ = n and 
+
+T (n) = n + ( n − 1) + · · · + 1 = n(n + 1) 2 = O(n2) .
+
+In this case, Quickhull operates on τ = n dual points and incurs a worst-case cost O(n2), which does not affect the overall O(n2) bound, completing the proof. APPENDIX CPROOF OF THEOREM 3Let mj denote the number of halfspaces defining the j-th polytope Hj , 1 ≤ j ≤ J. Since each halfspace generated by 
+
+RISP eliminates at least one point from the input point cloud, each polytope contains at most n generated halfspaces; hence 
+
+mj ≤ n and ∑Jj=1 mj ≤ Jn. 
+
+RISP calls: The algorithm invokes RISP once for each generated polytope. By Theorem 2, each call has expected cost 
+
+O(n) and worst-case cost O(n2). Therefore, the total cost of all RISP calls is O(Jn ) in expectation and O(Jn 2) in the worst case. 
+
+Waypoints Membership tests: Each membership test in Hj
+
+requires evaluating (Algorithm 1, line 6) its mj halfspace inequalities and therefore costs O(mj ) ≤ O(n). The main loop performs at most one membership test per iteration. There are at most L + 1 iterations in which the waypoint index ℓ is advanced, and at most J −1 iterations in which a new polytope is generated. Thus, the total number of membership tests is at most L + J, giving a total cost of O(( L + J)n).
+
+Intersection queries: A line-polytope intersection query with Hj also costs O(mj ). Such a query is performed only when a new polytope is generated, so the total intersection cost is bounded by ∑Jj=1 O(mj ) ≤ O(Jn ).Combining these bounds, the expected running time satisfies 
+
+E[T (n, J, L )] ≤ O(Jn )+ O(( L+J)n)+ O(Jn ) = O(( J+L)n).
+
+Similarly, the worst-case running time satisfies T (n, J, L ) = 
+
+O(Jn 2) + O(( L + J)n) + O(Jn ) = O(Jn 2 + Ln ), since the 
+
+O(Jn ) terms are dominated by O(Jn 2).REFERENCES [1] Y. Kuwata, J. Teo, G. Fiore, S. Karaman, E. Frazzoli, and J. P. How, “Real-time motion planning with applications to autonomous urban driving,” IEEE Trans. Control Syst. Technol. , vol. 17, no. 5, pp. 1105– 1118, 2009. 13 
+
+[2] M. Brand˜ ao, O. B. Aladag, and I. Havoutis, “GaitMesh: Controller-aware navigation meshes for long-range legged locomotion planning in multi-layered environments,” IEEE Robot. Automat. Lett. , vol. 5, no. 2, pp. 3596–3603, 2020. [3] H. Lee, H. Kim, W. Kim, and H. J. Kim, “An integrated framework for cooperative aerial manipulators in unknown environments,” IEEE Robot. Automat. Lett. , vol. 3, no. 3, pp. 2307–2314, 2018. [4] M. Zhang, N. Chen, H. Wang, J. Qiu, Z. Han, Q. Ren, C. Xu, F. Gao, and Y. Cao, “Universal trajectory optimization framework for differential drive robot class,” IEEE Trans. Autom. Sci. Eng. , vol. 22, pp. 13 030– 13 045, 2025. [5] J. Park, Y. Lee, I. Jang, and H. J. Kim, “DLSC: Distributed multi-agent trajectory planning in maze-like dynamic environments using linear safe corridor,” IEEE Trans. Robot. , vol. 39, no. 5, pp. 3739–3758, 2023. [6] G. Chen, S. Wu, M. Shi, W. Dong, H. Zhu, and J. Alonso-Mora, “RAST: Risk-aware spatio-temporal safety corridors for mav navigation in dynamic uncertain environments,” IEEE Robot. Automat. Lett. , vol. 8, no. 2, pp. 808–815, 2023. [7] J. Tordesillas, B. T. Lopez, M. Everett, and J. P. How, “FASTER: Fast and safe trajectory planner for navigation in unknown environments,” 
+
+IEEE Trans. Robot. , vol. 38, no. 2, pp. 922–938, 2022. [8] K. S. Narkhede, A. M. Kulkarni, D. A. Thanki, and I. Poulakakis, “A sequential MPC approach to reactive planning for bipedal robots using safe corridors in highly cluttered environments,” IEEE Robot. Automat. Lett. , vol. 7, no. 4, pp. 11 831–11 838, 2022. [9] Q. Wang, Z. Wang, M. Wang, J. Ji, Z. Han, T. Wu, R. Jin, Y. Gao, C. Xu, and F. Gao, “Fast iterative region inflation for computing large 2-D/3-D convex regions of obstacle-free space,” IEEE Trans. Robot. ,vol. 41, pp. 3223–3243, 2025. [10] R. Deits and R. Tedrake, “Efficient mixed-integer planning for UAVs in cluttered environments,” in Proc. IEEE Int. Conf. Robot. Autom. , 2015, pp. 42–49. [11] S. Liu, M. Watterson, K. Mohta, K. Sun, S. Bhattacharya, C. J. Taylor, and V. Kumar, “Planning dynamically feasible trajectories for quadrotors using safe flight corridors in 3-D complex environments,” IEEE Robot. Automat. Lett. , vol. 2, no. 3, pp. 1688–1695, 2017. [12] J. Park, D. Kim, G. C. Kim, D. Oh, and H. J. Kim, “Online distributed trajectory planning for quadrotor swarm with feasibility guarantee using linear safe corridor,” IEEE Robot. Automat. Lett. , vol. 7, no. 2, pp. 4869– 4876, 2022. [13] Y. Ren, F. Zhu, W. Liu, Z. Wang, Y. Lin, F. Gao, and F. Zhang, “Bubble planner: Planning high-speed smooth quadrotor trajectories using receding corridors,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst. , 2022, pp. 6332–6339. [14] R. Deits and R. Tedrake, “Computing large convex regions of obstacle-free space through semidefinite programming,” in Algorithmic Founda-tions of Robotics XI , H. L. Akin, N. M. Amato, V. Isler, and A. F. van der Stappen, Eds. Springer, 2015, pp. 109–124. [15] M. Petersen and R. Tedrake, “Growing convex collision-free regions in configuration space using nonlinear programming,” arXiv:2303.14737 ,2023. [16] H. Dai, A. Amice, P. Werner, A. Zhang, and R. Tedrake, “Certified polyhedral decompositions of collision-free configuration space,” Int. J. Robot. Res. , vol. 43, no. 9, pp. 1322–1341, 2024. [17] P. Werner, T. Cohn, R. H. Jiang, T. Seyde, M. Simchowitz, R. Tedrake, and D. Rus, “Faster algorithms for growing collision-free convex poly-topes in robot configuration space,” arXiv:2410.12649 , 2024. [18] Y. Ren, F. Zhu, G. Lu, Y. Cai, L. Yin, F. Kong, J. Lin, N. Chen, and F. Zhang, “Safety-assured high-speed navigation for mavs,” Sci. Robot. ,vol. 10, no. 98, p. eado6187, 2025. [19] Y. Wu, I. Spasojevic, P. Chaudhari, and V. Kumar, “Towards optimizing a convex cover of collision-free space for trajectory generation,” IEEE Robot. Automat. Lett. , vol. 10, no. 5, pp. 4762–4769, 2025. [20] S. Savin, “An algorithm for generating convex obstacle-free regions based on stereographic projection,” in Proc. Int. Siberian Conf. Control Commun. , 2017, pp. 1–6. [21] X. Zhong, Y. Wu, D. Wang, Q. Wang, C. Xu, and F. Gao, “Generating large convex polytopes directly on point clouds,” arXiv:2010.08744 ,2020. [22] T. Liu, Q. Wang, X. Zhong, Z. Wang, C. Xu, F. Zhang, and F. Gao, “Star-convex constrained optimization for visibility planning with application to aerial inspection,” in Proc. IEEE Int. Conf. Robot. Autom. , 2022, pp. 7861–7867. [23] C. B. Barber, D. P. Dobkin, and H. Huhdanpaa, “The quickhull algorithm for convex hulls,” ACM Trans. Math. Softw. , vol. 22, no. 4, p. 469–483, 1996. [24] M. Kennedy, III, D. Thakur, M. Ani Hsieh, S. Bhattacharya, and V. Kumar, “Optimal paths for polygonal robots in SE(2),” J. Mechanisms Robot. , vol. 10, no. 2, p. 021005, 2018. [25] F. Gao, L. Wang, B. Zhou, X. Zhou, J. Pan, and S. Shen, “Teach-Repeat-Replan: A complete and robust system for aggressive flight in complex environments,” IEEE Trans. Robot. , vol. 36, no. 5, pp. 1526–1545, 2020. [26] C. Toumieh and A. Lambert, “Voxel-grid based convex decomposition of 3D space for safe corridor generation,” J. Intell. Robot. Syst. , vol. 105, no. 4, p. 87, 2022. [27] A. Hornung, K. M. Wurm, M. Bennewitz, C. Stachniss, and W. Burgard, “OctoMap: an efficient probabilistic 3D mapping framework based on octrees,” Auton. Robots , vol. 34, no. 3, pp. 189–206, 2013. [28] F. Gao, W. Wu, Y. Lin, and S. Shen, “Online safe trajectory generation for quadrotors using fast marching method and bernstein basis polyno-mial,” in Proc. IEEE Int. Conf. Robot. Autom. , 2018, pp. 344–351. [29] C. Toumieh and A. Lambert, “GPU accelerated voxel grid generation for fast MAV exploration,” arXiv:2112.13169 , 2021. [30] S. M. LaValle, Planning Algorithms . Cambridge, UK: Cambridge University Press, 2006. [31] D. Harabor and A. Grastien, “Online graph pruning for pathfinding on grid maps,” in Proc. AAAI Conf. Artif. Intell. AAAI Press, 2011, p. 1114–1119. [32] D. Mellinger and V. Kumar, “Minimum snap trajectory generation and control for quadrotors,” in Proc. IEEE Int. Conf. Robot. Autom. , 2011, pp. 2520–2525. [33] T. Lee, M. Leok, and N. H. McClamroch, “Geometric tracking control of a quadrotor uav on SE(3),” in Proc. IEEE Conf. Decis. Control , 2010, pp. 5420–5425. [34] J. A. E. Andersson, J. Gillis, G. Horn, J. B. Rawlings, and M. Diehl, “CasADi-A software framework for nonlinear optimization and optimal control,” Math. Program. Comput. , vol. 11, no. 1, pp. 1–36, 2019. [35] B. Stellato, G. Banjac, P. Goulart, A. Bemporad, and S. Boyd, “OSQP: an operator splitting solver for quadratic programs,” Math. Program. Comput. , vol. 12, no. 4, pp. 637–672, 2020. [36] L. Vanroye, A. Sathya, J. De Schutter, and W. Decr´ e, “FATROP: A fast constrained optimal control problem solver for robot trajectory optimization and control,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst. , 2023, pp. 10 036–10 043. [37] S. Boyd and L. Vandenberghe, Convex Optimization . Cambridge, UK: Cambridge University Press, 2004. [38] B. Doerr, D. Johannsen, and C. Winzen, “Drift analysis and linear functions revisited,” in Proc. IEEE Congr. Evol. Comput. , 2010, pp. 1–8.
