@@ -1,0 +1,1848 @@
+Title: Path Integral Value Matching for Linear Quadratic Stochastic Optimal Control
+
+URL Source: https://arxiv.org/pdf/2608.10777v1
+
+Published Time: Wed, 12 Aug 2026 00:56:23 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+# Path Integral Value Matching for Linear Quadratic Stochastic Optimal Control 
+
+Bangyan Liao, Chenglei Yu, Yuchen Yang, Chuanrui Wang, Zhisheng Song , Peidong Liu , Tailin Wu †
+
+Westlake University School of Engineering 
+
+Project Page: https://github.com/bangyan101/PIVM/ 
+
+## Abstract 
+
+Linear Quadratic Stochastic Optimal Control (LQ-SOC) establishes a fundamental framework for steering noisy dynamical systems and has recently gained renewed interest in the machine learning community. However, current state-of-the-art policy-based methods suffer from prohibitive computational costs and instabil-ity due to their heavy reliance on full-trajectory simulation. To overcome these limitations, we propose a paradigm shift toward a value-based approach by revis-iting Path Integral Control (PIC). Although standard PIC suffers from the same high-variance bottleneck as policy-based methods, we discover that by truncating and marginalizing the original path integral formulation, we can derive a temporal recursive form of the value function. Building upon this theoretical foundation, we propose the Path Integral Value Matching (PI-VM) algorithm. Specifically, we employ temporal-difference learning to approximate the recursive value dynam-ics, and further integrate the Girsanov theorem with experience replay to enable off-policy training. We benchmark PI-VM against SOTA policy-based methods across various SOC benchmarks and sampling tasks. Empirical results demonstrate that PI-VM matches SOTA precision with an order-of-magnitude efficiency gain in low-dimensional settings, while effectively mitigating mode collapse in high-dimensional scenarios. Consequently, PI-VM offers a scalable solution for solving complex SOC problems. 
+
+## 1 Introduction 
+
+Stochastic Optimal Control (SOC) [1, 2] establishes a fundamental framework for steering noisy dynamical systems toward high-reward regions. While dating back several decades, the Linear-Quadratic Stochastic Optimal Control (LQ-SOC) formulation [3] has recently attracted renewed interest within the machine learning community. This is driven by its profound theoretical connections to generative modeling (via diffusion models [4]), Optimal Transport (via Schrödinger Bridges [5]), and energy-based model sampling [6]. Despite its theoretical significance, solving SOC problems remains computationally prohibitive. Current state-of-the-art approaches largely follow the policy-based paradigm, known as the Iterative Diffusion Optimization [3, 4]. These methods optimize neural control policies by minimizing the divergence between parameterized path measures and optimal path measures. However, a critical bottleneck restricts their scalability: they rely heavily on on-policy full-trajectory simulation for gradient estimation. This dependence on long-horizon stochastic simulation leads to excessive computational costs and high-variance gradient estimates in high dimension [7, 4]. Moreover, the variance of off-policy importance weights blows up when the dimension is high, which further destabilizes the off-policy training process [8]. 
+
+> Preprint. arXiv:2608.10777v1 [cs.LG] 11 Aug 2026
+
+To fundamentally overcome these limitations, we propose a paradigm shift toward a value-based approach by revisiting Path Integral Control (PIC) [9–11]. Unlike policy-based methods that search locally, PIC aims to solve the Hamilton-Jacobi-Bellman (HJB) [1] equation globally. However, naive PIC has historically remained practically intractable because—similar to policy-based methods—it inherently relies on high-variance full-trajectory simulation. Specifically, traditional PI methods require sampling complete trajectories from the current time t to the terminal time to estimate the value function. This results in exploding variance in high-dimensional stochastic environments [12]. Consequently, the field faces a dilemma: both dominant policy-based methods and classical value-based PI methods are bottlenecked by the high variance and computational cost of full-trajectory simulation. To bridge this gap, we truncate and marginalize the original path integral formulation, and derive a continuous-time recursive form of the value function. Motivated by this insight, we introduce the Path Integral Value Matching (PI-VM) algorithm. PI-VM employs Temporal Difference (TD) learning to approximate the recursive value dynamics, effectively replacing high-variance long-horizon integration with stable short-term bootstrapping. Furthermore, we integrate the Experience Replay buffer [13] with the Girsanov theorem [14] to sup-port off-policy training. This combination allows for mathematically grounded trajectory reweighting, enabling flexible transitions between on-policy exploitation and off-policy exploration. Our main contributions are summarized as follows: • We bypass the full-trajectory simulation by deriving a continuous-time recursive form of the value function, establishing the theoretical foundation for efficient and stable value training. • We propose a practical solver PI-VM that utilizes an off-policy TD loss to learn the value recursive dynamics with experience replay and the Girsanov theorem. • Experiments on SOC benchmarks and sampling tasks demonstrate that PI-VM outperforms existing baselines in terms of training speed, numerical stability, and control accuracy, offering a scalable paradigm for stochastic control. 
+
+## 2 Preliminaries and Related Works 
+
+2.1 Preliminaries 
+
+In this section, we introduce the preliminary background for stochastic optimal control and path integral control. For a detailed introduction and survey, please refer to [2, 15]. 
+
+Linear Quadratic SOC. We define the Linear Quadratic Stochastic Optimal Control (LQ-SOC) problem as: 
+
+min  
+
+> u∈U
+
+EPu
+
+Z 10
+
+ 12 ∥u (Xt, t )∥2 + f (Xt, t )
+
+
+
+dt + g (X1)
+
+
+
+,
+
+s.t. dXt = ( b (Xt, t ) + σ(t)u (Xt, t )) d t + σ(t)d Bt, X0 ∼ ρ0.
+
+(1) where b ∈ C1,0(Rd × [0 , 1]; Rd) is the drift function, σ ∈ C([0 , 1]; Rd×m) denotes the diffusion coefficient, ρ0 represents the source distribution, process {Bt}t∈[0 ,1] is an Ft-standard Brownian motion, u ∈ C1,0(Rd × [0 , 1]; Rd) is the control signal within the set of admissible control U,
+
+f ∈ C1,0(Rd × [0 , 1]; R) denotes the state cost (or running cost), and g ∈ C1(Rd; R) represents the terminal cost. The state process {Xt}t∈[0 ,1] is governed by the controlled SDE in Equation (1), which induces the controlled path measure Pu on C([0 , 1]; Rd). For the uncontrolled SDE ( u = 0 ), it induces a reference path measure P0 on C([0 , 1]; Rd). We denote P0[t,s ] as the restriction of this measure to the path segment {Xr }r∈[t,s ].For simplicity, we define the work functional as: 
+
+W(X, t ) = 
+
+Z 1
+
+> t
+
+f (Xs, s ) d s + g (X1) . (2) 2Although the LQ formulation in Equation (1) provides a structural simplification compared to the general SOC problem, obtaining the optimal solution remains a non-trival task. The optimization process is significantly impeded by the prohibitive cost of forward simulations, non-convex landscapes, and inherent stochasticity. 
+
+Cost functional and value function. Given an initial condition (x, t ) ∈ Rd × [0 , 1] , the expected future cost incurred by following a control u is defined as 
+
+J(u; x, t ) := EPu
+
+ Z 1
+
+> t
+
+12 ∥u(Xs, s )∥2ds + W(X, t ) Xt = x
+
+
+
+(3) Then, we can define the corresponding value function as the cost functional with optimal control u∗:
+
+V (x, t ) := min  
+
+> u∈U
+
+J(u; x, t ) = J(u∗; x, t ). (4) Learning the value function is more tractable than direct optimization due to its smoother geometry and ability to leverage global information against non-convexity and noise. Moreover, in continuous-time RL, the value function is a more natural target than the Q-function, as the latter collapses to the former in the continuous limit [16]. 
+
+Path Integral Control. A key benefit of LQ-SOC is that the optimal value function satisfies a nonlinear partial differential equation known as the Hamilton–Jacobi–Bellman (HJB) [1] equation. Building on the HJB equation, the value function admits a closed-form representation known as the path integral control [9–11]. In particular, the value function can be expressed as 
+
+V (x, t ) = − log EP0
+
+"
+
+exp 
+
+
+
+− W (X, t )
+
+
+
+Xt = x
+
+#
+
+, (5) where Xt follows the uncontrolled stochastic differential equation associated with the base drift. This can be proved by first applying the Cole-Hopf transform [17] to convert the nonlinear HJB equation into a linear PDE, and then invoking the Feynman-Kac lemma [14] to interpret the solution as a conditional expectation. Furthermore, the HJB equation not only characterizes the optimal value function but also yields the optimal control in closed form: 
+
+u∗(x, t ) = −σT (t)∇V (x, t ). (6) Nevertheless, practical implementation is hindered by the curse of dimensionality. High dimensions and noise induce exploding variance in the stochastic estimator, making the computational cost of Monte Carlo integration intractable. 
+
+2.2 Related Works Policy-based SOC Solvers. Current SOC solvers predominantly follow the Iterative Diffusion Optimization paradigm, optimizing control policies by minimizing divergences (e.g., Cross-Entropy or Variance) [18, 19] or employing matching-based strategies like Adjoint Matching [3, 4, 8]. While recent advances have incorporated trust-region techniques [7, 20] and expanded into sampling tasks [6, 21], these methods rely heavily on on-policy forward simulation and stochastic back-propagation. Consequently, they suffer from significant computational overhead and high-variance gradient estimates, rendering them susceptible to instability and mode collapse in complex landscapes. 
+
+Value-based SOC Solvers. Numerical methods for the HJB equation, such as finite difference schemes [22, 23], theoretically offer a global solution but are severely limited by the curse of dimensionality. Alternatively, Path Integral Control (PIC) [11, 9] applies the Feynman-Kac lemma to transform the PDE into a sampling problem, inspiring algorithms like MPPI [24] and Cross-Entropy methods [25]. However, standard PIC faces a critical bottleneck: the variance of the path integral estimator scales poorly with dimensionality [26]. In high-dimensional settings, this leads to prohibitive sample complexity and unstable convergence, limiting its applicability. 3Continuous-time RL. Continuous-time RL provides a rigorous theoretical framework for decision-making, established through entropy-regularized HJB equations [27] and martingale-based policy evaluation [28, 16]. Recent works have extended this foundation to model-free temporal difference methods [29] and diffusion-guided policies [30]. Unlike existing methods that rely on general policy iteration or direct HJB solving, our approach leverages the specific recursive structure of the path integral value function. This allows us to bypass high-order HJB terms and employ TD learning for stable, off-policy value estimation. 
+
+## 3 Recursive Path Integral Theory 
+
+3.1 Path Integral: A Recursive Form 
+
+The core insight of our work is that the path integral representation of optimal value function (Equation (5)), has the following recursive form. 
+
+Proposition 3.1. For any 0 < t < s , the following expectation equation holds: 
+
+exp ( −V (Xt, t )) = EP0
+
+"
+
+exp ( −V (Xs, s )) exp 
+
+
+
+−
+
+Z st
+
+f (Xr , r ) d r
+
+
+
+Ft
+
+#
+
+,V (x, 1) = g(x),
+
+(7) 
+
+where Xt ∈ Rd is the state of uncontrolled stochastic process. Proof. The result follows directly from the tower property of conditional expectation. By decom-posing the path integral in Equation (5) into the intervals [t, s ] and [s, 1] , and taking the conditional expectation over the trajectory from s to the terminal time, we recover the term exp ( −V (Xs, s )) by definition. The detailed proof can be found in Appendix A. Crucially, the recursive structure in Equation (7) suggests that dynamic programming techniques can be adapted to solve for the value function iteratively. 
+
+3.2 Properties of Recursive Path Integral 
+
+This section investigates whether the above formulation is practically applicable, primarily by analyzing its convergence behavior and variance properties. By treating the recursion in Equation (7) as an update operator, we firstly formulate the following bootstrapping rule. 
+
+Definition 3.2. For every t ∈ [0 , 1) and a fixed ε > 0, the updating rule at the k-th iteration is: 
+
+Vk(Xt, t ) = − log EP0
+
+"
+
+exp 
+
+
+
+− ˜Vk−1(Xt+ε, t + ε)
+
+
+
+exp 
+
+
+
+−
+
+Z t+εt
+
+f (Xr , r ) d r
+
+
+
+Ft
+
+#
+
+, (8) where ˜Vk−1 is defined such that ˜Vk−1(x, s ) = Vk−1(x, s ) for s < 1 and ˜Vk−1(x, 1) = g(x).To ensure the theoretical validity of this iterative scheme, we must guarantee that it converges to the true solution. The following theorem establishes this convergence property under mild assumptions. 
+
+Theorem 3.3. In addition to the notation established in Section 2.1, we further assume that: A1. The running cost is bounded from below by a positive constant, i.e., f (x, t ) ≥ finf > 0;A2. The optimal value function is bounded from below, i.e., V (x, t ) ≥ Vinf ;A3. The underlying SDE satisfies standard Lipschitz and growth conditions, ensuring the transi-tion semigroup possesses the Feller property. If the sequence {Vk}∞ 
+
+> k=1
+
+satisfies the recursion (8) for all t, then it converges to the optimal value function: 
+
+lim  
+
+> k→∞
+
+Vk(x, t ) = V (x, t ). (9) 
+
+Proof. Available in Appendix B. 4While Theorem 3.3 guarantees correctness, practical feasibility depends on sample efficiency. A fundamental advantage of our recursive value iteration over direct Monte Carlo estimation (which samples full trajectories to the terminal time) is the significant reduction in estimation variance. We formalize this benefit through the following variance decomposition analysis. 
+
+Proposition 3.4. For any t ∈ [0 , 1) and s ∈ (t, 1] ,
+
+V(Zt|F t) = V
+
+
+
+E[Zs|F s] exp 
+
+
+
+−
+
+Z st
+
+f (Xr , r ) d r
+
+
+
+Ft
+
+
+
++ E
+
+h
+
+V(Zs|F s) exp 
+
+
+
+− 2
+
+Z st
+
+f (Xr , r ) d r
+
+
+
+|F t
+
+i
+
+,
+
+(10) 
+
+where the expectation and variance are all taken over X ∼ P0 and the notation Zt is defined as 
+
+Zt = exp ( −W (X, t )) . (11) 
+
+Proof. Available in Appendix C. Equation (10) offers a clear interpretation of the efficiency gain. The term on the left-hand side (LHS) represents the variance of the naive Monte Carlo estimator. The first term on the right-hand side (RHS) corresponds to the variance of our recursive estimator (assuming Vk has converged to V ). Consequently, the second term on the RHS quantifies the explicit variance reduction achieved by our method. This reduction is particularly substantial when the current time t is far from the terminal time, highlighting the superiority of the Equation (7) in long-horizon problems. 
+
+## 4 Path Integral Value Matching (PI-VM) 
+
+Guided by the recursive theoretical foundation, we propose the PI-VM algorithm. In this section, we will detail the derivation of the recursive TD loss, its extension to off-policy scenarios using the Girsanov theorem, and the practical implementation specifics. 
+
+4.1 TD Learning 
+
+To implement the update rule Equation (7) in a practical algorithm, we parameterize the value function 
+
+Vk(x, t ) using a neural network Vθ (x, t ) with parameters θ. Consequently, the value iteration is formulated as a deep learning optimization task. Specifically, the loss function of our PI-VM learning is defined as follows: 
+
+Definition 4.1 (Path Integral TD Loss ). Consider a state x with corresponding time t, a fixed lookahead horizon determined by s = min(1 , t + M ∆t), the PI-VM loss is defined as: 
+
+ℓ(θ) = Vθ (x, t ) − ˆVθ (x, t, s ) 2
+
+, (12) where the target value ˆVθ is estimated via a Monte Carlo approximation of the path integral. Specifi-cally, given N sample trajectories, the target is computed as: 
+
+ˆVθ (x, t, s ) = − log 1
+
+N
+
+> N
+
+X
+
+> j=1
+
+exp 
+
+
+
+− ˆW(X(j)[t,s ]) − ˆG(X(j) 
+
+> s
+
+)
+
+
+
+, (13) where each trajectory X(j)[t,s ] follows the uncontrolled path measure P0[t,s ] initialized at X(j) 
+
+> t
+
+= x. The functional terms are defined as: 
+
+ˆW(X(j)[t,s ]) = 
+
+Z st
+
+f (X(j) 
+
+> r
+
+, r ) d r, ˆG(X(j) 
+
+> s
+
+) = 
+
+(
+
+Vθ (X(j) 
+
+> s
+
+, s ) s < 1,g(X(j) 
+
+> s
+
+) s = 1 . (14) 
+
+Remark. While our method also relies on TD learning to solve the dynamic programming problem, similar to reinforcement learning (RL) approaches, its underlying nature is fundamentally different. We highlight the distinctions with classical RL and risk-sensitive RL [31, 32] below. 5Algorithm 1 Path Integral Value Matching (PI-VM)  
+
+> 1:
+
+Input: Problem Setup, Hyperparameters (Batch size B, Sample Size N , Sample Steps M , EMA 
+
+τ , Learning Rate η).  
+
+> 2:
+
+Initialize: Replay Buffer D, Value Network Vθ , Target Network Vˆθ . 
+
+> 3:
+
+for each training iteration do  
+
+> 4:
+
+if time to update buffer then  
+
+> 5:
+
+Rollout trajectories using current best control.  
+
+> 6:
+
+for each sampled state in trajectories do  
+
+> 7:
+
+Simulate N short-term M -step path branches.  
+
+> 8:
+
+Compute functionals ˆW, ˆS for each branch following Equations (14) and (15).  
+
+> 9:
+
+Store transition tuple into D. 
+
+> 10:
+
+end for  
+
+> 11:
+
+end if  
+
+> 12:
+
+Sample a batch B of transitions from D. 
+
+> 13:
+
+Compute target functional ˆG and value ˆVˆθ following Equations (14) and (17).  
+
+> 14:
+
+Compute TD loss: L(θ) = 1
+
+> |B|
+
+P(Vθ (x, t ) − ˆVˆθ )2. 
+
+> 15:
+
+Update value network: θ ← θ − η∇θ L(θ) and target value network: ˆθ ← τ θ + (1 − τ )ˆθ. 
+
+> 16:
+
+end for  
+
+> 17:
+
+Output: Optimal Value Function Vθ .
+
+PI-VM vs. classical RL. A common misconception is that our method corresponds to a continuous version of the classical Bellman or optimal Bellman equations [1]. In fact, directly taking the discrete-to-continuous limit of these equations does not yield our log-sum-exp formulation. Instead, our formulation arises directly from path integral control. 
+
+PI-VM vs. risk-sensitive RL. Although the Bellman equation in risk-sensitive RL [31, 32] also takes a log-sum-exp form, its object differs: risk-sensitive RL applies it to the value function, whereas in our method, the log-sum-exp formulation applies to the optimal value function. 
+
+4.2 Off-Policy Improvement 
+
+While Equation (12) effectively mitigates variance in many scenarios, it faces challenges when the distribution of the base path diverges significantly from the target optimal path. To avoid the high variance associated with over-exploration and the mode collapse caused by over-exploitation, a dynamic sampling strategy is essential. Consequently, an off-policy improvement becomes imperative. We begin by formulating the off-policy path integral TD loss via the Girsanov theorem, followed by a proof showing that the variance of our estimator asymptotically vanishes as the control policy u
+
+approaches optimality. According to the celebrated Girsanov’s Theorem [14], the conditional density ratio of P0 with respect to Pu over the interval [t, s ], conditioned on Ft, is given by 
+
+dP0[t,s ]
+
+dPu 
+
+> [t,s ]Ft
+
+(Xu
+
+> [t,s ]
+
+) = exp( − ˆS(Xu
+
+> [t,s ]
+
+, u )) = exp −
+
+Z st
+
+u(Xur , r ) d Br −
+
+Z st
+
+12 ∥u(Xur , r )∥2 dr
+
+!
+
+.
+
+(15) Therefore, we obtain the off-policy version of PI-VM loss: 
+
+Definition 4.2 (Off-Policy PI-VM Loss ). The off-policy PI-VM loss has the same setup with Theorem 4.1, 
+
+ℓu(θ) = Vθ (x, t ) − ˆVθ (x, u, t, s ) 2
+
+, (16) where the only difference is that the uncontrolled target value is replaced with the controlled one: 
+
+ˆVθ (x, u, t, s ) = − log 1
+
+N
+
+> N
+
+X
+
+> j=1
+
+exp 
+
+
+
+− ˆW(X(j)[t,s ]) − ˆS(X(j)[t,s ], u ) − ˆG(X(j) 
+
+> s
+
+)
+
+
+
+, (17) where each trajectory X(j)[t,s ] follows the controlled path measure Pu 
+
+> [t,s ]
+
+initialized at X(j) 
+
+> t
+
+= x.6Table 1: Quantitative evaluation on three unimodal SOC tasks.                                                                                                                                
+
+> OU L INEAR OU Q UADRATIC (EASY )OU Q UADRATIC (HARD )METHOD CONTROL L2(↓)TIME (↓)CONTROL L2(↓)TIME (↓)CONTROL L2(↓)TIME (↓)RE 0.00003 ±0.00000 87 ms 0.00019 ±0.00001 54 ms 0.00453 ±0.00034 50 ms
+> CE 0.00056 ±0.00035 41 ms 0.00215 ±0.00019 22 ms 1.46971 ±0.01211 21 ms
+> VAR 0.00032 ±0.00016 38 ms 0.09234 ±0.00057 22 ms 1.46971 ±0.01211 21 ms
+> LVAR 0.00017 ±0.00005 41 ms 0.00061 ±0.00003 22 ms 0.01521 ±0.00091 21 ms
+> REINFORCE 0.00097 ±0.00033 50 ms 0.01615 ±0.00035 28 ms 0.20843 ±0.01778 27 ms
+> SOCM 0.00000 ±0.00000 128 ms 0.00044 ±0.00001 183 ms 1.46971 ±0.01211 194 ms
+> SOCM-A 0.00000 ±0.00000 41 ms 0.00073 ±0.00005 21 ms 1.46971 ±0.01211 21 ms
+> AM 0.00000 ±0.00000 41 ms 0.00028 ±0.00001 21 ms 0.00674 ±0.00036 21 ms
+> PI-VM (O URS )0.00000 ±0.00000 8ms 0.00010 ±0.00000 7ms 0.00078 ±0.00005 7ms
+
+Table 2: Scalability analysis on the Quadratic OU Easy task with increasing dimensions. 
+
+SOCM AM PI-VM (O URS )DIM CONTROL L2 (↓) TIME (↓) CONTROL L2 (↓) TIME (↓) CONTROL L2 (↓) TIME (↓)10 0.00027 ± 0.00001 130 ms 0.00026 ± 0.00001 29 ms 0.00006 ± 0.00000 7ms 
+
+20 0.00044 ± 0.00001 182 ms 0.00027 ± 0.00002 29 ms 0.00011 ± 0.00000 8ms 
+
+80 OUT OF MEMORY 0.02960 ± 0.00024 28 ms 0.00044 ± 0.00004 12 ms 
+
+150 OUT OF MEMORY 0.07620 ± 0.00047 32 ms 0.00080 ± 0.00017 18 ms 
+
+200 OUT OF MEMORY 0.08983 ± 0.00051 38 ms 0.00256 ± 0.00033 21 ms 
+
+This off-policy version of loss has substantially small variance when the sampling policy u is close to the optimal policy u∗. To see this, we first define 
+
+M(X[t,s ]) = exp − V (Xs, s ) −
+
+Z st
+
+u (Xr , r ) d Br −
+
+Z st
+
+
+
+f (Xr , r ) + 12 ∥u (Xr , r )∥2
+
+
+
+dr
+
+!
+
+.
+
+(18) Here, we utilize the true optimal value function in the analysis. Since Vθ (x, t ) approaches to V (x, t ),the asymptotic behavior of ˆVθ (x, u, t, s ) can be characterized in terms of M(X[t,s ]). The variance of 
+
+M(X[t,s ]) is characterized by the following theorem. 
+
+Theorem 4.3. Suppose that the control u satisfies sup x,r ∥u∗(x, r ) − u(x, r )∥2 ≤ κ. Then, the conditional variance of M(X[t,s ]) satisfies the following upper bound 
+
+Vpu (M(X[t,s ])|F t) ≤ exp ( −2V (Xt, t )) [exp ( κ(s − t)) − 1] . (19) 
+
+Proof. Available in Appendix C. The theorem illustrates that the variance bound diminishes as a function of the control error κ. As the current control u converges toward u∗, the upper bound becomes increasingly tighter, ensuring that the estimation variance asymptotically vanishes. 
+
+4.3 Algorithm Design 
+
+As summarized in Algorithm 1, training alternates between generating trajectories to populate a Replay Buffer and optimizing the value function via TD learning. Trajectories are rolled out using the current best control, with short M -step path branches sampled for each state and stored in the buffer. The TD target is estimated from these branches using N Monte Carlo samples, balancing variance reduction and update depth. During optimization, mini-batches are sampled uniformly from the buffer, and the value network is updated to minimize the squared difference between predicted and target values, while a target network updated via exponential moving average stabilizes training. 
+
+## 5 Experiments 
+
+We will begin by providing an overview of the problems and baselines, then describe the training setups, and finally introduce evaluation metrics employed across all problems. We provide a detailed introduction in Appendix G and H. 7GT Contour + Samples Learned Value Function (t=0)      
+
+> Contour + Adjoint Samples Contour + Base Samples GT Contour + Samples Learned Value Function (t=0)
+> Contour + Adjoint Samples Contour + Base Samples Contour + Adjoint Samples Contour + Base Samples Contour + Adjoint Samples Contour + Base Samples
+
+Figure 1: Sampling and value comparison on Many Well sampling task. (Left) Ground Truth samples and Ground Truth value landscape; (Middle Left) Our learned value landscape; (Middle Right) Samples from AM; (Right) Samples from our method. Table 3: Ablation study on sample size and forward steps. In each cell, the top value is the control L2 error, and the bottom value is the Runtime.          
+
+> FORWARD STEPS M
+> SAMPLES N4816 40.00013 7ms
+> 0.00011 7ms
+> 0.00010 8ms
+> 80.00012 7ms
+> 0.00010 7ms
+> 0.00010 9ms
+> 16 0.00011 9ms
+> 0.00010 13 ms
+> 0.00009 18 ms
+
+Table 4: Quantitative evaluation on the multimodal Gaus-sian Mixture Model (GMM) sampling task. "Dist." refers to the distance between component means, and "Var." refers to the variance of each component. 
+
+SETTING CONTROL L2 (↓)DIST . VAR . AM PI-VM (O URS )CLOSE LARGE 0.016 ± 0.000 0.010 ± 0.000 
+
+SMALL 6.996 ± 0.025 0.025 ± 0.003 
+
+FAR LARGE 0.018 ± 0.002 0.011 ± 0.000 
+
+SMALL 4.317 ± 0.260 0.024 ± 0.006 
+
+Problems and Baselines. We consider five tasks that we adapt from [3, 7]: Linear Ornstein Uhlenbeck , Quadratic Ornstein Uhlenbeck (easy) , Quadratic Ornstein Uhlenbeck (hard) , Gaussian Mixture Models , and Many Well . The first three settings are unimodal SOC control problems and the last two are multimodal sampling problems. We compare 7 policy-based baselines: relative entropy (RE) , cross entropy (CE) [18], variance (VAR) [19], log-variance (LVAR) [19], adjoint matching (AM) [4], stochastic optimal control matching (SOCM) [3], and stochastic optimal control matching with adjoint loss (SOCM-A) [3]. 
+
+Training and Evaluation. For the first three experiments, we strictly align our training hyperparame-ters with those in SOCM [3]. For the last two problems, we follow the configuration described in [7]. Across all experiments, we utilize a 6-layer fully-connected neural network with GELU activa-tions [33] and Adam optimizer [34]. For the first four benchmarks, where the ground truth optimal control is analytically tractable, we adopt the control L2 Error as our primary evaluation metric: 
+
+L2(u, u ∗) := 1 
+
+> d
+
+EPu∗
+
+hR 10 ∥u∗ − u∥2(Xu∗ 
+
+> s
+
+, s ) d s
+
+i
+
+. This metric quantifies the Euclidean distance be-tween the learned policy and the ground truth optimal control. It is worth noting that this comparison is particularly stringent for our method, as we infer the control indirectly via the gradient of the value function (i.e., u = −σT ∇V ), whereas policy-based baselines optimize the policy directly. All experiments were conducted on a single NVIDIA RTX 4060 GPU, and reported results are averaged over four independent runs with distinct random seeds. 
+
+5.1 Quantitative Evaluation Unimodal SOC Tasks. As shown in Table 1, we compare the mean and standard deviation of control L2 error against other baseline methods across three unimodal SOC control tasks. While all methods perform comparably on the simple Linear task, our PI-VM method significantly outperforms baselines on the Quadratic tasks. Notably, in the “Hard” setting, state-of-the-art methods like SOCM 
+
+and SOCM-A fail to converge. In contrast, our value-based approach successfully approximates the global landscape, achieving the lowest error. Furthermore, PI-VM demonstrates superior efficiency, running 10 –20 × faster than baselines. This directly addresses the critical bottleneck of prior works: by avoiding computationally prohibitive forward trajectory simulations and stochastic back-propagation, our method achieves both higher precision and real-time inference speeds. 8Multimodal Sampling Task. We further evaluate the proposed method on the 20 dimensions multimodal Gaussian Mixture Model (GMM) task under varying difficulty settings, defined by the distance between modes (Dist.) and the variance of modes (Var.). As shown in Table 4, our method consistently outperforms the baseline across all configurations. Notably, our approach demonstrates superior robustness in scenarios with Small Variance (i.e., highly peaked distributions). In these challenging settings, the baseline method suffers from catastrophic failure. This is likely because policy-based methods struggle with the vanishing gradients typical of sharp energy landscapes. In contrast, our value-based approach maintains exceptional stability, achieving low errors. This result highlights the efficacy of our method in handling complex, non-convex landscapes where traditional baselines diverge. 
+
+High-dim Scalability. Table 2 investigates the scalability on the Quadratic OU Easy task with state dimensions increasing from 10 to 200. The results reveal severe limitations in baseline methods: 
+
+SOCM quickly encounters memory bottlenecks (OOM) at d = 80 due to the prohibitive cost of storing full trajectories, while AM suffers from optimization instability, resulting in error explosion and eventual divergence at d = 200 . In stark contrast, ours PI-VM effectively breaks the curse of dimensionality, maintaining robust convergence and real-time inference speeds even at d = 200 .This confirms that by bypassing the computational burden of forward simulation and adjoint back-propagation, our value-based formulation offers a uniquely scalable solution for high-dimensional stochastic control. 
+
+5.2 Mode Coverage Qualitative Analysis 
+
+To evaluate the algorithm’s capability in handling multimodal distributions and traversing high-energy barriers, we conducted a visualization experiment on a 50 dimensions Many-well potential landscape. As shown in the top row of Figure 1, our learned Value Function (Top-Right) accurately reconstructs the underlying non-convex geometry, providing a correct guidance for control. The bottom row highlights the sampling performance: the Adjoint Matching baseline (Bottom-Left, red) suffers from high variance, with a significant number of samples failing to converge and scattering across high-energy barriers. In contrast, our method (Bottom-Right, green) generates high-fidelity samples that are strictly confined to the stable equilibria. This visual evidence demonstrates that our approach effectively mitigates the mode-mixing issues and achieves a distribution density that aligns closely with the Ground Truth. 
+
+5.3 Ablation Studies 
+
+We investigated the impact of varying the number of Monte Carlo samples ( N ) and the forward TD simulation steps ( M ) on control performance and computational efficiency. As summarized in Table 3, increasing both N and M generally leads to lower control L2 error, albeit at the cost of increased runtime. We observe diminishing returns in performance improvement beyond certain thresholds. For instance, extending the steps from M = 8 to M = 16 (at N = 8 ) yields no reduction in loss but increases runtime. Similarly, doubling the samples to N = 16 significantly increases computational overhead without improving accuracy. Consequently, the empirical results suggest that the configuration ( N = 8 , M = 8 ) offers the optimal trade-off between accuracy and inference speed, serving as our default setting. Additional ablation studies on network depth, batch size, and sample size are provided in Sections D.1 to D.3, demonstrating the robustness and efficiency of our method across different training configurations. 
+
+## 6 Conclusion 
+
+We presented PI-VM, a novel value-based algorithm for high-dimensional Stochastic Optimal Control. By revisiting Path Integral Control and deriving a temporal recursive formulation, we effectively eliminated the need for computationally expensive and high variance full-trajectory simulations. Our method leverages TD learning, experience replay buffer, and Girsanov theorem to achieve stable and efficient off-policy training. Experimental results confirm that PI-VM significantly outperforms existing policy-based baselines in terms of training speed, numerical stability, and scalability to high-dimensional state spaces. Despite these advantages, as a value-based approach, PI-VM still requires computationally expensive automatic differentiation to obtain the control signal, which can limit runtime efficiency in practice. 9References 
+
+[1] Richard Bellman. Dynamic programming. science , 153(3731):34–37, 1966. [2] Wendell H Fleming and Raymond W Rishel. Deterministic and stochastic optimal control , volume 1. Springer Science & Business Media, 2012. [3] Carles Domingo i Enrich, Jiequn Han, Brandon Amos, Joan Bruna, and Ricky TQ Chen. Stochastic optimal control matching. Advances in Neural Information Processing Systems , 37:112459–112504, 2024. [4] Carles Domingo-Enrich, Michal Drozdzal, Brian Karrer, and Ricky T. Q. Chen. Adjoint matching: Fine-tuning flow and diffusion generative models with memoryless stochastic optimal control. In The Thirteenth International Conference on Learning Representations , 2025. [5] Yongxin Chen, Tryphon T Georgiou, and Michele Pavon. Stochastic control liaisons: Richard sinkhorn meets gaspard monge on a schrodinger bridge. Siam Review , 63(2):249–313, 2021. [6] Guan-Horng Liu, Jaemoo Choi, Yongxin Chen, Benjamin Kurt Miller, and Ricky TQ Chen. Adjoint schr \"odinger bridge sampler. arXiv preprint arXiv:2506.22565 , 2025. [7] Denis Blessing, Julius Berner, Lorenz Richter, Carles Domingo-Enrich, Yuanqi Du, Arash Vahdat, and Gerhard Neumann. Trust region constrained measure transport in path space for stochastic optimal control and inference. arXiv preprint arXiv:2508.12511 , 2025. [8] Carles Domingo-Enrich. A taxonomy of loss functions for stochastic optimal control. arXiv preprint arXiv:2410.00345 , 2024. [9] Emanuel Todorov. Linearly-solvable markov decision problems. Advances in neural information processing systems , 19, 2006. [10] Hilbert J Kappen. An introduction to stochastic control theory, path integrals and reinforcement learning. In AIP conference proceedings , volume 887, pages 149–181. American Institute of Physics, 2007. [11] Hilbert J Kappen. Linear theory for control of nonlinear stochastic systems. Physical review letters ,95(20):200201, 2005. [12] Sep Thijssen and HJ Kappen. Path integral control and state-dependent feedback. Physical Review E ,91(3):032104, 2015. [13] Shangtong Zhang and Richard S Sutton. A deeper look at experience replay. arXiv preprint arXiv:1712.01275 , 2017. [14] Bernt Oksendal. Stochastic differential equations: an introduction with applications . Springer Science & Business Media, 2013. [15] Ruimeng Hu and Mathieu Lauriere. Recent developments in machine learning methods for stochastic control and games. arXiv preprint arXiv:2303.10257 , 2023. [16] Yanwei Jia and Xun Yu Zhou. q-learning in continuous time. Journal of Machine Learning Research ,24(161):1–61, 2023. [17] Lawrence C Evans. Partial differential equations , volume 19. American mathematical society, 2022. [18] Lars Holdijk, Yuanqi Du, Ferry Hooft, Priyank Jaini, Berend Ensing, and Max Welling. Stochastic optimal control for collective variable free sampling of molecular transition paths. Advances in Neural Information Processing Systems , 36:79540–79556, 2023. [19] Nikolas Nüsken and Lorenz Richter. Solving high-dimensional hamilton–jacobi–bellman pdes using neural networks: perspectives from the theory of controlled diffusions and measures on path space. Partial differential equations and applications , 2(4):48, 2021. [20] Christopher von Klitzing, Denis Blessing, Henrik Schopmans, Pascal Friederich, and Gerhard Neumann. Learning boltzmann generators via constrained mass transport. arXiv preprint arXiv:2510.18460 , 2025. [21] Aaron J Havens, Benjamin Kurt Miller, Bing Yan, Carles Domingo-Enrich, Anuroop Sriram, Daniel S. Levine, Brandon M Wood, Bin Hu, Brandon Amos, Brian Karrer, Xiang Fu, Guan-Horng Liu, and Ricky T. Q. Chen. Adjoint sampling: Highly scalable diffusion samplers via adjoint matching. In Forty-second International Conference on Machine Learning , 2025. 
+
+10 [22] Frédéric Bonnans, J., Ottenwaelter, Élisabeth, and Zidani, Housnaa. A fast algorithm for the two dimen-sional hjb equation of stochastic control. ESAIM: M2AN , 38(4):723–735, 2004. [23] Max Jensen and Iain Smears. On the convergence of finite element methods for hamilton–jacobi–bellman equations. SIAM Journal on Numerical Analysis , 51(1):137–162, 2013. [24] Grady Williams, Andrew Aldrich, and Evangelos A Theodorou. Model predictive path integral control: From theory to parallel computation. Journal of Guidance, Control, and Dynamics , 40(2):344–357, 2017. [25] Hilbert Johan Kappen and Hans Christian Ruiz. Adaptive importance sampling for control and inference. 
+
+Journal of Statistical Physics , 162(5):1244–1266, 2016. [26] Muhammad Kazim, Jungee Hong, Min-Gyeom Kim, and Kwang-Ki K Kim. Recent advances in path integral control for trajectory optimization: An overview in theoretical and algorithmic perspectives. 
+
+Annual Reviews in Control , 57:100931, 2024. [27] Haoran Wang, Thaleia Zariphopoulou, and Xun Yu Zhou. Reinforcement learning in continuous time and space: A stochastic control approach. Journal of Machine Learning Research , 21(198):1–34, 2020. [28] Yanwei Jia and Xun Yu Zhou. Policy evaluation and temporal-difference learning in continuous time and space: A martingale approach. Journal of Machine Learning Research , 23(154):1–55, 2022. [29] Haruki Settai, Naoya Takeishi, and Takehisa Yairi. A temporal difference method for stochastic continuous dynamics. arXiv preprint arXiv:2505.15544 , 2025. [30] Chengxiu Hua, Jiawen Gu, and Yushun Tang. Continuous q-score matching: Diffusion guided reinforce-ment learning for continuous-time control. arXiv preprint arXiv:2510.17122 , 2025. [31] Oliver Mihatsch and Ralph Neuneier. Risk-sensitive reinforcement learning. Machine learning , 49(2):267– 290, 2002. [32] Erfaun Noorani, Christos N Mavridis, and John S Baras. Exponential td learning: A risk-sensitive actor-critic reinforcement learning algorithm. In Proceedings of the American Control Conference . IEEE, 2023. [33] D Hendrycks. Gaussian error linear units (gelus). arXiv preprint arXiv:1606.08415 , 2016. [34] Diederik P Kingma. Adam: A method for stochastic optimization. arXiv preprint arXiv:1412.6980 , 2014. [35] L’ubomír Baˇ nas, Herbert Dawid, Tsiry Avisoa Randrianasolo, Johannes Storn, and Xingang Wen. Nu-merical approximation of a system of hamilton–jacobi–bellman equations arising in innovation dynamics. 
+
+Journal of Scientific Computing , 92(2):54, 2022. [36] Kristian Debrabant and Espen R Jakobsen. Semi-lagrangian schemes for linear and fully non-linear diffusion equations. Mathematics of Computation , pages 1433–1462, 2013. [37] Elisabetta Carlini, Adriano Festa, and Nicolas Forcadel. A semi-lagrangian scheme for hamilton–jacobi– bellman equations on networks. SIAM Journal on Numerical Analysis , 58(6):3165–3196, 2020. [38] Evangelos Theodorou, Jonas Buchli, and Stefan Schaal. A generalized path integral control approach to reinforcement learning. The Journal of Machine Learning Research , 11:3137–3181, 2010. [39] Grady Williams, Paul Drews, Brian Goldfain, James M Rehg, and Evangelos A Theodorou. Aggressive driving with model predictive path integral control. In 2016 IEEE international conference on robotics and automation (ICRA) , pages 1433–1440. IEEE, 2016. [40] Vicenç Gómez, Hilbert J Kappen, Jan Peters, and Gerhard Neumann. Policy search for path integral control. In Joint European Conference on Machine Learning and Knowledge Discovery in Databases ,pages 482–497. Springer, 2014. [41] Wei Zhang, Han Wang, Carsten Hartmann, Marcus Weber, and Christof Schütte. Applications of the cross-entropy method to importance sampling and optimal control of diffusions. SIAM Journal on Scientific Computing , 36(6):A2654–A2672, 2014. [42] Patrick Cheridito, Jean-Loup Dupret, and Donatien Hainaut. Deep learning for continuous-time stochastic control with jumps. arXiv preprint arXiv:2505.15602 , 2025. [43] Jannes Quer and Enric Ribera Borrell. Connecting stochastic optimal control and reinforcement learning. 
+
+Journal of Mathematical Physics , 65(8), 2024. 
+
+11 A Recursive Structure of the Optimal Value Function 
+
+In this section, we demonstrate detailed proofs for the conclusion about the recursive structure of the optimal value function in Proposition 3.1. 
+
+Restatement of Proposition 3.1. For any 0 < t < s ≤ 1, the optimal value function satisfies the following unbiased recursive relations under the base measure P0 and the controlled measure Pu:
+
+exp ( −V (Xt, t )) = EP0
+
+"
+
+exp 
+
+
+
+−V (Xs, s ) −
+
+Z st
+
+f (Xr , r )d r
+
+
+
+Ft
+
+#
+
+= EPu
+
+"
+
+exp 
+
+
+
+−V (Xs, s ) −
+
+Z st
+
+
+
+f (Xr , r ) + 12 ∥u (Xr , r )∥2
+
+
+
+dr −
+
+Z st
+
+u (Xr , r ) d Br
+
+
+
+Ft
+
+#
+
+.
+
+Proof. Following the framework established in Section 2.1, the value function admits the following Feynman-Kac representation: 
+
+exp ( −V (Xt, t )) = EP0
+
+
+
+exp 
+
+
+
+−g(X1) −
+
+Z 1
+
+> t
+
+f (Xr , r ) d r
+
+
+
+Ft
+
+
+
+. (20) By invoking the tower property of conditional expectation, we can decompose the integral over the interval [t, 1] into [t, s ] and [s, 1] for any s ∈ (t, 1) :
+
+exp ( −V (Xt, t )) = EP0
+
+
+
+EP0
+
+
+
+exp 
+
+
+
+−g(X1) −
+
+Z 1
+
+> s
+
+f (Xr , r ) d r −
+
+Z st
+
+f (Xr , r ) d r
+
+
+
+Fs
+
+
+
+Ft
+
+
+
+= EP0
+
+
+
+EP0
+
+
+
+exp 
+
+
+
+−g(X1) −
+
+Z 1
+
+> s
+
+f (Xr , r ) d r
+
+
+
+Fs
+
+
+
+exp 
+
+
+
+−
+
+Z st
+
+f (Xr , r ) d r
+
+
+
+Ft
+
+
+
+.
+
+Substituting the definition of the value function at time s from (20) into the inner expectation, we obtain the first equality of the proposition: 
+
+exp ( −V (Xt, t )) = EP0
+
+
+
+exp ( −V (Xs, s )) exp 
+
+
+
+−
+
+Z st
+
+f (Xr , r ) d r
+
+
+
+Ft
+
+
+
+.
+
+To derive the second equality, we perform a change of measure from the base distribution p0 to the controlled distribution Pu. By applying the Girsanov Theorem, the Radon-Nikodym derivative (likelihood ratio) over the interval [t, s ] is given by: 
+
+dP0
+
+dPu = exp 
+
+
+
+−
+
+Z st
+
+u(Xr , r )d Br − 12
+
+Z st
+
+∥u(Xr , r )∥2dr
+
+
+
+.
+
+Substituting this into the expectation, the second form of the recursive structure follows immediately. 
+
+## B Convergence Analysis of Recursive Update 
+
+In this section, we establish the theoretical convergence of the iterative sequence {Vk}∞ 
+
+> k=1
+
+to the true optimal value function V . The proof leverages the contraction mapping principle in the space of transformed value functions. 
+
+Restatement of Theorem 3.3. Suppose the following assumptions hold: A1. The running cost is bounded from below by a positive constant, i.e., f (x, t ) ≥ finf > 0;A2. The terminal cost g(x) is continuous and bounded; A3. The underlying SDE satisfies standard Lipschitz and growth conditions, ensuring the transi-tion semigroup possesses the Feller property. 
+
+12 Let Cb(X × [0 , 1]) be the Banach space of bounded continuous functions. Let {Vk}∞ 
+
+> k=1
+
+⊂ C b be a sequence of functions satisfying Vk(x, 1) = g(x) for all k, and for t < 1, the recursive update: 
+
+exp ( −Vk(x, t )) = EP0
+
+"
+
+exp 
+
+
+
+− ˜Vk−1(Xt+ε, t + ε) −
+
+Z t+εt
+
+f (Xr , r ) d r
+
+
+
+Xt = x
+
+#
+
+,
+
+where ˜Vk−1 is defined such that ˜Vk−1(x, s ) = Vk−1(x, s ) for s < 1 and ˜Vk−1(x, 1) = g(x). Then, the sequence Vk(x, t ) converges to the unique optimal value function V (x, t ) as k → ∞ .Proof. We define the transformed function Zk(x, t ) = exp( −Vk(x, t )) . The terminal condition implies Zk(x, 1) = exp( −g(x)) =: ζ(x) for all k. We define the operator T on Cb as follows: 
+
+(T ϕ)( x, t ) := E
+
+
+
+˜ϕ(Xt+ε, t + ε) exp 
+
+
+
+−
+
+Z t+εt
+
+f (Xr , r )d r
+
+
+
+Xt = x
+
+
+
+,
+
+where ˜ϕ(x, s ) = ϕ(x, s ) for s < 1 and ˜ϕ(x, 1) = ζ(x). Under Assumption A3, T maps Cb into itself. For any ϕ, ψ ∈ C b, consider the difference |T ϕ − T ψ|. Note that at the boundary s = 1 , we have 
+
+˜ϕ(x, 1) − ˜ψ(x, 1) = ζ(x) − ζ(x) = 0 . For t < 1 − ε:
+
+|(T ϕ)( x, t ) − (T ψ)( x, t )| ≤ E
+
+h
+
+|ϕ(Xt+ε, t + ε) − ψ(Xt+ε, t + ε)|e− R t+εt f dr i
+
+.
+
+By Assumption A1, e− R t+εt f dr ≤ e−finf ε = γ < 1. Thus, we obtain: 
+
+∥T ϕ − T ψ∥∞ ≤ γ∥ϕ − ψ∥∞.
+
+This proves T is a contraction mapping. By the Banach Fixed Point Theorem, there exists a unique fixed point Z ∈ C b.As Zk → Z, it follows that Vk → V .
+
+## C Variance Analysis 
+
+In this section, we provide the theoretical justification for the variance reduction in our algorithm. We first derive a general variance decomposition formula and then establish an explicit upper bound for the conditional variance under control discrepancies. 
+
+Restatement of Proposition 3.4. Let Zt be the random variable exp( −g(X1) − R 1 
+
+> t
+
+f (Xr , r ) d r).For any t < s < 1, the conditional variance V(Zt|F t) can be decomposed as follows: 
+
+V(Zt|F t)= V E[Zs|F s] exp 
+
+
+
+−
+
+Z st
+
+f (Xr , r ), dr
+
+
+
+Ft
+
+!
+
++ E
+
+"
+
+V(Zs|F s) exp 
+
+
+
+−2
+
+Z st
+
+f (Xr , r ), dr
+
+
+
+Ft
+
+#
+
+.
+
+Proof. Consider the relationship between Zt and Zs. By the definition of the integral, we have: 
+
+Zt = Zs exp 
+
+
+
+−
+
+Z st
+
+f (Xr , r ), dr
+
+
+
+. (21) To simplify notation, let Γt,s = exp  − R st f (Xr , r ) d r. Note that Γt,s is Fs-measurable but not 
+
+Ft-measurable. We apply the Law of Total Variance conditioned on Fs within the outer filtration Ft:
+
+V(Zt|F t) = V E[Zt|F s] Ft
+
+ + EV(Zt|F s) Ft
+
+. (22) We analyze the two terms on the right-hand side of (22) individually. Using the relation (21) and the fact that Γt,s is Fs-measurable, the inner expectation of the first term is: 
+
+E[Zt|F s] = E[ZsΓt,s |F s] = Γ t,s E[Zs|F s].
+
+13 Taking the variance of this expression conditioned on Ft gives: 
+
+V E[Zt|F s] Ft
+
+ = V E[Zs|F s] exp 
+
+
+
+−
+
+Z st
+
+f (Xr , r ), dr
+
+
+
+Ft
+
+!
+
+.
+
+This matches the first term of the proposition. Similarly, we compute the inner variance in the second term: 
+
+V(Zt|F s) = V(ZsΓt,s |F s).
+
+Since Γt,s is Fs-measurable, it behaves as a constant with respect to the conditional variance V(·|F s).Thus, we have: 
+
+V(Zt|F s) = Γ 2
+
+> t,s
+
+V(Zs|F s) = exp 
+
+
+
+−2
+
+Z st
+
+f (Xr , r ), dr
+
+
+
+V(Zs|F s).
+
+Taking the expectation of this term conditioned on Ft yields: 
+
+EV(Zt|F s) Ft
+
+ = E
+
+"
+
+V(Zs|F s) exp 
+
+
+
+−2
+
+Z st
+
+f (Xr , r ), dr
+
+
+
+Ft
+
+#
+
+.
+
+This matches the second term of the proposition. Combining the first and second terms completes the proof. 
+
+Restatement of Theorem 4.3. Suppose that the control u satisfies the uniform bound 
+
+sup x,r ∥u∗(x, r ) − u(x, r )∥2 ≤ κ. Then, the conditional variance of M(X[t,s ]) (defined by Equation 18) under the controlled measure Pu satisfies: 
+
+VPu (M(X[t,s ])|F t) ≤ exp ( −2V (Xt, t )) [exp ( κ(s − t)) − 1] .
+
+Proof. Consider the log-estimator defined by Yt,s = log M(X[t,s ]). By applying Itô’s formula to the definition of Yt,s , we obtain: 
+
+dYt,s = −
+
+ ∂V ∂s + ∇V · b + ∇V · (σu ) + 12 tr (σσ ⊤∇2V ) + f + 12 ∥u∥2
+
+
+
+ds − (σ⊤∇V + u) · dBs.
+
+Recall that in our framework, the value function V satisfies the Hamilton-Jacobi-Bellman (HJB) equation: 
+
+∂V ∂s + ∇V · b + 12 tr (σσ ⊤∇2V ) + f − 12 ∥σ⊤∇V ∥2 = 0 . (23) By substituting (23) into the expression for dYt,s and invoking the optimal control relation u∗ =
+
+−σ⊤∇V , the dynamics simplify to: 
+
+dYt,s = −
+
+ 12 ∥σ⊤∇V ∥2 + ∇V · (σu ) + 12 ∥u∥2
+
+
+
+ds − (σ⊤∇V + u) · dBs
+
+= − 12 ∥u − u∗∥2ds − (u − u∗) · dBs.
+
+Integrating from t to s with the initial condition Yt,t = −V (Xt, t ), we have: 
+
+Yt,s = −V (Xt, t ) −
+
+Z st
+
+12 ∥u − u∗∥2dr −
+
+Z st
+
+(u − u∗) · dBr .
+
+Next, we apply Itô’s formula to the estimator M(X[t,s ]) = exp( Yt,s ). The evolution of M(X[t,s ]) is governed by: 
+
+dM(X[t,s ]) = M(X[t,s ]) d Yt,s + 12 M(X[t,s ]) (d Yt,s )2
+
+= M(X[t,s ]) ( u∗ − u) · dBs,
+
+(24) 14 which yields the integral representation: 
+
+M(X[t,s ]) = exp ( −V (Xt, t )) + 
+
+Z st
+
+M(X[t,r ]) ( u∗ − u) · dBr .
+
+By applying Itô’s isometry to (24), the conditional variance is bounded as follows: 
+
+VPu (M(X[t,s ])|F t) = EPu
+
+Z st
+
+M(X[t,r ])2 ∥u∗ − u∥2 dr Ft
+
+
+
+≤ κ
+
+Z st
+
+EPu
+
+h
+
+M(X[t,r ])2 Ft
+
+i
+
+dr. 
+
+(25) To estimate the expectation in (25), we introduce a measure transformation. Consider an auxiliary process under distribution Qu defined by the shifted SDE dXr = ( b − σu + 2 σu ∗)d r + σdBr.According to Girsanov’s Theorem: 
+
+EPu
+
+h
+
+M(X[t,r ])2 Ft
+
+i
+
+= EPu
+
+"
+
+exp 
+
+
+
+−2V −
+
+Z rt
+
+∥u − u∗∥2dτ − 2
+
+Z rt
+
+(u − u∗) · dBτ
+
+
+
+Ft
+
+#
+
+= EPu
+
+"
+
+exp 
+
+
+
+−2V +
+
+Z rt
+
+∥u − u∗∥2dτ
+
+
+
+exp 
+
+
+
+−2
+
+Z rt
+
+∥u − u∗∥2dτ − 2
+
+Z rt
+
+(u − u∗) · dBτ
+
+
+
+Ft
+
+#
+
+= EPu
+
+"
+
+exp 
+
+
+
+−2V +
+
+Z rt
+
+∥u − u∗∥2dτ
+
+ dQu
+
+dPu Ft
+
+#
+
+= EQu
+
+"
+
+exp 
+
+
+
+−2V +
+
+Z rt
+
+∥u − u∗∥2dτ
+
+
+
+Ft
+
+#
+
+≤ exp ( −2V (Xt, t )) exp ( κ(r − t)) .
+
+Substituting this bound back into (25) and performing the final integration, we conclude: 
+
+Vpu (M(X[t,s ])|F t) ≤ κ
+
+Z st
+
+exp ( −2V (Xt, t )) exp ( κ(r − t)) d r
+
+= exp ( −2V (Xt, t )) [exp ( κ(s − t)) − 1] .
+
+## D Further Ablation Studies 
+
+D.1 Ablation study on neural network depths 
+
+We performed an ablation study on the OU Linear task to investigate the impact of neural network depth on control performance. Three network architectures were evaluated: Shallow (64-128-64), Default (64-128-256-128-64), and Deep (64-128-256-512-256-128-64). The control L2 errors over training iterations are reported in Table Section D.1. The results show that deeper networks Table 5: Ablation study on neural network depths over iterations Iterations Shallow Default Deep 3000 0.000818 0.000542 0.000434 5000 0.000289 0.000210 0.000192 7000 0.000157 0.000125 0.000123 9000 0.000094 0.000082 0.000089 consistently achieve lower L2 control errors compared to shallower architectures, indicating improved function approximation capability. Notably, the Deep network achieves the fastest reduction in error 15 during early iterations, suggesting that additional layers help capture the dynamics of the OU Linear task more effectively. However, the performance gain from Deep over Default becomes marginal after 7000 iterations, implying that a moderately deep network already provides sufficient capacity for this task. Overall, this study highlights the trade-off between network complexity and computational efficiency when selecting architectures for PI-VM training. 
+
+D.2 Ablation study on batch size B and sample size N
+
+We conducted an ablation study to evaluate the impact of batch size B and the number of trajectory samples N on the OU Linear task. Table Section D.2 reports the control L2 errors over training iterations for three different (B, N ) configurations. Larger batch sizes combined with smaller sample Table 6: Ablation study on batch size B and sample size N
+
+Iterations B=6400, N=8 B=3200, N=16 B=1600, N=32 3000 0.000542 0.000571 0.000722 5000 0.000210 0.000244 0.000299 9000 0.000082 0.000093 0.000114 numbers (B=6400, N=8) consistently achieve the lowest control errors, suggesting that a sufficiently large batch stabilizes the TD updates while moderate sampling per state is sufficient to reduce variance. Reducing the batch size or increasing the number of samples per state slightly degrades performance, indicating a trade-off between the number of parallel trajectories and per-state variance reduction. 
+
+D.3 Ablation study on sample size N (fixed batch B)
+
+To further isolate the effect of sample size N , we fixed the batch size at B = 6400 and varied N .Table Section D.3 summarizes the control L2 errors for different sample sizes. The results show Table 7: Ablation study on fixed batch size B with varying sample size N
+
+Iterations B=6400, N=8 B=6400, N=16 B=6400, N=32 3000 0.000542 0.000483 0.000477 9000 0.000082 0.000082 0.000081 
+
+that increasing the number of samples N per state slightly improves the final control performance, with diminishing returns after N = 16 . This suggests that, with a large enough batch size, moderate per-state sampling is sufficient to obtain stable TD targets, and additional samples yield only marginal gains while increasing computational cost. 
+
+## E Further Related Works 
+
+Policy-based SOC Solvers. Existing SOC solvers predominantly follow the policy-based paradigm, often termed Iterative Diffusion Optimization. These methods directly parameterize the control policy and optimize it by minimizing divergences (e.g., Relative Entropy, Cross-Entropy [18], Variance [19], and Log-Variance [19]) between the optimal path measures and those induced by the controlled SDEs. Conversely, a parallel line of research investigates matching-based strategies, including Stochastic Optimal Control Matching [3] and Adjoint Matching [4]. A detailed summary and discussion of above methods can be found in [8]. To improve training stability, recent studies have incorporated trust-region techniques within the path space [7, 20]. Beyond standard control problems, these techniques are finding increasing utility in sampling tasks [6, 21] and diffusion model fine-tuning [4]. Their training pipelines rely heavily on forward simulation and stochastic back-propagation. However, this on-policy simulation mechanism suffers from significant drawbacks: it is not only computationally expensive but also prone to trapping the policy in local optima. Moreover, the high variance associated with gradient estimation often leads to instability during the training process. 
+
+Value-based SOC Solvers. Instead of directly finding the optimal control in the non-convex landscape, HJB points out a different way. Many works have been proposed try to solve HJB 16 numerically, such as finite difference methods [22, 35], finite element methods [23] and semi-Lagrangian scheme [36, 37]. However, such discretize-then-optimize paradigm suffer from the curse of dimensionality, besides, the high-order term involed in the HJB equation further hinder its scalability. Compared to the direct pde solver, the celebrated path integral control [9–11] follows another paradigm. It follows the Cole-Hopf transform [17] and Feynman-Kac Lemma [14], convert the original non-trival PDE problem into a sampling problem. Based on this theory, many algorithms and improvements have been proposed such as Policy Improvement [38], Model Predictive [39, 24], State Feedback [12, 40] and Cross Entropy [25, 41]. While these methods have demonstrated success in some low-dimensional tasks such as driving [39] and trajectory optimization [26], a critical limitation persists: the variance of the path integral estimator scales poorly with dimensionality. In high-dimensional settings, the Monte Carlo estimates suffer from excessive variance, leading to prohibitive sample complexity and unstable convergence. For full introduction and survey, please refer to [26]. 
+
+Continuous time RL. The theoretical foundation of continuous-time reinforcement learning was fundamentally established by [27] through the development of an exploratory Hamilton-Jacobi-Bellman equation that incorporates entropy regularization. This foundational framework has been further extended to model-free temporal difference methods by [29] and to complex systems in-volving jump-diffusion processes by [42]. In a parallel development, [43] identified a mathematical equivalence between variance minimization in importance sampling and LQ-SOC. Another signifi-cant research trajectory emphasizes discretization-free methodologies by leveraging the martingale characterization of value functions and the q-learning theory introduced by [28, 16]. This line of work has most recently been synthesized with diffusion-guided policies by [30] to achieve robust and scalable reinforcement learning for high-dimensional continuous control tasks. Existing methods either solve the HJB equation directly or rely on standard RL policy iteration. Conversely, we leverage the analytical structure of the optimal value function in LQ-SOC, enabling the direct learning of the value function and the immediate recovery of optimal control via its gradient. 
+
+## F Full Algorithm 
+
+We provide the full algorithm pipeline in Algorithm 2. 
+
+## G SOC Tasks Settings 
+
+G.1 Problem 1: Quadratic Ornstein-Uhlenbeck G.1.1 Dynamics & Cost Functions 
+
+• Source Distribution ( ρ0(x)): The process initializes from a scaled standard Gaussian: 
+
+x0 ∼ N (0 , 0.52I) = ⇒ Σinit = 0 .25 I (26) • Base Drift ( b) & Gradient ( ∇xb): Linear drift dynamics: 
+
+b(x, t ) = Ax, ∇xb(x, t ) = A (27) • Diffusion Coefficient ( σ): Constant diffusion: 
+
+σ(t) = σ0 (28) • Running Cost ( f ) & Gradient ( ∇xf ): Quadratic running cost (assuming symmetric P ): 
+
+f (x, t ) = x⊤P x, ∇xf (x, t ) = 2 P x (29) • Terminal Cost ( g) & Gradient ( ∇xg): Quadratic terminal cost (assuming symmetric Q): 
+
+g(x) = x⊤Qx, ∇xg(x) = 2 Qx (30) 17 Algorithm 2 Path Integral Value Matching (PI-VM)  
+
+> 1:
+
+Input: Problem Setup {f, g, b, σ, ρ 0}; Sample Steps M ; Sample Batch N ; Replay Buffer Update Batch Size K; Training Batch Size B; Learning Rate η; EMA Param τ . 
+
+> 2:
+
+Initialize: Replay Buffer D; Value Network Vθ ; Target Value Network Vˆθ . 
+
+> 3:
+
+for episode e = 1 to max episodes do  
+
+> 4:
+
+if need update replay buffer then  
+
+> 5:
+
+Set control ut(x) = −σT (t)∇Vˆθ (x, t ). 
+
+> 6:
+
+Sample K trajectories {X(i)}Ki=1 . 
+
+> 7:
+
+for each state-time pair {X(i) 
+
+> t
+
+, t } in trajectories do  
+
+> 8:
+
+Sample N short-term path branches {Y (j)[t,s ] | Y (j) 
+
+> t
+
+= X(i) 
+
+> t
+
+}Nj=1 , where s = min(1 , t +
+
+M ∆t). 
+
+> 9:
+
+Compute functionals { ˆW(j), ˆS(j)}Nj=1 via Equations (14) and (15).  
+
+> 10:
+
+Push {X(i) 
+
+> t
+
+, t, s, {Y (j) 
+
+> s
+
+, ˆW(j), ˆS(j)}Nj=1 } into D. 
+
+> 11:
+
+end for  
+
+> 12:
+
+end if  
+
+> 13:
+
+Sample batch {xti , t i, s i, {y(j) 
+
+> si
+
+, ˆW(j), ˆS(j)}Nj=1 }Bi=1 ∼ D . 
+
+> 14:
+
+Compute terminal functionals {{ ˆG(y(j) 
+
+> si
+
+)}Nj=1 }Bi=1 following Equation (14).  
+
+> 15:
+
+Compute target values { ˆVˆθ (xti , u ti , t i, s i)}Bi=1 following Equation (17).  
+
+> 16:
+
+Compute Loss: L(θ) = 1
+
+> B
+
+PBi=1 ∥Vθ (xti , t i) − ˆVˆθ (xti , u ti , t i, s i)∥2. 
+
+> 17:
+
+Update parameters: θ ← θ − η∇θ L(θ). 
+
+> 18:
+
+Update target parameters: ˆθ ← τ θ + (1 − τ )ˆθ. 
+
+> 19:
+
+end for  
+
+> 20:
+
+Output: Optimal Value Function Vθ .
+
+G.1.2 Analytical Optimal Control u∗
+
+The optimal control is linear in the state x, derived from the solution to the Riccati equation. 
+
+u∗ 
+
+> t
+
+(x) = −2σ⊤ 
+
+> 0
+
+Ftx (31) where Ft is the solution to the following Riccati Differential Equation (solved backward in time): 
+
+dF t
+
+dt + A⊤Ft + FtA − 2Ftσ0σ⊤ 
+
+> 0
+
+Ft + P = 0 , with FT = Q (32) 
+
+G.1.3 Analytical Optimal Value Function 
+
+The form of the optimal control implies that the Value Function is quadratic with respect to the state 
+
+x:
+
+V (x, t ) = x⊤Ftx + α(t) (33) where: • Ft (Hessian of Value) is the solution to the Riccati differential equation mentioned above. • α(t) (Scalar Offset) accounts for the constant term evolution caused by stochastic noise: 
+
+α(t) = 
+
+Z Tt
+
+Tr (σ0σ⊤ 
+
+> 0
+
+Fs) ds (34) 
+
+G.1.4 Specific Parameter Settings 
+
+Two difficulty settings are defined: Easy and Hard. 
+
+G.2 Problem 2: Linear Ornstein-Uhlenbeck G.2.1 Dynamics & Cost Functions 
+
+• Source Distribution ( ρ0(x)): The process initializes from a scaled standard Gaussian: 
+
+x0 ∼ N (0 , 0.52I) (35) 18 Table 8: Parameter Settings for Quadratic OU 
+
+Parameter Easy Setting Hard Setting 
+
+Dimension ( d) 20 20 Drift Matrix ( A) 0.2 · I I
+
+Running Cost ( P ) 0.2 · I I
+
+Terminal Cost ( Q) 0.1 · I 0.5 · I
+
+Diffusion ( σ0) I I
+
+Time Steps ( T ) 50 50 Learning Rates ( η) 1e-4 1e-4 Batch Size ( B) 6400 12800 Max Episodes 60000 80000 • Base Drift ( b) & Gradient ( ∇xb): Linear drift: 
+
+b(x, t ) = Ax, ∇xb(x, t ) = A (36) • Diffusion Coefficient ( σ): Constant diffusion (matrix valued): 
+
+σ(t) = σ0 (37) • Running Cost ( f ) & Gradient ( ∇xf ): Zero running cost: 
+
+f (x, t ) = 0 , ∇xf (x, t ) = 0 (38) • Terminal Cost ( g) & Gradient ( ∇xg): Linear terminal cost (inner product): 
+
+g(x) = ⟨γ, x ⟩ = γ⊤x, ∇xg(x) = γ (39) 
+
+G.2.2 Analytical Optimal Control u∗
+
+For linear costs, the optimal control depends only on time (open-loop component). It is derived analytically as: 
+
+u∗ 
+
+> t
+
+(x) = −σ⊤ 
+
+> 0
+
+eA⊤(T −t)γ (40) 
+
+G.2.3 Specific Parameter Settings 
+
+Parameters are randomly sampled once at the beginning of the simulation using a fixed seed. • Dimension ( d): 10 • Random Sampling ( ξij ): Sampled from a standard normal distribution (implied by typical setup, e.g., 0.1 × N (0 , 1) ). • Drift Matrix ( A): A = −I + ( ξij )1≤i,j ≤d
+
+• Diffusion ( σ0): σ0 = I + ( ξij )1≤i,j ≤d
+
+• Cost Vector ( γ): γ = 1 (Vector of all ones) • Time Steps ( T ): 100 • Learning Rates ( η): 1e-4 • Batch Size ( B): 6400 • Max Episodes: 60000 
+
+G.2.4 Analytical Optimal Value Function 
+
+Since the cost function and dynamics are linear, the Value Function is a linear function of x plus a time-dependent scalar offset: 
+
+V (x, t ) = ψ(t)⊤x + β(t) (41) where: 19 • ψ(t) (Gradient of Value) satisfies dψ dt = −A⊤ψ with ψ(T ) = γ. The analytical solution is: 
+
+ψ(t) = eA⊤(T −t)γ (42) • β(t) (Scalar Offset) is given by: 
+
+β(t) = − 12
+
+Z Tt
+
+ψ(s)⊤σ0σ⊤ 
+
+> 0
+
+ψ(s) ds (43) 
+
+## H Sampling Tasks Settings 
+
+H.1 Shared Dynamics & Notation 
+
+Both the GMM problem and the Many Well problem utilize a controlled Ornstein-Uhlenbeck (OU) process with the following shared settings: • State Space: x ∈ Rd
+
+• Time Horizon: t ∈ [0 , 1] 
+
+• Diffusivity Schedule: A cosine schedule is used to modulate the noise level: 
+
+ζ(t) = ( Cmax − Cmin ) cos 2
+
+ tπ 
+
+2T
+
+
+
++ Cmin (44) • Noise Coefficient: Defined as a function of the diffusivity: 
+
+σ(t) = ηp2ζ(t) (45) 
+
+H.2 Problem 3: Gaussian Mixture Model (GMM) H.2.1 Dynamics & Cost Functions 
+
+• Source Distribution ( ρ0): The process initializes from a wide Gaussian distribution with 
+
+η = 2 .5:
+
+ρ0(x) = N (x | 0, η 2I) (46) • Base Drift ( b) & Gradient ( ∇xb): Identical to the Many Well problem, using a linear mean-reverting drift: 
+
+b(x, t ) = −ζ(t)x, ∇xb(x, t ) = −ζ(t)I (47) • Running Cost ( f ) & Gradient ( ∇xf ): Zero running cost: 
+
+f (x, t ) = 0 , ∇xf (x, t ) = 0 (48) • Terminal Cost ( g) & Gradient ( ∇xg): The terminal cost forces the terminal distribution to match the target GMM ρtarget (x) = PKk=1 πkN (x | μk, Σk).
+
+g(x) = log PT (x) − log ρtarget (x) (49) Given the prior stationary distribution PT (x) = N (0 , η 2I), the explicit cost is: 
+
+g(x) = −
+
+ D
+
+2 log(2 πη 2) + ∥x∥2
+
+2η2
+
+
+
+− log 
+
+> K
+
+X
+
+> k=1
+
+πk exp 
+
+
+
+− 12 (x − μk)⊤Σ−1 
+
+> k
+
+(x − μk) − 12 log |2πΣk|
+
+! (50) The gradient is derived using the posterior responsibility γk(x):
+
+∇xg(x) = − xη2 +
+
+> K
+
+X
+
+> k=1
+
+γk(x)Σ −1 
+
+> k
+
+(x − μk) (51) where γk(x) is defined as: 
+
+γk(x) = πkN (x | μk, Σk)
+
+PKj=1 πj N (x | μj , Σj ) (52) 20 H.2.2 Analytical Optimal Control u∗
+
+The optimal control is given by the score matching formula: 
+
+u∗(x, t ) = ηp2ζ(t) ( ∇x log Qt(x) − ∇ x log Pt(x)) (53) 
+
+1. Forward Score ( ∇ log Pt): Since the prior dynamics preserve the stationary distribution 
+
+N (0 , η 2I):
+
+∇x log Pt(x) = − xη2 (54) 
+
+2. Backward Path Measure ( Qt): The target distribution evolves as a time-varying GMM: 
+
+Qt(x) = 
+
+> K
+
+X
+
+> k=1
+
+πkN (x | μk(t), Σk(t)) (55) The parameters evolve according to the scale factor E(t) = exp 
+
+
+
+− R Tt ζ(s) ds 
+
+
+
+. The explicit integral of the schedule is: 
+
+Z st
+
+ζ(τ ) dτ = Cmax + Cmin 
+
+2 (s − t) + (Cmax − Cmin )T
+
+2π
+
+
+
+sin 
+
+ πs T
+
+
+
+− sin 
+
+ πt T
+
+ 
+
+(56) The time-dependent means and covariances are: 
+
+μk(t) = μk · E(t) (57) 
+
+Σk(t) = Σ kE(t)2 + η2(1 − E(t)2)I (58) 
+
+3. Final Expression: Substituting these into the control formula: 
+
+u∗(x, t ) = ηp2ζ(t)
+
+" KX
+
+> k=1
+
+γk(x, t )Σ k(t)−1(μk(t) − x)
+
+#
+
++ xη2
+
+!
+
+(59) where γk(x, t ) is the time-dependent responsibility: 
+
+γk(x, t ) = πkN (x | μk(t), Σk(t)) 
+
+P 
+
+> j
+
+πj N (x | μj (t), Σj (t)) (60) 
+
+H.2.3 Analytical Optimal Value Function 
+
+The value function is the difference between the log-probabilities of the target path measure and the prior path measure: 
+
+V (x, t ) = − (log Qt(x) − log Pt(x)) (61) Expanding this yields: 
+
+V (x, t ) = −
+
+ D
+
+2 log(2 πη 2) + ∥x∥2
+
+2η2
+
+| {z }  
+
+> Prior Log-Prob (log Pt)
+
+− log 
+
+> K
+
+X
+
+> k=1
+
+πk
+
+1
+
+p(2 π)D |Σk(t)| exp 
+
+
+
+− 12 (x − μk(t)) ⊤Σk(t)−1(x − μk(t)) 
+
+!| {z }  
+
+> Target Path Log-Prob (log Qt)
+
+(62) 
+
+H.2.4 Specific Parameter Settings 
+
+Parameters are randomly sampled once at the beginning of the simulation using a fixed seed. • Dimension ( d): 20 • Time Steps ( T ): 50 21 • Learning Rates ( η): 5e-4 • Batch Size ( B): 12800 • GMM modes number: 4• Max Episodes: 30000 • Dist: Far μ ∼ N (0 , 4I), Close μ ∼ N (0 , I )
+
+• Var: Small Σ = 0 .5 · I, Large Σ = I
+
+H.3 Problem 4: Many Well H.3.1 Dynamics & Cost Functions 
+
+• Source Distribution ( ρ0): The process initializes from a wide Gaussian distribution with 
+
+η = 1 :
+
+ρ0(x) = N (x | 0, η 2I) (63) • Base Drift ( b) & Gradient ( ∇xb): Identical to the Many Well problem, using a linear mean-reverting drift: 
+
+b(x, t ) = −ζ(t)x, ∇xb(x, t ) = −ζ(t)I (64) • Running Cost ( f ) & Gradient ( ∇xf ): Zero running cost: 
+
+f (x, t ) = 0 , ∇xf (x, t ) = 0 (65) • Terminal Cost ( g) & Gradient ( ∇xg): The terminal cost forces the terminal distribution to match the target Many Well Defined as g(x) = log PT (x) − log ρtarget (x).
+
+PT (x) ∝ exp 
+
+
+
+− ∥x∥2
+
+2η2
+
+
+
+ρtarget (x) = exp 
+
+−
+
+> m
+
+X
+
+> i=1
+
+(x2 
+
+> i
+
+− δ)2 − 12
+
+> d
+
+X
+
+> j=m+1
+
+x2
+
+> j
+
+
+
+Combining these (ignoring constants): 
+
+g(x) = 
+
+> m
+
+X
+
+> i=1
+
+(x2 
+
+> i
+
+− δ)2 + 12
+
+> d
+
+X
+
+> j=m+1
+
+x2 
+
+> j
+
+− 12η2
+
+> d
+
+X
+
+> k=1
+
+x2
+
+> k
+
+The gradient ∇xg(x) is defined component-wise: For i ∈ { 1, . . . , m } (Many Well dimensions): [∇xg(x)] i = 4 xi(x2 
+
+> i
+
+− δ) − xi
+
+> η2
+
+For j ∈ { m + 1 , . . . , d } (Gaussian dimensions). [∇xg(x)] j = xj − xj
+
+> η2
+
+H.3.2 Specific Parameter Settings 
+
+Parameters are randomly sampled once at the beginning of the simulation using a fixed seed. • Dimension ( d): 10 • Time Steps ( T ): 100 • Learning Rates ( η): 5e-4 • Batch Size ( B): 12800 • Max Episodes: 50000 • Many Well modes ( m): 2• Many Well mean ( δ): 222

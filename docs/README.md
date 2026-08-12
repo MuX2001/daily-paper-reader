@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-11</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-12</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 34 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 28 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>21</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>15</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-11 22:02:14 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-12 21:54:58 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共扫描34篇论文，精读21篇、速读13篇，核心焦点集中在视觉-语言-动作（VLA）模型的前沿进展。</p>
-<p>最值得关注的是两篇高分精读：自适应视觉精修提升VLA操作精度，以及全景感知VLA结合全身遥操作实现移动操控，速读中跨形态导航与执行中心VLM也值得延伸。</p>
-<p>建议普通读者优先浏览VLA模型的视觉提炼与全景感知方向，这是当下机器人具身智能落地的关键突破口。</p>
+<p>今日精读28篇论文，聚焦机器人长时程规划与自适应执行，其中两篇高分工作分别提出贝努利续策学习与显式语言记忆机制。最值得关注的方向是“规划-执行权衡”与“VLA模型记忆增强”，速读中亦见跨具身导航、执行中心VLA及手术器械世界模型等亮点。建议普通读者优先追踪精读9分论文的后续代码与实验，以理解如何让机器人更聪明地决定“继续还是重规划”。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">21 篇</strong>
+    <strong class="dpr-home-dashboard-count">15 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Look Where It Matters: Adaptive Visual Refinement for Vision-Language-Action Models">Look Where It Matters: Adaptive Visual Refinement for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Learning Panorama-Aware VLA for Mobile Manipulation with Whole-Body Teleoperation">Learning Panorama-Aware VLA for Mobile Manipulation with Whole-Body Teleoperation</span></li><li><span class="dpr-home-dashboard-paper-title" title="ValueFormer: A Causal Transformer Value Function with Stage-Aware Labels for Semi-Autonomous Vision-Language-Action Policies">ValueFormer: A Causal Transformer Value Function with Stage-Aware Labels for Semi-Autonomous Vision-Language-Action Policies</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Continue or Replan? Bernoulli-Continuation Policy Learning for Adaptive Horizon Execution">Continue or Replan? Bernoulli-Continuation Policy Learning for Adaptive Horizon Execution</span></li><li><span class="dpr-home-dashboard-paper-title" title="Explicit Language Memory for Long-Horizon Planning in Vision-Language-Action Models">Explicit Language Memory for Long-Horizon Planning in Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="DyPES-VLA: Learning Shared Dynamics Priors and Embodiment-Specific Control for Cross-Embodiment Manipulation">DyPES-VLA: Learning Shared Dynamics Priors and Embodiment-Specific Control for Cross-Embodiment Manipulation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">world-model <strong>9</strong></span><span class="dpr-home-dashboard-tag">control <strong>6</strong></span><span class="dpr-home-dashboard-tag">vla <strong>5</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>5</strong></span><span class="dpr-home-dashboard-tag">control <strong>4</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>3</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>3</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -89,9 +87,9 @@
     <strong class="dpr-home-dashboard-count">13 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="CrossTracer: Cross-Embodiment Navigation via VLA Model Reasoning and Trace Residuals Adapting">CrossTracer: Cross-Embodiment Navigation via VLA Model Reasoning and Trace Residuals Adapting</span></li><li><span class="dpr-home-dashboard-paper-title" title="Capek 0.5: An Execution-Centric Vision-Language Model for Embodied Intelligence">Capek 0.5: An Execution-Centric Vision-Language Model for Embodied Intelligence</span></li><li><span class="dpr-home-dashboard-paper-title" title="Inverse reinforcement learning for indefinite mean-field social optimization with multiplicative noise">Inverse reinforcement learning for indefinite mean-field social optimization with multiplicative noise</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="CrossTracer: Cross-Embodiment Navigation via VLA Model Reasoning and Trace Residuals Adapting">CrossTracer: Cross-Embodiment Navigation via VLA Model Reasoning and Trace Residuals Adapting</span></li><li><span class="dpr-home-dashboard-paper-title" title="Capek 0.5: An Execution-Centric Vision-Language Model for Embodied Intelligence">Capek 0.5: An Execution-Centric Vision-Language Model for Embodied Intelligence</span></li><li><span class="dpr-home-dashboard-paper-title" title="SurgWMBench: A Vision-Based Benchmark for World-Modeling Surgical Instrument Motion Planning">SurgWMBench: A Vision-Based Benchmark for World-Modeling Surgical Instrument Motion Planning</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">control <strong>5</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>4</strong></span><span class="dpr-home-dashboard-tag">vla <strong>3</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">world-model <strong>6</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>4</strong></span><span class="dpr-home-dashboard-tag">vla <strong>2</strong></span><span class="dpr-home-dashboard-tag">control <strong>1</strong></span></div>
 </section>
 </div>
 
