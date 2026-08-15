@@ -1,0 +1,1041 @@
+SAFE-CHEM: Uncertainty-Aware Policy Switching
+for Robust Robotic Chemistry
+Laura Jones1, Shazil Shahzad1, Ayesha Sana1 and Gabriella Pizzuto1,2
+Abstract—The deployment of autonomous robotic systems in
+chemistry laboratories is accelerating experimental workflows
+and providing the foundational data for AI-driven scientific
+discovery. However, despite the success of data-driven methods
+in acquiring dexterous skills, safety remains a primary bar-
+rier to their deployment in high-risk domains, such as early-
+stage materials chemistry experiments. Specifically, learning-
+based policies frequently struggle to distinguish between safe
+and unsafe actions, leading to overconfident extrapolation and
+potentially catastrophic failures. To mitigate these safety risks,
+we propose SAFE-CHEM, an uncertainty-aware framework de-
+signed for robust, learning-based robotic chemists. Our approach
+leverages an ensemble of recurrent neural network-based imita-
+tion learning policies to quantify epistemic uncertainty online
+through the variance of action predictions. By characterising the
+success-conditioned density of this variance using kernel density
+estimation, we introduce a hybrid control architecture that
+autonomously switches from the learned policy to a deterministic,
+rule-based backup controller when uncertainty exceeds a cali-
+brated safety threshold. We evaluate SAFE-CHEM across three
+fundamental laboratory manipulation tasks, where our empirical
+results demonstrate that this hybrid strategy improves overall
+task success rates and reduces critical safety violations compared
+to traditional single-policy baselines. Finally, we demonstrate the
+practical viability of the framework through zero-shot sim-to-real
+transfer onto a physical Franka Production 3 robot manipulator.
+I. INTRODUCTION
+The integration of robotics and artificial intelligence has
+the potential to accelerate traditional human-driven chemistry
+experiments towards autonomous and more efficient work-
+flows [1], [2]. The benefits of robotic chemists have already
+been demonstrated globally across diverse workflows [3]–[5].
+These systems can execute a broad spectrum of experiments by
+utilising general-purpose robots, but most remain restricted to
+rigid, non-reconfigurable workspaces where changing to novel
+experiments often incurs substantial downtime [6].
+To overcome the limitations of rigid traditional methods
+in chemistry lab automation, recent works in robotic ma-
+nipulation for chemistry have pivoted towards learning-based
+methods, specifically using imitation learning (IL) and rein-
+forcement learning (RL) [2]. Unlike traditional automation that
+relies on precise coordinate-based trajectories, learning-based
+approaches allow manipulators to acquire complex, dexterous
+1 School of Computer Science & Informatics, University of Liverpool, UK.
+Corresponding author email: Laura.Jones@liverpool.ac.uk
+2 Department of Chemistry, University of Liverpool, UK.
+This work was supported by the Royal Academy of Engineering under
+the Research Fellowship Scheme and the Google DeepMind Research Ready
+Scheme, and EPSRC through the Digital and Automated Materials Chemistry
+Centre for Doctoral Training (EP/Y03502X/1).
+Fig. 1: An overview of our method SAFE-CHEM, which
+consists of four stages: (1) training an ensemble-based imi-
+tation learning policy (πL) in simulation for robotic chemistry
+manipulation tasks; (2) estimating the epistemic uncertainty σ
+through ensemble variance; (3) action selection that monitors
+σ to gate control between πL and a fail-safe rule-based backup
+robot controller (πB); and (4) real-world demonstration on a
+robotic system using zero-shot task transfer.
+skills e.g., powder weighing [7], pouring of fluids [8], or
+sample scraping [9]. Although IL offers a sample-efficient
+alternative to RL, its application to chemistry remains under-
+explored. In chemistry, the difficulty of hand-engineering
+reward functions for multi-step procedures often makes expert
+demonstrations a more practical alternative.
+Despite the flexibility offered by these learning-based meth-
+ods, the widespread adoption of robotic systems in human-
+centric chemistry laboratories remains contingent on overcom-
+ing critical safety hurdles [10], e.g., chemical spillage [11] and
+reactive collision avoidance in constrained environments [12].
+Beyond protecting human scientists from hazardous environ-
+ments and high-risk procedures, autonomous systems alleviate
+the burden of repetitive, time-intensive tasks, thereby reallo-
+arXiv:2608.09303v1  [cs.RO]  10 Aug 2026
+
+
+cating human cognitive resources towards complex problem-
+solving [1]. Addressing the safety challenges within these
+tasks, from robust robotic manipulation to intelligent decision-
+making by autonomous agents, is critical for the reliable
+deployment of these systems [10].
+While IL has emerged as a prominent paradigm for training
+these autonomous agents, its reliability in practice remains
+fundamentally bounded by the density and diversity of the pro-
+vided expert demonstrations. A critical challenge in chemistry
+laboratory-based IL is the distributional shift that occurs when
+an agent encounters states outside the expert manifold e.g.,
+novel equipment or unexpected reaction dynamics. Because
+vanilla IL models often fail to distinguish between epistemic
+uncertainty (lack of data) and aleatoric uncertainty (inherent
+noise), they are prone to overconfident extrapolation. In a
+safety-critical environment, as is a chemistry lab, a policy may
+attempt to execute an action in an out-of-distribution (OOD)
+state [13], potentially leading to catastrophic failures [10]
+without any internal mechanism to trigger a safety intervention
+or seek human input.
+To address this, we propose a modular framework SAFE-
+CHEM that treats failure prevention in chemistry lab manipu-
+lation tasks as a real-time uncertainty-quantification problem,
+as illustrated in Fig. 1. Our method utilises an ensemble
+of neural network policies, whereby it monitors epistemic
+drift during inference to trigger a switching mechanism that
+transitions control back to a fail-safe state whenever the
+model’s confidence falls below a critical threshold, ensuring
+that the robot’s adaptive behaviour does not come at the cost
+of laboratory safety.
+In summary the contributions of this work are:
+(1) An ensemble-based imitation learning architecture
+specifically tailored for chemistry laboratory robotic manipula-
+tion, which enhances task robustness by capturing distribution
+of uncertainty across task rollouts to provide a more resilient
+policy than traditional single-model approaches;
+(2) An uncertainty-aware, policy-agnostic safety framework
+that monitors variance across ensemble predictions to au-
+tonomously identify high-risk states and trigger a switching
+mechanism, effectively balancing task success with the fre-
+quency of autonomous intervention;
+(3) An empirical quantification of the relationship between
+policy confidence and task success, providing a systematic
+analysis of how safety thresholds can be tuned based on the
+specific risk profile of a laboratory task;
+(4) A zero-shot real-world demonstration of our framework
+onto a physical robotic manipulator.
+II. RELATED WORK
+A. Robotics for Laboratory Automation
+The adoption of robotic systems in chemistry labs is slowly
+evolving towards adaptive, modular systems capable of learn-
+ing new laboratory skills. Current approaches for developing
+these low-level behaviours typically fall into two categories:
+RL [7], [9], [14] or more recently, IL. For instance, Xu et
+al. [15] demonstrated the first application of imitation learning
+in a materials laboratory by training a a behaviour cloning with
+a recurrent neural network (BC-RNN) policy on 50 kinesthetic
+demonstrations to achieve autonomous cathode painting on
+fuel cell pellets. More recently, Suzuki et al. [16] proposed
+TVF-DiT, a compact imitation learning framework that aligns
+vision and vision-language foundation models with a diffu-
+sion transformer-based action expert to enable efficient, high-
+success-rate robotic laboratory automation on low-VRAM
+hardware. Despite the promise of these learning-based skills,
+their deployment in safety-critical chemistry labs is hindered
+by a lack of failure-prediction mechanisms. Suzuki et al. [16]
+identified that failures typically occur during the final stages
+of placement, suggesting a need for OOD detection during
+high-precision manoeuvres. Unlike these prior works that rely
+on a single policy, our approach introduces an ensemble-based
+policy that monitors action uncertainty across task manifolds
+to recognise and mitigate potential failures.
+B. Uncertainty Estimation and Safety Intervention in Robotic
+Manipulation
+Reliable runtime failure detection is a prerequisite for de-
+ploying IL policies in safety-critical chemistry laboratories.
+Recent research has focused on quantifying uncertainty to
+detect OOD states without requiring explicit failure data.
+Romer et al. proposed FIPER [17], which uses random net-
+work distillation to identify OOD observations. However, such
+visual-heavy embeddings can be confounded by the optical
+challenges of real-world chemistry labs, such as transparent
+glassware and solvents. Similarly, FAIL-Detect [13] employs
+conformal prediction to calibrate safety bands, but its reliance
+on temporal consistency makes it sensitive to temporal drift
+caused by adaptive velocity scaling or a robot approaching its
+physical limits. Uncertainty quantification has also been ex-
+plored using ensemble methods. Zhu et al. [18] proposed a het-
+erogeneity uncertainty quantification method for autonomous
+navigation through crowded intersections, distinguishing be-
+tween data (aleatoric) and model (epistemic) uncertainties.
+While effective for 2D lateral and longitudinal control, these
+methods are primarily designed for low-dimensional action
+spaces. Our work distinguishes itself from these approaches
+by treating failure prevention as a pre-emptive uncertainty-
+quantification problem. While existing systems like FAIL-
+Detect are often reactive, i.e., they identify a failure only
+after the state has significantly deviated, our SAFE-CHEM
+framework monitors epistemic drift to trigger a safety interven-
+tion before an irreversible event occurs. Crucially, our method
+does not require any failure modes to be shown to the robot
+during training as the failure detection is handled via ensemble
+variance, which can be continually refined offline as the policy
+execution improves.
+III. METHODOLOGY
+This work introduces SAFE-CHEM, an uncertainty-aware
+robotic skill framework based on deep imitation learning for
+chemistry laboratory automation (Section III-A). As illustrated
+in Fig. 1 and Fig. 2, our method uses a probabilistic ensemble
+
+
+Fig. 2: Overall system block diagram. Our framework demonstrates how a learned ensemble of RNN-based policies provide
+real-time action predictions (alearned) and epistemic uncertainty quantification (σ). A deterministic state-machine-based backup
+controller (πB) uses an explainable state machine for safe task completion. The switching logic autonomously selects the
+appropriate control signal (asafe) based on a calibrated uncertainty threshold.
+of deep neural networks to capture the predictive distribution
+across multiple models trained for the same task, subse-
+quently aggregating their outputs into a single, robust action
+(Section III-B). This ensemble-based approach enables the
+estimation of epistemic uncertainty to identify OOD scenarios
+where the learned policy exhibits low confidence. To maintain
+operational safety, a threshold-triggered switching mechanism
+transitions control from the learned policy to a deterministic,
+rule-based fail-safe system whenever uncertainty exceeds a
+predefined limit to safeguard task integrity (Section III-C).
+A. Imitation Learning for Robotic Manipulation in Chemistry
+Lab Automation
+Imitation learning methods have proven to be effective for
+training robots to perform complex tasks from expert human
+demonstrations [19]. We formalise the robot manipulation task
+as a discrete-time Markov decision processs (MDP), defined
+by the tuple M = (S, A, P, R, γ, ρ0), where S represents
+the continuous state space, A represents the continuous action
+space, P(st+1|st, at) denotes the state transition distribution,
+R(s, a, s′) is the reward function, γ ∈[0, 1) is the discount
+factor and ρ0 is the initial state distribution.
+In complex real-world chemistry laboratory environments,
+the reward function is difficult to analytically specify or sparse
+in nature. Consequently, we utilise behaviour cloning [19]
+to learn a policy πθ directly from a dataset D = {τi}N
+i=1
+consisting of N expert demonstrations. Each demonstration
+τi = {(s0, a0), (s1, a1), . . . , (sT , aT )} consists of state-action
+pairs that represent successful task completion.
+For continuous action spaces, the objective is to find the
+optimal policy parameters θ∗by minimising the expected
+discrepancy between the expert’s actions a and the policy’s
+predicted actions πθ(s). This is formulated as the minimisation
+of the expected mean squared error, given by Equation 1,
+where where E(s,a)∼D denotes the expectation over the distri-
+bution of state-action pairs (s, a) contained within the expert
+dataset D, and ∥· ∥2
+2 represents the squared L2 norm.
+θ∗= arg min
+θ
+E(s,a)∼D
+
+∥πθ(s) −a∥2
+2
+
+(1)
+Vanilla BC assumes the Markov property, where the action
+at depends solely on the current state st. However, most
+robot manipulation tasks are inherently partially observable
+and require historical context to resolve ambiguities. To model
+these temporal correlations, we employ a recurrent neural
+network architecture for our policy. Under this framework, the
+BC-RNN maintains an internal hidden state ht that serves as
+a compressed, latent representation of the interaction history.
+This latent state is updated recursively at each timestep t using
+a recurrent cell, such that ht = f(ht−1, st). The state ht is
+updated at each timestep t using a recurrent cell. The policy
+πθ then maps this context-aware representation to the action
+space, at = πθ(ht).
+B. Uncertainty Quantification via Ensemble Variance
+A standard policy is insufficient for safety-critical chem-
+istry laboratory environments, where model overconfidence in
+novel or high-risk states could be catastrophic. To mitigate
+these risks, we employ an ensemble of M neural networks
+{πθ}M
+m=1, which quantifies the epistemic uncertainty of the
+model. Each ensemble member is independently initialised
+and trained on the expert dataset D, effectively approximating
+a Bayesian posterior over the policy parameters. For a given
+latent temporal state ht, each member m generates an action
+prediction at,m = πθm(ht,m). The final control signal ¯at is
+derived from the predictive mean, where ¯at =
+1
+M
+M
+P
+m=1
+at,m.
+Our ensemble also captures the temporal divergence of the
+
+
+recurrent latent states through the variance σ2
+e. We hypothe-
+sise that the the ensemble’s disagreement correlates with the
+expected prediction error; specifically, as the robot encounters
+states further from the expert’s training manifold, the inter-
+model variance should increase proportionally with the MSE.
+C. Uncertainty-Aware Switching Mechanism
+Building upon the uncertainty quantification derived from
+ensemble variance, we propose a switching mechanism that
+translates probabilistic signals into discrete control transitions.
+The design is predicated on the stochastic divergence of
+the action ensemble between nominal and failure (unsafe)
+states. By modelling the density of action variances observed
+during successful task executions, we define the boundaries
+of the agent’s competence manifold. To distinguish between
+nominal variance and variance indicative of impending failure
+we calibrate component-specific thresholds using a set of
+reference trajectories. During task execution, we consider the
+trajectory data for each action component ai ∈Rn, where
+n = 7 which denotes the degrees-of-freedom (DoF) of the
+robotic manipulator. For each rollout τk, we monitor the
+ensemble variance σ2
+i,t at each timestep t for component i
+using Equation 2. Here, µi,t represents the mean action value.
+σ2
+i,t = E[(ai,t −µi,t)2]
+(2)
+To standardise trajectories of variable durations, zero-
+padding is applied to reach a maximum horizon H. We classify
+each trajectory τk based on task outcome as either complete
+(successful) (τk ∈C) or failed (τk ∈F). We aggregate all non-
+zero variance values from trajectories in each class to define
+the reference sets.
+V (C)
+i
+= {σ2
+i,t | σ2
+i,t > 0, τ ∈C, t ∈[1, H]}
+(3)
+V (F)
+i
+= {σ2
+i,t | σ2
+i,t > 0, τ ∈F, t ∈[1, H]}
+(4)
+We model the underlying distribution of successful vari-
+ances using kernel density estimation (KDE) to provide a
+smooth, non-parametric estimate of the success-conditioned
+density.
+The density is estimated using a Gaussian kernel Kh(u)
+with bandwidth h via Scott’s Rule [20].
+Kh(u) =
+1
+√
+2πh exp
+
+−u2
+2h2
+
+(5)
+By integrating this density, we obtain the cumulative distri-
+bution function (CDF), FC(v) = P(σ2 ≤v | τ ∈C). For a
+specified quantile q ∈(0, 1), we define the component-specific
+confidence threshold θi,q as the value below which q × 100%
+of successful variances reside:
+θi,q = inf{v : FC(v) ≥q}
+(6)
+During online execution, the system monitors the ensemble
+variance σ2
+i,t = E[(ai,t−µi,t)2] for each action component. To
+prevent false-positive transitions triggered by transient noise
+or momentary spikes in uncertainty, we implement a sliding
+window peak detection algorithm. This mechanism ensures
+that a switch to the safety backup controller occurs only during
+sustained periods of high variance.
+For a given trajectory τ and action component i, the
+detection signal Di,t(τ) is defined as positive at timestep t
+if the number of instances where the variance exceeds the
+calibrated threshold θi,q within a window of size w reaches a
+limit npeaks:
+Di,t(τ) =
+
+
+t
+X
+j=t−w
+[σ2
+i,j ≥θi,q] ≥npeaks
+
+
+(7)
+If Di,t(τ) = 1 for any action component i ∈{1, . . . , n},
+the switching logic flags an uncertainty risk. If more than two
+action components are flagged, the system transitions to the
+backup policy (πB) shown in Fig. 2. The sensitivity of the
+detection performance depends on the hyperparameters w and
+npeaks, which are empirically tuned to balance safety with task
+completion.
+IV. EXPERIMENTAL EVALUATION
+We evaluated our uncertainty-aware imitation learning
+framework across three chemistry-based manipulation tasks
+(Fig. 3) to address the following: (1) Does transitioning from a
+single policy to a distributed ensemble improve task success?
+(2) Can KDE effectively model the stochastic variance of
+an ensemble to define a quantile-based triggering mechanism
+for intervention? and (3) How does the framework balance
+the efficiency of learning-based policies with the reliability
+of rule-based safety controllers to maximise overall success?
+Finally, we demonstrate the zero-shot transfer capabilities of
+our method on a real robotic system.
+A. Experimental Setup
+All simulation environments were developed within Isaa-
+cLab [8], [21]. These were run on a system featuring an AMD
+Ryzen Threadripper 7970X processor, 128GB of RAM and
+an NVIDIA GeForce RTX 5090 GPU, operating on Ubuntu
+24.04. For consistency across domains, a Franka Production
+3 (FP3) robotic manipulator [22] was used in both simulated
+and real-world configurations. Our learning framework em-
+ployed an ensemble of BC-RNN models from the RoboMimic
+framework [23] to effectively capture the temporal dynamics
+of the manipulation task. We use BC as our policy backbone
+because its low computational overhead and high inference fre-
+quency are better suited for the online requirements of robotic
+chemists than more resource-intensive architectures, such as
+diffusion policies. The network observes a low-dimensional
+state vector O ∈R29 encompassing the robot’s proprioceptive
+data (end-effector position (xe ∈R7), gripper state (gs ∈R2),
+joint position (qr ∈R7) and velocity ( ˙qr ∈R7) states,) and
+environmental state (object current (xobj ∈R3 ) and target
+(xgoal ∈R3)) states. We chose these observations to obtain a
+balance between efficient learning and reducing computational
+cost. Temporal dependencies are processed using a two-layer
+
+
+long short-term memory (LSTM) architecture with a hidden
+dimension of 400, trained with a sequence length of 16. The
+data generation pipeline was run for each task separately and
+begins with 10 human demonstrations collected in simulation
+using a SpaceMouse recording the state and action pairs
+for each trajectory. We used MimicGen [24] to annotate the
+subtasks (such as grasping the object) to prepare the dataset
+for demonstration generation. These annotated demonstrations
+were expanded using the data generation tools in MimicGen to
+produce a dataset of 4,000 valid trajectories per task. During
+training to account for human demonstration multi-modality,
+the continuous action space is modelled using a Gaussian
+mixture model (GMM) with 10 modes. To estimate epistemic
+uncertainty and improve robustness, we utilise a deep en-
+semble approach comprising 15 distinct BC-RNN models. To
+maximise ensemble diversity, each model is initialised with
+a unique random seed and trained on a randomly sampled
+25% subset of the total demonstration dataset so each policy
+is trained with a dataset of 1000 demonstrations. The models
+are trained using the Adam optimiser with an initial learning
+rate of 1e−4 and a batch size of 100 for 1000 epochs.
+B. Laboratory Tasks
+The experimental evaluation is conducted across three ma-
+nipulation tasks that represent core operations in an automated
+chemistry laboratory determined from studying the types
+of activities that chemists performed in research laboratory
+(Fig. 3). In the lift task, the robot picks up an object (e.g.,
+a vial or a beaker) and hold it in a desired position. This
+task is designed for visual inspection tasks in chemistry
+experimental workflows [25] where chemists may inspect vial
+samples for colour change or precipitation. In the pick and
+place task, the robot picks up an object (e.g., a vial or a
+beaker) from an instrument (e.g., a scale) and places it on
+another instrument (e.g., IKA RCT plate). The pick and place
+task is the most predominant manipulation skill in automated
+chemistry workflows [5], [26], for example after weighing out
+a powder and solute and placing on an IKA RCT plate to heat
+and stir to dissolve the solution. In the insertion task, the robot
+picks up a vial from an instrument (e.g., IKA RCT plate) and
+places it inside a rack for transportation or further analysis.
+This task is a high precision, contact-rich manipulation skill
+that is typically found prior to sample transportation in end-
+to-end experimental workflows [12]. In our lift and pick and
+place tasks, the robot needs to adhere to chemists’ preferences
+of grasping the objects from the side rather than from the
+top as typically seen in object manipulation tasks. This adds
+complexity to the task as the robot is consistently working
+closer to the joint limits in this grasp pose as opposed to the
+top down grasp pose. We also introduce domain randomisation
+in the environment in order to allow the trained policies to
+generalise to a range of initial and goal states. The object start
+position and goal position were randomly assigned within a
+0.2m × 0.2m region in the environment during all stages of
+the workflow.
+(a) Lift
+(b) Pick and Place
+(c) Insertion
+Fig. 3: The robotic chemistry manipulation simulated tasks.
+C. Experiment I: Ensemble Policy Evaluation
+To evaluate the ensemble network’s performance, we mea-
+sure the task success rate and the safety incident rate, with
+the latter defined as any instance where an object is dropped
+or tilted beyond 450. For our experiment we evaluate the
+ensemble of policies running in an environment with a step
+size of 0.01s (100Hz). With an action repeat of two, the
+physics engine executes two simulation steps per control cycle,
+yielding an effective policy control frequency of 50Hz. We
+conducted 3 × 100 evaluation episodes per task, reporting the
+mean and standard deviation to account for stochasticity in
+object spawn locations. We first investigate the impact of using
+an ensemble of policies on the success rate of the tasks. We
+evaluate the rollout of the task with an ensemble size of 1
+(single policy), 5, 10 and 15 over a maximum horizon of 5,000
+steps. Table I summarises the relationship between ensemble
+size and task success rate. It demonstrates that employing
+an ensemble of policies significantly enhances success rates
+across all evaluated tasks. We observe distinct uncertainty
+profiles: for lift and pick and place tasks, epistemic uncertainty
+peaks during the initial grasping phase, whereas the insertion
+task exhibits maximum uncertainty toward the end of exe-
+cution due to the high precision required for vial alignment.
+While performance gains did not scale linearly with ensemble
+size, an optimal size of at least n = 10 was consistent across
+tasks. For the lift task, diminishing returns were observed
+beyond n = 10. Conversely, the pick and place task required
+n = 15 to achieve a significant performance leap, likely
+because a larger ensemble is needed to effectively mitigate the
+influence of outlier predictions during the placing phase. For
+the insertion task, the policy showed no improvement beyond
+n = 10, and performance actually declined significantly for the
+ensemble size of n = 15. This suggests that larger ensembles
+may produce overly conservative action predictions, leading
+to smaller control outputs and subsequent task timeouts.
+TABLE I: Average task success rate (%) and standard devia-
+tion (SD) for varying ensemble sizes across all simulated tasks.
+Size
+Lift (% ± SD)
+Pick and Place (% ± SD)
+Insertion (% ± SD)
+1
+75.7 ± 2.5
+67.7 ± 9.1
+21.3 ± 0.6
+5
+83.3 ± 4.2
+63.7 ± 7.6
+51.7 ± 4.0
+10
+93.0 ± 1.7
+69.0 ± 8.5
+55.0 ± 9.8
+15
+92.0 ± 1.0
+83.0 ± 2.7
+42.0 ± 4.0
+
+
+D. Experiment II: Calibrating the Switching Logic
+We evaluate the proposed switching logic on a 7-DoF
+robotic manipulator across three different manipulation tasks.
+To calibrate the mechanism, we initially collected trajectory
+data from ensemble policy rollouts without intervention, clas-
+sifying each as completed (successful) or failed. As established
+in Section III-C, we applied KDE to the aggregated variance
+data. Empirical observations (Fig. 4) show a distinct shift to-
+ward lower variances for successful trajectories (C) compared
+to failed ones (F), validating the assumption that the ensemble
+policy maintains higher consistency during confident, success-
+ful actions. We investigated three confidence thresholds at
+specified quantiles θq for a conservative (q = 0.90), moderate
+(q = 0.95) and relaxed (q = 0.99) uncertainty limits.
+Fig. 4: Confidence thresholds calculated at the θ0.90, θ0.95 and
+θ0.99 bounds.
+Due to certain actions such as grasping being inherently
+uncertain, we trigger a switch only when the condition in
+Equation 7 is met by more than two action components. We
+utilised a sliding window size w ∈[8, 10] and conducted a
+grid search over npeaks ∈{1, . . . , 10}. Detection performance
+was measured via detection rate (true positives), false alarm
+rate (false positives), and F1-Score. As shown in Table II,
+an npeaks value of 8 consistently provided the highest F1-
+score across lift, pick and place, and insertion tasks when
+using the conservative θ0.90 limit. This configuration was
+selected for final implementation to maximise failure detection
+while minimising unnecessary interruptions. A longer window
+with results in a delayed detection of policy uncertainty and
+increased occurrence of false positive uncertainty detection
+whereas a shorter window tends to reduce the false positive
+uncertainty detections but is more likely to miss short but
+critical periods of higher uncertainty.
+E. Experiment III: Confidence Level Intervention
+We evaluate task success rates at different intervention levels
+(θq) within the simulation environment. First we find the most
+conservative confidence level of θ0.90 of the successful task
+uncertainties and the window that best distinguishes between
+the successful and failed task executions for each task. As
+part of the hybrid architecture, we implemented a parallelised,
+finite-state machine (FSM) backup controller. The controller
+is implemented utilising NVIDIA Warp [27] to allow paral-
+lelisation across N simulation environments directly on the
+TABLE II: Peak detection algorithm performance across a
+range of window sizes w and peak counts npeaks.
+npeaks
+Lift (w = 10)
+Place (w = 10)
+Insert (w = 9)
+1
+0.67
+0.67
+0.67
+2
+0.67
+0.67
+0.67
+3
+0.67
+0.67
+0.67
+4
+0.71
+0.67
+0.69
+5
+0.76
+0.70
+0.74
+6
+0.80
+0.78
+0.78
+7
+0.84
+0.86
+0.82
+8
+0.90
+0.91
+0.87
+9
+0.88
+0.90
+0.87
+10
+0.84
+0.89
+0.85
+GPU. We define the distinct operational phases of each of
+the task and the start and end conditions of these phases.
+Although these rule-based controllers exhibit longer task com-
+pletion times than the learned policies, they ensure reliable
+task progress independent of task uncertainties. The overall
+performance of this hybrid uncertainty-aware framework is
+summarised in Table III and the critical failure rate is shown
+in Table IV.
+1) On Task Success Rate: Across all experiments, the inte-
+gration of the uncertainty-aware switching logic consistently
+improved success rates, with the hybrid system outperform-
+ing the non-intervened ensemble in every instance. For the
+lift task, the best performing model used an ensemble of
+10 policies with the most relaxed confidence level (θ0.99),
+achieving an average success rate of 99.3%. Because larger
+ensembles (n ≥10) exhibit high baseline performance on
+this simple task, the marginal improvement offered by the
+hybrid controller was less pronounced compared to its impact
+on smaller ensembles or single-policy baselines. This task is
+relatively simple and so the policy is easily able to handle
+completing the task to a high standard. The pick and place
+task also shows a significant improvement in the task success
+when using the hybrid method. The highest success rate was
+observed with an ensemble of n = 5 and the moderate confi-
+dence interval (θ0.95), though performance at n = 10 remained
+within one standard deviation. Given the increased complexity
+of this task, the success rate for the learned policy alone was
+markedly lower than in the lift task, highlighting the utility of
+the intervention mechanism. In the most challenging task, i.e.,
+the vial insertion, we observed that the best task success rates
+were achieved with the most conservative threshold (θ0.90) for
+all ensemble sizes. The high-precision requirements of this
+task often led the learned policy toward failure; however, the
+conservative threshold triggered the backup controller more
+frequently, effectively compensating for policy instability. No-
+tably, we observed instances where the learned policy resulted
+in unrecoverable states that failed to trigger the switching
+mechanism. For example, a vial slightly misplaced in the
+rack might remain improperly seated without exceeding the
+calibrated uncertainty threshold. Our current framework does
+
+
+TABLE III: Task success rate (%) across varying ensemble sizes and confidence thresholds θq. None indicates the baseline
+performance without the switching mechanism.
+Success rate (Lift)
+Success rate (Pick and place)
+Success rate (Insertion)
+Size
+None
+θ0.90
+θ0.95
+θ0.99
+None
+θ0.90
+θ0.95
+θ0.99
+None
+θ0.90
+θ0.95
+θ0.99
+1
+75.7 ± 2.5
+–
+–
+–
+67.7 ± 9.0
+–
+–
+–
+21.3 ± 0.6
+–
+–
+–
+5
+83.3 ± 4.2
+96.0 ± 2.0
+97.7 ± 2.1
+96.3 ± 1.5
+63.7 ± 7.6
+94.3 ± 1.5
+98.3 ± 1.2
+89.3 ± 1.5
+51.7 ± 4.0
+60.0 ± 4.4
+58.3 ± 3.8
+59.0 ± 2.7
+10
+93.0 ± 1.7
+96.3 ± 0.6
+99.0 ± 1.0
+99.3 ± 0.6
+69.0 ± 8.5
+96.3 ± 0.6
+97.0 ± 2.0
+86.4 ± 4.0
+55.0 ± 9.8
+67.3 ± 3.5
+62.7 ± 5.5
+58.0 ± 6.1
+15
+92.0 ± 1.0
+98.0 ± 1.0
+99.0 ± 0.0
+98.7 ± 1.5
+83.0 ± 2.7
+96.7 ± 1.5
+96.0 ± 1.7
+91.0 ± 1.7
+42.0 ± 4.0
+68.0 ± 1.7
+64.3 ± 4.2
+59.7 ± 2.5
+not explicitly address such failures; consequently, the backup
+controller was occasionally unable to reset the vial. As this
+task requires a high level of precision, future work will explore
+integrating multimodal sensing, such as force-torque feedback;
+this would allow the system to augment the uncertainty profile
+with force signatures and trigger the backup controller more
+reliably before failure states become unrecoverable.
+2) On Safety Failure Rate: For the lift task, using an
+ensemble of policies as rather than a single policy reduced the
+safety violation rate however simply increasing the number
+of policies in the ensemble did not significantly benefit the
+rate of safety violations. For the lift task, the ensemble of 10
+policies did not cause any safety violations, suggesting that
+the unsafe actions were effectively mitigated by the ensemble.
+Qualitative observations during task execution revealed that
+non-intervened ensemble policies primarily failed due to time-
+outs, often as a result of the robot failing to initiate a grasping
+action. Conversely, under the hybrid control framework, the
+switching mechanism occasionally triggered at suboptimal
+moments, causing the backup controller to tip the object and
+inadvertently induce a safety violation. However, an exhaustive
+collection of safety failure modes was not generated, and so we
+have only observed safety failures that have been predefined.
+The inherent complexity of the pick and place task elevates the
+risk of operational failures; a higher density of environmental
+obstacles increases collision probabilities, while the addition
+of the placement phase introduces further susceptibility to
+object drops or instability. We observed that with the added
+complexity in this pick and place task, we saw more impact
+on the reduction of the safety violation rate by using the
+ensemble of policies. For the insertion task where the potential
+for safety failures is particularly high, we observe a reduction
+in the safety failure rate by using the ensemble of policies.
+With the single policy alone, around 16% of the failures were
+due to a timeout, with all remaining failed task executions
+resulting from the policy causing a safety failure. By using
+the ensemble of policies, the proportion of failures that were
+due to safety incidents was reduced to less than half of all
+failures being due to safety failures. The insertion task did not
+benefit from the hybrid approach in regards to the safety failure
+rate as in the other tasks. During execution, manipulation
+failures predominantly occurred when the robot attempted to
+insert the vial into the rack at an angular offset from the
+vertical axis. Because the rack’s support structure encompasses
+only half the height of the vial, premature release typically
+caused the vial to topple out of the holder if the placement
+alignment was imperfect. Because these dynamics resulted
+in an irreversible environmental state, the task could not be
+completed, irrespective of backup controller intervention.
+F. Real-World Deployment
+To validate the physical transferability and robustness of
+the proposed framework, we conducted experiments using a
+7-DoF FP3 robotic manipulator. We focused on the pick and
+place task to evaluate the policy’s ability to approach, grasp,
+and manipulate objects. The system used a zero-shot sim-
+to-real configuration, where inference was performed by the
+ensemble policy within the Isaac Lab environment. At each
+control step, the inferred joint position targets were transmitted
+via a low-latency UDP connection to a custom ROS 2 bridge
+node. This bridge translated simulated targets into ROS 2
+messages for a joint position controller, while parallel grip-
+per commands were dispatched to the gripper action server.
+MoveIt 2 [28] provided the interface to the low-level joint
+tracking controllers, ensuring a robust execution pipeline. Our
+successful sim-to-real transferred policies and the uncertainty-
+aware switching logic demonstrates high-fidelity generalisa-
+tion to physical hardware without the requirement for iterative
+real-world fine-tuning or domain adaptation.
+V. CONCLUSION
+In this work, we presented SAFE-CHEM, an uncertainty-
+aware imitation learning framework designed to improve the
+safety and reliability of autonomous robotic manipulation in
+chemistry laboratories. While learning-based methods offer the
+dexterity required for learning laboratory skills in long-horizon
+chemistry experiments, their susceptibility to overconfident
+action prediction poses substantial safety risks. To address
+this, SAFE-CHEM uses an ensemble of BC-RNN policies to
+quantify epistemic uncertainty online through ensemble action
+variance. By calibrating confidence thresholds using kernel
+density estimation, our framework introduces an uncertainty-
+driven switching mechanism that transitions control to a deter-
+ministic, rule-based backup controller before a critical failure
+can occur. Our empirical evaluations across three represen-
+tative chemistry manipulation skills (lifting glassware, pick
+and place of glassware, and high-precision glassware insertion)
+demonstrated that the proposed hybrid framework significantly
+improves overall task success rates. Crucially, the ensemble
+of policies reduced the occurrence of catastrophic safety
+violations, such as dropped glassware or potential chemical
+spills from tilted beakers, compared to standard single-policy
+baselines. Furthermore, we demonstrated the practical viability
+of our approach through a successful zero-shot sim-to-real
+
+
+TABLE IV: Rate of critical safety violations (%) (e.g., dropped objects or tilts > 45◦) across varying ensemble sizes and
+confidence thresholds θq.
+Safety failure rate (Lift)
+Safety failure rate (Pick and place)
+Safety failure rate (Insertion)
+Size
+None
+θ0.90
+θ0.95
+θ0.99
+None
+θ0.90
+θ0.95
+θ0.99
+None
+θ0.90
+θ0.95
+θ0.99
+1
+3.3 ± 0.6
+–
+–
+–
+11.3 ± 5.0
+–
+–
+–
+62.3 ± 5.1
+–
+–
+–
+5
+1.7 ± 2.9
+1.0 ± 1.0
+0.3 ± 0.6
+3.7 ± 1.5
+8.0 ± 1.0
+4.0 ± 2.0
+1.7 ± 1.2
+2.0 ± 1.7
+25.3 ± 1.2
+33.0 ± 3.6
+34.7 ± 1.5
+33.3 ± 1.2
+10
+0.0 ± 0.0
+0.0 ± 0.0
+0.7 ± 0.6
+0.7 ± 0.6
+6.0 ± 3.0
+1.7 ± 0.6
+3.0 ± 2.0
+3.0 ± 1.0
+21.0 ± 7.0
+24.7 ± 2.3
+26.7 ± 4.0
+29.3 ± 3.1
+15
+2.3 ± 1.5
+1.3 ± 0.6
+1.0 ± 0.0
+1.3 ± 1.5
+3.0 ± 1.0
+2.0 ± 1.0
+2.7 ± 1.2
+2.0 ± 1.0
+23.3 ± 0.6
+22.7 ± 4.6
+27.7 ± 4.9
+25.3 ± 0.6
+transfer onto a physical FP3 robotic manipulator. Whilst our
+method cannot guarantee to eliminate all safety violations, it
+demonstrably improves task execution. Our method is agnostic
+to policy, task, and environment, and does not require an
+exhaustive list of all possible failure modes in order to identify
+and reduce the occurrence of these safety violations. Ulti-
+mately, SAFE-CHEM bridges the gap between the flexibility
+of imitation learning and the strict reliability requirements
+of human-centric laboratory environments. Future work will
+explore extending this uncertainty-quantification framework
+to incorporate multi-modal sensory inputs, such as force-
+torque feedback and visual-based policies, with a particular
+focus on long-horizon multi-skill experiments. By equipping
+autonomous robotic chemists with the introspective ability to
+assess their own competence, this work provides a critical
+stepping stone towards the widespread adoption of safer au-
+tonomous robotic chemists in laboratories.
+REFERENCES
+[1] A. I. Cooper, P. Courtney, K. Darvish et al., “Accelerating discovery in
+natural science laboratories with AI and robotics: Perspectives and chal-
+lenges,” Science Robotics, vol. 10, no. 106, p. eadv7932, 2025. [Online].
+Available: https://www.science.org/doi/abs/10.1126/scirobotics.adv7932
+[2] G. Tom, S. P. Schmid, S. G. Baird et al., “Self-driving laboratories for
+chemistry and materials science,” Chemical Reviews, 2024.
+[3] N. Yoshikawa, Y. Asano, D. N. Futaba et al., “Self-driving laboratories
+in japan,” Digital Discovery, vol. 4, pp. 1384–1403, 2025. [Online].
+Available: http://dx.doi.org/10.1039/D4DD00387J
+[4] J. Li, C. Ding, D. Liu et al., “Autonomous laboratories in china:
+an
+embodied
+intelligence-driven
+platform
+to
+accelerate
+chemical
+discovery,” Digital Discovery, vol. 4, pp. 1672–1684, 2025. [Online].
+Available: http://dx.doi.org/10.1039/D5DD00072F
+[5] B. Burger, P. M. Maffettone, V. V. Gusev et al., “A mobile robotic
+chemist,” Nature, vol. 583, no. 7815, pp. 237–241, Jul 2020. [Online].
+Available: https://doi.org/10.1038/s41586-020-2442-2
+[6] Y. Xie, K. Sattari, C. Zhang, and J. Lin, “Toward autonomous laborato-
+ries: Convergence of artificial intelligence and experimental automation,”
+Progress in Materials Science, vol. 132, no. 0079-6425, p. 101043, 2023.
+[7] N. Radulov, A. Wright, T. Little et al., “FLIP: Flowability-Informed
+Powder Weighing,” in 2026 IEEE International Conference on Robotics
+and Automation (ICRA), 2026.
+[8] K. Darvish, A. Sohal, A. Mandal et al., “Matterix: toward a digital
+twin for robotics-assisted chemistry laboratory automation,” Nature
+Computational Science, vol. 6, pp. 67 – 82, 2025. [Online]. Available:
+https://api.semanticscholar.org/CorpusID:284363658
+[9] G. Pizzuto, H. Wang, H. Fakhruldeen et al., “Accelerating Laboratory
+Automation Through Robot Skill Learning For Sample Scraping*,” in
+2024 IEEE 20th International Conference on Automation Science and
+Engineering (CASE), 2024.
+[10] S. X. Leong, C. Griesbach, R. Zhang, et al., “Steering towards safe
+self-driving laboratories,” 12 2024.
+[11] S.
+Veeramani,
+Z.
+Zhou,
+F.
+Munguia-Galeano,
+H.
+Fakhruldeen,
+T. Roddelkopf, M. F. R. Al-Okby, K. Thurow, and A. I. Cooper,
+“Prevent: Proactive risk evaluation and vigilant execution of tasks
+for mobile robotic chemists using multi-modal behavior trees,” 2025.
+[Online]. Available: https://arxiv.org/abs/2510.21438
+[12] Louis Longley and Francisco Munguia-Galeano and Yushu Han
+and
+others
+,
+“RobInHood:
+A
+Robotic
+Chemist
+in
+a
+Fume
+Hood,” ChemRxiv, vol. 2026, no. 0112, 2026. [Online]. Available:
+https://chemrxiv.org/doi/abs/10.26434/chemrxiv-2026-s2619
+[13] C. Xu, T. K. Nguyen, E. Dixon et al., “Can we detect failures without
+failure data? uncertainty-aware runtime failure detection for imitation
+learning policies,” in Proceedings of Robotics: Science and Systems
+(RSS), 2025.
+[14] Y. Kadokawa, M. Hamaya, and K. Tanaka, “Learning robotic powder
+weighing from simulation for laboratory automation,” in The IEEE/RSJ
+International Conference on Intelligent Robots and Systems (IROS),
+2023.
+[15] X. Xu, Y. Gu, T. Zhang, J. Yu, and S. Skinner, “Revolutionizing
+clean
+energy
+labs:
+Robotic
+imitation
+learning
+for
+efficient
+fabrication ai-powered electrical units assembly platform,” Energy
+and
+AI,
+vol.
+21,
+p.
+100517,
+2025.
+[Online].
+Available:
+https://www.sciencedirect.com/science/article/pii/S2666546825000497
+[16] K. Suzuki, H. Nakamurama, K. Miyamoto, and T. Ogata, “Compact
+task-aligned imitation learning for laboratory automation,” 2026.
+[Online]. Available: https://arxiv.org/abs/2603.01110
+[17] R. R¨omer, A. Kobras, L. Worbis, and A. P. Schoellig, “Failure predic-
+tion at runtime for generative robot policies,” in Advances in Neural
+Information Processing Systems (NeurIPS), 2025.
+[18] Z. Zhu, S. Wang, and H. Zhao, “Uncertainty-aware deep imitation
+learning and deployment for autonomous navigation through crowded
+intersections,” in 2024 IEEE/RSJ International Conference on Intelligent
+Robots and Systems (IROS), 2024, pp. 13 980–13 987.
+[19] D. Pomerleau, “Alvinn: An autonomous land vehicle in a neural net-
+work,” in Proceedings of (NeurIPS) Neural Information Processing
+Systems, D. Touretzky, Ed.
+Morgan Kaufmann, December 1989, pp.
+305 – 313.
+[20] B. W. Silverman, Density estimation for statistics and data analysis.
+Routledge, 2018.
+[21] NVIDIA, M. Mittal, P. Roth, J. Tigue et al., “Isaac lab: A gpu-
+accelerated simulation framework for multi-modal robot learning,”
+2025. [Online]. Available: https://arxiv.org/abs/2511.04831
+[22] S. Haddadin, S. Parusel, L. Johannsmeier et al., “The franka emika
+robot: A reference platform for robotics research and education,” IEEE
+Robotics & Automation Magazine, vol. 29, no. 2, pp. 46–64, 2022.
+[23] A. Mandlekar, D. Xu, J. Wong et al., “What matters in learning from
+offline human demonstrations for robot manipulation,” in Conference on
+Robot Learning (CoRL), 2021.
+[24] A. Mandlekar, S. Nasiriany, B. Wen et al., “Mimicgen: A data generation
+system for scalable robot learning using human demonstrations,” in 7th
+Annual Conference on Robot Learning, 2023.
+[25] Walker, Michael and Pizzuto, Gabriella and Fakhruldeen, Hatem and
+others, “Go with the flow: deep learning methods for autonomous
+viscosity estimations,” Digital Discovery, vol. 2, 2023.
+[26] A. M. Lunt, H. Fakhruldeen, G. Pizzuto et al., “Modular, multi-robot
+integration of laboratories: an autonomous workflow for solid-state
+chemistry,” Chem. Sci., vol. 15, 2024.
+[27] M. Macklin, “Warp: Differentiable spatial computing for python,” in
+ACM SIGGRAPH 2024 Courses, ser. SIGGRAPH ’24 Courses.
+New
+York, NY, USA: Association for Computing Machinery, 2024. [Online].
+Available: https://doi.org/10.1145/3664475.3664543
+[28] M. G¨orner, R. Haschke, H. Ritter, and J. Zhang, “Moveit! task construc-
+tor for task-level motion planning,” 05 2019, pp. 190–196.

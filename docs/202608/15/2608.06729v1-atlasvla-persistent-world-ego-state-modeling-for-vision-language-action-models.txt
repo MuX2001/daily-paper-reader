@@ -1,0 +1,1849 @@
+AtlasVLA: Persistent World-Ego State Modeling for
+Vision-Language-Action Models
+Guiyu Zhao1,2, Longteng Guo1,†, Yanghong Mei1,2, Zilin Zhu1,2, Yu Zhang3, Bin Cao1,2,
+MingMing Yu4, Xingjian He1, Jie Jiang1, Jing Liu1,2
+1Institute of Automation, Chinese Academy of Sciences, Beijing, China
+2University of Chinese Academy of Sciences, Beijing, China
+3Beijing Freedo Technology Co., Ltd.
+4Beihang University
+Abstract
+While Vision-Language-Action (VLA) models have advanced
+embodied AI, their fundamentally reactive paradigm severely
+limits performance in partially observable and long-horizon
+tasks. When restricted to a single wrist-mounted camera, they
+inevitably suffer from perception forgetting as objects exit the
+field of view, and temporal task-progress forgetting during
+multi-step execution. To overcome these bottlenecks, we pro-
+pose AtlasVLA, a novel framework that transitions from direct
+reactive manipulation to proactive reasoning through a persis-
+tent world-ego state. AtlasVLA features a dual-memory archi-
+tecture: a 4D Persistent World State Memory that lifts transient
+2D observations into a globally updated, voxel-hashed spatial
+state to resolve visual blind spots, and an Ego-Working State
+Memory that tracks historical ego state and task progress. By
+conditioning a diffusion transformer (DiT) on this joint World-
+Ego state, AtlasVLA enables robust spatial reasoning. Exten-
+sive evaluations across LIBERO, RLBench, and real-world
+benchmarks demonstrate that AtlasVLA achieves state-of-the-
+art performance using solely a wrist camera. Remarkably, it
+decisively outperforms multi-view baselines, yielding abso-
+lute success rate improvements of 9.4% on LIBERO-Long
+and 17.5% in real-world long-horizon tasks.
+1
+Introduction
+Recent advancements in embodied artificial intelligence have
+witnessed a paradigm shift driven by Vision-Language-
+Action (VLA) models (Brohan et al. 2022; Zitkovich et al.
+2023; Kim et al. 2024; Black et al. 2024; Intelligence et al.
+2025; Shi et al. 2025). By mapping multimodal sensory in-
+puts to low-level robotic control commands, these large-scale
+models (Kim, Finn, and Liang 2025; Black et al. 2024; Intel-
+ligence et al. 2025; Shi et al. 2025) have successfully bridged
+high-level semantic reasoning and physical execution. How-
+ever, despite their empirical success, current VLAs operate
+under a fundamentally reactive paradigm. They predomi-
+nantly function as reflexive engines that directly map im-
+mediate observations to actions, heavily relying on instanta-
+neous visual inputs to dictate physical behavior.
+As illustrated in Figure 1, this reactive formulation ex-
+poses two critical bottlenecks when deployed in unstruc-
+tured, partially observable environments, particularly under
+the rigorous solitary wrist-mounted camera setup. First, re-
+active VLAs suffer from severe perception forgetting due to
+Copyright © 2027, Association for the Advancement of Artificial
+Intelligence (www.aaai.org). All rights reserved.
+partial observations (Figure 1(A)). Fundamentally, an instan-
+taneous camera field-of-view (FoV) is not equivalent to the
+true world state. As the robot manipulates objects, the wrist
+camera moves dynamically with the end-effector, constantly
+shifting the FoV. Critical task-relevant objects and spatial
+structures are immediately forgotten once out of view. With-
+out a persistent internal state, the agent loses track of its
+spatial surroundings (e.g., "where is the box?"), leading to
+catastrophic execution failures when operating outside of
+heavily instrumented multi-view setups.
+Second, reactive models are plagued by task-progress
+forgetting during long-horizon manipulation (Figure 1(B)).
+Complex tasks, such as sequentially organizing objects or
+changing configurations, require an agent to execute multi-
+ple sub-steps while maintaining a clear cognitive awareness
+of its progress. Standard VLAs (Intelligence et al. 2025; Li
+et al. 2024) lack the historical context to remember what they
+have already accomplished. Without an internal memory of
+the task progress and ego state, the agent easily loses its place
+in the overarching execution sequence, causing compounding
+errors and repeating or missing critical sub-steps.
+Unlike current VLAs, human cognition does not rely on an
+always-visible, omniscient camera to interact with the world.
+Instead, the human brain seamlessly navigates partial observ-
+ability by maintaining an internal world model, a continuous
+cognitive map that tracks objects, structures, and dynamics
+even when they exit the immediate line of sight. To achieve
+true autonomy, embodied agents must transcend reactive be-
+haviors and develop the capacity to construct and maintain a
+persistent world-ego state. This requires transitioning from
+a paradigm of memoryless observation to one governed by
+a continuous cycle: local observation →latent state update
+→persistent world state →future action.
+To overcome these dual bottlenecks, embodied agents must
+transcend reactive behaviors and develop the capacity to
+maintain a persistent hidden state. To this end, we introduce
+AtlasVLA, a novel World-Ego State-augmented VLA frame-
+work designed to shift the paradigm from reactive observa-
+tion to proactive long-horizon manipulation (Figure 1(C)).
+AtlasVLA continuously reconstructs and updates the hidden
+state of the environment from limited egocentric observa-
+tions through a dual-memory architecture.
+First, to address partial observability, AtlasVLA employs
+a Persistent World State Memory. It utilizes streaming
+arXiv:2608.06729v1  [cs.RO]  7 Aug 2026
+
+
+(A) Partial observation
+(B) Task-progress forgetting
+(C) AtlasVLA
+World-Ego State Modeling
+VLA
+Policy
+Wrist observations  (over time)
+AtlasVLA (Ours)
+Persistent World Memory
+Actions
+（4D world state）
+Ego-working Memory
+（task progress / ego state）
+𝑡ଵ
+𝑡ଶ
+𝑡௞
+…
+From reactive observation to proactive long-horizon manipulation.
+…
+Clean up the soda can
+Clean up the bottle
+Remove the paper ball
+Maintains hidden world state
+Remembers task progress
+Example task: change cubes (5 sub-steps)
+History-Length Stress Test
+3rd Camera Occlusion Stress Test
+Example task trajectory: clean desk
+𝑠ଵ: pick up blue cube
+𝑠ଶ: place blue 
+cube on desk
+𝑠ଷ: pick up 
+yellow cube
+𝑠ସ: place yellow 
+cube on plate1
+𝑠ହ: place blue 
+cube on plate2
+Failure due to historical forgetting 
+Traditional
+VLA
+Forgets task progress
+×
+What is the current 
+status of the task?
+I forget !
+𝑇𝑎𝑠𝑘1: place blue cube on desk
+𝑇𝑎𝑠𝑘2: place yellow cube on plate1
+𝑇𝑎𝑠𝑘3: place blue cube on plate2
+（forget)
+（forget)
+Need Ego memory of what has been done
+𝑡ଵ
+𝑡ଶ
+𝑡ଷ
+𝑡ସ
+Need a persistent 4D world state memory 
+Wrist View
+Visibility
+TODO list
+Failure due to Limited FoV and partial observation during manipulation
+Traditional
+VLA
+Current execution
+where is the box?
+I don’t know!
+Don't know where to move.
+×
+Success
+Partial observation
+Wrist-only
+Limited FoV
+Long trajectory 
+Multiple steps
+…
+World-Ego State
+Wrist observation
+Figure 1: The dual bottlenecks of current reactive VLAs versus the advantage of AtlasVLA. (A) Partial observation:
+Wrist-only VLAs suffer from limited FoV and partial observation during manipulation. (B) Task-progress forgetting: Reactive
+baselines lack temporal context, forgetting completed task progress and state. (C) Our solution: Our AtlasVLA integrates a 4D
+Persistent World State for spatial awareness and an Ego-Working State for task tracking, ensuring robust execution.
+depth estimation and spatial back-projection to lift transient
+2D wrist observations into a 4D latent space. This continu-
+ously updates a global, voxel-hashed persistent world state
+via neighborhood fusion and sliding windows, enabling the
+agent to retain the comprehensive workspace observation and
+effectively overcome the limited FoV of the wrist camera.
+Second, to prevent historical forgetting, the persistent
+world state is integrated with an Ego-Working State Mem-
+ory. This module establishes an egocentric high-level seman-
+tic memory that implicitly represents the historical ego-state
+and task progress, ensuring the agent constantly remembers
+what has been done and what needs to be executed next.
+Endowed with this world-ego dual-memory architecture,
+AtlasVLA executes a step-wise conditioned diffusion trans-
+former (DiT) across both persistent world state and ego-
+working state, generating robust and accurate actions. Exten-
+sive experiments demonstrate that AtlasVLA, utilizing solely
+a wrist-mounted camera, achieves state-of-the-art (SOTA)
+performance (97.6% success rate on LIBERO and 70.8% on
+RLBench), decisively outperforming representative multi-
+view baselines. Notably, compared with π0 (Black et al.
+2024), AtlasVLA exhibits unprecedented resilience against
+partial observation and excels in long-horizon memory-
+dependent tasks, yielding absolute success rate improve-
+ments of 9.4% on LIBERO-Long and 17.5% in real-world
+long-horizon tasks.
+Our primary contributions are summarized as follows:
+• We formally identify the fundamental flaws of current
+reactive VLAs in wrist-only settings: spatial partial ob-
+servation and temporal task-progress forgetting.
+• We propose AtlasVLA, a state-augmented VLA frame-
+work that seamlessly integrates a 4D Persistent World
+Memory (to resolve spatial blind spots) and an Ego-
+Working Memory (to maintain task progress).
+• We design an end-to-end pipeline that transcends the re-
+active observe →act paradigm, enabling proactive spatial
+reasoning from transient local observations.
+• AtlasVLA achieves SOTA performance across LIBERO,
+RLBench, and real-world tasks using solely a wrist cam-
+era, demonstrating exceptional robustness in extreme oc-
+clusion and extended-horizon stress tests.
+2
+Related Work
+Vision-Language-Action Models.
+The integration of
+Large Language Models (LLMs) (Touvron et al. 2023a;
+Brown et al. 2020; Ouyang et al. 2022) and Vision-Language
+Models (VLMs) (OpenAI 2023; Liu et al. 2023b; Dong
+et al. 2024; Qi et al. 2024) has significantly propelled the
+paradigm shift in embodied artificial intelligence. Build-
+ing upon these foundations, recent VLA models (Zitkovich
+et al. 2023; Kim et al. 2024; Kim, Finn, and Liang 2025;
+Black et al. 2024) have scaled up training by utilizing ex-
+tensive cross-embodiment datasets (e.g., OXE (O’Neill et al.
+2024), Agibot (Bu et al. 2025)) to further enhance generaliza-
+tion. Within this paradigm, foundational models like Open-
+VLA (Kim et al. 2024) formulate continuous control as an
+autoregressive token generation process. Conversely, recent
+frameworks such as π0 (Black et al. 2024), CogACT (Li et al.
+2024), DexVLA (Wen et al. 2025), DreamVLA (Zhang et al.
+2025b) adopt diffusion-based action heads (Chi et al. 2025;
+
+
+Liu et al. 2025), leveraging iterative denoising to synthesize
+complex, multimodal continuous trajectories. Despite these
+performance gains, these approaches remain heavily depen-
+dent on multi-view observation configurations (Fan et al.
+2026; Black et al. 2024; Jangir et al. 2022) or third-person
+setups (Kim et al. 2024; Zhang et al. 2025a,b; Qu et al.
+2025), fundamentally failing to resolve the wrist-only bottle-
+neck. Furthermore, these methods (Kim et al. 2024; Brohan
+et al. 2022; Black et al. 2024) suffer a substantial degradation
+in performance when confronted with long-horizon tasks.
+Memory for Robotic Manipulation. Memory has emerged
+as a critical component for robotic manipulation, particularly
+in long-horizon tasks. While early approaches implicitly ag-
+gregate past observations via recurrent architectures or ex-
+tended context windows (Brohan et al. 2022; Jiang et al.
+2023; Chi et al. 2025), they struggle with limited capacity
+and escalating computational costs. To address this, recent
+works introduce explicit memory mechanisms. For instance,
+MAP-VLA (Li et al. 2025b) utilizes memory-augmented
+prompting to deeply contextualize action generation. Mem-
+oryVLA (Shi et al. 2025) and ReMem-VLA (Li et al. 2026a)
+leverage retrieval-based visual banks and recurrent latent
+queries, respectively, to enable efficient long-term tempo-
+ral reasoning without maintaining full histories. Building
+upon this, MEM (Torne et al. 2026) proposes a multi-scale
+embodied memory architecture to capture hierarchical expe-
+riences across varying time horizons. Despite these advance-
+ments, existing paradigms remain heavily skewed toward
+temporal caching without explicit spatial modeling, leav-
+ing the inherent partial observability unresolved. Although
+SOMA (Li et al. 2026b) attempts to address out-of-vision
+scenarios using spatial representations, it relies on a static,
+pre-manipulation snapshot of the instance objects. Devoid of
+complete scene updating during execution, it remains inca-
+pable of supporting continuous wrist-only manipulation or
+effectively solving extended long-horizon tasks.
+3
+Method
+3.1
+Overview of AtlasVLA
+Problem Formulation.
+Following previous work (Kim
+et al. 2024; Black et al. 2024), we formulate VLA-driven
+robotic manipulation as a sequential decision-making prob-
+lem. Departing fromprevious methods (Kim, Finn, andLiang
+2025; Black et al. 2024; Li et al. 2025a) that rely heavily on
+third-person or multi-view inputs, we impose a strict wrist-
+only observation constraint. Formally, at any given time step
+t, the agent receives solely the wrist-mounted visual obser-
+vation Ow
+t , the proprioceptive robot state St, and a language
+task instruction L. The objective is to learn a mapping func-
+tion πθ(·) that generates a sequence of future actions:
+At = [at, at+1, . . . , at+k−1] ∼πθ(· | Ow
+t , St, L)
+(1)
+where At denotes the action chunk of size k. Each action
+at ∈R7 is a 7-dimensional vector comprising the 6-DoF
+end-effector pose and the binary state of the gripper.
+Overview.
+As illustrated in Figure 2, AtlasVLA operates
+exclusively on single-view wrist observations, organizing a
+persistent world-ego memory into three core modules: First,
+Persistent World State Memory (Sec. 3.2) lifts 2D tokens
+into a 3D latent space via Depth Anything v3 (Lin et al. 2025)
+and spatial back-projection, injecting spatio-temporal em-
+beddings to form a 4D world representation. It dynamically
+maintains a global voxel-hashing map via neighborhood fu-
+sion, sliding windows, and a permanent first-frame anchor to
+preserve global world state. Second, Ego-Working Memory
+(Sec. 3.2) tracks ego working state and subtask progression
+via intent-aware queries and redundancy-aware consolida-
+tion, dynamically updating an ego-working memory bank to
+prevent intention drift. Finally, World-Ego-Guided Action
+Generation (Sec. 3.4) executes dual-path retrieval to ground
+the action expert. Guided by these contexts, a step-wise con-
+ditioned DiT sequentially applies ego-working attention and
+world state attention to generate robust actions.
+3.2
+Persistent World State Memory
+Instantaneous World State Construction.
+Given the
+wrist-camera observation Iw
+t at the current time step t, we
+extract 2D visual tokens utilizing a frozen vision encoder.
+Concurrently, depth is estimated via Depth Anything v3 (Lin
+et al. 2025), where we leverage historical frames through a
+streaming model (Lin et al. 2025) to enhance temporal depth
+consistency. Furthermore, we actively acquire the camera’s
+intrinsics Tin and extrinsic Tex
+t . Specifically, by utilizing
+the current robot state St and the hand-eye calibration ma-
+trix Th2e, we can derive the extrinsic parameters of the wrist
+camera Tex = ψ(St) · Th2e where ψ(·) denotes the trans-
+formation from the end-effector state to the pose matrix.
+Subsequently, we propose a spatial back-projection module
+to lift the 2D visual tokens into the 3D latent space:
+mt, Pt = Back-Projection(Xt
+w, Dw
+t , Tin, Tex
+t ),
+(2)
+where mt denotes the current local world state which funda-
+mentally comprises 2D latent tokens with 3D positions.
+Spatio-Temporal Embedding. To empower the world state
+with precise spatio-temporal awareness and facilitate its sub-
+sequent fusion into the global world state memory, we pro-
+pose a dual spatio-temporal positional embedding mecha-
+nism. While we align the 2D tokens to the global 3D space,
+the representations themselves still lack explicit spatial and
+temporal context modeling, which inevitably leads to spatial
+aliasing and temporal degradation. To mitigate this issue, we
+incorporate 3D spatial coordinates and timestamps to aug-
+ment the tokens through learnable positional encodings:
+bmt = mt + Espatial(Pt) + Etemporal(t),
+(3)
+where Espatial(·) encodes the 3D position to preserve ge-
+ometric structures, and Etemporal(·) injects temporal posi-
+tional encodings to capture the sequential. Both of them are
+parameterized by MLP. By entangling spatial and tempo-
+ral cues, the instantaneous world state transitions from an
+isolated observation pool into a unified 4D representation.
+World State Spatio-Temporal Update. We maintain a per-
+sistent world state memory Mt based on the local world state
+mt extracted at each time step t. As long-horizon manipu-
+lation progresses, directly accumulating working memory
+inevitably leads to severe spatial redundancy and computa-
+tional bottlenecks. To address this, we introduce a localized
+
+
+AtlasVLA:  Large Language Model
+Learnable 
+Intent Query
+Visual Tokens
+World State Memory Bank
+Persistent global 4D world state
+Ego-Working Memory
+Ego-Working Memory Bank
+𝑡ଷ
+𝑡ଶ
+𝑡ଵ
+𝑡௞
+Current 
+most similar
+Time Positional Embedding
+Ego-Working Consolidation
+Action Decoder 
+Actions
+𝐴௧
+Ego-Working Attention
+World State Attention
+Add & Norm
+Add & Norm
+FFN
+Add & Norm
+×L
+World-Ego-Guided Action DiT
+Action Tokens
+Spatial Back-Projection
+Tokens w 3D Positions
+Spatio-Temporal Embedding
+Visual
+Encoder
+Instantaneous World State Construction
+DAv3
+Wrist Depths
+Intrinsic
+Extrinsic 
+Text Tokens
+World State Tokens
+Merge
+Timestep
+…
+Merge
+Latent Ego State
+State
+Progress
+Subtask
+Ego-Working Tokens
+Ego-Guided World Retrieval
+Ego-Working Retrieval
+As Query
+𝐶௧
+௘௚௢
+𝐶௧
+௪௢௥௟ௗ
+Persistent World State Memory
+World-Ego-Guided Action Generation
+“Clean Desktop”
+Persistent Wrist Observation Input 
+Perspective changes during manipulation
+𝑡௞
+𝑡௞ିଵ
+𝑡௞ିଶ
+Spatial Update
+Temporal Update
+As Query
+Figure 2: Overall Architecture of AtlasVLA. Relying solely on wrist-camera images Iw
+t , AtlasVLA extracts visual tokens
+Xw
+t and lifts them into 3D via depth Dw
+t and extrinsics Tex
+t
+to form an instantaneous world state memory mt. This memory
+dynamically updates the persistent world state memory Mt−1 via spatial neighborhood fusion and a temporal sliding window.
+Concurrently, an ego-working memory condenses context into ego-working tokens via learnable queries Qego, updating an
+ego-working memory bank through memory consolidation. Finally, world state and ego-working retrievals extract contexts
+Cworld
+t
+and Cego
+t
+from the dual memory banks to condition the world-ego-guided action DiT, yielding robust actions At.
+spatial fusion mechanism and a temporal sliding window to
+perform memory updates.
+Spatially, we adopt a voxel-hashing strategy analogous to
+Truncated Signed Distance Function (TSDF) map integra-
+tion (Newcombe et al. 2011). The entire 3D space is parti-
+tioned into uniform voxels. For incoming tokens correspond-
+ing to identical physical regions, we perform a weighted ag-
+gregation of their latent features within each local voxel. Let v
+denote the 3D coordinate of a voxel. When a newly acquired
+world state mt(v) with confidence weight wt is projected
+into the global world, the global world memory Mt(v) and
+its cumulative weight Wt(v) are dynamically updated:
+Mt(v) = Wt−1(v)Mt−1(v) + wtmt(v)
+Wt−1(v) + wt
+.
+(4)
+where confidence weight wt reflects the reliability of the
+current observation and is directly derived from the depth
+estimation confidence:
+wt(v) = ct(v), Wt(v) = λWt−1(v) + wt(v).
+(5)
+Higher-confidence depth observations contribute more to
+the global memory, while uncertain measurements are sup-
+pressed during the aggregation process.
+Temporally, the global memory maintains a maximum
+temporal window size of W, it will be continuously updated
+and forgotten through a sliding window. Crucially, since the
+first frame typically provides an optimal field-of-view and
+accurately reflects the initial state of the manipulation, we
+enforce a strict “permanent initialization” rule. The spatio-
+temporal memory constructed from the initial frame is per-
+manently anchored to provide a persistent global context.
+3.3
+Ego-Working State Memory
+Intent-aware Query. A critical challenge in long-horizon
+manipulation is preventing the agent from losing sight of
+the global objective amidst continuous, low-level sensory
+streams. To address this, we equip the VLA model with an
+intent-aware query mechanism to egocentrically model and
+track the task intent (state, progress). We define a set of
+learnable queries as the intent queries, denoted by Qego ∈
+RN×d. At each decision step, Qego is fed into the VLM to
+aggregate goal-oriented information. Formally, the queries
+attend to all the tokens via cross-attention mechanisms:
+Zego = Softmax
+QegoKT
+√
+d
+
+V,
+(6)
+where K and V are the key and value projections of the to-
+kens, and Zego represents the extracted ego-working latent
+tokens. By condensing the extensive spatio-temporal context
+into these focused intent tokens, our model maintains a coher-
+ent global receptive field. This explicitly prevents intention
+forgetting and significantly enhances the agent’s capability
+to execute complex, multi-stage tasks over long horizons.
+Ego-Working Memory Bank.
+In long-horizon manipu-
+lation, task intentions dynamically evolve across interme-
+diate sub-goals. To capture these transitions while avoid-
+ing unbounded memory growth and semantic redundancy,
+we maintain a temporal intent memory bank Mego through
+redundancy-aware latent consolidation. Given the accumu-
+lated memory Mego
+t−1, the newly extracted ego-working token
+Zego
+t
+first retrieves relevant historical context, which is adap-
+tively fused into the current representation. The memory
+bank is updated as follows:
+Mego
+t
+= Cons
+ Mego
+t−1 ∪{Zego
+t
++ Etemporal(t)}
+
+,
+(7)
+
+
+Franka robot
+Wrist camera
+RealSense D415
+Real-world general tasks
+Real-world long-horizon tasks
+Clean
+Desk
+Change
+Cubes
+Can in
+Drawer
+(a) Real-world robotic platform
+(b) Real-world task challenges
+Next target invisible
+(c) Real-world execution progress
+Large viewpoint changes 
+Long-horizon trajectory
+Yellow cube?
+Where is plate?
+1
+2
+3
+4
+5
+find targets
+pick the can
+place the can
+clean up bottle
+remove paper ball
+find targets
+place blue cube
+pick up yellow cube
+place yellow cube on plate1
+place blue cube on plate2
+Without third-
+person camera
+Figure 3: Qualitative results of AtlasVLA on real-world long-horizon tasks.
+Method
+Cameras
+Spatial
+Object
+Goal
+Long
+90
+Average
+OpenVLA (Kim et al. 2024)
+3rd
+84.7
+88.4
+79.2
+53.7
+73.5
+75.9
+π0 (Black et al. 2024)
+3rd
+90.8
+91.8
+89.6
+80.2
+–
+88.1
+4D-VLA (Zhang et al. 2025a)
+3rd
+93.8
+92.8
+95.6
+86.5
+–
+92.2
+CogACT (Li et al. 2024)
+3rd
+97.2
+98.0
+90.2
+88.8
+92.1
+93.2
+MemoryVLA (Shi et al. 2025)
+3rd
+98.4
+98.4
+96.4
+93.4
+95.6
+96.5
+π0 (Black et al. 2024)
+3rd + wrist
+96.8
+98.8
+95.8
+85.2
+–
+94.2
+OpenVLA-OFT
+3rd + wrist
+97.6
+98.4
+97.9
+94.5
+–
+97.1
+GE-ACT (Liao et al. 2025)
+3rd + wrist
+98.2
+97.6
+95.8
+94.4
+–
+96.5
+CogACT (Li et al. 2024)
+wrist
+96.4
+95.8
+88.6
+86.2
+87.4
+90.9
+π0 (Black et al. 2024)
+wrist
+94.4
+96.6
+90.8
+80.8
+–
+90.7
+MemoryVLA (Shi et al. 2025)
+wrist
+96.2
+99.2
+96.4
+87.6
+90.7
+94.0
+AtlasVLA (Ours)
+wrist
+99.4
+99.8
+98.2
+94.6
+95.8
+97.6
+Table 1: Quantitative comparison on the LIBERO benchmark. Success rates (%) are averaged over 50 trials per task across
+five suites, each containing 10 tasks. For methods without LIBERO-90 results, we report the average over the first four suites.
+where Cons(·) denotes the consolidation that merges tempo-
+rally adjacent and semantically similar intent tokens.
+3.4
+World-Ego-Guided Action Generation
+Ego-Working Memory Retrieval.
+To leverage historical
+context, the current ego-working token Zint
+t
+retrieves rele-
+vant information from the consolidated memory Mego
+t
+via
+cross-attention:
+Cego
+t
+= CrossAttn(Zego
+t
+, Mego
+t
+, Mego
+t
+).
+(8)
+By extracting the most relevant past intents, the retrieved
+context Cego
+t
+ensures temporally coherent action decoding.
+Ego-Guided World Retrieval. To ground actions in the 3D
+environment, the agent retrieves task-relevant world states
+through an ego-guided world retrieval module. Specifically,
+the historical ego-working context Cego
+t
+serves as the query
+to attend to the global world memory Mt via cross-attention:
+Cworld
+t
+= AddNorm (FFN (IntentAttn(Cego
+t
+, Mt, Mt))) ,
+(9)
+where Mt provides both keys and values. This ego-guided
+retrieval selectively extracts relevant world states while sup-
+pressing spatial redundancy, producing an ego-aligned rep-
+resentation for precise action generation.
+World-Ego-Guided Action DiT. Unlike standard diffusion
+models with global conditioning, our DiT adopts a decoupled
+step-wise conditioning mechanism. The action generation is
+conditioned on both ego-working states for task progression
+and retrieved world states for geometric grounding.
+At each diffusion step k, the noisy action tokens ak are
+processed by the world-ego-guided action DiT blocks. First,
+the tokens attend to the ego-working context Cego
+t
+via an ego-
+working attention layer to capture the current ego-working
+state and task progress. Then, they attend to the retrieved
+world representation Cworld
+t
+via a world state attention layer
+to introduce a more comprehensive world observation. Both
+attention modules and the subsequent FFN follow the stan-
+dard Transformer design with Add & Norm layers. After k
+diffusion steps, the refined tokens are decoded into the final
+actions At by an action decoder.
+4
+Experiments
+4.1
+Experimental Setups
+Implementation Details.
+The model is trained across 8
+NVIDIA A100 GPUs leveraging PyTorch FSDP, with a per-
+GPU sample size of 32 (yielding a global batch of 256) and a
+peak learning rate of 2 × 10−5. Discarding any third-person
+views, the network exclusively conditions on a single 224×
+224 wrist-perspective RGB frame and the text instruction to
+generate 7-DoF end-effector actions. The LLM scales to 7B,
+while our DiT-based action expert comprises ∼300M pa-
+
+
+Method
+Cameras
+Sweep to
+Dustpan
+Phone on
+Base
+Umbrella
+Out
+Frame off
+Hanger
+Wine at
+Rack
+Water
+Plants
+Avg.
+OpenVLA (Kim et al. 2024)
+3rd
+50.0
+20.0
+35.0
+15.0
+10.0
+10.0
+23.3
+CogACT (Li et al. 2024)
+3rd
+50.0
+50.0
+55.0
+45.0
+30.0
+25.0
+42.5
+FiS-VLA (Chen et al. 2026)
+3rd
+55.0
+50.0
+50.0
+70.0
+55.0
+20.0
+50.0
+MemoryVLA (Shi et al. 2025)
+3rd
+50.0
+60.0
+75.0
+60.0
+80.0
+55.0
+63.3
+π0 (Black et al. 2024)
+3rd + wrist
+30.0
+30.0
+30.0
+70.0
+10.0
+30.0
+33.3
+GE-ACT (Liao et al. 2025)
+3rd + wrist
+10.0
+15.0
+40.0
+35.0
+40.0
+45.0
+30.8
+CogACT (Li et al. 2024)
+wrist
+40.0
+35.0
+50.0
+35.0
+20.0
+25.0
+34.2
+MemoryVLA (Shi et al. 2025)
+wrist
+40.0
+55.0
+65.0
+60.0
+60.0
+50.0
+55.0
+AtlasVLA (Ours)
+wrist
+70.0
+70.0
+80.0
+65.0
+75.0
+65.0
+70.8
+Table 2: Quantitative comparison on the RLBench benchmark. Success rates (%) are reported on validation over 20 episodes.
+rameters. For online inference, action decoding uses DDIM
+(Song, Meng, and Ermon 2021) over 10 denoising steps with
+a classifier-free guidance (CFG) (Ho and Salimans 2022)
+scale of 1.5. Further configurations are detailed in Appendix.
+Simulation and Real-world Benchmarks.
+LIBERO (Liu
+et al. 2023a) uses a Franka robot and spans five distinct suites
+(Spatial, Object, Goal, Long, and 90). RLBench (James et al.
+2020) provides a large-scale simulation framework featuring
+complex, multi-stage manipulation tasks with extensive ob-
+ject and task variations. Figure 3 illustrates our comprehen-
+sive evaluation across real-world environments, covering the
+robotic platforms, task challenges, and execution progress.
+In the real world, we evaluate our framework on a Franka
+robot, categorizing experiments into general manipulation
+and long-horizon temporal suites. Crucially, aligning with
+our core claim, all real-world tasks are conducted using ex-
+clusively wrist-camera observations without any third-person
+visual support. Task details for each benchmark and addi-
+tional qualitative results are provided in Appendix.
+4.2
+Simulation Evaluation on LIBERO
+Implementation Setup. We evaluate our framework on the
+LIBERO simulation benchmark (Liu et al. 2023a) across five
+simulation suites: Spatial, Object, Goal, Long, and 90. Fol-
+lowing (Kim et al. 2024; Shi et al. 2025), models are trained
+using 50 demonstrations per task. Specifically, individual
+models are trained for the Spatial, Object, and Goal suites
+for 20k gradient steps each, whereas a single unified model
+is trained jointly on Long and LIBERO-90 for 40k steps. To
+demonstrate the robust convergence of our method without
+validation bias, all reported results are derived directly from
+the final training checkpoint rather than the best validation
+step. Each task undergoes 50 evaluation rollouts, and the
+mean success rate across each suite is reported.
+Evaluation with Wrist-only Observation.
+We evaluate
+AtlasVLA under a strict wrist-only camera setting on the
+LIBERO benchmark. As shown in Table 1, previous meth-
+ods suffer significant degradation when shifting from third-
+person to wrist-only views, with π0 and MemoryVLA drop-
+ping by 3.5% and 2.5% respectively. Benefiting from our
+persistent world state memory, AtlasVLA maintains consis-
+tently strong performance under this setting, achieving an
+97.6% average success rate and even outperforming base-
+lines (Black et al. 2024; Shi et al. 2025; Li et al. 2024)
+equipped with additional third-person views, which is 3.4%
+higher than π0. Rather than relying on instantaneous 3rd
+observations, AtlasVLA continuously accumulates and re-
+trieves spatio-temporal world context from sequential local
+views, effectively compensating for limited visibility and
+maintaining coherent scene understanding throughout ma-
+nipulation.
+Evaluation on Long-Horizon Tasks.
+Long-horizon ma-
+nipulation significantly compounds the challenges of con-
+text retention and global scene modeling under wrist-only
+control. On the demanding LIBERO-Long benchmark, At-
+lasVLA achieves a state-of-the-art success rate of 94.6% un-
+der the strict wrist-only constraint, outperforming the strong
+baseline MemoryVLA by 7.0%. This superiority stems from
+two core designs: (1) our ego-working memory tracks task
+progression to prevent intention drift, and (2) our persistent
+world state memory dynamically builds a comprehensive
+3D global workspace. Notably, while MemoryVLA experi-
+ences a precipitous 5.8% drop when stripped of third-person
+views, AtlasVLA’s explicit persistent world state modeling
+effectively eliminates the reliance on external spatial priors.
+4.3
+Simulation Evaluation on RLBench
+Implementation Setup.
+We evaluate our framework on
+RLBench (James et al. 2020), training our models for 80k
+steps using 100 demonstrations per task. Crucially, despite
+the geometric complexity of RLBench, our agent operates
+under a strict wrist-only constraint using a single 128 × 128
+RGB view, discarding all third-person views (front, left and
+right). Following (Lou et al. 2026), we report the average
+success rate across 6 representative tasks over 20 trials per
+task directly using the final training checkpoint.
+Evaluation Results on RLBench. We further evaluate At-
+lasVLA on RLBench, a challenging testbed featuring multi-
+stage tasks with larger spatial and trajectory variations than
+LIBERO. As shown in Table 2, AtlasVLA achieves an av-
+erage success rate of 70.8% using solely a wrist camera,
+significantly outperforming all VLA baselines. Notably, it
+surpasses the strongest baseline, MemoryVLA, by 7.5% and
+15.8% under the third-person and wrist-only settings respec-
+tively. Unlike baselines that rely on instantaneous views, our
+consistent improvements across all tasks confirm that contin-
+uously integrating historical context into a persistent world
+state memory effectively overcomes wrist-view partial ob-
+servability during robotic manipulation.
+
+
+Method
+Cameras
+General Tasks
+Pepper
+on Plate
+Pepper
+in Box
+Stack
+Cubes
+Carrot
+on Plate
+Cube
+in Drawer
+Can
+in Drawer
+Avg.
+π0 (Black et al. 2024)
+3rd + wrist
+68.0
+60.0
+62.0
+74.0
+66.0
+70.0
+66.7
+MemoryVLA (Shi et al. 2025)
+3rd
+72.0
+64.0
+66.0
+78.0
+70.0
+74.0
+70.7
+MemoryVLA (Shi et al. 2025)
+wrist
+62.0
+56.0
+58.0
+70.0
+62.0
+66.0
+62.3
+AtlasVLA (Ours)
+wrist
+78.0
+72.0
+76.0
+84.0
+82.0
+80.0
+78.7
+Table 3: Quantitative results on the real-world general tasks. We report average success rates (%) over 50 trials for each task.
+Method
+Long-horizon Tasks
+Change
+Cubes
+Stack Cubes
+Order
+Clean
+Desk
+Pick Place
+Order
+Avg.
+π0
+54
+50
+52
+52
+52.0
+MemoryVLA
+62
+58
+60
+62
+60.5
+AtlasVLA (Ours)
+74
+66
+68
+70
+69.5
+Table 4: Results on the real-world long-horizon tasks. We
+report average success rates (%) over 50 trials for each task.
+4.4
+Real-World Evaluation
+Implementation Setup. We evaluate AtlasVLA on a real-
+world robot platform under a strict wrist-only setting, where
+only a wrist-mounted camera is used without any additional
+third-person views. We construct two task suites, including 6
+general manipulation tasks and 4 long-horizon tasks, cover-
+ing sequential manipulation, rearrangement, and multi-stage
+interactions. All methods are evaluated over 50 trials per task
+using identical robot configurations and task instructions.
+Evaluation on General Tasks. We first evaluate AtlasVLA
+on general manipulation tasks. As shown in Table 3, At-
+lasVLA achieves an average success rate of 78.7% using
+only a wrist camera, outperforming all baselines with richer
+visual inputs. It surpasses MemoryVLA by 8.0% and 16.4%
+under third-person and wrist-only settings, respectively. This
+demonstrates that persistent world state memory effectively
+compensates for limited wrist-camera visibility, enabling re-
+liable manipulation without multi-camera perception.
+Evaluation on Long-Horizon Tasks. We further evaluate
+AtlasVLA on challenging long-horizon manipulation tasks.
+As reported in Table 4, AtlasVLA achieves an average suc-
+cess rate of 69.5%, outperforming π0 and MemoryVLA by
+17.5% and 9.0%, respectively. The significant improvement
+highlights the importance of persistent spatio-temporal rea-
+soning for long-horizon manipulation. While MemoryVLA
+improves over π0 by leveraging temporal memory, it still
+struggles to maintain sufficient spatial context in multi-stage
+tasks. In contrast, AtlasVLA jointly models spatial and tem-
+poral information through its world latent memory, enabling
+the robot to preserve intermediate states, recover previously
+observed information, and execute complex manipulation se-
+quences more reliably. These results validate that explicit
+world state memory is essential for scaling VLA models from
+reactive control toward robust long-horizon manipulation.
+4.5
+Ablation Studies
+We conduct systematic ablation studies on LIBERO and real-
+world long-horizon tasks (Table 5) to evaluate each compo-
+nent of our architecture under the strict wrist-only constraint.
+Core Memory Modules.
+Discarding world state memory
+No.
+Methods
+LIBERO
+Real-world Long
+1)
+w/o World State Memory
+93.5
+54.0
+2)
+w/o Ego-Working Memory
+95.0
+56.5
+3)
+AtlasVLA
+97.6
+69.5
+4)
+w/o World State Update
+94.6
+58.0
+5)
+w World State Update
+97.6
+69.5
+6)
+w/o Spatial PE
+96.4
+67.5
+7)
+w/o Temporal PE
+96.8
+65.0
+8)
+Spatio-Temporal PE
+97.6
+69.5
+9)
+w/o World State Conditioning
+95.2
+61.5
+10)
+w World State Conditioning
+97.6
+69.5
+Table 5: Ablation study on LIBERO and real-world tasks.
+(row 1) triggers a catastrophic performance collapse in real-
+world tasks (69.5% →54.0%), compellingly demonstrating
+that our spatial map memory is indispensable for enabling
+robust robotic manipulation relying solely on a wrist camera.
+Similarly, removing ego-working memory (row 2) causes a
+13.0% drop, proving that latent ego-working memory is im-
+perative for preventing intention drift on long-horizon tasks.
+Memory Update Strategy. Replacing our spatio-temporal
+update with naive memory accumulation (row 4) degrades
+real-world success by 11.5%, verifying the effectiveness of
+our TSDF-inspired voxel aggregation and sliding window.
+Positional Embedding. Removing spatial (row 6) or tem-
+poral PE (row 7) drops real-world performance by 2.0% and
+4.5%, respectively, confirming the benefit of 4D positional
+embeddings for spatio-temporal reasoning.
+World State Conditioning. Removing world state attention
+(row 9) reduces real-world success by 8.0% confirming that
+injecting comprehensive world state in action generation is
+indispensable for synthesizing precise actions.
+5
+Conclusion
+We present AtlasVLA, a novel Vision-Language-Action
+(VLA) framework that addresses the lack of a persistent
+world state in current reactive models, enabling robust wrist-
+only manipulation. To overcome severe partial observability,
+AtlasVLA introduces a Persistent World Memory featuring
+a voxel-hashed spatial map to preserve global world state,
+alongside an Ego-Working Memory to track task progres-
+sion and prevent intention drift. Ultimately, the action output
+is achieved through the world-conditioned DiT, AtlasVLA
+achieves state-of-the-art performance across simulation and
+real-world benchmarks. Remarkably, using solely a wrist
+camera, it outperforms comprehensive multi-view baselines
+and boosts long-horizon success by +9.4% on LIBERO-
+Long and +17.5% in real-world tasks, establishing a scalable
+paradigm for persistent world state modeling.
+
+
+References
+Black, K.; Brown, N.; Driess, D.; Esmail, A.; Equi, M.; Finn,
+C.; Fusai, N.; Groom, L.; Hausman, K.; Ichter, B.; et al.
+2024. pi0: A Vision-Language-Action Flow Model for Gen-
+eral Robot Control. arXiv preprint arXiv:2410.24164.
+Brohan, A.; Brown, N.; Carbajal, J.; Chebotar, Y.; Dabis,
+J.; Finn, C.; Gopalakrishnan, K.; Hausman, K.; Herzog, A.;
+Hsu, J.; et al. 2022. Rt-1: Robotics transformer for real-world
+control at scale. arXiv preprint arXiv:2212.06817.
+Brown, T.; Mann, B.; Ryder, N.; Subbiah, M.; Kaplan, J. D.;
+Dhariwal, P.; Neelakantan, A.; Shyam, P.; Sastry, G.; Askell,
+A.; et al. 2020.
+Language models are few-shot learners.
+NeurIPS, 33: 1877–1901.
+Bu, Q.; Cai, J.; Chen, L.; Cui, X.; Ding, Y.; Feng, S.;
+Gao, S.; He, X.; Hu, X.; Huang, X.; et al. 2025.
+Agi-
+bot world colosseo: A large-scale manipulation platform for
+scalable and intelligent embodied systems. arXiv preprint
+arXiv:2503.06669.
+Chen, H.; Liu, J.; Gu, C.; Liu, Z.; Zhang, R.; Li, X.; He,
+X.; Guo, Y.; Fu, C.-W.; Zhang, S.; et al. 2026. Fast-in-slow:
+A dual-system vla model unifying fast manipulation within
+slow reasoning. Advances in Neural Information Processing
+Systems, 38: 98049–98083.
+Chi, C.; Xu, Z.; Feng, S.; Cousineau, E.; Du, Y.; Burchfiel,
+B.; Tedrake, R.; and Song, S. 2025. Diffusion policy: Visuo-
+motor policy learning via action diffusion. The International
+Journal of Robotics Research, 44(10-11): 1684–1704.
+Dong, R.; Han, C.; Peng, Y.; Qi, Z.; Ge, Z.; Yang, J.; Zhao,
+L.; Sun, J.; Zhou, H.; Wei, H.; Kong, X.; Zhang, X.; Ma,
+K.; and Yi, L. 2024. DreamLLM: Synergistic Multimodal
+Comprehension and Creation. In ICLR.
+Fan, Q.; Li, Z.; Lu, Y.; Chen, W.; Shen, Q.; Long, X.-x.; Cai,
+Y.; Lu, T.; Wang, S.; and Cao, X. 2026. PEAfowl: Perception-
+Enhanced Multi-View Vision-Language-Action for Biman-
+ual Manipulation. arXiv preprint arXiv:2601.17885.
+Ho, J.; and Salimans, T. 2022.
+Classifier-Free Diffusion
+Guidance. arXiv preprint arXiv:2207.12598.
+Intelligence, P.; Black, K.; Brown, N.; Darpinian, J.; Dha-
+balia, K.; Driess, D.; Esmail, A.; Equi, M.; Finn, C.; Fu-
+sai, N.; et al. 2025.
+pi0.5: a Vision-Language-Action
+Model with Open-World Generalization.
+arXiv preprint
+arXiv:2504.16054.
+James, S.; Ma, Z.; Arrojo, D. R.; and Davison, A. J. 2020.
+Rlbench: The robot learning benchmark & learning environ-
+ment. IEEE Robotics and Automation Letters, 5(2): 3019–
+3026.
+Jangir, R.; Hansen, N.; Ghosal, S.; Jain, M.; and Wang, X.
+2022. Look closer: Bridging egocentric and third-person
+views with transformers for robotic manipulation.
+IEEE
+Robotics and Automation Letters, 7(2): 3046–3053.
+Jiang, Y.; Gupta, A.; Zhang, Z.; Wang, G.; Dou, Y.; Chen,
+Y.; Fei-Fei, L.; Anandkumar, A.; Zhu, Y.; and Fan, L. 2023.
+VIMA: Robot Manipulation with Multimodal Prompts. In In-
+ternational Conference on Machine Learning, 14975–15022.
+PMLR.
+Kim, M. J.; Finn, C.; and Liang, P. 2025.
+Fine-tuning
+vision-language-action models: Optimizing speed and suc-
+cess. arXiv preprint arXiv:2502.19645.
+Kim, M. J.; Pertsch, K.; Karamcheti, S.; Xiao, T.; Balakr-
+ishna, A.; Nair, S.; Rafailov, R.; Foster, E.; Lam, G.; Sanketi,
+P.; et al. 2024. Openvla: An open-source vision-language-
+action model. arXiv preprint arXiv:2406.09246.
+Li, H.; Shen, F.; Chen, D.; Yang, L.; Wang, X.; Shi, J.; Bing,
+Z.; Liu, Z.; and Knoll, A. 2026a. Remem-vla: Empowering
+vision-language-action model with memory via dual-level
+recurrent queries. arXiv preprint arXiv:2603.12942.
+Li, P.; Chen, Y.; Wu, H.; Ma, X.; Wu, X.; Huang, Y.; Wang,
+L.; Kong, T.; and Tan, T. 2025a. Bridgevla: Input-output
+alignment for efficient 3d manipulation learning with vision-
+language models. arXiv preprint arXiv:2506.07961.
+Li, P.; Guo, W.; Zhang, H.; Cai, T.; He, X.; Guo, Y.;
+and Xiong, H. 2026b. Spatial Memory for Out-of-Vision
+Manipulation in Vision-Language-Action.
+arXiv preprint
+arXiv:2605.22283.
+Li, Q.; Liang, Y.; Wang, Z.; Luo, L.; Chen, X.; Liao, M.;
+Wei, F.; Deng, Y.; Xu, S.; Zhang, Y.; et al. 2024. Cogact: A
+foundational vision-language-action model for synergizing
+cognition and action in robotic manipulation. arXiv preprint
+arXiv:2411.19650.
+Li, R.; Guo, W.; Wu, Z.; Wang, C.; Deng, H.; Weng, Z.; Tan,
+Y.-P.; and Wang, Z. 2025b. Map-vla: Memory-augmented
+prompting for vision-language-action model in robotic ma-
+nipulation. arXiv preprint arXiv:2511.09516.
+Liao, Y.; Zhou, P.; Huang, S.; Yang, D.; Chen, S.; Jiang,
+Y.; Hu, Y.; Cai, J.; Liu, S.; Luo, J.; et al. 2025.
+Genie
+envisioner: A unified world foundation platform for robotic
+manipulation. arXiv preprint arXiv:2508.05635.
+Lin, H.; Chen, S.; Liew, J.; Chen, D. Y.; Li, Z.; Shi, G.; Feng,
+J.; and Kang, B. 2025. Depth anything 3: Recovering the vi-
+sual space from any views. arXiv preprint arXiv:2511.10647.
+Liu, B.; Zhu, Y.; Gao, C.; Feng, Y.; Liu, Q.; Zhu, Y.; and
+Stone, P. 2023a. Libero: Benchmarking knowledge transfer
+for lifelong robot learning. Advances in Neural Information
+Processing Systems, 36: 44776–44791.
+Liu, H.; Li, C.; Wu, Q.; and Lee, Y. J. 2023b. Visual in-
+struction tuning. Advances in neural information processing
+systems, 36: 34892–34916.
+Liu, S.; Wu, L.; Li, B.; Tan, H.; Chen, H.; Wang, Z.; Xu,
+K.; Su, H.; and Zhu, J. 2025. Rdt-1b: a diffusion foundation
+model for bimanual manipulation.
+In International Con-
+ference on Learning Representations, volume 2025, 29982–
+30009.
+Lou, Y.; Chi, X.; Zhang, X.; Qian, Z.; Li, C.; Zhang, R.; Lyu,
+Y.; Song, G.; Fu, C.; Xu, H.; et al. 2026. Mask World Model:
+Predicting What Matters for Robust Robot Policy Learning.
+arXiv preprint arXiv:2604.19683.
+Newcombe, R. A.; Izadi, S.; Hilliges, O.; Molyneaux, D.;
+Kim, D.; Davison, A. J.; Kohi, P.; Shotton, J.; Hodges, S.; and
+Fitzgibbon, A. 2011. Kinectfusion: Real-time dense surface
+mapping and tracking.
+In 2011 10th IEEE international
+symposium on mixed and augmented reality, 127–136. Ieee.
+
+
+OpenAI. 2023. GPT-4V(ision) System Card.
+Oquab, M.; Darcet, T.; Moutakanni, T.; Vo, H.; Szafraniec,
+M.; Khalidov, V.; Fernandez, P.; Haziza, D.; Massa, F.; El-
+Nouby, A.; et al. 2024. Dinov2: Learning robust visual fea-
+tures without supervision. Transactions on Machine Learn-
+ing Research Journal.
+Ouyang, L.; Wu, J.; Jiang, X.; Almeida, D.; Wainwright, C.;
+Mishkin, P.; Zhang, C.; Agarwal, S.; Slama, K.; Ray, A.; et al.
+2022. Training language models to follow instructions with
+human feedback. Advances in neural information processing
+systems, 35: 27730–27744.
+O’Neill, A.; Rehman, A.; Maddukuri, A.; Gupta, A.;
+Padalkar, A.; Lee, A.; Pooley, A.; Gupta, A.; Mandlekar, A.;
+Jain, A.; et al. 2024. Open x-embodiment: Robotic learning
+datasets and rt-x models: Open x-embodiment collaboration
+0. In 2024 IEEE International Conference on Robotics and
+Automation (ICRA), 6892–6903. IEEE.
+Peebles, W.; and Xie, S. 2023. Scalable diffusion models with
+transformers. In Proceedings of the IEEE/CVF international
+conference on computer vision, 4195–4205.
+Qi, Z.; Dong, R.; Zhang, S.; Geng, H.; Han, C.; Ge, Z.;
+Yi, L.; and Ma, K. 2024. ShapeLLM: Universal 3D Object
+Understanding for Embodied Interaction. In Computer Vi-
+sion - ECCV 2024 - 18th European Conference, Milan, Italy,
+September 29-October 4, 2024, Proceedings, Part XLIII, vol-
+ume 15101 of Lecture Notes in Computer Science, 214–238.
+Springer.
+Qu, D.; Song, H.; Chen, Q.; Yao, Y.; Ye, X.; Ding, Y.; Wang,
+Z.; Gu, J.; Zhao, B.; Wang, D.; et al. 2025.
+Spatialvla:
+Exploring spatial representations for visual-language-action
+model. arXiv preprint arXiv:2501.15830.
+Shi, H.; Xie, B.; Liu, Y.; Sun, L.; Liu, F.; Wang, T.; Zhou,
+E.; Fan, H.; Zhang, X.; and Huang, G. 2025.
+Mem-
+oryvla: Perceptual-cognitive memory in vision-language-
+action models for robotic manipulation.
+arXiv preprint
+arXiv:2508.19236.
+Song, J.; Meng, C.; and Ermon, S. 2021. Denoising Diffusion
+Implicit Models. In International Conference on Learning
+Representations.
+Torne, M.; Pertsch, K.; Walke, H.; Vedder, K.; Nair, S.; Ichter,
+B.; Ren, A. Z.; Wang, H.; Tang, J.; Stachowicz, K.; et al. 2026.
+Mem: Multi-scale embodied memory for vision language
+action models. arXiv preprint arXiv:2603.03596.
+Touvron, H.; Lavril, T.; Izacard, G.; Martinet, X.; Lachaux,
+M.-A.; Lacroix, T.; Rozière, B.; Goyal, N.; Hambro, E.;
+Azhar, F.; et al. 2023a. Llama: Open and efficient foun-
+dation language models. arXiv 2023.
+arXiv preprint
+arXiv:2302.13971, 10.
+Touvron, H.; Martin, L.; Stone, K.; Albert, P.; Almahairi, A.;
+Babaei, Y.; Bashlykov, N.; Batra, S.; Bhargava, P.; Bhosale,
+S.; et al. 2023b. Llama 2: Open foundation and fine-tuned
+chat models. arXiv preprint arXiv:2307.09288.
+Wen, J.; Zhu, Y.; Li, J.; Tang, Z.; Shen, C.; and Feng, F. 2025.
+Dexvla: Vision-language model with plug-in diffusion expert
+for general robot control. arXiv preprint arXiv:2502.05855.
+Zhai, X.; Mustafa, B.; Kolesnikov, A.; and Beyer, L. 2023.
+Sigmoid loss for language image pre-training. In Proceed-
+ings of the IEEE/CVF international conference on computer
+vision, 11975–11986.
+Zhang, J.; Chen, Y.; Xu, Y.; Huang, Z.; Zhou, Y.; Yuan,
+Y.-J.; Cai, X.; Huang, G.; Quan, X.; Xu, H.; et al. 2025a. 4d-
+vla: Spatiotemporal vision-language-action pretraining with
+cross-scene calibration. arXiv preprint arXiv:2506.22242.
+Zhang, W.; Liu, H.; Qi, Z.; Wang, Y.; Yu, X.; Zhang, J.;
+Dong, R.; He, J.; Lu, F.; Wang, H.; et al. 2025b. Dreamvla: a
+vision-language-action model dreamed with comprehensive
+world knowledge. arXiv preprint arXiv:2507.04447.
+Zitkovich, B.; Yu, T.; Xu, S.; Xu, P.; Xiao, T.; Xia, F.; Wu,
+J.; Wohlhart, P.; Welker, S.; Wahid, A.; et al. 2023. Rt-2:
+Vision-language-action models transfer web knowledge to
+robotic control. In Conference on Robot Learning, 2165–
+2183. PMLR.
+
+
+A
+Implementation Details
+A.1
+AtlasVLA: Architecture
+In this section, we provide a comprehensive breakdown of the
+internal architectural components of AtlasVLA. Apart from
+our persistent world-ego state memory, our framework is fun-
+damentally decoupled into three interconnected modules: a
+multimodal visual encoder for egocentric perception, a large
+language model for semantic reasoning, and a step-wise con-
+ditioned Diffusion Transformer (DiT) for action generation.
+Visual Encoder.
+To process the raw egocentric sensory
+inputs, AtlasVLA employs a dual-stream perception mod-
+ule. The primary RGB stream utilizes frozen vision encoders
+(DINOv2 (Oquab et al. 2024) and SigLIP (Zhai et al. 2023))
+to extract 2D visual tokens directly from the wrist-camera
+observations. Concurrently, to construct the persistent 4D
+world representation, the spatial stream leverages a fine-
+tuned Depth Anything v3 (Lin et al. 2025) to provide robust
+streaming depth estimation. These depth maps are dynam-
+ically converted alongside the current camera extrinsics to
+facilitate strict spatial back-projection.
+Large Language Model.
+The core cognitive and reason-
+ing engine of AtlasVLA is instantiated as a LLaMA-2 7B
+decoder-only Large Language Model (Touvron et al. 2023b).
+We use OpenVLA-7b (Kim et al. 2024) as our pre-training
+model, and the LLM processes a multimodal sequence com-
+prising the text instruction tokens, visual tokens, world state
+tokens and a dedicated set of learnable intent queries. Rather
+than directly decoding low-level actions, the LLM functions
+as a high-level intent tracker and semantic router. By exe-
+cuting cross-attention mechanisms over the historical con-
+text and current visual observations, it outputs compact ego-
+working latent states. These states are subsequently deposited
+into the ego-working memory bank, ensuring the agent main-
+tains a coherent tracking of task progress and ego state.
+Action Expert. The translation of abstract world-ego states
+into continuous robotic control is governed by an action ex-
+pert parameterized ∼300M weights. Inspired by the highly
+expressive generative capabilities of CogACT (Li et al.
+2024), we adopt a Diffusion Transformer (DiT) architec-
+ture (Peebles and Xie 2023), which we fundamentally aug-
+ment to support our dual-memory formulation. To effectively
+ground the action generation in the physical environment, we
+discard standard global conditioning in favor of a decoupled,
+step-wise dual-attention mechanism. At each diffusion step,
+the noisy action tokens sequentially attend to the retrieved
+historical ego-working context via an ego-working attention
+layer, and to the comprehensive scene representation via a
+world state attention layer. During online inference, the action
+sequence is formulated as a denoising process. To achieve
+high-frequency control, action decoding is accelerated us-
+ing the Denoising Diffusion Implicit Models (DDIM) (Song,
+Meng, and Ermon 2021) scheduler over 10 denoising steps.
+To further enhance the robustness of the synthesized trajec-
+tories, we apply Classifier-Free Guidance (CFG) (Ho and
+Salimans 2022) with a scale of 1.5.
+A.2
+Additional Training Details
+Loss Function.
+Following (Li et al. 2024), we model the
+continuous action synthesis as a denoising process parame-
+terized by our step-wise conditioned Diffusion Transformer
+(DiT). The primary optimization objective is to train the ac-
+tion expert to accurately reconstruct the ground-truth action
+chunks At from Gaussian noise, strictly conditioned on our
+proposed dual-state representations.
+In the forward diffusion process, we iteratively add Gaus-
+sian noise ϵ ∼N(0, I) to the ground-truth action chunk At
+over K steps to obtain the noisy action ak at step
+ak = √¯αkAt +
+√
+1 −¯αkϵ
+(10)
+where ¯αk follows a predefined cosine noise schedule.
+During the reverse process, the DiT network ϵθ is trained
+to predict the injected noise ϵ. Crucially, departing from stan-
+dard global conditioning pipelines, our network incorporates
+a decoupled, two-step conditioning mechanism. The noise
+prediction is sequentially modulated by the Ego-Working
+State context Cego
+t
+(capturing temporal task progress) and
+the Persistent World State context Cworld
+t
+(providing geo-
+metric and spatial grounding). The denoising objective is
+thus formulated as a Mean Squared Error (MSE) loss:
+Lact = EAt,ϵ,k
+hϵ −ϵθ(ak, k, Cego
+t
+, Cworld
+t
+)
+2
+2
+i
+(11)
+To effectively enable Classifier-Free Guidance (CFG)
+during inference, we employ a condition dropout strat-
+egy during training. Specifically, the conditioning contexts
+(Cego
+t
+, Cworld
+t
+) are independently replaced with a learnable
+unconditional null token ∅with a probability of pdrop = 0.1.
+This joint training mechanism forces the model to learn both
+conditionally and unconditionally, facilitating highly robust
+action execution under the guided sampling framework.
+Hyperparameter
+Value
+Global batch size
+256 (32 × 8)
+Learning rate
+2 × 10−5
+Action chunk size
+16
+Inference denoising steps
+10
+CFG scale (classifier-free guidance)
+1.5
+Condition dropout
+0.1
+Capacity of world state memory
+2048
+The voxel size of the world state
+0.025m
+Number of ego-working memory retrieval layer
+2
+Number of ego-guided world retrieval layer
+4
+Number of ego-working tokens
+4
+Table 6: Training and model hyperparameters for AtlasVLA.
+Hyperparameter Setting.
+The detailed training and ar-
+chitectural hyperparameters for AtlasVLA are summarized
+in Table 6. For the model optimization, we utilize a global
+batch size of 256 (distributed as 32 samples across 8 GPUs)
+and set the learning rate to 2 × 10−5. Regarding our pro-
+posed dual-memory architecture, the Persistent World State
+Memory maintains a maximum capacity of 2048 tokens and
+updates the 3D environment using a spatial voxel resolution
+of 0.025m. Concurrently, the Ego-Working Memory tracks
+
+
+historical task progress using 4 compact ego-working to-
+kens. To effectively integrate these contextual representations
+into the action expert, we employ 2 cross-attention layers for
+the ego-working memory retrieval and 4 layers for the ego-
+guided world retrieval. For the continuous control synthesis,
+the model predicts trajectories with an action chunk size
+of 16. During online inference, the denoising process is exe-
+cuted over 10 steps. Finally, to ensure robust action alignment
+with the high-level semantic intent, we apply Classifier-Free
+Guidance (CFG) with a scale of 1.5.
+B
+Additional Experimental Results
+B.1
+Additional Simulation Details
+LIBERO.
+The LIBERO benchmark (Liu et al. 2023a)
+serves as a comprehensive simulation environment to sys-
+tematically assess the compositional generalization and se-
+quential decision-making capabilities of embodied agents
+across five distinct task suites: LIBERO-Spatial, LIBERO-
+Object, LIBERO-Goal, LIBERO-Long, and LIBERO-90 (Liu
+et al. 2023a). Because these tasks require accomplishing a
+series of coherent sub-goals under diverse initial conditions,
+they pose a severe challenge for standard memoryless models,
+particularly in the Long and 90 suites where compounding
+errors from spatial blind spots and intention drift frequently
+lead to catastrophic failures. For our experimental protocol,
+we strictly utilize 50 expert demonstrations per task, training
+individual policies for the Spatial, Object, and Goal suites
+for 20,000 gradient steps each, while adopting a unified co-
+training strategy for the Long and LIBERO-90 suites over
+40,000 steps (Shi et al. 2025). During evaluation, we re-
+port the mean success rate computed over 50 independent
+execution rollouts for each task, and to ensure rigorous eval-
+uation without validation bias, all quantitative metrics are
+extracted directly from the final training checkpoint. Cru-
+cially, to validate our dual-memory architecture under par-
+tial observability, our LIBERO experiments rely strictly on
+a single wrist-mounted camera, discarding the third-person
+global views used by standard baselines.
+RLBench.
+The RLBench framework (James et al. 2020)
+provides a geometrically complex simulation environment
+featuring multi-stage manipulation tasks with significant spa-
+tial and trajectory variations. To evaluate our model within
+this framework, we utilize 100 expert demonstrations per task
+and train the policy for 80,000 gradient steps. Despite the
+high geometric complexity that typically necessitates multi-
+view observations, we enforce a rigorous wrist-only percep-
+tion constraint by exclusively utilizing a single 128 × 128
+RGB egocentric view while entirely discarding the standard
+front, left, and right third-person cameras. Following the
+evaluation protocol established in recent literature (Lou et al.
+2026), we assess the agent’s performance across six repre-
+sentative tasks, conducting 20 independent execution trials
+per task to compute the average success rate. Consistent with
+our evaluation methodology on LIBERO, all quantitative re-
+sults on the RLBench benchmark are derived directly from
+the final training checkpoint to ensure robust performance
+measurement and eliminate validation bias.
+Franka robot
+Wrist camera
+RealSense D415
+Without third-
+person camera
+Figure 4: Our real-world robotic platform.
+B.2
+Additional Real-world Settings
+Hardware Setup.
+All real-world evaluations are con-
+ducted using a 7-DoF Franka robotic manipulator. Depart-
+ing from conventional multi-camera configurations, our sys-
+tem strictly enforces a wrist-only observation constraint by
+exclusively utilizing a single Intel RealSense D415 cam-
+era mounted on the end-effector for egocentric perception.
+Any third-person global cameras are deliberately disabled
+and disconnected from the data flow to rigorously test the
+agent’s spatial reasoning under severe partial observability.
+The physical workspace features an unstructured tabletop
+environment equipped with cabinets, sliding drawers, and a
+diverse set of everyday objects scattered across the manipu-
+lation area to support long-horizon tasks. All hardware com-
+ponents are synchronized and operated through the Robot
+Operating System (ROS), facilitating real-time sensorimotor
+control and action execution. The detailed visualization of
+our real-world robotic platform and the restrictive observa-
+tion constraints are depicted in Figure 4.
+Task Design.
+We construct two distinct real-world task
+suites to evaluate the robustness and temporal reasoning ca-
+pabilities of our framework under the strict wrist-only obser-
+vation constraint. The first suite comprises 6 general manip-
+ulation tasks that focus on fundamental object interactions
+and spatial arrangements within the tabletop workspace. Fur-
+thermore, to rigorously assess the agent’s ability to maintain
+a persistent world-ego state and mitigate historical forgetting,
+the second suite introduces 4 challenging long-horizon tasks.
+These extended scenarios cover complex sequential manip-
+ulation, scene rearrangement, and multi-stage interactions,
+requiring the policy to seamlessly overcome spatial blind
+spots and intention drift. In total, our real-world benchmark
+consists of 10 unique tasks, with all baseline comparisons
+systematically evaluated over 50 independent trials per task
+
+
+Methods
+Latency (s)
+Throughput (Hz)
+GPU Memory (GB)
+Success rate (%)
+MemoryVLA (Shi et al. 2025)
+0.146
+109.5
+16.7 GB
+62.3
+AtlasVLA (Ours)
+0.158
+101.3
+18.1 GB
+78.7
+Table 7: Quantitative analysis of runtime efficiency and memory footprint. The inference latency and action generation throughput
+are measured to evaluate the feasibility of real-time robotic deployment.
+using identical robot configurations.
+Evaluation Protocol.
+During the real-world inference
+phase, the performance on each task is measured across 50
+independent execution trials, featuring randomized initial ob-
+ject placements and varied spatial layouts. A manipulation
+rollout is recorded as successful only if the robotic agent
+sequentially completes all required sub-goals and reaches
+the specified final target state within a designated step limit.
+For the demanding long-horizon suite, the evaluation specif-
+ically stresses the model’s resilience against severe partial
+observability, requiring the policy to navigate dynamic per-
+spective changes and extended temporal executions without
+catastrophic spatial or intention forgetting. To guarantee a
+rigorous and fair comparison, all evaluated baseline meth-
+ods are deployed on the identical physical workspace.
+B.3
+Runtime Analysis
+To evaluate the computational efficiency of our proposed
+dual-memory architecture for real-world robotic deployment,
+we conduct a comprehensive runtime analysis comparing At-
+lasVLA against the strong baseline, MemoryVLA (Shi et al.
+2025). As detailed in Table 7, despite the architectural inte-
+gration of the continuous 4D Persistent World State updating
+and the step-wise Ego-Working State retrieval mechanisms,
+AtlasVLA maintains highly competitive inference efficiency.
+Specifically, the single-step inference latency experiences a
+marginal increase of only 0.012s (from 0.146s to 0.158s)
+compared to the baseline, seamlessly sustaining a robust
+throughput of 101.3Hz that comprehensively exceeds the
+standard execution frequency required for real-time, closed-
+loop continuous control in physical robots. Furthermore, the
+hardware resource analysis reveals that AtlasVLA consumes
+18.1GB of GPU VRAM, introducing a modest 1.4GB over-
+head over MemoryVLA. This indicates that our redundancy-
+aware latent consolidation strategy successfully bounds un-
+bounded memory growth, ensuring the entire framework can
+still be efficiently deployed on a single consumer-grade GPU.
+Ultimately, when juxtaposed with the substantial 16.4% ab-
+solute improvement in the real-world success rate, these min-
+imal computational trade-offs firmly establish AtlasVLA as
+an exceptionally efficient and high-performing framework.
+B.4
+Detailed Ablation Study
+Memory Length of Ego-Working State. As shown in Ta-
+ble 8, we ablate the memory length of the Ego-Working
+State to evaluate its impact on sequential decision-making.
+Setting the length to 16 yields the optimal balance, outper-
+forming the shorter length of 8 on both LIBERO (97.6% vs.
+97.3%) and real-world long-horizon tasks (69.5% vs. 66.4%).
+This performance gain confirms that an adequate temporal
+No.
+Memory length
+LIBERO
+Real-world Long
+1)
+8
+97.3
+66.4
+2)
+16 (Ours)
+97.6
+69.5
+3)
+32
+97.2
+69.8
+Table 8: Ablation study on the memory length of the ego-
+working state across LIBERO and real-world tasks.
+horizon is crucial for tracking task progress and mitigat-
+ing intention drift. However, further expanding the memory
+to 32 provides marginal real-world benefits (69.8%) while
+slightly degrading LIBERO performance (97.2%). This in-
+dicates that excessively long memory introduces redundant
+historical noise, which dilutes the cross-attention mechanism
+without yielding meaningful gains. Consequently, we adopt
+a memory length of 16 as the optimal hyperparameter.
+No.
+Voxel size
+LIBERO
+Real-world Long
+1)
+0.01
+96.3
+65.7
+2)
+0.025 (Ours)
+97.6
+69.5
+3)
+0.05
+97.2
+64.0
+4)
+0.1
+95.9
+58.5
+Table 9: Ablation study on the voxel size of the world state
+across LIBERO and real-world tasks.
+Voxel Size of World State.
+Table 9 details the ablation
+on the spatial voxel resolution used for constructing the
+Persistent World State. A voxel size of 0.025m yields the
+best performance, achieving the highest success rates on
+both LIBERO (97.6%) and real-world long-horizon tasks
+(69.5%). Decreasing the voxel size to 0.01m degrades per-
+formance (96.3% and 65.7%, respectively), likely because
+overly fine-grained voxelization results in excessive spatial
+sparsity and introduces representation noise, thereby affect-
+ing the update of the world state. Conversely, increasing the
+voxel size to 0.05m and 0.1m causes a severe performance
+drop, particularly in complex real-world scenarios (falling
+to 64.0% and 58.5%), as coarse grids over-compress essen-
+tial geometric structures and discard the fine spatial details
+required for precise manipulation. Therefore, the 0.025m res-
+olution provides the optimal balance between geometric fi-
+delity and representational compactness.
+B.5
+Qualitative Results
+Qualitative Results in Real-world. To provide a more in-
+tuitive understanding of our method’s performance under
+
+
+strict wrist-only partial observability, we present step-by-
+step visual execution trajectories of AtlasVLA deployed in
+the physical environment. Figure 6 illustrates the qualitative
+results across the real-world general tasks, such as “Pepper in
+Box” and “Can in Drawer”, where the robotic agent is tasked
+with fundamental pick-and-place and spatial rearrangement
+operations. Due to the narrow field-of-view inherent to the
+wrist-mounted camera, the target receptacle inevitably exits
+the visual frame as the end-effector approaches the initial ob-
+ject to be grasped; however, the execution sequences clearly
+demonstrate that AtlasVLA successfully manipulates the tar-
+gets without losing spatial consistency, directly validating the
+effectiveness of the proposed 4D Persistent World State mem-
+ory in continuously integrating transient local observations
+to retain the geometric workspace layout. Furthermore, Fig-
+ure 5 visualizes the execution progress on the highly demand-
+ing real-world long-horizon tasks, including “Clean desk”,
+“Change Cubes”, “Stack Cubes Order”, and “Pick Place Or-
+der”. These extended scenarios require the robot to accurately
+sequence multiple manipulation sub-goals amidst drastic and
+continuous viewpoint shifts. As depicted in the multi-step
+trajectories, AtlasVLA maintains coherent temporal execu-
+tion across the entire horizon without erroneously repeating
+previous actions or losing track of the final objective. By
+seamlessly retrieving historical task progress from the Ego-
+Working State memory and grounding it within the updated
+Persistent World State, our policy effectively mitigates both
+intention drift and perception forgetting, ultimately executing
+complex, multi-stage behaviors with remarkable robustness.
+Qualitative Results on LIBERO.
+To further substantiate
+the efficacy of our proposed dual-memory architecture in
+simulated environments, we visualize the step-by-step exe-
+cution trajectories of AtlasVLA across the comprehensive
+LIBERO benchmark suites. Figure 7 illustrates the agent’s
+robust manipulation capabilities across diverse evaluation
+benchmarks, including the Spatial, Goal, Object, and 90 sub-
+sets. Despite the inherently restricted field-of-view of the
+wrist-mounted camera, the agent seamlessly handles varied
+spatial layouts, novel object instances, and diverse task in-
+structions without catastrophic perception failures. For in-
+stance, during tasks requiring precise spatial alignment, the
+4D Persistent World State memory effectively retains the
+global geometric layout of target receptacles—such as bas-
+kets or drawers—even as they momentarily exit the egocen-
+tric frame, facilitating accurate and collision-free interac-
+tions. Furthermore, Figure 8 details the qualitative perfor-
+mance on the demanding LIBERO-10 (Long) benchmark,
+which involves complex, multi-stage tasks such as sequen-
+tially placing multiple distinct items (e.g., moka pots or soup
+cans) into designated locations. In these extended manipu-
+lation horizons, the wrist perspective undergoes drastic and
+continuous shifts, a scenario that typically causes memory-
+less reactive baselines to suffer from severe intention drift.
+However, guided by the Ego-Working State memory, At-
+lasVLA successfully tracks its historical task progress, ensur-
+ing it implicitly remembers previously completed sub-goals
+and accurately transitions to subsequent actions to fulfill the
+long-horizon tasks.
+
+
+(a) Clean desk
+(c) Stack Cubes Order
+(d) Pick Place Order
+(b) Change Cubes
+Figure 5: Qualitative results of AtlasVLA on real-world long-horizon tasks.
+
+
+(a) Pepper on Plate
+(b) Pepper in Box
+(c) Stack Cubes
+(d) Carrot on Plate
+(e) Cube in Drawer
+(f) Can in Drawer 
+Figure 6: Qualitative results of AtlasVLA on real-world general tasks.
+
+
+(e) Libero-90 close_the_bottom_drawer_of_the_cabinet
+(b) Libero-goal open_the_middle_drawer_of_the_cabinet
+(c) Libero-object pick_up_the_alphabet_soup_and_place_it_in_the_bask
+(d) Libero-10 pick_up_the_book_and_place_it_in_the_back_compartm
+(a) Libero-spatial pick_up_the_black_bowl_between_the_plate_and_the_r
+Figure 7: Qualitative results of AtlasVLA on LIBERO Benchmark.
+
+
+(a) Libero-10 pick_up_the_book_and_place_it_in_the_back_compartm
+(b) Libero-10 put_both_moka_pots_on_the_stove
+(c) Libero-10 put_both_the_alphabet_soup_and_the_cream_cheese_bo
+(d) Libero-10 put_both_the_alphabet_soup_and_the_tomato_sauce_in
+Figure 8: More Qualitative results of AtlasVLA on long LIBERO-10 Benchmark.

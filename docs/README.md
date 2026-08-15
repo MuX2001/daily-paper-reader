@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-14</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-15</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 25 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 11 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>15</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>10</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>8</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>3</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-14 21:43:56 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-15 20:30:33 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共处理25篇论文，精读15篇、速读10篇，聚焦视觉-语言-动作（VLA）模型。</p>
-<p>最值得关注的是联合嵌入世界模型JEPA-WAM（满分10）与跨具身导航CrossTracer（9分），两者分别突破世界建模与多平台泛化。</p>
-<p>后续可优先关注VLA推理框架的环境自适应选择及轨迹审计方向，以提升实际部署可靠性。</p>
+<p>今日精读8篇、速读3篇，聚焦视觉-语言-动作模型与机器人操作前沿。</p>
+<p>最值得看的是AtlasVLA的世界-自我状态建模与移动机械臂任意形状负载的全身运动规划，均获9.0高分。</p>
+<p>建议关注VLA结合世界模型的推理效率优化，以及机器人化学实验中的不确定性策略切换应用。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +73,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">15 篇</strong>
+    <strong class="dpr-home-dashboard-count">8 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="JEPA-WAM: Learning Vision-Language-Action Policies with Joint-Embedding World Modeling">JEPA-WAM: Learning Vision-Language-Action Policies with Joint-Embedding World Modeling</span></li><li><span class="dpr-home-dashboard-paper-title" title="CrossTracer: Cross-Embodiment Navigation via VLA Model Reasoning and Trace Residuals Adapting">CrossTracer: Cross-Embodiment Navigation via VLA Model Reasoning and Trace Residuals Adapting</span></li><li><span class="dpr-home-dashboard-paper-title" title="Capek 0.5: An Execution-Centric Vision-Language Model for Embodied Intelligence">Capek 0.5: An Execution-Centric Vision-Language Model for Embodied Intelligence</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="AtlasVLA: Persistent World-Ego State Modeling for Vision-Language-Action Models">AtlasVLA: Persistent World-Ego State Modeling for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Real-time Whole-Body Motion Planning for Mobile Manipulators Carrying Arbitrarily Shaped Payloads via Kinematically-Coupled SVSDF">Real-time Whole-Body Motion Planning for Mobile Manipulators Carrying Arbitrarily Shaped Payloads via Kinematically-Coupled SVSDF</span></li><li><span class="dpr-home-dashboard-paper-title" title="Embodied Multimodal Grounding for Open-Vocabulary Mobile Manipulation via Semantic 3D Gaussian Splatting">Embodied Multimodal Grounding for Open-Vocabulary Mobile Manipulation via Semantic 3D Gaussian Splatting</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>5</strong></span><span class="dpr-home-dashboard-tag">vla <strong>5</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>3</strong></span><span class="dpr-home-dashboard-tag">control <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>6</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>2</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -86,12 +86,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">10 篇</strong>
+    <strong class="dpr-home-dashboard-count">3 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Fast and Accurate: An Adaptive VLA Inference Framework through Environment-aware Model Selection">Fast and Accurate: An Adaptive VLA Inference Framework through Environment-aware Model Selection</span></li><li><span class="dpr-home-dashboard-paper-title" title="Auditing Instruction-Trajectory Mismatches in Multimodal Robot Demonstrations">Auditing Instruction-Trajectory Mismatches in Multimodal Robot Demonstrations</span></li><li><span class="dpr-home-dashboard-paper-title" title="Hierarchical Fast--Slow ReAct Agent for Zero-Shot Object-Goal Navigation">Hierarchical Fast--Slow ReAct Agent for Zero-Shot Object-Goal Navigation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="WA-SpecDec: World-Aware Speculative Decoding for Vision-Language-Action Models">WA-SpecDec: World-Aware Speculative Decoding for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Flowing Through States: Neural ODE Regularization for Reinforcement Learning">Flowing Through States: Neural ODE Regularization for Reinforcement Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="SAFE-CHEM: Uncertainty-Aware Policy Switching for Robust Robotic Chemistry">SAFE-CHEM: Uncertainty-Aware Policy Switching for Robust Robotic Chemistry</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>7</strong></span><span class="dpr-home-dashboard-tag">vla <strong>2</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>1</strong></span><span class="dpr-home-dashboard-tag">vla <strong>1</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>1</strong></span></div>
 </section>
 </div>
 

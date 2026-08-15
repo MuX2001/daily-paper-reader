@@ -1,0 +1,1157 @@
+Real-time Whole-Body Motion Planning for Mobile Manipulators
+Carrying Arbitrarily Shaped Payloads via Kinematically-Coupled SVSDF
+Yisheng Li*1, Longji Yin*1, Tingrui Zhang2, Ruize Xue1, Haoda Zhu1, Nan Chen1, Siqi Liang1,
+Yuxi Liu1, Fu Zhang1
+Abstract— Mobile manipulators are increasingly tasked with
+transporting large, non-convex payloads through cluttered en-
+vironments, yet existing planners either oversimplify the pay-
+load geometry or fail to handle the kinematic coupling between
+manipulator links, leading to lost feasible space or stalled op-
+timization. This letter presents a real-time whole-body motion
+planning framework for mobile manipulators carrying arbitrar-
+ily shaped payloads. The front-end employs a chain-decomposed
+kernel-based collision check that preserves the true geometry of
+the robot and payload, with compact storage and fast bit-level
+queries. A mid-end preprocessing stage converts the front-end
+path into a continuous trajectory enforcing smoothness and fea-
+sibility, and executes it directly when collision-free to bypass the
+costly back-end. When refinement is required, the back-end per-
+forms trajectory optimization built on a Kinematically-Coupled
+SVSDF (KC-SVSDF), which propagates collision-avoidance gra-
+dients along the kinematic chain to produce coherent whole-body
+escape directions. Ablation studies, comparative benchmarks
+against state-of-the-art baselines, and real-world experiments
+on a differential-drive mobile manipulator demonstrate that
+the proposed framework reliably transports large, non-convex
+payloads through tight passages and cluttered environments.
+I. INTRODUCTION
+Recent advances in joint motor technology have substan-
+tially increased the payload capacity of mobile manipulators.
+This expanded capability opens up new application scenarios,
+such as relocating pianos or sofas in domestic settings and
+handling die-cast aluminum car doors on factory floors. In
+such tasks, however, the grasped payload is typically large and
+non-convex, and conventional planners that treat it as a small
+object and ignore its actual geometry render these applications
+unsafe. This letter addresses the problem of real-time whole-
+body motion planning for a mobile manipulator transporting
+a large, non-convex payload through cluttered environments.
+Generating a real-time, feasible, and high-quality trajectory
+under these conditions remains a significant challenge. Exist-
+ing optimization-based mobile manipulator planners [1], [2]
+approximate both the robot body and the grasped payload
+by a set of bounding spheres and rely on ESDF queries
+for collision evaluation. This approximation is acceptable for
+small payloads such as a water bottle, but breaks down for
+large, non-convex objects: a bounding sphere cover sacrifices
+∗Equal contribution.
+1Y. Li, L. Yin, R. Xue, H. Zhu, N. Chen, S. Liang, Y. Liu and F. Zhang are
+with the Department of Mechanical Engineering, University of Hong Kong.
+2T. Zhang, is with Institute for Interdisciplinary Information Sciences,
+Tsinghua University.
+Email:{yli385,ljyin,u3603390,haodazhumars,
+cnchen,liangsiqi,liuyuxi}@connect.hku.hk,
+m15351201779@163.com, fuzhang@hku.hk.
+Corresponding Author: Fu Zhang.
+Fig. 1: Real-world experiment1: the mobile manipulator traverses a cluttered
+environment of randomly placed wooden columns while grasping a large
+T-shaped carbon-fiber payload, demonstrating safe whole-body navigation
+through tight gaps with an arbitrarily shaped object.
+feasible space and often fails to find any valid path. To support
+arbitrarily shaped robots, Zhang et al. [3] proposed the Swept-
+Volume Signed Distance Field (SVSDF), but the formulation
+is derived for a single rigid body. Applying it independently
+to each link of a serial manipulator causes problems at both
+ends of the pipeline: in the front-end, enumerating a kernel for
+every joint-sample combination yields an intractable storage
+cost; in the back-end, the per-link escape gradients ignore the
+rigid coupling along the kinematic chain, so the direction that
+frees one link can drive an upstream link into a new collision
+and stall the optimizer.
+To overcome these limitations, we propose a real-time
+whole-body motion planning framework for mobile manip-
+ulators carrying arbitrarily shaped payloads. The framework
+consists of three modules: (i) a front-end path search using
+a chain-decomposed kernel-based collision check that pre-
+serves the true robot and payload geometry, with compact
+storage and fast bit-level queries; (ii) a mid-end preprocess-
+ing stage that, provisionally trusting the safety of the front-
+end path, converts it into a continuous trajectory enforc-
+ing only smoothness and feasibility, and executes it directly
+when collision-free; and (iii) a back-end trajectory optimiza-
+tion built on a Kinematically-Coupled SVSDF (KC-SVSDF),
+which propagates collision-avoidance gradients along the
+kinematic chain to produce coherent whole-body escape di-
+rections. The framework is validated through ablation studies,
+comparative benchmarks against state-of-the-art baselines,
+and real-world experiments on a differential-drive mobile
+arXiv:2608.07005v1  [cs.RO]  7 Aug 2026
+
+
+manipulator. The main contributions of this letter are:
+• We
+proposed
+a
+chain-decomposed
+kernel-based
+collision-checking
+scheme
+that
+preserves
+the
+true
+geometry of the mobile manipulator and its grasped
+payload, with storage scaling linearly in the per-joint
+sample counts rather than multiplicatively.
+• We develop a trajectory generation framework centered
+on hierarchical optimization that enables real-time, con-
+tinuous collision safety for wheeled mobile manipulator
+while grasping arbitrarily shaped payloads.
+• We proposed a Kinematically-Coupled SVSDF (KC-
+SVSDF) method, which coupled multi-link systems by
+enforcing consistency of per-link escape directions along
+the kinematic chain.
+• We demonstrate the effectiveness of the proposed
+method in simulation and real-world experiments. The
+code will be publicly released.
+II. RELATED WORKS
+Path planning for mobile manipulators is particularly chal-
+lenging when the system transports a large, non-convex
+payload through cluttered environments under real-time re-
+planning requirements. The high dimensionality of the whole-
+body configuration space, the heterogeneous kinematics of
+the mobile base and the manipulator, and the non-convex
+geometry of the grasped object jointly inflate the search space
+and complicate collision checking. Existing approaches can
+be broadly grouped into three categories.
+Decoupled methods [4], [5] plan the base and the arm se-
+quentially or hierarchically, so that each sub-problem lives in
+a low-dimensional space. The strict ordering between the two
+stages, however, yields sub-optimal plans and often fails in
+narrow passages where base and arm motions must be tightly
+coordinated. Whole-body samplers [6]–[9] instead plan di-
+rectly in the joint configuration space of the base and the arm,
+recovering the lost coupling at the cost of dimensionality that
+makes them too slow for online re-planning. Kang et al. [10]
+bridge the two paradigms with a hybrid scheme that de-
+couples base and manipulator sampling in open space and
+switches to joint sampling only in highly cluttered regions;
+the method nevertheless inherits the slow convergence of
+random sampling. Furthermore, their approach simplifies the
+true geometry of the robot body and payloads, which prevents
+finding feasible solutions in cluttered environments.
+Optimization methods [1], [2], [11] first computes a discrete
+whole-body initial path and then optimize it with a whole-
+body trajectory optimizer to produce a smooth, continues,
+feasible trajectory. These methods approximate the mobile
+manipulator by a set of bounding spheres queried against a
+signed distance field, and absorb the grasped payload into the
+same sphere-based surrogate during both the front-end search
+and the back-end optimization. When the payload is large and
+non-convex, this approximation inflates the effective collision
+geometry: feasible paths become hard to find in the front
+end, and the back-end optimizer is prone to local minima,
+ultimately precluding a smooth, kinematically feasible, and
+continuously collision-free trajectory. Zhang et al. [3], [12]
+address the geometry issue with a swept-volume SDF that
+supports arbitrarily shaped robot. The formulation, however,
+is derived for a single rigid body: applied independently to
+each link of a serial manipulator, it produces per-link escape
+gradients that ignore the rigid-body coupling along the kine-
+matic chain, so the direction that frees one link can drive an
+upstream link into a new collision, stalling the optimizer.
+III. PRELIMINARY
+A. Kinematic Model
+In this letter, we consider a mobile manipulator system
+consisting of a differential-drive mobile platform and a J-
+DOF manipulator mounted on top of the platform. The state of
+the mobile manipulator can be represented as x = [x⊤
+b ,x⊤
+m]⊤,
+where xb = [px, py,φ]⊤∈R3 is the position and orientation
+of the mobile base and xm = [q1,q2,...,qJ]⊤∈RJ is the joint
+angle vector of the manipulator, whose end-effector rigidly
+grasps an object to be transported. The control input consists
+of wheel and joint angular velocities, u = [ωl,ωr, ˙x⊤
+m]⊤, where
+ωl and ωr are the left and right wheel angular velocities, and
+˙xm is the joint velocity vector.
+Combining the base flat output with the manipulator joint
+configuration xm, we define the unified trajectory parameteri-
+zation variable z := [σ⊤
+b ,x⊤
+m]⊤= [px, py,q1,...,qJ]⊤∈R2+J,
+where the orientation is from φ = atan2(η ˙py,η ˙px). The kine-
+matic model of the base can be expressed as:
+ωl(r) =
+1
+2rw
+ 
+2ηvb −
+(+)
+dwωb
+!
+,
+(1a)
+˙ωl(r) = αl(r) =
+1
+2rw
+ 
+2ηab −
+(+)
+dwαb
+!
+,
+(1b)
+where rw is the radius of the driving wheels, dw is the wheel-
+base, and η = ±1 is a direction indicator (+1 for forward
+motion, −1 for backward motion). The quantities vb, ab,
+ωb, and αb denote the linear velocity, linear acceleration,
+angular velocity, and angular acceleration of the mobile base,
+respectively [13], [14].
+B. Trajectory parameterization
+We use MINCO [15] for parameterization. The trajectory
+is partitioned into N segments, where the i-th segment carries
+a direction indicator ηi ∈{−1,+1} and is divided into Mi
+polynomial pieces of degree 2s−1. The j-th piece of segment
+i is defined as
+zi,j(t) = c⊤
+i,jβ(t −¯Ti,j−1),
+t ∈[ ¯Ti,j−1, ¯Ti,j],
+(2)
+where ci,j ∈R2s×(2+J) are the polynomial coefficients, β(t) =
+[1,t,...,t2s−1]⊤is the time basis, and ¯Ti,j = ∑j
+k=1 Ti,k is
+the cumulative time from the duration allocation Ti =
+[Ti,1,...,Ti,Mi]⊤.
+C. System Overview
+In this letter, we propose a trajectory generation framework
+for payload-carrying mobile manipulators. As illustrated in
+Fig. 2, the framework consists of three hierarchical modules.
+1) Front-End (Sec. IV): To accommodate grasped objects
+
+
+of arbitrary shape, we employ a kernel-based fast collision-
+checking algorithm that integrates Hybrid A* [16] for the
+mobile base with a Multilayer Constrained RRT*-Connect [1]
+for the manipulator. When this decoupled search fails, a
+whole-body RRT* planner is invoked as a fallback to recover
+a feasible path. 2) Mid-End (Sec. V): The discrete whole-
+body waypoints produced by the front-end are converted
+into a continuous trajectory. The resulting trajectory is either
+directly executed if collision-free, or otherwise serves as an
+initial guess for the back-end. 3) Back-End (Sec. VI): Using
+the Kinematically-Coupled SVSDF (KC-SVSDF) together
+with the initialization from the mid-end, we perform whole-
+body trajectory optimization that jointly enforces continuous
+collision avoidance for the arbitrarily shaped payload and the
+system’s feasibility.
+Failed
+Front-End Path Search
+Hybrid A*
+(Base path search)
+Multilayer Constrained
+RRT*-Connect
+(Manipulator states)
+Whole-body RRT*
+(Fallback in failed regions)
+Chain-decomposed
+kernel discrete collision check
+Mid-End
+Preprocessing
+L-BFGS
+Trajectory
+Optimization
+Feasibility 
+Constraints
+Swept-volume 
+Continues
+Collision Check
+Back-End Trajectory
+Optimization
+Safety constraints
+(KC-SVSDF)
+Feasibility Constraints
+(Kinematic,Self-collision)
+LMBM Trajectory
+Optimization
+Safe
+Failed
+Fig. 2: Overview of the proposed planning framework.
+IV. FRONT-END PATH SEARCH
+A. Path Search Pipeline
+Our front-end pipeline follows a decoupled search strategy:
+Hybrid A* [16] generates a base path under nonholonomic
+constraints, and a Multilayer Constrained RRT*-Connect [1]
+determines the manipulator configuration at each base way-
+point, with a whole-body RRT* invoked as a fallback when
+this decoupled search fails. The output is a collision-free
+path partitioned into segments with direction indicators ηi ∈
+{−1,+1} for forward and reverse motions, which serves as
+the initial guess for the mid-end. While these search algo-
+rithms are well established, their efficiency and safety hinge
+on the underlying collision-checking routine, which is the
+focus of this section.
+B. Existing Collision Checking
+Many existing mobile manipulator planners [1], [2], [17]
+check collisions in the front-end by querying an ESDF map at
+points sampled on the robot body. Once an object is grasped,
+it is rigidly attached to the end-effector and should logically
+be treated as part of the robot, yet most planners reduce it
+to a bounding sphere or a convex surrogate. This point-and-
+primitive approximation discards the object’s true geometry;
+to compensate, planners inflate the surrogate conservatively,
+but the over-inflation frequently rejects feasible configura-
+tions, especially when the payload is large and non-convex.
+A recent approach [3], [18] avoids this approximation by
+encoding the robot and the environment on a common voxel
+grid as a pair of bit-packed kernels: a robot kernel Krobot that
+captures the true robot geometry, and a map kernel Kmap that
+mirrors the occupancy voxel map, with its boundary voxels
+dilated outward by half the maximum extent of Krobot on
+each side. This representation preserves arbitrary geometry,
+and a collision query reduces to a fast boolean convolution
+between the two kernels. The formulation, however, assumes
+a single rigid body. A serial manipulator changes shape with
+its joint configuration, so adapting the original form directly
+would require enumerating one kernel per configuration, and
+the number of stored kernels grows as O(∏J
+j=0 Nj) in the per-
+joint sample counts Nj, quickly becoming intractable.
+Mobil base kernel
+Yaw
+samples
+(orientation)
+Yaw:0°
+[1/18]
+20°
+[2/18]
+40°
+[3/18]
+60°
+[4/18]
+• • • •
+Manipulator kernel
+Km
+1
+Km
+2
+• • • •
+Km
+j
+•
+ 
+•
+ 
+•
+•
+ 
+•
+ 
+•
+•
+ 
+•
+ 
+•
+α1,1
+α1,2
+α1,3
+α2,1
+α2,2
+α2,3
+αj,1
+αj,2
+αj,3
+αj,1
+αj,2
+αj,N
+Fj-1
+qj-1
+αj,i
+Link j mesh
+K  (αj,i )
+j
+m
+Per-joint Kernel Generation
+Link j-1 mesh
+(a)
+(b)
+Fig. 3: Chain-decomposed kernel generation. (a) The mobile base kernel
+is voxelized over discretized yaw samples in the world frame. (b) Each
+manipulator link kernel K j
+m is voxelized in its parent-link frame Fj−1 over
+discretized samples {αj,1,...,αj,Nj} of its local joint variable, with the
+grasped payload rigidly attached to the end-effector link.
+C. Chain-Decomposed Kernel
+To address this, we decompose the robot kernel into one
+kernel per link along the kinematic chain and resolve queries
+through forward kinematics, making the bit-packed represen-
+tation tractable for a serial-link mobile manipulator. Con-
+cretely, we write Krobot = {K0,K1
+m,...,KJ+1
+m
+}, treating the
+mobile base as K0 with its yaw angle q0 as the local joint vari-
+able, the manipulator links as K1
+m through J with local joint
+angles q1,...,qJ, and the grasped payload as link J+1 rigidly
+attached to the end-effector with no additional joint variable.
+As shown in Fig. 3, each K j
+m is voxelized in its parent-link
+frame Fj−1 over discretized samples {αj,1,α j,2,...,αj,Nj} of
+its local joint variable. At collision query time, given a base
+pose xb = [px, py,q0]⊤and a manipulator configuration xm =
+[q1,...,qJ]⊤, we retrieve the precomputed kernel for each link
+of Krobot by selecting the sample α j closest to the correspond-
+ing joint variable qj, and compute the parent-frame transforms
+{T j−1
+w
+}J
+j=0 once via forward kinematics. Each occupied voxel
+of the retrieved kernels is then transformed to the world frame
+by its T j−1
+w
+and tested against Kmap via a single bit lookup,
+returning collision on the first hit. With bit-packed storage and
+
+
+early exit, each query runs in O(|Krobot|) in the worst case but
+terminates much sooner in practice, enabling high-throughput
+collision checking in the front-end search.
+V. MID-END TRAJECTORY PREPROCESSING
+Directly solving the full whole-body optimization with the
+SVSDF safety term is expensive. We therefore first run a
+lightweight mid-end optimization that defers this term to the
+back-end: trusting the front-end path for collision safety, it
+enforces only smoothness and kinematic feasibility. Taking
+the discrete front-end path as input, it produces a continuous
+trajectory that is executed directly when collision-free, or
+otherwise passed to the back-end as a warm initial guess.
+A. Optimization Problem Formulation
+Following the constrained optimal control formulation, we
+cast the mid-end problem as:
+min
+{ci,j},{Ti} J0 =
+Z Ttotal
+0
+ψ(t)⊤Wψ(t)dt +ρTTtotal,
+(3a)
+s.t.
+ψ(t) = z(s)(t),∀t ∈[0,Ttotal],
+(3b)
+z[s−1](0) = ¯z0,z[s−1](Ttotal) = ¯zf ,
+(3c)
+z[s−1]
+i
+(Ti) = z[s−1]
+i+1 (0),i = 1,...,N −1,
+(3d)
+Cdb
+
+z(t),...,z(s)(t)
+
+≤0,∀db ∈Db, ∀t ∈[0,Ttotal],
+(3e)
+Cdm
+
+z(t),...,z(s)(t)
+
+≤0,∀dm ∈Dm, ∀t ∈[0,Ttotal],
+(3f)
+where W ∈R(2+J)×(2+J) is a diagonal matrix penalizing
+control effort and ρTTtotal is the time regularization term.
+Equation (3b) defines the control input ψ(t) as the s-th
+derivative of the trajectory, which serves as the integrand of
+the control-effort cost in (3a). Equations (3c) and (3d) impose
+the boundary conditions and the Cs−1 continuity at segment
+connections, respectively, where ¯z0 and ¯zf denote the pre-
+scribed initial and terminal states. The remaining inequality
+constraints (3e) and (3f) encode the differential base con-
+straints Db = {db : ωl(r),αl(r),eb} and manipulator constraints
+Dm = {dm : qj, ˙q j, ¨q j,em}, where eb and em are the pose
+residuals to the front-end path explained in detail in Sec. V-B.
+In MINCO [15] trajectories, the piecewise polynomial coeffi-
+cients {ci,j} are uniquely determined by a set of intermediate
+waypoint parameters Q ∈R(2+J)×(∑i Mi−1) together with the
+time allocations {Ti}. We therefore reparameterize the opti-
+mization variables from {ci,j} to Q, under which the boundary
+conditions (3c) and the Cs−1 continuity constraints (3d) are
+satisfied by construction.
+B. Mid-end Constraints
+The inequality constraints in (3e) and (3f) are reformulated
+into penalty functions by constraint transcription method [19].
+To prevent the mid-end trajectory from deviating excessively
+from the front-end path, we introduce pose residual con-
+straints that enforce proximity to the discrete full-state path
+provided by the front-end, where each node is given by x =
+[x⊤
+b ,x⊤
+m]⊤, xb contains the base position px, py and orientation
+φb, and xm contains the manipulator joint positions q j. The
+residual constraints are defined as:
+Ceb(z(t)) = ∥pb(t)−pb,k(t)∥2 +wφ ∠
+ φb(t),φb,k(t)
+2 −ρ2
+b,
+(4a)
+Cem(z(t)) = ∥xm(t)−xm,k(t)∥2 −ρ2
+m,
+(4b)
+where ∥· ∥2 denotes the squared Euclidean norm of a vector,
+k(t) indexes the nearest front-end node to time t, ∠(·,·)
+denotes the shortest signed angular difference on S1, wφ > 0
+is a scalar weight balancing the angular and translational
+contributions, and ρb, ρm are the admissible deviation bounds
+for the base pose and manipulator joint configuration, re-
+spectively. Additionally, to ensure that the trajectory does not
+exceed the tracking capabilities of the mobile manipulator, we
+incorporate kinematic constraints on both the mobile base and
+the manipulator. For the mobile base, we restrict the angular
+velocity ωl(r) and acceleration αl(r) of the left and right wheels
+to their maximum admissible values. For each manipulator
+joint j ∈{1,...,J}, we impose limits on joint position qj,
+velocity ˙q j, and acceleration ¨qj.
+VI. BACKEND TRAJECTORY OPTIMIZATION
+Whereas the mid-end in Sec. V trusts the front-end path
+and only penalizes deviation from it, the back-end solves the
+complete optimization problem in Eq. (3), explicitly enforcing
+continuous collision avoidance for the mobile manipulator
+together with its grasped payload of arbitrary shape. To this
+end, we first review the swept volume signed distance field
+(SVSDF) [3] in Sec. VI-A and identify its limitation when
+applied directly to a kinematically coupled multi-link system.
+We then propose the Kinematically-Coupled SVSDF (KC-
+SVSDF) in Sec. VI-B to address this limitation, and finally
+formulate the back-end safety penalty in Sec. VI-C.
+A. Swept Volume SDF
+For continuous, mesh-level collision evaluation along an
+optimized trajectory, we build on the swept volume signed
+distance field (SVSDF) proposed in [3]. Given a rigid body
+with geometry R moving along a trajectory T (t), the swept
+volume is the union of all configurations the body occupies
+along the motion:
+SV ≜
+[
+t∈[tstart,tend]
+T (t)R,
+(5)
+where T (t) is a homogeneous rigid transformation, so T (t)R
+denotes the body configuration at time t. The SVSDF at a
+query point p is the signed distance from p to the boundary
+FR(SV); equivalently, |SVSDF(p)| is the radius of the
+largest open ball Bp(r) centered at p that does not intersect
+FR(SV), with the sign taken positive outside SV and nega-
+tive inside.
+Computing this radius directly is difficult because SV is an
+infinite union with no closed-form boundary. However, since
+SV is the union over time of instantaneous configurations
+T (t)R, the distance from p to SV equals the minimum, over
+t, of its distances to each individual configuration. Each such
+per-instant distance is in turn obtained by transforming p into
+
+
+the body’s local frame via T −1(t) p and querying the static
+SDF on R. This reduces the ball-radius problem to a one-
+dimensional minimization over time, and following [3] we
+adopt the resulting metric function
+g(p) ≜
+min
+t∈[tstart,tend]SDFR T −1(t) p
+
+,
+(6)
+which is a conservative SDF of SV: g(p) = SVSDF(p)
+when p lies outside SV, and g(p) ≥SVSDF(p) when p lies
+inside. The associated argmin time is denoted as
+t∗(p) ≜argmin
+t∈[tstart,tend]
+SDFR T −1(t) p
+
+.
+(7)
+The SVSDF is formulated for a single rigid body. A
+mobile manipulator carrying a grasped object, however, is
+a kinematic chain M = {R0,R1,...,RJ,RJ+1} comprising
+the mobile base (R0), the manipulator links (R1,...,RJ),
+and the grasped payload (RJ+1) rigidly attached to the end-
+effector. A natural extension would be to construct a separate
+swept volume for each rigid body R ∈M over the trajectory
+segment T (ti,ti+1) and compute its SVSDF independently.
+This per-body treatment, however, implicitly assumes that
+each body can move on its own. For a serial manipulator
+this assumption fails: realizing link j’s obstacle escape di-
+rection requires actuating upstream joints that simultaneously
+displace other rigidly connected links, which could produce
+mutually contradictory per-link gradients that stall the opti-
+mizer. We resolve this by coupling the per-link distance fields
+through the kinematic chain, as introduced in Sec. VI-B.
+B. Kinematically-Coupled SVSDF
+To resolve the per-link inconsistency identified in Sec. VI-
+A, we propose the KC-SVSDF, summarized in Algorithm 1
+and illustrated in Fig. 4. The procedure walks down the
+kinematic chain link by link, computing each link’s SVSDF
+while constraining its escape direction to be consistent with
+the directions already chosen by upstream links. Consistency
+is tracked through a joint-space accumulator G ∈Rnq, reset to
+zero at the start of each query and updated after each link’s
+SVSDF is determined.
+For each link j, we first evaluate g j(p) as defined in
+Sec. VI-A (line 6). If p lies outside the swept volume (g j(p) >
+0), the KC-SVSDF is taken as gj(p), and the spatial escape
+direction −∇gj(p) is mapped to joint space through link j’s
+geometric Jacobian J j and accumulated into G[0:j] (lines 8–
+10). Otherwise, we run the iterative ball-shrinking loop shown
+in Fig. 4: candidate samples on the ball surface (line 15) are
+filtered by the kinematic-consistency rule (line 16)
+∇(k)
+q [i]·G[i] ≥0,
+∀i ∈{j−2, j−1},
+(8)
+which early rejects any candidate whose induced motion
+would push the two immediately upstream joints against the
+consensus already established in G (the check is skipped for
+j < 2) and do not evaluate its gj to improve the efficiency.
+Among the surviving samples y, the worst violator g j in
+sample y∗drives the radius update r ←r−gj (line 24), and the
+loop terminates when g∗< ε, at which point −r is recorded
+as link j’s KC-SVSDF (lines 21).
+Algorithm 1 KC-SVSDF Computation
+1: Input: query point p
+2: Output: per-body KC-SVSDF values D ∈RJ+2
+3: G ←0 ∈Rnq
+4: D ←0 ∈RJ+2
+5: for j = 0 to J +1 do
+6:
+gj(p) ←SVSDF(Rj, p,T )
+7:
+if g j(p) > 0 then
+8:
+∇(j)
+q
+←−J⊤
+j ∇gj(p)
+9:
+G[0:j] ←G[0:j]+∇(j)
+q [0:j]
+10:
+D[j] ←gj(p)
+11:
+continue
+12:
+end if
+13:
+r ←a big initial value
+14:
+loop
+15:
+Y ←uniform samples on the surface of Bp(r)
+16:
+y ←KINEMATICFILTER(Y,G, j)
+17:
+gj(y∗) ←argmaxgj(y)
+18:
+if g j(y∗) < ε then
+19:
+∇(j)
+q
+←J⊤
+j (y∗−p)
+20:
+G[0:j] ←G[0:j]+∇(j)
+q [0:j]
+21:
+D[j] ←−r
+22:
+break
+23:
+end if
+24:
+r ←r −g j(y∗)
+25:
+end loop
+26: end for
+27: return D
+The resulting KC-SVSDF value D encodes coherent whole-
+body escape directions that the kinematic chain can physically
+realize, as visualized in Fig. 4(c): where independent per-link
+SVSDF gradients (red) would drive upstream links back into
+collision, the KC-SVSDF gradients (green) yield a consistent
+whole-arm motion that clears the obstacle.
+Computing the KC-SVSDF for mobile manipulator re-
+quires solving the argmin-over-time search of Eq. (7) once
+per link, which is costly across the J+2 links and the many
+query points evaluated each iteration. We adopt a strategy that
+exploits the rigid coupling of the chain to avoid this. Since
+the manipulator links and the grasped payload are carried by
+the base along a shared trajectory, the base’s translation domi-
+nates their spatial motion, so each link’s closest-approach time
+t∗(p) falls within a small, bounded offset of the base’s argmin
+time t∗
+0(p). We therefore solve Eq. (7) in full only for the base,
+and confine the search for each remaining link {Rj}J+1
+j=1 to the
+narrow window [t∗
+0(p)−∆t, t∗
+0(p)+∆t], whose half-width ∆t
+covers this offset. This turns J+2 full-segment searches into
+one full search plus J+1 windowed searches, substantially
+reducing the per-query cost.
+C. Safety Constraints
+The back-end shares the same trajectory parameterization,
+smoothness objective, and kinematic feasibility constraints as
+the mid-end in Eq. (3), and additionally enforces continuous
+
+
+Evaluation Point
+Sampling Point [k=consistent, g > 0]
+Sampling Point [k=consistent, g < 0]
+Sampling Point [k=inconsistent]
+Radius for Next  Iteration
+g > 0: Outer Tangent Sphere
+g*:Max Evaluation Value
+Obstacle
+SVSDF Gradient
+KC-SVSDF Gradient
+(c)
+(a)
+(b)
+Init
+q*
+g*
+Iter:1
+q*
+g*
+Iter:2
+Fig. 4: (a) Iterative computation of the interior KC-SVSDF for the payload link, illustrated in 2D (the 3D case is analogous). Candidate samples on the current
+ball are filtered by KINEMATICFILTER for upstream-joint consistency with G; surviving samples (green) outside SV yield metric values g (tangent-circle
+radii). The worst violator g∗shrinks the ball radius for the next iteration, rapidly converging to the KC-SVSDF value inside SV. (b) Swept volume (light blue)
+generated by the mobile manipulator transporting an arc-shaped payload along a trajectory. (c) When the payload collides with an obstacle, the traditional
+SVSDF produces a per-link escape direction (red) that ignores the conflicting, whereas our KC-SVSDF propagates the gradient through the chain to yield a
+kinematically consistent whole-body escape direction (green).
+collision avoidance for the whole-body system through a KC-
+SVSDF-based safety penalty. The goal is to ensure that the
+swept volume SV of every link in mobile manipulator remains
+clear of obstacles along the entire trajectory. Building on
+the per-link KC-SVSDF values d stores in D computed in
+Sec. VI-B, we require that, for every obstacle point near the
+trajectory, the d exceeds a prescribed safety margin sthr. The
+resulting penalty is
+Js =
+Nobs
+∑
+i=1
+J+1
+∑
+j=0
+L
+ Gs
+ d j(x i
+obs)
+
+,
+(9a)
+Gs(d) = max(0, sthr −d ),
+(9b)
+where d j(x i
+obs) denotes the KC-SVSDF of link j at obstacle
+point x i
+obs, L(·) is a smooth penalty function (e.g., a cubic
+barrier) that converts the violation into a differentiable cost,
+and sthr > 0 is the user-specified safety margin. The candidate
+obstacle points {x i
+obs}Nobs
+i=1 are pre-filtered by an Axis-Aligned
+Bounding Box (AABB) test around the trajectory, so that only
+obstacle voxels potentially intersecting any link’s swept vol-
+ume are evaluated, while the kinematically-coupled gradients
+propagated through d ensure that the back-end produces a
+continuously collision-free trajectory for the mobile manip-
+ulator and its arbitrarily shaped payload.
+VII. EXPERIMENTS
+We validate the proposed framework through both simula-
+tion and real-world experiments. The simulation studies inves-
+tigate the contribution of KC-SVSDF module via an ablation
+study and benchmark the full system against state-of-the-
+art baselines, while the real-world experiments demonstrate
+the framework’s deployability and robustness on a physical
+platform. All simulations and real-world experiments are per-
+formed in the Robot Operating System (ROS) on an Intel
+NUC with an i7-1360P CPU and 32 GB DDR4 memory.
+TABLE I: Ablation Success Rate Results
+hb (m)
+1.1
+1.0
+0.9
+0.8
+Baseline
+80%
+35%
+20%
+0.00%
+Ours
+100%
+100%
+95%
+80%
+A. Simulation Experiments
+1) Comparative Benchmark: We compare our full method
+against two state-of-the-art trajectory-optimization baselines
+for differential-drive mobile manipulators, REMANI [1] and
+TOPAY [2], across two scenarios of increasing difficulty:
+Tunnel, a structured corridor with regularly placed obstacles
+(Fig. 6, left); and Forest, a cluttered environment containing
+three bridge holes and forty-five randomly placed columns
+(Fig. 6, right). The Tunnel scenario uses the same T-shaped
+payload as the ablation study, while the Forest scenario uses
+an elongated rectangular payload to stress-test the planner
+with a larger grasped object.
+TABLE II: Minimum SVSDF at Challenging Obstacles
+Method
+Obstacle 1
+Obstacle 2
+Obstacle 3
+Tunnel
+Ours
+0.3145
+0.1882
+0.0714
+TOPAY
+0.2234
+-0.0080
+0.3438
+REMANI
+0.1477
+-0.0390
+0.3875
+Forest
+Ours
+0.0706
+0.1069
+0.1598
+TOPAY
+0.0573
+-0.0317
+0.1167
+REMANI
+0.1764
+-0.0077
+0.1855
+For each scenario, we report over 100 trials the success rate
+and the average per-module computation time in Table III,
+together with the minimum SVSDF value at the most three
+challenging obstacles in Table II, which are labeled in Fig. 6.
+The minimum SVSDF denotes the closest distance between
+any robot link mesh and these obstacles across the entire
+trajectory. A trial is counted as a success when the robot
+reaches its global destination without collision. A positive
+SVSDF value indicates that every robot link stays outside
+the obstacles, whereas a negative value reports the penetration
+
+
+depth. Our method achieves the highest success rate and the
+lowest total planning time in both scenarios. This performance
+gap stems from two compounding factors. First, both TOPAY
+and REMANI rely on sphere-based collision checking, which
+overapproximates the payload geometry and needlessly re-
+jects feasible configurations in the front-end; this yields more
+planning attempts and poorer initial values for the back-end
+optimizer. Second, as illustrated in Fig. 6, neither baseline
+accounts for the rigid coupling between manipulator links, so
+when the robot carries a large payload, freeing one link drives
+an upstream link into collision during trajectory optimization,
+ultimately producing low success rates.
+2) Ablation Study: We conduct an ablation study to vali-
+date the KC-SVSDF safety formulation proposed in Sec. VI-
+B. The baseline replaces the KC-SVSDF safety term in the
+back-end with an independent per-link SVSDF [3], while
+keeping the front-end, mid-end, and all other components of
+the pipeline identical to the full method. This isolates the
+contribution of the kinematic coupling and rules out improve-
+ments arising from other modules.
+(a)
+(b)
+Fig. 5: The generated trajectory in ablation study. (a): With KC-SVSDF hb =
+0.8m. (b):SVSDF-only hb = 1.0m.
+The scenario is a bridge-hole passage with a T-shaped
+payload rigidly grasped by the end-effector (Fig. 5). To probe
+the boundary of each method’s capability, we sweep the
+bridge clearance height hb from 1.1 m down to 0.8 m in steps
+of 0.1 m. For each setting, we run 20 randomized trials and
+report the success rate, defined as completing the traversal
+without collision and within the time budget. The front-end
+path searching is limited to 80ms and the optimization module
+limited to 300ms. Results are summarized in Table I.
+TABLE III: Simulation Benchmark
+Method
+Front-end
+(ms)
+Mid-end
+(ms)
+Back-end
+(ms)
+Total
+(ms)
+Succ
+rate
+Tunnel
+Ours
+2305
+604
+1253
+4162
+91%
+TOPAY
+3345
+−
+4533
+7878
+23%
+REMANI
+9186
+−
+2039
+11225
+29%
+Forest
+Ours
+9024
+1022
+3567
+13613 83%
+TOPAY
+8771
+−
+14407
+23178
+25%
+REMANI
+24233
+−
+7207
+31440
+17%
+B. Real-World Experiments
+Our hardware platform consists of an Agilex Piper 6-DOF
+manipulator mounted on an Agilex Scout Mini differential-
+drive base. State estimation for the base is provided by a
+Livox MID-360 LiDAR running FAST-LIO2 [20], while the
+manipulator joint states are read directly from the motor
+TABLE IV: Results of the Real-world Experiment
+Scene
+Front-end
+(ms)
+Mid-end
+(ms)
+Back-end
+(ms)
+Total
+(ms)
+Length
+(meter)
+Tunnel
+523.6
+3464.3
+5388
+9375.9
+19.477
+Forest
+782.6
+4312.8
+6346.2
+11441.6
+17.256
+encoders. The 3D occupancy grid is maintained and updated
+online using ROG-Map [21].
+We build two complex scenarios on the physical platform
+to validate the framework on real hardware platform. In the
+first experiment shown in Fig. 7, the manipulator grasps an
+elongated rectangular payload and traverses a narrow tunnel,
+demonstrating safe whole-body navigation with a large object
+under tight geometric constraints. In the second experiment
+shown in Fig 1, the manipulator carries a T-shaped payload
+through a forest of randomly placed wooden columns, demon-
+strating real-time re-planning in cluttered, less structured en-
+vironments, the final result is listed in Table IV.
+VIII. CONCLUSIONS
+This letter presented a real-time whole-body planner for
+mobile manipulators transporting arbitrarily shaped payloads.
+Preserving true geometry recovers feasible space lost to
+sphere-based approximations, while Kinematically-Coupled
+SVSDF resolves the gradient inconsistency stalling per-
+link swept-volume optimization. The framework outperforms
+state-of-the-art baselines in success rate and computation
+time, and reliably transports large, non-convex payloads in
+real-world tests. Like all optimization-based planners, it re-
+mains sensitive to local minima—especially for multi-link
+rigidly coupled systems—depending on the front-end initial
+guess; future work will incorporate topological path search to
+provide diverse initial guesses toward the global optimum.
+REFERENCES
+[1] C. Wu, R. Wang, M. Song, F. Gao, J. Mei, and B. Zhou, “Real-
+time whole-body motion planning for mobile manipulators using
+environment-adaptive search and spatial-temporal optimization,” in
+2024 IEEE International Conference on Robotics and Automation
+(ICRA), 2024, pp. 1369–1375.
+[2] L. Xu, C. Wong, M. Zhang, J. Lin, J. Hou, and F. Gao, “Topay:
+Efficient trajectory planning for differential drive mobile manipulators
+via topological paths search and arc length-yaw parameterization,”
+2025. [Online]. Available: https://arxiv.org/abs/2507.02761
+[3] J. Wang, T. Zhang, Q. Zhang, C. Zeng, J. Yu, C. Xu, L. Xu, and
+F. Gao, “Implicit swept volume sdf: Enabling continuous collision-free
+trajectory generation for arbitrary shapes,” ACM Trans. Graph., vol. 43,
+no. 4, Jul. 2024. [Online]. Available: https://doi.org/10.1145/3658181
+[4] V. Pilania and K. Gupta, “A hierarchical and adaptive mobile manipu-
+lator planner with base pose uncertainty,” Autonomous Robots, vol. 39,
+06 2015.
+[5] S. Chitta, B. Cohen, and M. Likhachev, “Planning for autonomous
+door opening with a mobile manipulator,” in 2010 IEEE International
+Conference on Robotics and Automation, 2010, pp. 1799–1806.
+[6] S. Thakar, P. Rajendran, H. Kim, A. M. Kabir, and S. K. Gupta, “Ac-
+celerating bi-directional sampling-based search for motion planning of
+non-holonomic mobile manipulators,” in 2020 IEEE/RSJ International
+Conference on Intelligent Robots and Systems (IROS), 2020, pp. 6711–
+6717.
+[7] L.
+Janson,
+E.
+Schmerling,
+A.
+Clark,
+and
+M.
+Pavone,
+“Fast
+marching tree: a fast marching sampling-based method for optimal
+motion planning in many dimensions,” 2015. [Online]. Available:
+https://arxiv.org/abs/1306.3532
+
+
+TOPAY
+REMANI
+Ours
+1
+2
+3
+2
+1
+3
+Fig. 6: Qualitative comparison in two challenging environments: a narrow tunnel (left) and a dense forest of vertical rods (right). The number above each white
+box in bottom row indicates the corresponding obstacle in Table II. The robot is a differential-drive mobile manipulator with a 6-DOF arm carrying a non-
+convex T-shaped and an elongated rectangular payload. Red boxes (TOPAY, REMANI) highlight payload-obstacle collisions. Our method (bottom row) plans
+over the kinematically-coupled swept volume of the full robot-payload system (teal envelope), achieving collision-free navigation through tight clearances in
+both scenarios.
+Fig. 7: The mobile manipulator transports an elongated rectangular payload
+through a narrow corridor containing two inclined beam obstacles at different
+orientations and one vertical obstacle.
+[8] S. Karaman and E. Frazzoli, “Optimal kinodynamic motion planning
+using incremental sampling-based methods,” in 49th IEEE Conference
+on Decision and Control (CDC), 2010, pp. 7681–7687.
+[9] V. Pilania and K. Gupta, “Mobile manipulator planning under
+uncertainty in unknown environments,” The International Journal of
+Robotics Research, vol. 37, no. 2-3, pp. 316–339, 2018. [Online].
+Available: https://doi.org/10.1177/0278364918754677
+[10] M. Kang, D. Kim, and S.-E. Yoon, “Harmonious sampling for mobile
+manipulation planning,” in 2019 IEEE/RSJ International Conference on
+Intelligent Robots and Systems (IROS), 2019, pp. 3185–3192.
+[11] M.
+Zucker,
+N.
+R.
+Google,
+A.
+D.
+Dragan,
+M.
+Pivtoraiko,
+M.
+Klingensmith,
+N.
+D.
+Ratliff,
+C.
+M.
+Dellin,
+J.
+A.
+Bagnell,
+S.
+S.
+Srinivasa,
+A.
+D.
+Dragan,
+S.
+S.
+Srinivasa,
+P. Pa, and P. Pa, “Chomp: Covariant hamiltonian optimization
+for
+motion
+planning,”
+The
+International
+Journal
+of
+Robotics
+Research, vol. 32, pp. 1164 – 1193, 2013. [Online]. Available:
+https://api.semanticscholar.org/CorpusID:9427630
+[12] T. Zhang, J. Wang, C. Xu, A. Gao, and F. Gao, “Continuous implicit
+sdf based any-shape robot trajectory optimization,” in 2023 IEEE/RSJ
+International Conference on Intelligent Robots and Systems (IROS),
+2023, pp. 282–289.
+[13] M. Zhang, C. Xu, F. Gao, and Y. Cao, “Trajectory optimization for 3d
+shape-changing robots with differential mobile base,” in 2023 IEEE
+International Conference on Robotics and Automation (ICRA), 2023,
+pp. 10 104–10 110.
+[14] M. Zhang, N. Chen, H. Wang, J. Qiu, Z. Han, Q. Ren, C. Xu, F. Gao, and
+Y. Cao, “Universal trajectory optimization framework for differential
+drive robot class,” IEEE Transactions on Automation Science and
+Engineering, vol. 22, pp. 13 030–13 045, 2025.
+[15] Z. Wang, X. Zhou, C. Xu, and F. Gao, “Geometrically constrained tra-
+jectory optimization for multicopters,” IEEE Transactions on Robotics,
+vol. 38, no. 5, pp. 3259–3278, 2022.
+[16] D. A. Dolgov, S. Thrun, M. Montemerlo, and J. Diebel, “Path planning
+for autonomous vehicles in unknown semi-structured environments,”
+The International Journal of Robotics Research, vol. 29, pp. 485 – 501,
+2010.
+[17] W. Wu, X. Zhou, F. Yan, S. Zhang, Y. Zhuang, and G. Xin, “Real-
+time whole-body motion planning based on optimized nmpc in static
+and dynamic environments for mobile manipulator,” in 2025 IEEE/RSJ
+International Conference on Intelligent Robots and Systems (IROS),
+2025, pp. 20 115–20 122.
+[18] Y. Li, L. Yin, Y. Cai, J. Liu, F. Zhu, M. Ma, S. Liang, H. Li,
+and F. Zhang, “Efficient swept volume-based trajectory generation for
+arbitrary-shaped ground robot navigation,” in 2025 IEEE/RSJ Interna-
+tional Conference on Intelligent Robots and Systems (IROS).
+IEEE,
+2025, pp. 2076–2083.
+[19] L.
+Jennings
+and
+K.
+Teo,
+“A
+computational
+algorithm
+for
+
+
+functional inequality constrained optimization problems,” Automatica,
+vol.
+26,
+no.
+2,
+pp.
+371–375,
+1990.
+[Online].
+Available:
+https://www.sciencedirect.com/science/article/pii/000510989090131Z
+[20] W. Xu, Y. Cai, D. He, J. Lin, and F. Zhang, “Fast-lio2: Fast direct lidar-
+inertial odometry,” IEEE Transactions on Robotics, vol. 38, no. 4, pp.
+2053–2073, 2022.
+[21] Y. Ren, Y. Cai, F. Zhu, S. Liang, and F. Zhang, “Rog-map: An efficient
+robocentric occupancy grid map for large-scene and high-resolution
+lidar-based motion planning,” in 2024 IEEE/RSJ International Confer-
+ence on Intelligent Robots and Systems (IROS). IEEE, 2024, pp. 8119–
+8125.

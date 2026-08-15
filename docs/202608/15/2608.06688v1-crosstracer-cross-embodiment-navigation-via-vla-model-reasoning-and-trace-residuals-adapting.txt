@@ -1,0 +1,1680 @@
+1
+CrossTracer: Cross-Embodiment Navigation via
+VLA Model Reasoning and Trace Residuals
+Adapting
+Yao Wang1,2, Siyuan Wang2, Zhirui Sun3, Wenzheng Chi4, Liang Lin1, Jiankun Wang2,†, Wenjun Xu1,†
+Abstract—Vision-language-action
+(VLA)
+models
+provide
+strong semantic priors for robot navigation, but they often
+ignore embodiment-specific mobility constraints. A path that
+is semantically plausible for one robot may be physically
+infeasible for another. We propose CrossTracer, a hierarchical
+framework for cross-embodiment navigation through adaptive
+trace residuals. CrossTracer represents navigation plans as
+normalized image-plane waypoints, forming a unified pixel-
+space
+interface
+between
+semantic
+reasoning
+and
+physical
+grounding.
+First,
+Vision-Language
+Trace
+Proposer
+(VL-
+Tracer) adapts a pretrained VLA model to predict an initial
+navigation
+trace
+from
+egocentric
+observations
+and
+flexible
+goal
+specifications.
+Second,
+CE-Adapter
+refines
+this
+trace
+by
+predicting
+embodiment-conditioned
+residual
+corrections
+from visual traversability cues, robot identity, and the initial
+trace. To train the refinement module without costly manual
+annotation,
+Cross-Embodiment
+RRT*
+(CE-RRT*)
+converts
+panoptic segmentation into robot-conditioned traversability cost
+maps and generates cost-minimizing pixel-space traces. We
+evaluate CrossTracer on the NaviTrace benchmark, which tests
+whether a model can generate embodiment-consistent navigation
+traces from egocentric observations, language instructions, and
+robot embodiment types. CrossTracer achieves a total score of
+45.68, outperforming the strongest evaluated general-purpose
+baseline, Gemini-2.5-Pro, by 10.01 points, corresponding to a
+28.1% relative improvement. Real-world deployment on wheeled
+and legged robots further shows improved navigation success
+and execution efficiency.
+Index
+Terms—Vision-language-action
+model,
+cross-
+embodiment navigation, trace residual learning, embodiment-
+aware motion planning.
+I. INTRODUCTION
+Real-world robot navigation requires a policy to understand
+high-level semantic goals while respecting the physical con-
+straints of the robot in the execution process. Recent vision-
+language-action (VLA) models provide strong semantic priors
+for embodied decision making and navigation [1], [2], [3],
+[4], but their outputs are often insufficiently grounded in
+robot-specific mobility. The same instruction and observation
+may imply different feasible routes for different platforms:
+a legged robot may traverse rough terrain or small height
+changes, whereas a wheeled robot may need to detour around
+them, as illustrated in Fig. 1. Classical navigation systems
+1 Peng Cheng Laboratory
+2 Southern University of Science and Technology
+3 Innovation Investment Research Institute
+4 Soochow University
+†
+Corresponding
+author.
+Email:
+wangjk@sustech.edu.cn,
+xuwj@pcl.ac.cn
+Fig. 1: Embodiment-aware navigation with heterogeneous robots.
+For the same goal, legged and wheeled robots may follow different
+feasible paths due to distinct mobility constraints. The lower panels
+show their corresponding first-person observations, where red dashed
+curves indicate the planned pixel-space traces.
+and local planners can encode geometric safety and robot
+constraints [5], [6], [7], but they typically lack the open-
+vocabulary goal understanding and semantic flexibility of
+foundation models. This mismatch brings an embodiment gap
+between semantic navigation intent and physically executable
+motion on heterogeneous robots.
+Existing approaches address this gap from different direc-
+tions, but limitations still remain. End-to-end VLA policies [4],
+[8], [9], [10] map observations and goals directly to actions
+or trajectories, which can entangle semantic reasoning, em-
+bodiment constraints, and control in a single model. Such
+coupling makes it difficult to adapt the same semantic plan
+to robots with different traversability profiles. Hierarchical
+navigation methods partially alleviate this issue by separating
+high-level reasoning from lower-level grounding. For example,
+recent pixel-space navigation systems [11] use vision-language
+models to propose candidate paths and then select or score
+them according to embodiment-specific affordances. However,
+candidate selection can only choose among a finite set of
+proposals and may fail when all candidates contain local
+infeasible segments. More generally, training embodiment-
+aware refinement models requires supervision that is costly
+to obtain across diverse scenes and robot platforms.
+Our key insight is that a 2D pixel-space navigation trace
+can serve as a unified intermediate representation between
+semantic intent and embodiment-aware physical grounding. A
+arXiv:2608.06688v1  [cs.RO]  7 Aug 2026
+
+
+pixel-space trace preserves the scene-level structure inferred by
+a VLA model from an egocentric observation and a flexible
+goal specification, while avoiding premature commitment to
+the low-level control space of any particular robot. At the
+same time, because the trace is spatially aligned with visual
+traversability cues in the image, it can be refined by an
+embodiment-conditioned module that reasons about which
+region is feasible for a particular robot. This representation
+therefore enables semantic proposal and physical adaptation
+to be decoupled while still communicating through a common
+coordinate interface.
+To address the current gap, we propose CrossTracer, a
+hierarchical VLA framework for cross-embodiment naviga-
+tion through adaptive trace residuals. CrossTracer first uses
+Vision-Language Trace Proposer (VL-Tracer), adapted from
+a pretrained VLA model, to generate an initial embodiment-
+agnostic semantic trace from an egocentric RGB observation
+and flexible goal inputs, including language, pixel pose, or
+both. It then applies CE-Adapter, an embodiment-aware re-
+finement module that predicts residual corrections to the initial
+trace. The adapter conditions on robot identity and visual
+traversability cues through robot embeddings, Feature-wise
+Linear Modulation (FiLM) layers, and trace-to-visual cross-
+attention, allowing it to preserve the semantic intent of the
+proposed trace while improving physical feasibility for the
+target platform.
+To train this refinement module without manually an-
+notating embodiment-specific traces, we further introduce
+Cross-Embodiment RRT* (CE-RRT*), an automated planner-
+supervised labeling pipeline. CE-RRT* converts panoptic seg-
+mentation into robot-conditioned traversability cost maps and
+applies RRT* planning to synthesize cost-minimizing pixel-
+space traces. These generated traces provide scalable super-
+vision for learning embodiment-aware residual corrections
+across different robot types and environments.
+Overall, our main contributions are summarized as follows:
+1) We
+propose
+CrossTracer,
+a
+hierarchical
+cross-
+embodiment navigation framework that uses normalized
+pixel-space
+traces
+as
+a
+unified
+interface
+between
+VLA-based semantic reasoning and robot-conditioned
+physical grounding.
+2) We develop CE-Adapter, an embodiment-aware refine-
+ment module that predicts adaptive trace residuals from
+visual traversability cues, robot identity, and the pro-
+posed trace. To train this module without costly manual
+annotation, we use CE-RRT*, an automated planner-
+supervised pipeline that generates embodiment-specific
+reference traces from semantic segmentation and robot-
+conditioned cost maps.
+3) We validate CrossTracer on the NaviTrace benchmark
+and through real-world deployments on wheeled and
+legged robots, showing that the proposed embodiment-
+aware trace refinement strategy improves navigation
+trace quality and physical execution reliability. Exper-
+iment videos and more details can be found at https:
+//lilduckkk.github.io/CrossTracer-Nav/.
+II. RELATED WORK
+Research related to CrossTracer can be organized into four
+main directions: vision-language-action models for navigation,
+pixel-space trace representations, embodiment-aware naviga-
+tion, and planner supervision for learning-based navigation.
+Together, these directions highlight the two central challenges
+addressed in this work: generating semantically meaningful
+navigation traces from multimodal goals and adapting them to
+the physical constraints of heterogeneous robot embodiments.
+A. Vision-Language-Action Models for Navigation
+Large-scale robotic foundation models have shown strong
+potential for language-conditioned robot decision making. RT-
+1 and RT-2 learn policies that map visual observations and
+language instructions to robot actions [1], [2]. RT-X, Open
+X-Embodiment, Octo, and OpenVLA further scale generalist
+robot policies using large cross-robot datasets and unified
+policy architectures [12], [13], [3]. These models provide
+useful semantic priors, but most of them are designed for
+general robot action generation, where semantic reasoning,
+embodiment constraints, and control are often learned within
+a coupled policy.
+For navigation, learning-based policies such as GNM, ViNT,
+NoMaD, ViKiNG, MBRA, NavDP, and FlowNav learn scal-
+able visual navigation behaviors from egocentric trajectories,
+diffusion models, model-based relabeling, or flow match-
+ing [14], [15], [16], [17], [18], [19], [20]. These methods
+improve goal-directed navigation, but many of them focus
+on image goals, geometric goals, or action-level navigation
+policies rather than flexible multimodal goal specification.
+Recent VLM and VLA navigation systems extend naviga-
+tion beyond fixed geometric targets by supporting language
+instructions, image goals, 2D poses, or their combinations.
+LeLaN learns language-conditioned object navigation from
+in-the-wild videos [21], NaVILA combines a VLA module
+with locomotion skills for legged robot navigation [10], and
+OmniVLA supports goal images, 2D poses, language prompts,
+and multimodal combinations [4]. These systems improve
+semantic goal understanding and multimodal goal interfaces,
+whereas CrossTracer uses a VLA-derived module only to pro-
+pose a semantic pixel trace and leaves embodiment-dependent
+adaptation to a separate refinement module.
+B. Pixel-Space Trace Representations
+Mapless navigation aims to produce feasible navigation
+directions or trajectories directly from onboard observations,
+without relying on a prebuilt global map. Classical systems
+often use geometric perception, local traversability maps, or
+local planners such as DWA and TEB [5], [6]. Learning-based
+methods such as MTG generate trajectories with traversability
+and coverage constraints [22], while VL-TGS combines trajec-
+tory generation with VLM-based selection for mapless outdoor
+navigation [23]. CoNVOI uses VLM reasoning over visually
+marked navigable regions to generate context-aware reference
+paths [24]. These approaches show that image-aligned spatial
+representations can support navigation decisions, but they do
+2
+
+
+not directly study residual adaptation of a semantic trace for
+different robot embodiments.
+Pixel-space traces have recently become an effective repre-
+sentation for evaluating and guiding VLM-based navigation.
+NaviTrace defines a benchmark where a model receives an
+egocentric image, an instruction, and an embodiment type,
+and then outputs a 2D navigation trace in image space [25].
+VAMOS uses image-space candidate paths as an interface
+between a high-level planner and an embodiment-specific
+affordance model, which evaluates and reranks the candi-
+dates [11]. In contrast, CrossTracer does not only select from
+a fixed candidate set. It treats the pixel trace as a continuous
+refinement target, proposing an initial semantic trace and then
+learning residual corrections in the same image plane.
+C. Embodiment-Aware Navigation
+Cross-embodiment navigation requires a policy to handle
+heterogeneous morphologies, mobility limits, and execution
+constraints. X-Nav trains expert policies over randomly gen-
+erated embodiments and distills them into a transformer policy
+for mobile robot navigation [26]. X-Mobility studies end-to-
+end generalizable navigation through world modeling [27].
+These approaches improve transfer across robot platforms, but
+they mainly learn navigation behavior in action or control
+spaces.
+Residual learning and generative modeling are also used
+to improve navigation policies under additional constraints
+or transfer settings. COMPASS adapts a mobility policy to
+diverse embodiments through residual reinforcement learn-
+ing and then distills specialist policies into an embodiment-
+conditioned policy [28]. CE-Nav decouples geometric rea-
+soning and robot dynamic adaptation by training a flow-
+based velocity expert from planner-generated data, followed
+by a dynamics-aware refiner [29]. NavDP learns a navigation
+diffusion policy with privileged simulation guidance for sim-
+to-real transfer across robot platforms [19], while FlowNav
+and FLUX use flow-based generative modeling for efficient
+navigation policy learning [20], [30]. Unlike these methods,
+which mainly adapt policies in action, velocity, or control
+space, CrossTracer performs embodiment-aware adaptation
+directly in pixel-space by refining a semantic trace produced
+by an embodiment-agnostic VLA proposer. This design allows
+semantic goal understanding to remain separate from robot-
+conditioned traversability refinement.
+D. Planner Supervision for Learning-Based Navigation
+Classical planning methods provide interpretable geometric
+constraints and remain widely used in robot navigation. Dijk-
+stra and A* search for low-cost paths on discrete graphs [31],
+[32], while RRT and RRT* handle continuous spaces through
+sampling-based planning [33], [7]. Local planners such as
+DWA, TEB, and MPC are commonly used for obstacle avoid-
+ance and trajectory tracking [5], [6], [34]. Perception-aware
+navigation systems further construct traversability or cost
+maps from LiDAR, elevation maps, RGB-D inputs, semantic
+segmentation, or learned visual traversability [22], [23], [35],
+[36], [37]. EVORA models uncertainty-aware traversability
+for risk-aware off-road autonomy [36], while Traversability-
+Aware Legged Navigation learns robot-centric traversability
+from real-world visual and proprioceptive data [37]. NeuPAN
+further couples point-cloud perception with model-based opti-
+mization for direct, map-free navigation in cluttered unknown
+environments [38]. Although these methods improve physical
+grounding and safety, they usually assume fixed robot ca-
+pabilities or operate outside open-vocabulary semantic trace
+generation.
+Recent work uses planners, expert policies, or automatically
+generated labels as scalable supervision for learning-based
+navigation. CE-Nav uses planner-generated data to train a
+flow-based velocity expert [29], MTG learns traversability-
+aware trajectory generation [22], COMPASS uses expert
+policies and policy distillation for cross-embodiment mobil-
+ity [28], and VAMOS trains an affordance model to evaluate
+VLM-proposed image-space paths [11]. CE-RRT* follows this
+general idea of planner supervision, but targets a different
+learning interface. It converts semantic segmentation into
+robot-conditioned traversability cost maps and applies RRT*
+to generate planner-supervised traces directly in pixel space.
+These traces are then used to train CE-Adapter, enabling
+CrossTracer to learn embodiment-aware residual corrections
+without manually annotated traces.
+III. PROBLEM FORMULATION
+We
+formulate
+cross-embodiment
+navigation
+as
+goal-
+conditioned trace generation in the image plane. Given an
+egocentric RGB observation, a flexible goal specification, and
+a target robot embodiment, the task is to predict a sequence of
+normalized 2D waypoints that describes a feasible navigation
+trace for that robot. The trace is not a low-level control
+command or a full 3D state trajectory. Instead, it is an
+intermediate spatial representation that connects semantic goal
+understanding with downstream robot execution.
+A. Task Definition
+Let I ∈RH×W ×3 denote the current egocentric RGB
+observation, and let Ω= {1, . . . , W} × {1, . . . , H} denote
+the image domain. A goal specification is denoted by G
+and may contain a natural language instruction L, a target
+pixel coordinate Pg = (xg, yg), or both. The target robot
+embodiment is denoted by e ∈E, where E is the set of
+supported embodiments.
+The output is an embodiment-conditioned navigation trace
+Te = {wt}N
+t=1,
+wt = (xt, yt) ∈[−1, 1]2.
+(1)
+Each waypoint wt represents an image-plane anchor point
+along the intended navigation path. The normalized coordinate
+range [−1, 1]2 provides a resolution-independent interface. A
+waypoint can be converted to image coordinates by
+ut = xt + 1
+2
+W,
+vt = yt + 1
+2
+H.
+(2)
+Following the trace representation used by NaviTrace [25], the
+model predicts a fixed-length sequence of waypoints. In our
+implementation, we use N = 8.
+3
+
+
+Fig. 2: Overview of the proposed CrossTracer framework. CrossTracer follows a two stage design. Stage 1: Embodiment-Agnostic
+Planning uses the Current Observation, Pixel Goal, and Language Prompt to produce an Initial Trace through Llama 7B and the Trace Head.
+Stage 2: Embodiment-Aware Grounding incorporates Heterogeneous Embodiments through Robot Embedding and FiLM, then refines the
+Initial Trace with the Trace Query and Trace Transformer. The Residual Head predicts trace residuals for obtaining the Final Trace, the
+Feasibility Head predicts the Feasibility Map, and the Sensitivity Head estimates embodiment sensitivity used in the refinement objective.
+The CE-RRT* Labeling Pipeline generates the Reference Trace from the Segmentation Mask and Cost Map for training supervision.
+B. Embodiment-Conditioned Traversability
+Different robot embodiments can induce different feasible
+regions in the same observed scene. For example, a legged
+robot and a wheeled robot may assign different traversal
+difficulty to stairs, grass, curbs, narrow passages, or rough
+terrain. We represent the target embodiment by an embedding
+ze
+∈RDemb, which is learned from data and used by
+the refinement model to condition visual features and trace
+corrections.
+For
+analysis
+and
+training
+supervision,
+we
+define
+an
+embodiment-conditioned traversability cost map
+Ce : Ω→R≥0,
+(3)
+where lower values indicate regions that are easier for em-
+bodiment e to traverse, and higher values indicate unsafe or
+difficult regions. This cost map encodes the physical feasibility
+of image regions under the mobility profile of the target
+robot. It is used to generate planner-supervised reference traces
+and physical cost signals during training. At inference time,
+the learned model only requires the RGB observation, goal
+specification, and embodiment identity.
+C. Residual Trace Refinement
+We decompose the problem into semantic trace proposal and
+embodiment-aware trace refinement. A vision-language trace
+proposer first predicts an initial semantic trace
+Tinit = fϕ(I, G),
+(4)
+which captures the high-level navigation intent but is not ex-
+plicitly conditioned on the target embodiment. The refinement
+module then predicts a residual correction conditioned on the
+observation, initial trace, and embodiment:
+∆Te = gθ(I, Tinit, e).
+(5)
+The final embodiment-conditioned trace is given by
+Te = Tinit + ∆Te.
+(6)
+This residual formulation preserves the semantic structure of
+the initial trace while allowing localized corrections for robot-
+specific traversability. Excessive deviation from the semantic
+proposal is discouraged through trace imitation, physical cost,
+and smoothness losses during training, rather than by an
+explicit hard bound.
+During training, planner-generated reference traces are de-
+noted by T ∗
+e . They represent embodiment-conditioned traces
+with low traversal cost under Ce. The learning objective is to
+predict a trace Te that remains close to T ∗
+e while preserving the
+semantic intent encoded by Tinit. The construction of T ∗
+e and
+the full training objective are described in the methodology
+section.
+4
+
+
+IV. METHODOLOGY
+A. System Overview
+CrossTracer is a hierarchical framework that separates goal
+understanding from embodiment-aware physical grounding.
+As illustrated in Fig. 2, the framework uses normalized pixel-
+space traces as the interface between VL-Tracer, the Vision-
+Language Trace Proposer, and CE-Adapter. VL-Tracer con-
+verts the visual observation and goal specification into an
+initial navigation trace, while CE-Adapter adapts this trace
+according to visual traversability cues and the target robot
+embodiment.
+Given an egocentric RGB observation I ∈RH×W ×3, a
+goal specification G, and an embodiment identity e ∈E,
+CrossTracer maps these inputs to an embodiment-conditioned
+trace:
+Te = M(I, G, e).
+(7)
+The mapping is implemented by two modules. VL-Tracer first
+predicts an initial trace Tinit in normalized image coordinates.
+CE-Adapter then takes I, Tinit, and e as input, and refines the
+trace into the final embodiment-conditioned output Te.
+The embodiment identity is introduced only in the refine-
+ment stage. This prevents VL-Tracer from entangling goal in-
+terpretation with platform-dependent traversability, and allows
+CE-Adapter to focus on localized corrections for the target
+robot. During training, VL-Tracer is fine-tuned on navigation
+trace data through LoRA, while CE-Adapter is trained with
+planner-supervised reference traces generated by CE-RRT*.
+Throughout this section, we denote the initial trace by
+Tinit ∈[−1, 1]N×2, the final embodiment-conditioned trace
+by Te, the planner-supervised reference trace by T ∗
+e , the robot
+embedding by ze ∈RDemb, and the embodiment-conditioned
+cost map by Ce.
+B. VL-Tracer: Vision-Language Trace Proposer
+VL-Tracer maps an egocentric observation and a flexible
+goal specification to an initial navigation trace in normal-
+ized image coordinates. We build VL-Tracer on top of the
+OmniVLA architecture [4], which combines visual encoding
+with multimodal language reasoning for robot navigation. In
+CrossTracer, the output interface is changed from low-level
+navigation actions to a fixed-length sequence of 2D waypoints:
+Tinit = Fprop(I, G) = Hhead
+ Hllm(Henc(I, G))
+
+,
+(8)
+where Henc denotes the visual and goal encoder, Hllm denotes
+the language model backbone, and Hhead denotes the trace
+prediction head.
+VL-Tracer supports goal inputs in three forms: a language
+instruction L, a target pixel coordinate Pg = (xg, yg), or
+both. Let XV
+∈RMV ×D denote visual tokens extracted
+from I, XL ∈RML×D denote language tokens, and XP =
+MLPpose(Pg) ∈R1×D denote the projected goal-pose token.
+The tokens are concatenated into a single input sequence:
+Xinput = [XV ∥XL ∥XP ].
+(9)
+Unavailable modalities are removed by a modality mask
+m ∈{0, 1}M, where M = MV + ML + 1. During training,
+language and pose inputs are randomly dropped with probabil-
+ity pdrop = 0.3, which improves robustness to incomplete goal
+specifications. During inference, the mask is set according to
+the available inputs.
+VL-Tracer predicts a trace Tinit = { ˆwt}N
+t=1, where each
+waypoint ˆwt = (ˆxt, ˆyt) lies in [−1, 1]2. Pixel-space traces
+provide an image-aligned interface between visual goal un-
+derstanding and downstream embodiment-aware refinement.
+They are not treated as complete 3D trajectories; instead, they
+represent spatial anchors in the current egocentric view that
+can be refined and executed by downstream modules.
+The trace head maps the hidden states from the language
+model to 2D waypoint coordinates:
+ˆwt = tanh
+ MLPhead(ht)
+
+,
+t = 1, . . . , N,
+(10)
+where ht ∈RD is the hidden state associated with the t-th
+prediction token. The tanh operation constrains the output to
+normalized image coordinates. Conversion to image coordi-
+nates follows
+ut = ˆxt + 1
+2
+W,
+vt = ˆyt + 1
+2
+H.
+(11)
+VL-Tracer is fine-tuned through Low-Rank Adaptation
+(LoRA) [39] on navigation trace data from VAMOS [11]. The
+backbone weights are frozen, while the LoRA parameters and
+trace prediction head are optimized. Given a reference trace
+T gt = {wgt
+t }N
+t=1, the training objective is
+LV L = 1
+N
+N
+X
+t=1
+∥ˆwt−wgt
+t ∥2
+2+λsmooth
+1
+N −1
+N−1
+X
+t=1
+∥ˆwt+1−ˆwt∥2
+2.
+(12)
+The smoothness term discourages abrupt waypoint changes in
+the initial trace. We set λsmooth = 0.01 in all experiments.
+C. CE-RRT*: Automated Trace Generation
+CE-RRT* generates planner-supervised reference traces for
+training CE-Adapter. The motivation is that manually an-
+notating embodiment-specific traces is expensive, especially
+when the same scene may require different paths for different
+robot platforms. CE-RRT* addresses this issue by convert-
+ing semantic segmentation into an embodiment-conditioned
+traversability cost map, and then running RRT* in the image
+plane to produce a low-cost reference trace.
+Given an image I, CE-RRT* first applies Mask2Former [40]
+with a ResNet-50 backbone to obtain a panoptic segmentation
+mask M. Each pixel p ∈Ωis assigned a semantic label
+M(p). For each embodiment e, we define a semantic cost
+configuration
+Ke = {Se
+free, Se
+soft, ρe},
+(13)
+where Se
+free contains categories that can be traversed with
+low-cost, Se
+soft contains categories that are traversable but
+difficult, and ρe maps soft-traversable categories to nonzero
+base costs. The base cost map is defined as
+Ce
+base(p) =
+
+
+
+
+
+0,
+M(p) ∈Se
+free,
+ρe(M(p)),
+M(p) ∈Se
+soft,
+Cobs,
+otherwise.
+(14)
+5
+
+
+Fig. 3: Automated embodiment-specific data generation with CE-
+RRT*. Given an egocentric RGB observation and a target goal,
+CE-RRT* first performs semantic segmentation to obtain scene-level
+traversability cues. The segmentation result is then converted into an
+embodiment-aware cost map according to the physical constraints of
+the target robot, such as wheeled or legged locomotion. Based on this
+cost map, RRT* searches for a collision-free and low-cost trace in
+pixel space, producing planner-supervised embodiment-specific traces
+as supervision labels for training CE-Adapter.
+Here Cobs is the obstacle threshold used by the planner.
+To account for clearance around obstacles, we apply Eu-
+clidean distance transforms to the traversability mask. Let
+Te = {p ∈Ω| M(p) ∈Se
+free ∪Se
+soft}
+(15)
+denote the traversable region for embodiment e. For p ∈Te,
+we penalize proximity to non-traversable pixels:
+Pe
+ext(p) = λext max
+
+0, 1 −
+de
+free(p)
+dmax
+
+,
+(16)
+where de
+free(p) is the distance from p to the nearest pixel
+outside Te. For p /∈Te, we assign an obstacle penalty:
+Pe
+int(p) = Cobs + β min
+
+1, de
+obs(p)
+dint
+
+,
+(17)
+where de
+obs(p) is the distance from p to the nearest pixel in
+Te. The final cost map is
+Ce(p) =
+(
+Ce
+base(p) + Pe
+ext(p),
+p ∈Te,
+Pe
+int(p),
+p /∈Te.
+(18)
+The cost values are clipped to a fixed numerical range before
+planning.
+Given the cost map Ce, start point s, and goal point g,
+CE-RRT* searches for a low-cost path in the image plane.
+The complete procedure is summarized in Algorithm 1. For a
+discrete path P = (q1, . . . , qm), the path cost is
+J(P; Ce) =
+m−1
+X
+i=1
+d(qi, qi+1) ω(qi+1),
+(19)
+where d(·, ·) is Euclidean distance and
+ω(q) = 1 + η Ce(q)
+Cmax
+.
+(20)
+Algorithm 1 Planner-Supervised Trace Generation via CE-
+RRT*
+Require: Image I, goal point g, start point s, embodiment e
+Ensure: Reference trace T ∗
+e
+1: M ←Mask2Former(I)
+2: Ce ←GenerateCostMap(M, e)
+3: V ←{s}, A ←∅
+4: for i = 1 to Nmax do
+5:
+qrand ←Sample(Ω, g, pgoal)
+6:
+qnear ←Nearest(V, qrand)
+7:
+qnew ←Steer(qnear, qrand, ∆step)
+8:
+if CollisionFree(qnear, qnew, Ce, Cobs) then
+9:
+Qnear ←{q ∈V | d(q, qnew) ≤r}
+10:
+qbest
+←
+arg minq∈Qnear Cost(q)
++
+d(q, qnew)ω(qnew)
+11:
+V ←V ∪{qnew}
+12:
+A ←A ∪{(qbest, qnew)}
+13:
+Rewire(Qnear, qnew, Ce)
+14:
+end if
+15: end for
+16: Pe ←ExtractPath(V, A, g)
+17: T ∗
+e ←ResampleAndNormalize(Pe, N)
+18: return T ∗
+e
+This cost penalizes both path length and traversal through
+high-cost regions.
+We use RRT* [7] to minimize this cost approximately under
+collision constraints. The planner samples in the H×W image
+plane with goal-biased sampling probability pgoal = 0.15,
+steering step ∆step = 25 pixels, search radius r = 60
+pixels, and maximum iteration number Nmax = 10,000. An
+edge is accepted only when all sampled points along the
+segment have cost below Cobs. After a path is extracted, it
+is uniformly resampled into N waypoints and normalized to
+[−1, 1]2, yielding the planner-supervised reference trace T ∗
+e .
+The generated T ∗
+e and cost map Ce are used only during
+training. At inference time, CrossTracer does not require se-
+mantic segmentation or a precomputed cost map; CE-Adapter
+learns to infer the needed traversability cues from the RGB
+observation and embodiment identity.
+D. CE-Adapter: Adaptive Trace Residual Learning
+CE-Adapter refines the initial trace generated by VL-Tracer
+into an embodiment-conditioned trace. Given the RGB obser-
+vation I, initial trace Tinit, and embodiment identity e, the
+adapter predicts a residual correction ∆Te and outputs
+Te = Tinit + ∆Te.
+(21)
+This residual formulation preserves the global structure of the
+initial trace while allowing local corrections in regions where
+the proposed path conflicts with the mobility constraints of the
+target robot.
+The visual branch starts from a pretrained ResNet back-
+bone [41]. To inject robot information into visual perception,
+the embodiment identity e is mapped to a learnable embedding
+ze ∈RD. At each encoder stage i, a FiLM layer [42] predicts
+6
+
+
+Fig. 4: Architecture of CE-Adapter. The Input contains the RGB Image, Robot ID, and Initial Trace. The Multimodal Condition Encoder
+first maps the Robot ID through the Embedding Layer to obtain the Robot Embedding, which modulates visual features through FiLM. The
+modulated visual features pass through Tokenization and Self-Attention to form Fusion Tokens and Fusion Features. In parallel, the Initial
+Trace is encoded by the Trace Projector to form the Trace Query. The Feasibility Head uses the Fusion Features and Feasibility Decoder to
+predict the Feasibility Map. The Residual Head uses the Trace Decoder to predict ∆Te and refine Tinit into Te. The Sensitivity Head uses
+the Robot Embedding and Sensitivity Decoder to produce the Cost Weight αe.
+Fig. 5: Embodiment-conditioned feasibility prediction. Given the
+same observation, different robot embodiments induce different
+traversability distributions. The figure compares RGB observations,
+the segmentation mask, planner-generated reference maps, and pre-
+dicted Feasibility Maps for wheeled and legged robots, showing
+that CE-Adapter learns embodiment-specific terrain affordances from
+semantic and geometric cues.
+affine modulation parameters from ze and applies them to the
+intermediate feature map Fi ∈RCi×Hi×Wi:
+F e
+i = γi(ze) ⊙Fi + βi(ze),
+(22)
+where γi(ze), βi(ze) ∈RCi are broadcast over spatial di-
+mensions, and ⊙denotes channel-wise multiplication. The
+FiLM layers are initialized near identity, with γi initialized
+around one and βi around zero, so that the adapter starts
+from the pretrained visual representation and gradually learns
+embodiment-conditioned feature modulation.
+The final modulated feature map is flattened and projected
+into visual tokens Xv ∈RL×D. The robot embedding is
+prepended as a robot token, and positional embeddings are
+added:
+Xe
+0 = [ze ∥Xv] + Epos.
+(23)
+A stack of Transformer blocks processes this sequence and
+produces embodiment-conditioned visual tokens
+Xe
+vis = Transformer(Xe
+0).
+(24)
+These tokens encode visual traversability cues under the
+mobility profile represented by e.
+The initial trace is then projected into trace queries:
+Qtrace = MLPtrace(Tinit) + Etrace,
+(25)
+where Qtrace ∈RN×D and Etrace denotes learnable way-
+point position embeddings. The trace queries attend to the
+embodiment-conditioned visual tokens through multi-head
+cross-attention:
+Ztrace = CrossAttn (QtraceWQ, Xe
+visWK, Xe
+visWV ) . (26)
+For
+compact
+figure
+notation,
+Trace
+Residual
+Head,
+Traversability Reconstruction Head, and Embodiment Sensi-
+tivity Head are shown as Residual Head, Feasibility Head,
+and Sensitivity Head, respectively. The Trace Residual Head
+maps the attended trace features to 2D waypoint offsets:
+∆Te = δmax tanh (MLPres(Ztrace)) .
+(27)
+The scaling by δmax constrains the magnitude of the correc-
+tion, which helps preserve the goal intent encoded in Tinit
+while allowing the adapter to move waypoints away from
+visually risky or difficult regions.
+During training, CE-Adapter also uses two auxiliary heads.
+The Traversability Reconstruction Head reconstructs the
+embodiment-conditioned traversability map, represented as the
+cost map Ce, from the visual tokens and skip features:
+ˆCe = Decodertrav(Xe
+vis, {F e
+i }).
+(28)
+This auxiliary prediction encourages the visual branch to
+encode terrain affordances that are specific to the target
+embodiment.
+The Embodiment Sensitivity Head predicts a nonnegative
+coefficient from the robot embedding:
+αe = Softplus(MLPsens(ze)).
+(29)
+7
+
+
+TABLE I: Performance comparison on the NaviTrace benchmark.
+Model
+Open-
+Source
+↑Total Score
+Bicycle
+Human
+Legged Robot
+Wheeled Robot
+Accessibility
+Dynamic
+Obstacle
+Geometric
+Terrain
+Semantic
+Terrain
+Social
+Norms
+Stationary
+Obstacle
+Visibility
+General Models
+Qwen3-VL-8B-Thinking
+✓
+-41.30
+-39.92
+-41.64
+-45.31
+-34.58
+-52.25
+-15.77
+-45.16
+-60.62
+-49.55
+-27.22
+-47.33
+Claude Sonnet-4.5
+✗
+7.36
+6.12
+8.31
+7.11
+7.14
+2.15
+11.16
+6.22
+-0.01
+-1.91
+14.83
+5.86
+Qwen3-VL-235B-Thinking
+✓
+26.24
+21.86
+27.31
+28.38
+24.12
+12.21
+32.20
+26.82
+25.17
+15.45
+30.82
+22.63
+Gemini-2.5-Pro
+✗
+35.67
+32.15
+39.32
+36.46
+31.07
+24.23
+47.90
+36.80
+36.01
+22.91
+36.79
+26.39
+Embodied Models
+MiMo-Embodied-8B-Thinking
+✓
+-33.55
+-25.32
+-11.48
+-51.80
+-47.34
+-153.30
+-10.17
+-41.26
+-23.95
+-71.89
+-13.55
+-28.00
+Robobrain-2.5-8B
+✓
+27.96
+27.67
+28.23
+28.99
+25.87
+11.41
+34.30
+27.87
+28.31
+16.60
+32.52
+25.74
+CrossTracer-8B (Ours)
+✓
+45.68
+42.16
+46.26
+46.40
+46.28
+33.79
+52.93
+45.87
+45.54
+37.87
+46.11
+52.49
+CrossTracer w/o CE-Adapter
+✓
+22.56
+23.94
+22.64
+22.47
+21.41
+-3.18
+31.68
+22.38
+27.53
+1.28
+25.23
+32.27
+CrossTracer w/ Goal Pose
+✓
+63.91
+60.79
+64.44
+64.57
+64.38
+53.83
+71.16
+63.40
+61.50
+63.32
+63.13
+64.05
+Fig. 6: Category-wise performance comparison on the NaviTrace benchmark. The radar chart and line chart compare CrossTracer
+with representative general-purpose and embodied models across different navigation scenarios, including accessibility, dynamic obstacles,
+geometric terrain, semantic terrain, social norms, stationary obstacles, and visibility. CrossTracer achieves more balanced and consistently
+stronger performance, demonstrating the effectiveness of embodiment-aware trace refinement.
+The coefficient modulates the cost-based training term de-
+scribed in Section IV-E, allowing the loss to weight physical
+cost differently across embodiments.
+E. Training Objective and Data Pipeline
+The training process follows two stages. VL-Tracer is first
+fine-tuned to produce initial pixel-space traces from visual
+observations and goal specifications. After this stage, VL-
+Tracer is frozen. CE-Adapter is then trained to refine the fixed
+initial traces produced by VL-Tracer with planner-supervised
+references generated by CE-RRT*. Gradients from the CE-
+Adapter losses are not back-propagated into VL-Tracer. This
+separation allows the first stage to learn goal-conditioned trace
+generation, while the second stage focuses on embodiment-
+aware residual correction.
+CE-Adapter is optimized with a composite objective:
+LCE = Ltrace + λtravLtrav + λcostLcost + λsmoothLsmooth.
+(30)
+The trace loss supervises the final output of the Trace Residual
+Head. Given the refined trace Te = {we
+t}N
+t=1 and the planner-
+supervised reference trace T ∗
+e = {w∗
+t }N
+t=1, we define
+Ltrace = 1
+N
+N
+X
+t=1
+∥we
+t −w∗
+t ∥2
+2.
+(31)
+The Traversability Reconstruction Head is supervised by the
+embodiment-conditioned cost map Ce generated by CE-RRT*.
+Let ˆCe denote the reconstructed traversability cost map and P
+denote the set of image pixels. The reconstruction loss is
+Ltrav =
+1
+|P|
+X
+p∈P
+∥ˆCe(p) −Ce(p)∥2
+2.
+(32)
+This term encourages the visual encoder to learn robot-
+conditioned terrain affordances instead of relying only on
+sparse waypoint supervision.
+The cost loss penalizes refined waypoints that lie in high-
+cost regions of the embodiment-conditioned map. The value
+Ce(we
+t) is obtained by bilinear sampling from the cost map
+using normalized waypoint coordinates. The Embodiment Sen-
+sitivity Head predicts αe, which weights this penalty:
+Lcost = αe
+1
+N
+N
+X
+t=1
+Ce(we
+t).
+(33)
+This formulation allows different embodiments to place dif-
+ferent emphasis on avoiding high-cost regions during training.
+The smoothness loss regularizes the refined trace with
+second-order finite differences:
+Lsmooth =
+1
+N −2
+N−2
+X
+t=1
+∥(we
+t+2 −we
+t+1) −(we
+t+1 −we
+t)∥2
+2.
+(34)
+This term discourages abrupt direction changes and improves
+the stability of the predicted trace.
+For the data pipeline, VL-Tracer is trained on naviga-
+tion trace data from VAMOS [11], because VAMOS pro-
+vides image-space navigation path annotations that match the
+8
+
+
+Fig. 7: Qualitative results on the NaviTrace benchmark. The figure visualizes pixel-space navigation traces predicted by different models
+across representative NaviTrace scenarios. These examples cover diverse visual conditions and navigation challenges, including sidewalks,
+vegetation areas, urban roads, indoor spaces, narrow passages, obstacles, and terrain variations. Compared with baseline models, CrossTracer
+generates traces that better follow the semantic navigation intent while avoiding physically infeasible regions, demonstrating the benefit of
+embodiment-aware residual refinement.
+pixel-space trace interface used by VL-Tracer. This makes
+it suitable for learning the embodiment-agnostic semantic
+trace proposal before CE-Adapter performs robot-conditioned
+refinement. CE-Adapter is trained on egocentric navigation
+images annotated by CE-RRT*. For each training image and
+embodiment, CE-RRT* generates a planner-supervised trace
+T ∗
+e and an embodiment-conditioned cost map Ce. During CE-
+Adapter training, Tinit is produced by VL-Tracer and then
+refined by the adapter. During inference, CE-RRT*, semantic
+segmentation, and cost maps are not required.
+We use fixed hyperparameters across all CE-Adapter ex-
+periments. Input RGB images and cost maps are resized to
+64 × 64, and each trace is represented by N = 8 normalized
+waypoints. CE-Adapter is trained with Adam using a learning
+rate of 1 × 10−4 and a batch size of 64. The loss weights are
+set to (λtrace, λtrav, λcost, λsmooth) = (1.0, 1.0, 1.0, 0.05),
+where the smoothness term is assigned a smaller weight
+to regularize abrupt direction changes without suppressing
+necessary embodiment-conditioned corrections.
+V. SIMULATION EXPERIMENTS
+A. Experimental Setup
+1) Benchmark. We evaluate CrossTracer on the NaviT-
+race benchmark [25], which is designed to assess whether
+vision-language models can generate navigation traces that are
+consistent with both semantic instructions and embodiment
+constraints. Each test sample provides an egocentric RGB
+image, a language instruction, and an embodiment type. The
+model is required to output a 2D navigation trace in pixel
+space. We follow the official evaluation protocol and report
+the total score as the primary metric, where a higher score
+indicates better performance. We also report scores over the
+benchmark categories, including bicycle, human, legged robot,
+wheeled robot, accessibility, dynamic obstacle, geometric ter-
+rain, semantic terrain, social norms, stationary obstacle, and
+visibility.
+2) Baselines. We compare CrossTracer with two groups
+of models. The first group contains general-purpose vision-
+language models, including Qwen3-VL-8B-Thinking, Claude
+Sonnet-4.5, Qwen3-VL-235B-Thinking, and Gemini-2.5-Pro.
+These models provide strong visual reasoning ability but
+are not specifically trained for embodiment-aware navigation
+trace generation. The second group contains embodied rea-
+soning models, including MiMo-Embodied-8B-Thinking and
+Robobrain-2.5-8B. To measure the contribution of the refine-
+ment stage, we also report CrossTracer w/o CE-Adapter, which
+removes the embodiment-aware residual refinement module
+and uses the trace generated by VL-Tracer directly.
+3) Implementation. VL-Tracer is fine-tuned through LoRA
+on navigation trace data from VAMOS [11]. The backbone is
+frozen, and only the LoRA parameters and trace prediction
+head are optimized. VL-Tracer fine-tuning is conducted on
+eight NVIDIA A100 GPUs and takes approximately 48 hours.
+CE-Adapter is trained on 62k navigation images annotated
+by CE-RRT*, using the composite objective described in
+Section IV-E. Training is performed on a single NVIDIA
+GeForce RTX 4090 GPU and takes approximately 3 hours.
+B. NaviTrace Benchmark Results
+1) Overall performance. Table I summarizes the benchmark
+results. CrossTracer achieves a total score of 45.68, which is
+the highest score among the evaluated models. Compared with
+the strongest evaluated general-purpose baseline, Gemini-2.5-
+Pro, CrossTracer improves the total score from 35.67 to 45.68,
+corresponding to a relative gain of 28%. It also outperforms
+the strongest evaluated embodied model, Robobrain-2.5-8B,
+by 17.72 points. These results indicate that strong visual
+reasoning alone is not sufficient for this benchmark, and that
+explicit embodiment-aware trace refinement provides a clear
+advantage.
+2) Contribution of CE-Adapter. The comparison between
+CrossTracer and CrossTracer w/o CE-Adapter directly mea-
+9
+
+
+sures the effect of the refinement stage. Removing CE-Adapter
+reduces the total score from 45.68 to 22.56, a drop of 23.12
+points. The improvement is especially large in categories that
+require physical grounding. Accessibility increases from -3.18
+to 33.79, social norms from 1.28 to 37.87, and stationary
+obstacle from 25.23 to 46.11. These gains suggest that CE-
+Adapter does more than smooth the initial trace; it learns
+to correct trace segments that are likely to conflict with
+embodiment-specific traversability constraints.
+3)
+Performance
+across
+embodiments
+and
+scenarios.
+CrossTracer achieves consistent performance across the four
+embodiment categories, with scores of 42.16 for bicycle,
+46.26 for human, 46.40 for legged robot, and 46.28 for
+wheeled robot. The relatively small variation indicates that
+the framework does not only fit a single embodiment type.
+Across scene categories, CrossTracer obtains strong results
+on dynamic obstacle and visibility, with scores of 52.93 and
+52.49, respectively. It also maintains stable performance on
+geometric terrain and semantic terrain, reaching 45.87 and
+45.54. As shown in Fig. 6, the performance profile is more
+balanced than those of the evaluated general-purpose and
+embodied baselines, especially in categories where physical
+feasibility and scene layout strongly affect the trace.
+4) Effect of goal-pose input. The goal-pose variant further
+provides a target pixel coordinate in addition to the language
+instruction and embodiment type. With this additional geomet-
+ric signal, CrossTracer reaches a total score of 63.91, com-
+pared with 45.68 under the default input setting. This variant
+is not directly comparable to the language-only setting under
+identical inputs, but it shows that the pixel-space interface
+can effectively use precise goal location information when
+available. The improvement is particularly large in semantic
+terrain and social norms, where the additional target coordinate
+helps reduce ambiguity in the requested navigation goal.
+C. Visual Analysis of Predicted Traces
+Figure 7 visualizes predicted pixel-space traces on repre-
+sentative NaviTrace scenes. The examples cover sidewalks,
+vegetation areas, urban roads, indoor spaces, narrow pas-
+sages, obstacles, and terrain variations. Across these scenes,
+CrossTracer produces traces that follow the requested naviga-
+tion direction while better avoiding regions that are visually
+unsafe or difficult for the target embodiment.
+Compared with general-purpose vision-language models,
+CrossTracer generates traces with clearer spatial structure and
+fewer abrupt deviations. Compared with CrossTracer w/o CE-
+Adapter, the refined traces are more consistent with local
+traversability cues. In scenes containing obstacles, narrow pas-
+sages, or terrain changes, CE-Adapter adjusts the initial trace
+away from high-risk regions while preserving the overall goal
+direction. These examples support the quantitative finding that
+embodiment-aware residual refinement improves the physical
+plausibility of predicted navigation traces.
+VI. REAL-WORLD EXPERIMENTS
+A. Deployment Protocol
+We evaluate CrossTracer on two heterogeneous mobile
+robot platforms, including a wheeled robot and a legged robot.
+Fig. 8: Robot-side and server-side communication pipeline for
+real-world deployment. The NVIDIA Jetson Orin sends camera
+observations to a remote workstation for model inference, then
+converts the returned navigation output into velocity commands for
+robot execution.
+The wheeled platform represents ground robots with limited
+terrain adaptability, while the legged platform can handle
+more complex surface changes and small height variations.
+Both platforms are equipped with an egocentric RGB camera,
+and the same visual observation interface is used during
+deployment.
+For each trial, CrossTracer receives the current RGB obser-
+vation, the navigation instruction, and the robot embodiment
+identity as input. The model outputs a pixel-space navigation
+trace in the image plane. This trace is then projected to a
+sequence of local navigation waypoints and executed by the
+robot controller in a closed-loop. The low-level controller is
+kept unchanged across methods, so the comparison focuses
+on the quality of the predicted navigation trace rather than
+differences in control implementation.
+In our deployment, each robot is equipped with an NVIDIA
+Jetson Orin, which serves as the onboard computing unit for
+sensor acquisition, communication, and low-level command
+execution. The CrossTracer model is deployed on a work-
+station equipped with an NVIDIA RTX 4090 GPU. During
+execution, RGB observations captured by the onboard camera
+are transmitted from the robot to the workstation via WiFi.
+The workstation performs model inference and sends the
+predicted pixel-space navigation trace back to the onboard
+Jetson Orin, where the trace is converted into local navigation
+waypoints and executed by the robot controller. This setup
+allows both robot platforms to share the same inference and
+communication pipeline during real-world deployment.
+We compare CrossTracer with OmniVLA under the same
+robot platforms, navigation instructions, camera observations,
+and execution protocol. Each method is evaluated from the
+same start region and toward the same semantic goal. A trial
+is terminated when the robot reaches the target, collides with
+an obstacle, deviates from the intended route, or exceeds the
+maximum execution time. This protocol allows us to assess
+whether embodiment-aware trace refinement improves phys-
+ical navigation performance beyond direct vision-language-
+action prediction. Figure 8 illustrates the robot-side and server-
+side communication pipeline used in the real-world experi-
+ments.
+B. Tasks and Evaluation Metrics
+We design four real-world navigation tasks that cover indoor
+and outdoor deployment scenarios. The indoor tasks require
+10
+
+
+Fig. 9: Real-world deployment examples across heterogeneous embodiments. The figure illustrates navigation traces generated for different
+robot platforms in the same indoor environment. CrossTracer adapts the predicted trace according to the physical characteristics of each
+embodiment, showing its potential for transferring pixel-space navigation policies across legged and wheeled robots.
+Fig. 10: Real-world path comparison in physical deployment. Executed paths from CrossTracer and OmniVLA are compared against
+human expert reference paths across different real-world navigation trials. Compared with OmniVLA, CrossTracer produces paths that more
+closely follow the expert references and show smoother convergence near the target, suggesting that residual trace refinement improves
+physical executability rather than only changing the appearance of the predicted trace.
+the robot to navigate toward semantic objects in office-like
+environments, including a white table and a beige sofa located
+behind a pantry counter. The elevated platform task requires
+the robot to reach a target sign placed on a second-level
+platform, which tests whether the generated trace can account
+for terrain accessibility. The outdoor task requires the robot
+to follow a long-range instruction with a turning behavior
+before reaching a black trash bin. These tasks jointly eval-
+uate semantic goal understanding, visual route inference, and
+embodiment-conditioned feasibility in physical environments.
+Each task is repeated five times for each robot platform
+and each method. A trial is considered successful if the robot
+reaches within a predefined distance threshold of the target
+without collision or manual intervention. A trial is marked as
+failed if the robot collides with obstacles, deviates significantly
+from the intended route, or exceeds the maximum allowed
+11
+
+
+execution time.
+We use three metrics for evaluation: Success Rate (SR),
+Success-weighted
+by
+Path
+Length
+(SPL),
+and
+Success-
+weighted by Task Time (STT). SR measures the ratio of
+successful trials:
+SR = 1
+N
+N
+X
+i=1
+Si,
+(35)
+where N is the total number of trials and Si ∈{0, 1} indicates
+whether the i-th trial succeeds.
+SPL evaluates both task success and path efficiency:
+SPL = 1
+N
+N
+X
+i=1
+Si · Lref
+i
+Li
+,
+(36)
+where Li is the actual path length executed by the robot, and
+Lref
+i
+is the reference path length. Failed trials receive an SPL
+score of zero because Si = 0. In our real-world experiments,
+Lref
+i
+is computed from the human expert path.
+STT measures the temporal efficiency of successful naviga-
+tion:
+STT = 1
+N
+N
+X
+i=1
+Si · T ref
+i
+Ti
+,
+(37)
+where Ti is the actual execution time, and T ref
+i
+is the reference
+task time. Failed trials receive an STT score of zero because
+Si = 0. Under this definition, a higher STT indicates that the
+robot reaches the target more reliably and completes the task
+with higher temporal efficiency.
+C. Physical Deployment Results
+Table II reports the real-world navigation results on the
+wheeled and legged robots. CrossTracer improves over Om-
+niVLA on both platforms and across all three metrics. On
+the wheeled robot, CrossTracer increases the average SR from
+0.40 to 0.65, SPL from 0.37 to 0.59, and STT from 0.17 to
+0.30. On the legged robot, CrossTracer increases the average
+SR from 0.45 to 0.70, SPL from 0.31 to 0.58, and STT from
+0.27 to 0.43. These results indicate that the refined pixel-space
+traces lead to more reliable and efficient execution in physical
+environments.
+The improvement is consistent across tasks with different
+navigation requirements. In indoor semantic target reaching,
+CrossTracer improves the success rate for navigating to both
+the white table and the beige sofa. In the elevated platform
+task, the gain is more evident on the legged robot, where
+the robot can better exploit its terrain adaptability when the
+predicted trace guides it toward a feasible approach direction.
+In the outdoor turning task, CrossTracer also improves path
+efficiency and task-completion efficiency on both platforms.
+These results suggest that CE-Adapter contributes not only
+to obstacle avoidance, but also to selecting traces that better
+match the mobility constraints of the executing robot.
+Figure 9 shows representative deployment examples across
+heterogeneous robot embodiments. The generated traces pre-
+serve the semantic intent of the instruction while adapting to
+platform-dependent traversability. For the same visual scene
+and target, CrossTracer can produce different feasible traces
+for wheeled and legged robots, which provides qualitative
+evidence that embodiment information is used during trace
+refinement.
+Figure 10 compares executed paths from CrossTracer and
+OmniVLA against human expert reference paths. Compared
+with OmniVLA, CrossTracer produces paths that more closely
+follow the expert references and show smoother convergence
+near the target. This qualitative comparison is consistent with
+the quantitative results in Table II, suggesting that residual
+trace refinement improves physical executability rather than
+only changing the appearance of the predicted trace.
+VII. CONCLUSION
+We presented CrossTracer, a hierarchical navigation frame-
+work for embodiment-aware robot navigation with vision-
+language-action models. The central idea is to decouple se-
+mantic route proposal from physical feasibility refinement
+through a unified pixel-space trace representation. VL-Tracer
+first predicts an initial navigation trace from egocentric visual
+observations and flexible goal specifications. CE-Adapter then
+refines this trace by predicting embodiment-conditioned trace
+residuals from visual traversability cues, robot identity, and the
+initial trace. To support scalable training, CE-RRT* automati-
+cally generates planner-supervised reference traces by convert-
+ing panoptic segmentation into robot-conditioned traversability
+cost maps and applying sampling-based planning.
+Experiments on the NaviTrace benchmark show that
+CrossTracer achieves a total score of 45.68, outperforming
+the strongest evaluated general-purpose baseline by 28% and
+improving over CrossTracer w/o CE-Adapter by 23.12 points.
+The results indicate that the refinement stage is critical for
+grounding semantic traces in embodiment-specific traversabil-
+ity constraints. Real-world deployment on wheeled and legged
+robots further shows that the refined traces improve navigation
+success, path efficiency, and task-completion efficiency under
+physical execution.
+VIII. LIMITATIONS AND FUTURE WORK
+Several limitations remain. The current data generation
+pipeline relies on panoptic segmentation, so segmentation
+errors may affect the quality of the traversability cost maps and
+planner-supervised traces. The cost map configuration for each
+embodiment is manually specified and may require additional
+expertise when adapting to new robot platforms. Future work
+will explore learning embodiment-dependent traversability
+from robot interaction data, extending the representation to
+3D scene structure for handling overhanging obstacles and
+height discontinuities, and integrating closed-loop replanning
+for dynamic environments.
+REFERENCES
+[1] A. Brohan, N. Brown, J. Carbajal, Y. Chebotar, J. Dabis, C. Finn,
+K. Gopalakrishnan, K. Hausman, A. Herzog, J. Hsu, et al., “RT-
+1: Robotics transformer for real-world control at scale,” in Robotics:
+Science and Systems, 2023.
+[2] B. Zitkovich, T. Yu, S. Xu, P. Xu, T. Xiao, F. Xia, J. Wu, P. Wohlhart,
+S. Welker, A. Wahid, et al., “Rt-2: Vision-language-action models
+transfer web knowledge to robotic control,” in Conference on Robot
+Learning, 2023, pp. 2165–2183.
+12
+
+
+TABLE II: Real-world navigation performance of OmniVLA and CrossTracer across different robot embodiments. SR, SPL, and STT are
+reported as ratios, where higher values indicate better performance.
+Navigation Instruction
+Method
+Wheeled Robot
+Legged Robot
+SR↑
+SPL↑
+STT↑
+SR↑
+SPL↑
+STT↑
+Navigate to the white table behind the white
+pantry counter.
+OmniVLA
+0.60
+0.57
+0.27
+0.20
+0.16
+0.11
+CrossTracer
+0.80
+0.76
+0.42
+0.60
+0.50
+0.35
+Navigate to the beige sofa behind the white
+pantry counter.
+OmniVLA
+0.20
+0.17
+0.06
+0.40
+0.31
+0.23
+CrossTracer
+0.60
+0.50
+0.18
+0.60
+0.49
+0.36
+Navigate to the “Caution Wet Floor” sign on
+the second-level platform.
+OmniVLA
+0.40
+0.37
+0.23
+0.60
+0.35
+0.40
+CrossTracer
+0.60
+0.55
+0.33
+0.80
+0.74
+0.53
+Turn left at the end of the road, then navigate
+to a black trash bin.
+OmniVLA
+0.40
+0.35
+0.12
+0.60
+0.42
+0.34
+CrossTracer
+0.60
+0.54
+0.27
+0.80
+0.58
+0.46
+Average over all scenarios
+OmniVLA
+0.40
+0.37
+0.17
+0.45
+0.31
+0.27
+CrossTracer
+0.65
+0.59
+0.30
+0.70
+0.58
+0.43
+[3] M. J. Kim, K. Pertsch, S. Karamcheti, T. Xiao, A. Balakrishna, S. Nair,
+R. Rafailov, E. P. Foster, P. R. Sanketi, Q. Vuong, et al., “Openvla:
+An open-source vision-language-action model,” in Conference on Robot
+Learning, 2025, pp. 2679–2713.
+[4] N. Hirose, C. Glossop, D. Shah, and S. Levine, “Omnivla: An
+omni-modal vision-language-action model for robot navigation,” arXiv
+preprint arXiv:2509.19480, 2025.
+[5] D. Fox, W. Burgard, and S. Thrun, “The dynamic window approach
+to collision avoidance,” IEEE robotics & automation magazine, vol. 4,
+no. 1, pp. 23–33, 1997.
+[6] C. R¨osmann, F. Hoffmann, and T. Bertram, “Integrated online trajec-
+tory planning and optimization in distinctive topologies,” Robotics and
+Autonomous Systems, vol. 88, pp. 142–153, 2017.
+[7] S. Karaman and E. Frazzoli, “Sampling-based algorithms for optimal
+motion planning,” The international journal of robotics research, vol. 30,
+no. 7, pp. 846–894, 2011.
+[8] C. Glossop, W. Chen, A. Bhorkar, D. Shah, and S. Levine, “Cast:
+Counterfactual labels improve instruction following in vision-language-
+action models,” arXiv preprint arXiv:2508.13446, 2025.
+[9] J. Zhang, K. Wang, S. Wang, M. Li, H. Liu, S. Wei, Z. Wang, Z. Zhang,
+and H. Wang, “Uni-navid: A video-based vision-language-action model
+for unifying embodied navigation tasks,” Robotics: Science and Systems,
+2025.
+[10] A.-C. Cheng, Y. Ji, Z. Yang, Z. Gongye, X. Zou, J. Kautz, E. Bıyık,
+H. Yin, S. Liu, and X. Wang, “Navila: Legged robot vision-language-
+action model for navigation,” in RSS, 2025.
+[11] M. G. Castro, S. Rajagopal, D. Gorbatov, M. Schmittle, R. Baijal,
+O. Zhang, R. Scalise, S. Talia, E. Romig, C. de Melo, et al., “Vamos: A
+hierarchical vision-language-action model for capability-modulated and
+steerable navigation,” arXiv preprint arXiv:2510.20818, 2025.
+[12] A. O’Neill, A. Rehman, A. Maddukuri, A. Gupta, A. Padalkar, A. Lee,
+A. Pooley, A. Gupta, A. Mandlekar, A. Jain, et al., “Open x-embodiment:
+Robotic learning datasets and rt-x models: Open x-embodiment collab-
+oration 0,” in 2024 IEEE International Conference on Robotics and
+Automation (ICRA).
+IEEE, 2024, pp. 6892–6903.
+[13] Octo Model Team, D. Ghosh, H. Walke, K. Pertsch, K. Black, O. Mees,
+S. Dasari, J. Hejna, C. Xu, J. Luo, T. Kreiman, Y. Tan, L. Y. Chen,
+P. Sanketi, Q. Vuong, T. Xiao, D. Sadigh, C. Finn, and S. Levine, “Octo:
+An open-source generalist robot policy,” in Proceedings of Robotics:
+Science and Systems, Delft, Netherlands, 2024.
+[14] D. Shah, A. Sridhar, A. Bhorkar, N. Hirose, and S. Levine, “Gnm: A
+general navigation model to drive any robot,” in 2023 IEEE International
+Conference on Robotics and Automation (ICRA).
+IEEE, 2023, pp.
+7226–7233.
+[15] D. Shah, A. Sridhar, N. Dashora, K. Stachowicz, K. Black, N. Hirose,
+and S. Levine, “Vint: A foundation model for visual navigation,” in
+Conference on Robot Learning, 2023, pp. 711–733.
+[16] A. Sridhar, D. Shah, C. Glossop, and S. Levine, “Nomad: Goal masked
+diffusion policies for navigation and exploration,” in 2024 IEEE Inter-
+national Conference on Robotics and Automation (ICRA).
+IEEE, 2024,
+pp. 63–70.
+[17] D. Shah and S. Levine, “ViKiNG: Vision-Based Kilometer-Scale Navi-
+gation with Geographic Hints,” in Proceedings of Robotics: Science and
+Systems, New York City, NY, USA, June 2022.
+[18] N. Hirose, L. Ignatova, K. Stachowicz, C. Glossop, S. Levine, and
+D. Shah, “Learning to drive anywhere with model-based reannotation,”
+IEEE Robotics and Automation Letters, vol. 11, no. 2, pp. 1242–1249,
+2026.
+[19] W. Cai, J. Peng, Y. Yang, Y. Zhang, M. Wei, H. Wang, Y. Chen, T. Wang,
+and J. Pang, “Navdp: Learning sim-to-real navigation diffusion policy
+with privileged information guidance,” arXiv preprint arXiv:2505.08712,
+2025.
+[20] S. Gode, A. Nayak, and W. Burgard, “Flownav: Learning efficient nav-
+igation policies via conditional flow matching,” in 2nd CoRL Workshop
+on Learning Effective Abstractions for Planning, 2024.
+[21] N. Hirose, C. Glossop, A. Sridhar, O. Mees, and S. Levine, “Lelan:
+Learning a language-conditioned navigation policy from in-the-wild
+video,” in Conference on Robot Learning, 2025, pp. 666–688.
+[22] J. Liang, P. Gao, X. Xiao, A. J. Sathyamoorthy, M. Elnoor, M. C. Lin,
+and D. Manocha, “Mtg: Mapless trajectory generator with traversability
+coverage for outdoor navigation,” in 2024 IEEE International Confer-
+ence on Robotics and Automation (ICRA). IEEE, 2024, pp. 2396–2402.
+[23] D. Song, J. Liang, X. Xiao, and D. Manocha, “Vl-tgs: Trajectory
+generation and selection using vision language models in mapless
+outdoor environments,” IEEE Robotics and Automation Letters, 2025.
+[24] A. J. Sathyamoorthy, K. Weerakoon, M. Elnoor, A. Zore, B. Ichter,
+F. Xia, J. Tan, W. Yu, and D. Manocha, “Convoi: Context-aware naviga-
+tion using vision language models in outdoor and indoor environments,”
+in 2024 IEEE/RSJ International Conference on Intelligent Robots and
+Systems (IROS).
+IEEE, 2024, pp. 13 837–13 844.
+[25] T. Windecker, M. Patel, M. Reuss, R. Schwarzkopf, C. Cadena, R. Li-
+outikov, M. Hutter, and J. Frey, “Navitrace: Evaluating embodied nav-
+igation of vision-language models,” arXiv preprint arXiv:2510.26909,
+2025.
+[26] H. Wang, A. H. Tan, A. Fung, and G. Nejat, “X-nav: Learning end-
+to-end cross-embodiment navigation for mobile robots,” IEEE Robotics
+and Automation Letters, vol. 11, no. 1, pp. 698–705, 2025.
+[27] W. Liu, H. Zhao, C. Li, J. Biswas, B. Okal, P. Goyal, Y. Chang, and
+S. Pouya, “X-mobility: End-to-end generalizable navigation via world
+modeling,” in 2025 IEEE International Conference on Robotics and
+Automation (ICRA).
+IEEE, 2025, pp. 7569–7576.
+[28] W. Liu, H. Zhao, C. Li, Y. Deng, J. Biswas, S. Pouya, and Y. Chang,
+“Compass: Cross-embodiment mobility policy via residual rl and skill
+synthesis,” arXiv preprint arXiv:2502.16372, 2025.
+[29] K. Yang, T. Zhang, Z. Wang, Z. Chu, X. Wu, Y. Cai, and M. Xu, “Ce-
+nav: Flow-guided reinforcement refinement for cross-embodiment local
+navigation,” arXiv preprint arXiv:2509.23203, 2025.
+[30] Z. Gong, Y. Zhong, Y. Ding, T. Hu, G. Zhao, L. Kong, R. Li, J. You, and
+J. Liang, “Flux: Accelerating cross-embodiment generative navigation
+policies via rectified flow and static-to-dynamic learning,” arXiv preprint
+arXiv:2603.12806, 2026.
+13
+
+
+[31] E. Dijkstra, “A note on two problems in connexion with graphs,”
+Numerische Mathematik, vol. 1, no. 1, pp. 269–271, 1959.
+[32] P. E. Hart, N. J. Nilsson, and B. Raphael, “A formal basis for the heuristic
+determination of minimum cost paths,” IEEE transactions on Systems
+Science and Cybernetics, vol. 4, no. 2, pp. 100–107, 1968.
+[33] S. LaValle, “Rapidly-exploring random trees: A new tool for path
+planning,” Research Report 9811, 1998.
+[34] C. E. Garcia, D. M. Prett, and M. Morari, “Model predictive control:
+Theory and practice—a survey,” Automatica, vol. 25, no. 3, pp. 335–348,
+1989.
+[35] P. Roth, J. Nubert, F. Yang, M. Mittal, and M. Hutter, “Viplanner:
+Visual semantic imperative learning for local navigation,” in 2024 IEEE
+International Conference on Robotics and Automation (ICRA).
+IEEE,
+2024, pp. 5243–5249.
+[36] X. Cai, S. Ancha, L. Sharma, P. R. Osteen, B. Bucher, S. Phillips,
+J. Wang, M. Everett, N. Roy, and J. P. How, “Evora: Deep evidential
+traversability learning for risk-aware off-road autonomy,” IEEE Trans-
+actions on Robotics, vol. 40, pp. 3756–3777, 2024.
+[37] H. Zhang, Z. Li, X. Zeng, L. Smith, K. Stachowicz, D. Shah, L. Yue,
+Z. Song, W. Xia, S. Levine, et al., “Traversability-aware legged navi-
+gation by learning from real-world visual data,” IEEE Transactions on
+Robotics, vol. 42, pp. 400–417, 2025.
+[38] R. Han, S. Wang, S. Wang, Z. Zhang, J. Chen, S. Lin, C. Li, C. Xu,
+Y. C. Eldar, Q. Hao, et al., “Neupan: Direct point robot navigation with
+end-to-end model-based learning,” IEEE transactions on robotics, 2025.
+[39] E. J. Hu, Y. Shen, P. Wallis, Z. Allen-Zhu, Y. Li, S. Wang, L. Wang,
+and W. Chen, “LoRA: Low-rank adaptation of large language models,”
+in International Conference on Learning Representations, 2022.
+[40] B. Cheng, I. Misra, A. G. Schwing, A. Kirillov, and R. Girdhar,
+“Masked-attention mask transformer for universal image segmentation,”
+in Proceedings of the IEEE/CVF conference on computer vision and
+pattern recognition, 2022, pp. 1290–1299.
+[41] K. He, X. Zhang, S. Ren, and J. Sun, “Deep residual learning for image
+recognition,” in Proceedings of the IEEE conference on computer vision
+and pattern recognition, 2016, pp. 770–778.
+[42] E. Perez, F. Strub, H. De Vries, V. Dumoulin, and A. Courville, “Film:
+Visual reasoning with a general conditioning layer,” in Proceedings of
+the AAAI conference on artificial intelligence, vol. 32, no. 1, 2018.
+14
