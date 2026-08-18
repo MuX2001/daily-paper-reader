@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-17</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-18</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 26 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 30 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>13</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>17</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-17 19:49:12 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-18 21:27:57 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日聚焦具身智能与VLA模型，共读26篇论文，其中13篇精读、13篇速读。最值得关注的是两篇9.0分精读：《StellaVLA》用上下文结构化演示提升泛化能力，《G0.5》以单自回归流统一机器人的推理与动作。下一步建议普通读者从速读中的《WA-SpecDec》和手物交接预测等8.0分工作入手，快速了解世界感知与多模态生成的前沿应用。</p>
+<p>今日精读30篇论文，重点聚焦机器人推理与动作控制，其中两篇高分工作值得关注。最值得看的是《G0.5》提出的统一自回归流模型，以及《BICPO-VLA》通过行为识别优化异步视觉-语言-动作控制，均获9.0/10分。建议优先精读这两篇，再结合速读列表中关于安全保证、混合交通控制及视频世界模型的进展，拓展应用视角。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">13 篇</strong>
+    <strong class="dpr-home-dashboard-count">17 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="StellaVLA: In-Context Structured Demonstration for Generalizable Vision-Language-Action Models">StellaVLA: In-Context Structured Demonstration for Generalizable Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="G0.5: One Autoregressive Stream for Robot Reasoning and Action">G0.5: One Autoregressive Stream for Robot Reasoning and Action</span></li><li><span class="dpr-home-dashboard-paper-title" title="Policy-Induced Hand Priors in Humanoid Dual-Arm Manipulation: Diagnosing and Mitigating Initial-Pose Dependence">Policy-Induced Hand Priors in Humanoid Dual-Arm Manipulation: Diagnosing and Mitigating Initial-Pose Dependence</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="G0.5: One Autoregressive Stream for Robot Reasoning and Action">G0.5: One Autoregressive Stream for Robot Reasoning and Action</span></li><li><span class="dpr-home-dashboard-paper-title" title="BICPO-VLA: Behavior-Identified Continuation Preference Optimization for Smooth Asynchronous Vision-Language-Action Control">BICPO-VLA: Behavior-Identified Continuation Preference Optimization for Smooth Asynchronous Vision-Language-Action Control</span></li><li><span class="dpr-home-dashboard-paper-title" title="Reflex: Enabling Fast and Predictive Vision-Language-Action Models for Reaction-Critical Manipulation">Reflex: Enabling Fast and Predictive Vision-Language-Action Models for Reaction-Critical Manipulation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>6</strong></span><span class="dpr-home-dashboard-tag">control <strong>3</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>2</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>8</strong></span><span class="dpr-home-dashboard-tag">vla <strong>6</strong></span><span class="dpr-home-dashboard-tag">control <strong>3</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -87,9 +87,9 @@
     <strong class="dpr-home-dashboard-count">13 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="WA-SpecDec: World-Aware Speculative Decoding for Vision-Language-Action Models">WA-SpecDec: World-Aware Speculative Decoding for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="RGB-D Video Generation for Improving Human-to-Robot Object Handover Prediction">RGB-D Video Generation for Improving Human-to-Robot Object Handover Prediction</span></li><li><span class="dpr-home-dashboard-paper-title" title="Decoding Task Progress from VLA Representations">Decoding Task Progress from VLA Representations</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Control Barrier--Value Functions under Partial Observability: Safety Guarantees via Conformal Prediction">Control Barrier--Value Functions under Partial Observability: Safety Guarantees via Conformal Prediction</span></li><li><span class="dpr-home-dashboard-paper-title" title="Knowledge-Data-Dual-Driven Reinforcement Learning for Autonomous Vehicle Control in Mixed Traffic">Knowledge-Data-Dual-Driven Reinforcement Learning for Autonomous Vehicle Control in Mixed Traffic</span></li><li><span class="dpr-home-dashboard-paper-title" title="ForgeWM: Progressive Causal Training for Few-Step Action-Conditioned Video World Models">ForgeWM: Progressive Causal Training for Few-Step Action-Conditioned Video World Models</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>6</strong></span><span class="dpr-home-dashboard-tag">control <strong>5</strong></span><span class="dpr-home-dashboard-tag">vla <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>7</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>3</strong></span><span class="dpr-home-dashboard-tag">control <strong>2</strong></span><span class="dpr-home-dashboard-tag">vla <strong>1</strong></span></div>
 </section>
 </div>
 
