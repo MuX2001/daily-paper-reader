@@ -1,0 +1,1511 @@
+Title: LLM-Based Hierarchical Coordinated Control with Continuation-Aware Policy Learning
+
+URL Source: https://arxiv.org/pdf/2608.15041v1
+
+Published Time: Tue, 18 Aug 2026 00:25:47 GMT
+
+Number of Pages: 30
+
+Markdown Content:
+# LLM-Based Hierarchical Coordinated Control with Continuation-Aware Policy Learning 
+
+# Changhong He 1,2 , Jinda Gao 2, Xinkuan Liu 2, Le Zhang 2, Xizi Luo 1,2 , Yu Mei 2∗
+
+> 1
+
+Beihang University, Beijing, China 
+
+> 2
+
+Baidu, Inc., Beijing, China Corresponding author: whqyqy@hotmail.com 
+
+Abstract 
+
+Coordinating multiple interacting units in complex engineer-ing systems is challenging when system interactions are diffi-cult to model, operational information is heterogeneous, and low-level actions must satisfy strict constraints. We propose an LLM-based hierarchical framework in which the LLM coordinates interacting units based on heterogeneous opera-tional context, while task-specific controllers or optimizers generate executable and constraint-aware actions. We further introduce Continuation-Aware GRPO to capture the conse-quences of coordination decisions over subsequent control in-tervals. Rather than judging a decision only by its immediate outcome, the method also evaluates how the system evolves afterward under the current policy. We validate the framework on multi-ramp traffic control and virtual power plant (VPP) energy management, using simplified system models for train-ing and more realistic simulators for evaluation. Across both tasks, the proposed method consistently outperforms direct task-specific control and optimization, end-to-end reinforce-ment learning, rule-based and RL-based hierarchical coordi-nation, and prompting-only LLM coordinators, demonstrating the value of heterogeneous-context reasoning, hierarchical ex-ecution, and continuation-aware policy learning. 
+
+# Introduction 
+
+Many complex engineering systems consist of multiple inter-acting units whose local decisions jointly determine system-level performance. Examples include transportation net-works, energy systems, industrial processes, and distributed infrastructures, where local actions are coupled through shared dynamics, resource constraints, and global objectives. Effective operation therefore requires not only reliable local controllers, but also an adaptive coordination policy that de-termines how different units should respond as operating conditions evolve. Classical approaches commonly use centralized optimiza-tion, decentralized feedback control, or combinations of the two (Rawlings, Mayne, and Diehl 2017; Negenborn, De Schutter, and Hellendoorn 2008). Centralized optimization explicitly models system coupling and jointly computes low-level actions, but its effectiveness depends on the accuracy of system dynamics, forecasts, and uncertainty models, while its computational complexity may grow rapidly with system 
+
+> ∗
+
+Corresponding author. 
+
+scale. Decentralized feedback control is often more efficient and reliable, but system-level coordination typically relies on fixed parameters or manually designed switching rules (Pa-pageorgiou and Kotsialos 2002; Negenborn, De Schutter, and Hellendoorn 2008). Such rules are difficult to construct when the appropriate strategy depends on temporal trends, spatial interactions, uncertainty, resource urgency, operational pri-orities, and external events. Learning-based control reduces the need to specify all co-ordination rules in advance, but directly learning joint low-level actions remains problematic. The action space grows rapidly with the number of controlled units, physical and op-erational constraints are difficult to guarantee, and learned policies may overfit the dynamics of their training environ-ments (Kiumarsi et al. 2018; Achiam et al. 2017). Exist-ing LLM-based control approaches face related limitations: prompting alone does not align language-level decisions with closed-loop performance, while directly generating physical actions provides limited guarantees of feasibility and relia-bility (Huang et al. 2022, 2023; Sha et al. 2023). We propose an LLM-based hierarchical framework that separates system-level coordination from physical execution. At each decision step, the LLM interprets the current oper-ating context and determines how interacting units should respond—for example, which units should act more aggres-sively or conservatively and which objectives should be pri-oritized. Task-specific controllers or optimizers then trans-late these high-level decisions into executable actions while handling physical and operational constraints. The LLM is well suited to this role because coordination decisions often depend on heterogeneous information, in-cluding numerical measurements, recent trends, uncertainty estimates, resource urgency, operational priorities, external events, and system rules (Huang et al. 2023; Sha et al. 2023). These signals differ in representation, scale, and semantics, yet must be interpreted jointly. Moreover, interactions among controlled units and external disturbances are often difficult to capture with a complete explicit model. Rather than iden-tifying the full system dynamics, the LLM learns a history-and context-conditioned coordination policy from closed-loop experience, while domain-specific controllers retain re-sponsibility for precise execution. A pretrained LLM, however, is not inherently aligned with control performance. We therefore fine-tune the high-level arXiv:2608.15041v1 [cs.AI] 15 Aug 2026 policy with GRPO using system-level feedback (Shao et al. 2024). A key challenge is that the effects of a coordination de-cision may persist beyond the interval in which it is executed. Short rollouts may therefore favor decisions with immediate benefits but adverse downstream consequences. To reduce this short-horizon bias, we introduce Continuation-Aware GRPO. Each high-level decision is ap-plied for one control interval, after which the system contin-ues under a frozen copy of the current policy for a longer evaluation horizon. The accumulated return captures both the immediate outcome and the subsequent system evolution, without requiring an additional value model or modifying the standard GRPO objective (Shao et al. 2024). Because the LLM operates at the coordination level rather than generating precise physical actions, its policy is less de-pendent on fine-grained simulator dynamics. To test whether it learns reusable coordination strategies rather than model-specific heuristics, we train the policy using simplified sys-tem models and evaluate it in more realistic environments with different dynamics and modeling assumptions. We instantiate the framework in two heterogeneous coordinated-control systems: multi-ramp traffic control and virtual power plant energy management (Papageorgiou and Kotsialos 2002; Naval and Yusta 2021). The two case studies differ substantially in physical dynamics, information struc-ture, temporal coupling, constraints, and low-level execution mechanisms. They therefore provide complementary settings for evaluating the generality of the proposed framework. We evaluate the framework against both direct-control and hierarchical-coordination baselines across diverse operating patterns and simulator dynamics. Our main contributions are as follows: 
+
+• We propose an LLM-based hierarchical framework for coordinated control, in which the LLM integrates het-erogeneous operational context and makes system-level coordination decisions, while task-specific controllers or optimizers provide precise and constraint-aware execu-tion. 
+
+• We introduce a closed-loop post-training approach for the high-level LLM policy. The approach incorporates a continuation-aware return construction into GRPO, eval-uating each coordination decision over both its execu-tion interval and the subsequent system evolution under a frozen copy of the current policy. 
+
+• We validate the framework on two structurally differ-ent engineering systems and demonstrate consistent im-provements over both direct-control and hierarchical-coordination baselines across diverse operating pat-terns, as well as reduced performance degradation under changes in simulator dynamics. 
+
+# Related Work 
+
+## Traditional and Learning-Based Control 
+
+Complex engineering systems commonly use feedback, model-based optimization, or hybrid control. Traffic ap-plications employ feedback and model predictive control, while virtual power plants use optimization to coordinate dis-tributed resources (Papageorgiou and Kotsialos 2002; Hegyi, De Schutter, and Hellendoorn 2005; Naval and Yusta 2021). Feedback control is efficient but often relies on fixed co-ordination logic, whereas centralized optimization captures system couplings and constraints but depends on accurate models and forecasts and can be costly at scale. Reinforcement learning reduces reliance on predefined rules, but direct low-level policies must learn coordination, numerical actions, and constraint satisfaction jointly (Belletti et al. 2018; Liu et al. 2023). Hierarchical methods instead combine learned high-level decisions with domain-specific controllers or optimizers (Airaldi, Schutter, and Dabiri 2025; Li, Chang, and Yang 2025), but their representations, coor-dination variables, and execution interfaces remain task- and model-specific. 
+
+## LLM-Based Decision Making and Control 
+
+LLMs have been used in engineering control as action se-lectors, supervisors, and interfaces to numerical controllers. LLMLight and CoLLMLight map textual traffic states to signal phases, with CoLLMLight additionally incorporating neighboring states and historical evolution (Lai et al. 2025; Yuan, Lai, and Liu 2026). Other approaches couple LLMs with model predictive control, reinforcement learning, or op-timization through high-level decisions, predictions, parame-ter adjustment, or formulation generation (Sha et al. 2023; Jin et al. 2024; Wu, Ai, and Li 2025). LLMASC uses language-based proposal exchange and consensus before low-level RL execution (Yu et al. 2026). Despite their flexibility, these approaches define LLM outputs and numerical execution in-terfaces separately for each application. 
+
+## Reinforcement Fine-Tuning of LLMs 
+
+Reinforcement fine-tuning aligns LLM policies with task feedback. DeepSeekMath introduced Group Relative Policy Optimization (GRPO), which estimates relative advantages among outputs sampled for the same prompt without a value model, while DeepSeek-R1 demonstrated scalable reinforce-ment learning with verifiable rewards (Shao et al. 2024; Guo et al. 2025). These methods primarily evaluate complete out-puts in static domains such as mathematics and code. Recent work extends reinforcement fine-tuning to stateful interaction: LOOP learns from complete environment tra-jectories, turn-level methods improve credit assignment in multi-turn tool use, and Traffic-R1 uses simulator feedback for sequential traffic control (Chen et al. 2025; Wei et al. 2025; Zou et al. 2026). Engineering control poses a distinct temporal mismatch: a decision executed during one interval changes physical states and may affect performance over subsequent intervals. Ex-isting formulations do not directly specify how to evaluate that decision through a longer closed-loop continuation, mo-tivating our continuation-aware return construction. 
+
+# Problem Formulation 
+
+We consider a complex engineering system composed of N
+
+interacting control units. At time t, the physical state st ∈ S 
+
+contains the observable system variables, and the executable action at ∈ A affects the system through 
+
+st+1 = f (st, at, w t), (1) where wt denotes exogenous disturbances such as time-varying demand, renewable generation, weather, or market conditions. The executable action must satisfy the operational constraints represented in the control model, 
+
+g(st, at) ≤ 0. (2) In addition to the instantaneous physical state, coordinated decisions may depend on recent system evolution and other operational information. We denote the available decision context by 
+
+ξt = ( st−L:t, c t), (3) where st−L:t is the recent state history and ct contains ad-ditional information such as forecasts, uncertainty estimates, resource urgency, operational priorities, external events, and system rules. Rather than directly generating the physical action, the high-level policy produces a structured joint coordination decision 
+
+zt =  z1 
+
+> t
+
+, . . . , z Nt
+
+ ∈ Z = Z1 × · · · × Z N , (4) where znt specifies how control unit n should respond un-der the current operating context. A task-specific low-level controller or optimizer converts this joint decision into an executable action, 
+
+at = πlow (st; zt). (5) The high-level coordination policy is parameterized by an LLM, 
+
+zt ∼ πϕ(· | ξt). (6) For a trajectory τ = ( s0, a0, w 0, . . . , s T ), system-level per-formance is measured by 
+
+R(τ ) =  
+
+> T−1
+
+X
+
+> t=0
+
+γtr(st, at, w t), (7) where γ ∈ (0 , 1] is the discount factor. The learning objective is to optimize the high-level pol-icy while the low-level controller remains responsible for physical execution: 
+
+max  
+
+> ϕ
+
+Eτ ∼pϕ [R(τ )] 
+
+s.t. zt ∼ πϕ(· | ξt),
+
+at = πlow (st; zt),g(st, at) ≤ 0, t = 0 , . . . , T − 1,
+
+(8) where pϕ is the trajectory distribution induced by the high-level policy, the low-level controller, the system dynamics, and the exogenous disturbances. 
+
+# Method 
+
+Figure 1(a) illustrates the hierarchical coordination archi-tecture, while Figure 1(b) presents the Continuation-Aware GRPO training procedure. 
+
+## Operational-Context Representation and Hierarchical Execution 
+
+Structured operational context. The heterogeneous con-text ξt is converted into a structured natural-language prompt 
+
+qt = Prompt( ξt). (9) The prompt organizes the available information into task-relevant descriptions of the current system condition, recent trends, uncertainty, urgency, priorities, external events, and applicable rules. The LLM policy generates the structured joint decision defined in Equation 4, 
+
+zt ∼ πϕ(· | qt). (10) During training, decisions are sampled to support policy ex-ploration. During evaluation, the policy uses a fixed decoding rule. 
+
+High-level to low-level interface. Each component znt is mapped to parameters used by the corresponding low-level controller. We write this mapping as 
+
+Θ( zt) = θ1(z1 
+
+> t
+
+), . . . , θ N (zNt ) , (11) where θn(znt ) may represent a feedback threshold, an ob-jective weight, a resource priority, or another task-specific control parameter. The executable action is then computed as 
+
+at = πlow (st; Θ( zt)) . (12) The low-level component may use feedback control, model predictive control, or mathematical programming. It per-forms the numerical computation and handles the physical and operational constraints explicitly encoded in the task model. The two layers therefore have complementary responsibili-ties. The LLM interprets heterogeneous operational informa-tion and determines the system-level coordination strategy. The low-level controller converts that strategy into executable and constraint-aware physical actions. Task-specific system models, controller implementations, parameter mappings, prompt templates, and output schemas are provided in Appendices A and B. 
+
+## Continuation-Aware GRPO 
+
+A pretrained LLM is not inherently optimized for closed-loop system performance. We therefore fine-tune the high-level policy using system-level returns. Standard short-rollout evaluation, however, can be overly myopic because the ef-fects of a coordination decision may persist after the interval in which it is executed. Continuation-Aware GRPO separates the duration of the current decision from the horizon used to evaluate its conse-quences. 
+
+Matched group evaluation. Training samples are con-structed from system snapshots extracted at different points of simulated trajectories. For a snapshot with context qt, the frozen old policy generates a group of G joint decisions, 
+
+n
+
+z(i)
+
+> t
+
+oGi=1 
+
+∼ πϕold (· | qt). (13) (a) LLM-Based Hierarchical Coordination 
+
+1. Heterogeneous 
+
+operational context 
+
+Structured  Prompt 
+
+2. LLM high -level coordinator 
+
+System state  𝑠𝑡 
+
+Recent trends 
+
+Uncertainty 
+
+Priorities / events 
+
+3. Task -specific  low-level 
+
+controller  / optimizer 
+
+4. Physical system 
+
+Multi-Ramp Traffic Control 
+
+Virtual power plant 
+
+Next states and observations 
+
+Interpret  current  operating 
+
+context 
+
+Decide  how  interacting  units 
+
+should  respond 
+
+Structured Joint Decision  𝒛𝒕 
+
+Feedback  control 
+
+MPC       
+
+> Mathematical programming
+> Transform high-level decisions
+> into executable actions 𝑎𝑡
+
+(b) Continuation-Aware GRPO Training 
+
+1. Matched Group Start 
+
+> Same simulator, controller, prompt
+> history, and future disturbances
+
+System Snapshot  𝑠𝑡 
+
+Structured Prompt  𝑞𝑡 
+
+2. Sample Candidate 
+
+Decisions 
+
+𝑧 𝑡 (1) 
+
+𝑧 𝑡 (2) 
+
+𝑧 𝑡 (𝐺) 
+
+…… 
+
+> 3. Continuation Rollout Evaluation
+> (rollouts generated in fast training environments)
+
+Update policy  𝜋𝜙 using 
+
+group − relative 
+
+advantages Execute for current       
+
+> interval ∆using 𝑍 𝑡 (𝑖) Continue under the
+> frozen old policy 𝜋𝜙𝑜𝑙𝑑
+> 4. Continuation -Aware
+> Returns and GRPO Update
+
+𝑡  𝑡 + ∆  𝑡 + 2∆  𝑡 + 𝐻 …
+
+𝑅 (1) 
+
+𝑅 (𝐺) 
+
+…Figure 1: Overview of the proposed LLM-based hierarchical coordination framework and Continuation-Aware GRPO. All group members start from the same physical state and share the same future exogenous trajectory. They differ only in the high-level decision applied during the first control in-terval. This matched evaluation ensures that differences in their returns are attributable primarily to the coordination decisions rather than to different realizations of demand, renewable generation, weather, prices, or other external con-ditions. 
+
+One-interval decision and longer continuation. Each sampled decision z(i) 
+
+> t
+
+is applied for one high-level control interval of duration ∆. The resulting low-level actions are computed using Equation 12. After this interval, each rollout continues until the eval-uation horizon H, where H > ∆. Subsequent high-level decisions are generated by the same frozen old policy, 
+
+z(i) 
+
+> τ
+
+∼ πϕold 
+
+
+
+· | q(i)
+
+> τ
+
+
+
+, τ = t + ∆ , t + 2∆ , . . . , t + H − ∆.
+
+(14) The policy parameters and decoding rule remain fixed throughout the continuation. The continuation policy is shared at the policy level rather than at the action-sequence level. Since the initial decisions produce different subsequent states, the frozen policy may select different follow-up decisions in different rollouts. This preserves closed-loop adaptation while evaluating every ini-tial decision under the same subsequent policy. The return assigned to the initial decision is 
+
+R(i) =
+
+> H−1
+
+X
+
+> k=0
+
+γkr
+
+
+
+s(i)
+
+> t+k
+
+, a(i)
+
+> t+k
+
+, w t+k
+
+
+
+. (15) No additional terminal-value model or auxiliary reward is introduced. When H = ∆ , this evaluation reduces to the short-rollout setting. For H > ∆, it captures both the imme-diate outcome and the subsequent system evolution caused by the initial coordination decision. 
+
+Group-relative policy update. The group returns are nor-malized to obtain the relative advantages 
+
+bA(i) = R(i) − μR
+
+σR + ε , (16) where μR and σR are the mean and standard deviation of returns within the group. The importance ratio is defined as 
+
+ρ(i)(ϕ) = πϕ(z(i) 
+
+> t
+
+| qt)
+
+πϕold (z(i) 
+
+> t
+
+| qt) . (17) We further define the clipped ratio 
+
+eρ(i)(ϕ) = clip 
+
+
+
+ρ(i)(ϕ), 1 − ϵc, 1 + ϵc
+
+
+
+. (18) The policy is optimized using 
+
+L(ϕ) = − E
+
+"
+
+1
+
+G
+
+> G
+
+X
+
+> i=1
+
+min 
+
+
+
+ρ(i)(ϕ) bA(i), eρ(i)(ϕ) bA(i)#
+
++ βD KL (πϕ(· | qt) ∥ πϕref (· | qt)) .
+
+(19) Here, ϵc is the clipping threshold, πϕref is the reference policy, and β controls KL regularization. Continuation-Aware GRPO retains the standard group-relative policy update. Its distinguishing feature is the return construction. Each initial decision is executed for one control interval but evaluated through a longer closed-loop trajectory. Task-specific reward construction and additional training details are provided in Appendix B. 
+
+## Training and Evaluation Across Operating Patterns and Simulators 
+
+During training, the policy interacts with a computationally efficient simulator Etrain that preserves the dominant dy-namics and interactions required for high-level coordination. Training scenarios span multiple operating-pattern families and provide the system snapshots and closed-loop trajecto-ries used by Continuation-Aware GRPO. During evaluation, the frozen policy is tested on new instances of the training pattern families, previously un-seen patterns, and scenarios with increased uncertainty. It is also evaluated without additional fine-tuning in a more realistic simulator Eeval with different dynamics and model-ing assumptions. The operational-context format, high-level decision space, and low-level control interface remain un-changed across simulators. These settings assess robustness to changes in both operating conditions and simulator dynam-ics. Task-specific settings are described below; additional simulator details, interface correspondences, and modeling differences are provided in Appendix C. 
+
+# Experiments 
+
+We evaluate the proposed framework on two structurally dis-tinct coordinated-control systems: multi-ramp traffic control and virtual power plant energy management. The experi-ments address three questions: (i) how well the framework performs across seen-pattern, unseen-pattern, and higher-uncertainty scenarios; (ii) whether it remains effective with-out target-environment adaptation in environments with more realistic dynamics and different modeling assumptions; and (iii) how hierarchical execution and continuation-aware return construction contribute to closed-loop performance. 
+
+## Experimental Tasks and Settings 
+
+For each task, we train a separate high-level policy using 150 training and 50 validation scenarios. We evaluate the frozen policy without target-environment adaptation on 300 test sce-narios, divided equally into disjoint seen-pattern, unseen-pattern, and higher-uncertainty subsets. Complete-scenario splits prevent trajectory leakage. Further details are provided in Appendix C. 
+
+Multi-ramp traffic control. The traffic task considers eight controlled on-ramps on the northbound Western Ex-pressway in Changchun (Gao et al. 2026). Each scenario comprises a 15-minute warm-up and a 3-hour evaluation pe-riod. Low-level hysteresis controllers operate every minute, while the high-level policy selects joint ramp modes ev-ery 3 minutes. Demand trajectories vary temporal profiles, ramp-wise distributions, and stochastic perturbations. Train-ing uses the link transmission model (LTM) (Yperman, Log-ghe, and Immers 2005); evaluation uses SUMO (Lopez et al. 2018), which represents vehicle-level dynamics, lane chang-ing, and merging. Seen-pattern scenarios draw new trajecto-ries from the training pattern family; unseen-pattern scenar-ios introduce shifted and double peaks; higher-uncertainty scenarios increase demand perturbations and forecast errors. 
+
+Virtual power plant energy management. The virtual power plant aggregates photovoltaic generation, battery stor-age, electric vehicles, and heating, ventilation, and air condi-tioning. Photovoltaic and temperature trajectories use NASA POWER data (NASA Langley Research Center 2026), loads use Building Data Genome 2 (Miller et al. 2020), and electric-vehicle availability uses ACN-Data (Lee, Li, and Low 2019); prices follow perturbed time-of-use profiles. Each scenario covers 10:00–22:00. The low-level mixed-integer linear program operates every 5 minutes, while the high-level policy selects resource modes every 30 minutes. Training uses the fast single-bus model; evaluation uses the EPRI Ckt5 feeder in OpenDSS (Dugan and McDermott 2011; OpenDSS 2017), incorporating feeder-level power flow, voltage variation, losses, and network constraints. Seen-pattern scenarios use new trajectories with familiar operating combinations; unseen-pattern scenarios use withheld combi-nations; higher-uncertainty scenarios increase forecast errors and electric-vehicle timing uncertainty. 
+
+## Baselines and Evaluation Protocol 
+
+Baselines. We organize the baselines according to whether they generate executable low-level actions directly or make high-level coordination decisions that are subsequently exe-cuted by task-specific low-level components. The direct-control baselines include a task-specific con-ventional method and an end-to-end reinforcement learning policy. For multi-ramp traffic control, the conventional base-line is the published feedback controller (Gao et al. 2026); for virtual power plant management, it is an MPC-MILP method with fixed configurations (Zapata, Vandewalle, and D’haeseleer 2014). The end-to-end RL baseline directly gen-erates low-level control actions using PPO (Schulman et al. 2017). The hierarchical-coordination baselines all operate over the same joint mode space and use the same task-specific low-level controllers or optimizers as our method. Fixed-Mode Hierarchy selects a single joint mode configuration based on validation performance and applies it throughout eval-uation. Hierarchical RL is a learned non-LLM coordinator that maps an information-equivalent structured representa-tion of the operational context to joint modes using PPO. The prompting-only LLM coordinators, Qwen3-8B (Yang et al. 2025), Gemini 3.1 Pro (Google DeepMind 2026), and Claude Sonnet 4.5 (Anthropic 2025), receive the same op-erational information as our policy and select joint modes through the same structured output interface, but receive no task-specific parameter updates. For each task, our policy is initialized from Qwen3-8B and fine-tuned using only Continuation-Aware GRPO. All train-able methods use the same training and validation scenarios, Method Seen Unseen High-U Overall Gain                                                                                                         
+
+> Direct Control
+> Feedback Control 16283.4 ±41.8 15576.8 ±50.6 14917.3 ±68.3 15592.5 ±49.1 –End-to-End RL 16537.6 ±163.7 15684.9 ±191.5 14813.2 ±228.4 15678.6 ±181.2 +0.55%
+> Hierarchical Coordination
+> Fixed-Mode Hierarchy 16502.8 ±36.2 15792.4 ±44.9 15158.7 ±60.5 15818.0 ±43.7 +1.45% Hierarchical RL 16843.1 ±98.6 16117.6 ±121.4 15434.8 ±151.8 16131.8 ±110.2 +3.46% Qwen3-8B 16283.4 ±45.7 15177.8 ±59.8 14350.9 ±78.6 15270.7 ±55.1 -2.06% Gemini 3.1 Pro 16422.6 ±43.1 15664.3 ±55.2 14892.1 ±72.7 15659.7 ±50.8 +0.43% Claude Sonnet 4.5 16378.4 ±44.8 15612.7 ±57.6 14847.9 ±75.4 15613.0 ±52.7 +0.13%
+> Ours 17043.6 ±75.9 16617.9 ±92.7 16214.7 ±118.6 16625.4 ±84.5 +6.62%
+
+Table 1: Traffic throughput in SUMO over five matched runs (mean ± SD). Gain is relative to Feedback Control; higher is better.                                                                                                              
+
+> Method Seen Unseen High-U Overall Gain
+> Direct Control
+> MPC-MILP 32783.5 ±47.2 33887.9 ±65.8 35843.3 ±111.4 34171.6 ±64.2 –End-to-End RL 35076.9 ±512.4 37423.6 ±647.3 40947.2 ±923.8 37815.9 ±608.5 −10 .66%
+> Hierarchical Coordination
+> Fixed-Mode Hierarchy 32984.7 ±52.6 34052.2 ±71.9 35796.4 ±119.8 34277.8 ±70.6 −0.31%
+> Hierarchical RL 32183.7 ±267.5 33237.2 ±351.6 35124.6 ±505.2 33515.2 ±317.4 +1.92% Qwen3-8B 34821.7 ±115.8 36542.4 ±158.4 39264.6 ±251.6 36876.2 ±144.7 −7.91%
+> Gemini 3.1 Pro 33486.5 ±106.3 34726.3 ±144.9 37218.5 ±231.7 35143.8 ±132.5 −2.85%
+> Claude Sonnet 4.5 33634.2 ±110.7 34918.7 ±150.6 37406.8 ±240.8 35319.9 ±138.3 −3.36%
+> Ours 31937.9 ±183.6 32583.5 ±246.8 33516.3 ±371.5 32679.2 ±223.6 +4.37%
+
+Table 2: VPP operating cost in OpenDSS over five matched runs (mean ± SD). Gain is relative to MPC-MILP; lower is better. and model selection is based solely on validation perfor-mance. Implementation details are provided in Appendix B. 
+
+Evaluation protocol. We repeat each experiment five times. Trainable methods use independent training seeds, and all methods use matched simulator seeds. Within each run, all methods share the same initial state, exogenous in-puts, stochastic realization, and simulation seed. All LLM policies use deterministic decoding at temperature zero. The primary metrics are corridor throughput for traffic control, where higher is better, and realized operating cost for VPP management, where lower is better. For each run, we average scenarios within each subset and average the three subset scores equally to obtain the overall result. Tables report the mean ± standard deviation of these run-level scores. Gains are measured against Feedback Control for traffic and MPC-MILP for VPP, with throughput increases and cost reductions reported as positive. Evaluation details are provided in Ap-pendix C. 
+
+## Main Results 
+
+Tables 1 and 2 report performance in SUMO and OpenDSS, respectively. Our method obtains the highest mean through-put and the lowest mean operating cost in every test subset. Across five runs, it achieves an overall traffic throughput of 
+
+16625 .4 ± 84 .5, improving over Feedback Control by 6.62% and Hierarchical RL by 3.06%. For VPP management, it achieves an operating cost of 32679 .2 ± 223 .6, reducing cost by 4.37% relative to MPC-MILP and by 2.49% relative to Hierarchical RL. Comparisons across baseline families provide comple-mentary evidence. Our method outperforms the fixed-mode hierarchy in both tasks, consistent with the benefit of adapt-ing joint modes to the current operational context. Hierar-chical RL also outperforms end-to-end RL under the shared evaluation protocol, consistent with retaining task-specific low-level execution. Our method further improves over hi-erarchical RL while using the same joint mode space and task-specific low-level components. Prompting-only Qwen3-8B, Gemini 3.1 Pro, and Claude Sonnet 4.5 do not match the learned policy. Under this protocol, prompting alone does not attain the performance of task-specific learning from closed-loop feedback. Based on the subset means, our method also shows the smallest observed degradation from the seen-pattern to the higher-uncertainty subset. Its traffic throughput decreases by 
+
+4.86% , compared with 8.14% –11 .87% for the baselines, while its virtual power plant operating cost increases by 
+
+4.94% , compared with 8.52% –16 .74% . Its leading mean per-formance on both unseen-pattern and higher-uncertainty sce-narios suggests that the learned coordination policy remains effective as operating patterns and uncertainty levels change. Additional metrics and results are provided in Appendix D. 
+
+## Cross-Simulator Evaluation 
+
+Trainable policies are trained only in the fast simula-tor and evaluated with frozen parameters, without target-Multi-Ramp Traffic Control Virtual Power Plant Method LTM ↑ SUMO ↑ Gap ↓ Fast Simulator ↓ OpenDSS ↓ Gap ↓                                                                        
+
+> Qwen3-8B 16312.6 ±33.4 15270.7 ±55.1 6.39 ±0.21% 34025.2 ±87.9 36876.2 ±144.7 8.38 ±0.26% End-to-End RL 17438.7 ±147.8 15678.6 ±181.2 10.09 ±1.07% 33785.3 ±438.6 37815.9 ±608.5 11.94 ±2.03% Hierarchical RL 17043.9 ±91.5 16131.8 ±110.2 5.35 ±0.54% 30684.7 ±229.4 33515.2 ±317.4 9.23 ±0.95%
+> Ours 17286.4 ±66.7 16625.4 ±84.5 3.82 ±0.33% 30941.8 ±142.7 32679.2 ±223.6 5.62 ±0.54%
+
+Table 3: Cross-simulator performance over five matched runs (mean ± SD). Gap measures degradation from the fast to the more realistic simulator.                                                                       
+
+> (a) Multi-Ramp Traffic Control: Throughput ↑
+> Variant Seen Unseen High-U Overall Gain GRPO ( H= ∆ )16861.4 ±112.8 16327.6 ±151.3 15767.1 ±211.6 16318.7 ±136.4 –
+> Ours (H= 4∆ )17043.6 ±75.9 16617.9 ±92.7 16214.7 ±118.6 16625.4 ±84.5 +1.88% (b) Virtual Power Plant: Operating Cost ↓
+> Variant Seen Unseen High-U Overall Gain GRPO ( H= ∆ )32463.7 ±264.7 33437.6 ±376.5 34843.1 ±589.2 33581.5 ±327.8 –
+> Ours (H= 4∆ )31937.9 ±183.6 32583.5 ±246.8 33516.3 ±371.5 32679.2 ±223.6 +2.69%
+
+Table 4: Ablation of continuation-aware return construction over five runs with matched evaluation seeds (mean ± SD). Gain is relative to GRPO with H = ∆ .environment adaptation, in a more realistic simulator with different dynamics and modeling assumptions. The prompting-only configuration is unchanged. The simulator pairs are LTM–SUMO for traffic and single-bus–OpenDSS for virtual power plant management. Within each pair, evalu-ations use matched initial conditions and exogenous trajecto-ries, together with the same metric definitions and evaluation horizons. For mode-level methods, the operational-context format, joint mode space, and low-level control interface also remain unchanged. Table 3 reports mean ± standard deviation over five paired runs, with each gap computed before aggregation. For traffic, the gap is the throughput decrease from LTM to SUMO relative to LTM throughput; for VPP management, it is the operating-cost increase from the fast simulator to OpenDSS relative to the fast-simulator cost. Smaller gaps indicate less degradation. End-to-End RL attains the highest mean LTM through-put and Hierarchical RL the lowest mean fast-simulator VPP cost, but their gaps are 10 .09 ± 1.07% and 9.23 ± 0.95% ,respectively. Our method instead attains the highest mean SUMO throughput and lowest mean OpenDSS cost, with the smallest gaps of 3.82 ± 0.33% and 5.62 ± 0.54% .Thus, fast-simulator rankings do not fully predict realistic-simulator performance, while our method transfers most ro-bustly across both simulator pairs. Additional results and diagnostics are provided in Appendix D. 
+
+## Ablation Study 
+
+To assess continuation-aware return construction, we com-pare the full method with a current-interval GRPO variant that evaluates each candidate only over its initial control in-terval. The baseline uses H = ∆ , whereas the full method uses H = 4∆ , corresponding to H = 12 minutes for traf-fic control and H = 120 minutes for VPP management, and includes the subsequent closed-loop trajectory. All other settings are held fixed. Table 4 shows mean improvements in every test subset. Overall traffic throughput increases from 16318 .7 ± 136 .4
+
+to 16625 .4 ± 84 .5, corresponding to a 1.88% gain, while VPP operating cost decreases from 33581 .5 ± 327 .8 to 
+
+32679 .2 ± 223 .6, a reduction of 2.69%. The largest gains occur in the High-U subset, reaching 2.84% and 3.81%, re-spectively. These results are consistent with longer rollouts accounting for effects beyond the current control interval. Horizon sensitivity and operational-context ablations are re-ported in Appendix D. 
+
+# Conclusion 
+
+We proposed an LLM-based hierarchical coordination framework in which the LLM maps heterogeneous opera-tional context to joint modes for interacting units, while task-specific controllers or optimizers generate low-level actions. The framework uses Continuation-Aware GRPO to evaluate the delayed effects of coordination decisions through subse-quent closed-loop trajectories. Experiments on multi-ramp traffic control and virtual power plant energy management show that our method outperforms baselines on unseen-pattern and higher-uncertainty scenarios and remains effec-tive, without adaptation, in simulators with different dynam-ics and modeling assumptions. Ablation results support the contribution of continuation-aware return construction. References 
+
+Achiam, J.; Held, D.; Tamar, A.; and Abbeel, P. 2017. Con-strained Policy Optimization. In Proceedings of the 34th In-ternational Conference on Machine Learning , volume 70 of 
+
+Proceedings of Machine Learning Research , 22–31. PMLR. Airaldi, F.; Schutter, B. D.; and Dabiri, A. 2025. Reinforce-ment Learning with Model Predictive Control for Highway Ramp Metering. IEEE Transactions on Intelligent Trans-portation Systems , 26(5): 5988–6004. Anthropic. 2025. Introducing Claude Sonnet 4.5. https: //www.anthropic.com/news/claude-sonnet-4-5. Accessed July 27, 2026. Belletti, F.; Haziza, D.; Gomes, G.; and Bayen, A. M. 2018. Expert-Level Control of Ramp Metering Based on Multi-Task Deep Reinforcement Learning. IEEE Transactions on Intelligent Transportation Systems , 19(4): 1198–1207. Chen, K.; Cusumano-Towner, M.; Huval, B.; Petrenko, A.; Hamburger, J.; Koltun, V.; and Krähenbühl, P. 2025. Re-inforcement Learning for Long-Horizon Interactive LLM Agents. arXiv:2502.01600. Dugan, R. C.; and McDermott, T. E. 2011. An Open Source Platform for Collaborating on Smart Grid Research. In 2011 IEEE Power and Energy Society General Meeting , 1–7. Gao, J.; Mei, Y.; Fan, W.; and Han, Y. 2026. Impact of Dynamic Ramp Closures on Urban Expressway Traffic: A Field Study. Journal of Transportation Engineering, Part A: Systems , 152(3): 04026004. Google DeepMind. 2026. Gemini 3.1 Pro: Model Card. https://deepmind.google/models/model-cards/gemini-3-1-pro/. Accessed July 27, 2026. Guo, D.; Yang, D.; Zhang, H.; et al. 2025. DeepSeek-R1 Incentivizes Reasoning in LLMs through Reinforcement Learning. Nature , 645: 633–638. Hegyi, A.; De Schutter, B.; and Hellendoorn, H. 2005. Model Predictive Control for Optimal Coordination of Ramp Me-tering and Variable Speed Limits. Transportation Research Part C: Emerging Technologies , 13(3): 185–209. Huang, W.; Abbeel, P.; Pathak, D.; and Mordatch, I. 2022. Language Models as Zero-Shot Planners: Extracting Action-able Knowledge for Embodied Agents. In Proceedings of the 39th International Conference on Machine Learning , volume 162 of Proceedings of Machine Learning Research , 9118– 9147. PMLR. Huang, W.; Xia, F.; Xiao, T.; Chan, H.; Liang, J.; Florence, P.; Zeng, A.; Tompson, J.; Mordatch, I.; Chebotar, Y.; Sermanet, P.; Jackson, T.; Brown, N.; Luu, L.; Levine, S.; Hausman, K.; and Ichter, B. 2023. Inner Monologue: Embodied Reason-ing through Planning with Language Models. In Proceed-ings of the 6th Conference on Robot Learning , volume 205 of Proceedings of Machine Learning Research , 1769–1782. PMLR. Jin, M.; Sel, B.; Hardeep, F.; and Yin, W. 2024. Democratiz-ing Energy Management with LLM-Assisted Optimization Autoformalism. In 2024 IEEE International Conference on Communications, Control, and Computing Technologies for Smart Grids (SmartGridComm) , 258–263. IEEE. Kiumarsi, B.; Vamvoudakis, K. G.; Modares, H.; and Lewis, F. L. 2018. Optimal and Autonomous Control Using Rein-forcement Learning: A Survey. IEEE Transactions on Neural Networks and Learning Systems , 29(6): 2042–2062. Lai, S.; Xu, Z.; Zhang, W.; Liu, H.; and Xiong, H. 2025. LLMLight: Large Language Models as Traffic Signal Control Agents. In Proceedings of the 31st ACM SIGKDD Confer-ence on Knowledge Discovery and Data Mining , 2335–2346. Association for Computing Machinery. Lee, Z. J.; Li, T.; and Low, S. H. 2019. ACN-Data: Analy-sis and Applications of an Open EV Charging Dataset. In 
+
+Proceedings of the Tenth ACM International Conference on Future Energy Systems , 139–149. Association for Computing Machinery. Li, Y.; Chang, W.; and Yang, Q. 2025. Deep Reinforcement Learning-Based Hierarchical Energy Management for Vir-tual Power Plants with Aggregated Multiple Heterogeneous Microgrids. Applied Energy , 382: 125333. Liu, C.; Yang, R. J.; Yu, X.; Sun, C.; Rosengarten, G.; Lieb-man, A.; Wakefield, R.; Wong, P. S. P.; and Wang, K. 2023. Supporting Virtual Power Plants Decision-Making in Com-plex Urban Environments Using Reinforcement Learning. 
+
+Sustainable Cities and Society , 99: 104915. Lopez, P. A.; Behrisch, M.; Bieker-Walz, L.; Erdmann, J.; Flötteröd, Y.-P.; Hilbrich, R.; Lücken, L.; Rummel, J.; Wag-ner, P.; and Wießner, E. 2018. Microscopic Traffic Simula-tion Using SUMO. In Proceedings of the 21st IEEE Inter-national Conference on Intelligent Transportation Systems (ITSC) , 2575–2582. IEEE. Miller, C.; Kathirgamanathan, A.; Picchetti, B.; Arjunan, P.; Park, J. Y.; Nagy, Z.; Raftery, P.; Hobson, B. W.; Shi, Z.; and Meggers, F. 2020. The Building Data Genome Project 2, En-ergy Meter Data from the ASHRAE Great Energy Predictor III Competition. Scientific Data , 7: 368. NASA Langley Research Center. 2026. NASA Pre-diction Of Worldwide Energy Resources (POWER) Project: Hourly Data Service. POWER Hourly API, Version 2.9.6, https://power.larc.nasa.gov/docs/services/api/ temporal/hourly/. POWER Data v10; solar and meteorolog-ical data for Suzhou, China; accessed July 27, 2026. Naval, N.; and Yusta, J. M. 2021. Virtual Power Plant Models and Electricity Markets—A Review. Renewable and Sustain-able Energy Reviews , 149: 111393. Negenborn, R. R.; De Schutter, B.; and Hellendoorn, H. 2008. Multi-Agent Model Predictive Control for Transporta-tion Networks: Serial versus Parallel Schemes. Engineering Applications of Artificial Intelligence , 21(3): 353–366. OpenDSS. 2017. EPRI Distribution System Sim-ulator Ckt5. Grid model dataset, Version 1. https://sourceforge.net/p/electricdss/code/HEAD/tree/ trunk/Distrib/EPRITestCircuits/ckt5/. Issued May 22, 2017; accessed July 27, 2026. Papageorgiou, M.; and Kotsialos, A. 2002. Freeway Ramp Metering: An Overview. IEEE Transactions on Intelligent Transportation Systems , 3(4): 271–281. Rawlings, J. B.; Mayne, D. Q.; and Diehl, M. M. 2017. 
+
+Model Predictive Control: Theory, Computation, and De-sign . Madison, Wisconsin: Nob Hill Publishing, 2nd edition. Schulman, J.; Wolski, F.; Dhariwal, P.; Radford, A.; and Klimov, O. 2017. Proximal Policy Optimization Algorithms. arXiv:1707.06347. Sha, H.; Mu, Y.; Jiang, Y.; Chen, L.; Xu, C.; Luo, P.; Li, S. E.; Tomizuka, M.; Zhan, W.; and Ding, M. 2023. Lan-guageMPC: Large Language Models as Decision Makers for Autonomous Driving. arXiv:2310.03026. Shao, Z.; Wang, P.; Zhu, Q.; Xu, R.; Song, J.; Bi, X.; Zhang, H.; Zhang, M.; Li, Y. K.; Wu, Y.; and Guo, D. 2024. DeepSeekMath: Pushing the Limits of Mathematical Rea-soning in Open Language Models. arXiv:2402.03300. Wei, Q.; Zeng, S.; Li, C.; Brown, W.; Frunza, O.; Deng, W.; Schneider, A.; Nevmyvaka, Y.; Zhao, Y. K.; Garcia, A.; and Hong, M. 2025. Reinforcing Multi-Turn Reasoning in LLM Agents via Turn-Level Reward Design. arXiv:2505.11821. Wu, R.; Ai, J.; and Li, T. 2025. InstructMPC: A Human-LLM-in-the-Loop Framework for Context-Aware Control. In 2025 IEEE 64th Conference on Decision and Control (CDC) , 172–179. IEEE. Yang, A.; Li, A.; Yang, B.; Zhang, B.; Hui, B.; Zheng, B.; et al. 2025. Qwen3 Technical Report. arXiv:2505.09388. Yperman, I.; Logghe, S.; and Immers, B. 2005. The Link Transmission Model: An Efficient Implementation of the Kinematic Wave Theory in Traffic Networks. In Advanced OR and AI Methods in Transportation: Proceedings of the 10th EWGT Meeting and 16th Mini-EURO Conference , 122– 127. Poznań, Poland: Publishing House of Poznań University of Technology. Yu, Z.; Liu, Z.; Ren, T.; Wang, C.; Wang, J.; and Wang, Q. 2026. Many Minds, One Path: LLM-Augmented Consensus Decision for Distributed Control in Multi-Agent Collabora-tive Stable Scenarios. Proceedings of the AAAI Conference on Artificial Intelligence , 40(33): 28014–28022. Yuan, Z.; Lai, S.; and Liu, H. 2026. CoLLMLight: Coopera-tive Large Language Model Agents for Network-Wide Traffic Signal Control. In The Fourteenth International Conference on Learning Representations .Zapata, J.; Vandewalle, J.; and D’haeseleer, W. 2014. AComparative Study of Imbalance Reduction Strategies for Virtual Power Plant Operation. Applied Thermal Engineer-ing , 71(2): 847–857. Zou, X.; Yang, Y.; Chen, Z.; Hao, X.; Chen, Y.; Huang, C.; and Liang, Y. 2026. Traffic-R1: Reinforced LLMs Bring Human-Like Reasoning to Traffic Signal Control Systems. In Proceedings of the 64th Annual Meeting of the Associa-tion for Computational Linguistics (Volume 1: Long Papers) ,21823–21838. Association for Computational Linguistics. Appendix 
+
+## A Task-Specific System Models and Low-Level Controllers 
+
+A.1 Multi-Ramp Traffic Control 
+
+The main paper specifies the corridor, the two simulators, and the control cadence. This section records the training-side traffic model, the hysteresis gate that the low-level layer executes, and the mapping θ(z) from ramp modes to gate parameters. As in Appendix A.2, k indexes low-level con-trol steps of length ∆low , and t, τ , H are reserved for the trajectory-level notation of the main paper. The traffic model additionally has an internal integration index n on its own step h < ∆low , introduced below; it appears only inside the training model and never in the control or decision interfaces. Controlled ramps are indexed r ∈ { 1, . . . , 8}.
+
+Corridor and training model. The corridor is represented as 27 directed links: 14 mainline, 9 on-ramp, and 4 off-ramp segments, spanning 14 .8 km of mainline. Mainline links carry three lanes (four on two segments), on-ramps one or two. Link lengths range from 170 to 2329 m. Eight of the nine on-ramps are controlled; the remaining one is left permanently open. The merge priority of Eq. (21) is 
+
+χ = 0 .8 in favour of the mainline at every merge, and the four off-ramps take fixed diverge fractions of 0.08 , 0.11 ,
+
+0.07 , and 0.09 of the arriving mainline flow, so roughly a third of the entering traffic leaves before the downstream boundary. Neither the priority nor the diverge fractions are mode-dependent; they are properties of the network, identical across methods and across the two simulators. Training uses the Link Transmission Model. It is integrated on its own step h = 5 s, which is not the control cadence: n in-dexes internal steps of length h, while the low-level controller reads observations and writes the gate every ∆low = 60 s, that is every twelfth internal step. The state per link i is the pair of cumulative counts (Ani , D ni ) at the link entry and exit. A triangular fundamental diagram with free-flow speed vf,backward wave speed vw, per-lane jam density and capacity gives the link jam density κjam  
+
+> i
+
+and capacity Qi; propagation delays are rounded to whole internal steps, ϑf 
+
+> i
+
+= ⌊ℓi/(vfh)⌋
+
+and ϑw 
+
+> i
+
+= ⌊ℓi/(vwh)⌋. Resolving them on h rather than on 
+
+∆low is necessary rather than cosmetic: at ∆low = 60 s every link shorter than vf∆low = 1333 m would be assigned zero free-flow delay, which is most of this corridor, whereas at 
+
+h = 5 s the shortest link of 170 m still carries a delay of one step. Sending and receiving capacities are 
+
+snd ni = min  Qih, [An−ϑf 
+
+> i
+> i
+
+− Dni ]+
+
+,
+
+rcv ni = min  Qih, [κjam  
+
+> i
+
+ℓi − (Ani − Dn−ϑw 
+
+> i
+> i
+
+)] +
+
+. (20) At a merge where mainline branch a and on-ramp branch b
+
+feed a common downstream link, the downstream receiving capacity is allocated by a priority χ, but the allocation is work-conserving: a branch that cannot use its share releases it to the other. Writing the priority shares as χ rcv n and                     
+
+> Parameter Value
+> vf22 .22 m/s
+> vw5.56 m/s per-lane jam density 0.1333 veh/m per-lane capacity 0.5veh/s lane efficiency 1.0
+> LTM internal step h5s
+> ∆low ,∆60 ,180 swarm-up, evaluation 900 ,10 ,800 s
+
+Table 5: Corridor fundamental-diagram and control-loop pa-rameters. Capacity is imposed as the independent cap of Eq. (20) rather than derived from the wave speeds and jam density, so the four diagram values need not satisfy the tri-angular identity exactly; the binding value is whichever term of the minimum is smaller. 
+
+(1 − χ)rcv n,
+
+f na = min  snd na , max( χ rcv n, rcv n − snd nb ),f nb = min  snd nb , max((1 − χ)rcv n, rcv n − snd na ).
+
+(21) The priority only binds when both branches are demand-rich, that is when snd na + snd nb > rcv n; otherwise each branch discharges its full sending capacity. This matters for the con-trol problem: with a closed gate snd nb = 0 and Eq. (21) gives f na = min(snd na , rcv n), so closing a ramp never with-holds downstream capacity from the mainline. A merge rule that scaled both claims by a common factor would instead force f na = 0 whenever snd nb = 0 , which would make gat-ing self-defeating and is not the rule used here. Cumulative counts then advance by the realised transfers, and density 
+
+κni = ( Ani − Dni )/ℓ i, flow, and speed follow from the fun-damental diagram. Quantities the controller and the prompt see are the internal series aggregated over the twelve inter-nal steps of each ∆low window; where a low-level index k
+
+appears below it refers to that aggregation. Table 5 lists the calibrated values, which are uniform across links. 
+
+Low-level hysteresis gate. The low-level layer is a feed-back rule, not an optimizer: no mathematical program is solved. Each controlled ramp carries a binary gate gkr ∈{0, 1}, where 1 admits ramp traffic without restriction and 0
+
+admits none; the gate enters the merge as an upper bound on the on-ramp entry flow, alongside the ramp arrival demand and the receiving capacity of Eq. (20). Its feedback signal is the merge-area occupancy okr = κkr /κ jam  
+
+> r
+
+∈ [0 , 1] . Given a ramp-specific centre cctr  
+
+> r
+
+and a band width δ(z) — so that 
+
+δ is the gap between the closing and opening thresholds, matching the definition stated to the policy in Figure 3 — the switching thresholds are 
+
+oopen  
+
+> r
+
+= max  0, c ctr  
+
+> r
+
+− δ(z)2
+
+, oclose  
+
+> r
+
+= min  1, c ctr  
+
+> r
+
++ δ(z)2
+
+,
+
+(22) and the gate updates with hysteresis, starting from g0 
+
+> r
+
+= 1 :
+
+gk+1  
+
+> r
+
+=
+
+
+
+0, gkr = 1 and okr ≥ oclose  
+
+> r
+
+,
+
+1, gkr = 0 and okr ≤ oopen  
+
+> r
+
+,gkr , otherwise. (23) Mode δ    
+
+> Sensitive 0.04
+> Standard 0.10
+> Sluggish 0.20
+> Always-Open —
+
+Table 6: Ramp mode-to-parameter mapping. Always-Open holds the gate open instead of setting a bandwidth. The two-threshold band prevents chattering when occupancy sits near the centre: a wider δ makes the gate hold its current state longer, a narrower δ makes it switch sooner. The rule is independent per ramp; there is no queue override and no ex-plicit inter-ramp coupling in the low-level layer, so all spatial coordination is carried by the high-level mode assignment. 
+
+Joint mode space and θ(z). The high-level policy emits one mode per controlled ramp, z = (z1, . . . , z 8) ∈{Sensitive , Standard , Sluggish , Always-Open }8, so |Z| =48 = 65 ,536 . The mode selects the band width δ of Eq. (22) for three of the four roles (Table 6); Always-Open is the ex-ception and does not set a δ at all — it bypasses Eq. (23) and pins gr ≡ 1. The centres cctr  
+
+> r
+
+are calibrated per ramp and per simulator and are not mode-dependent: SUMO is the reference and the training model uses the set ob-tained from it by quantile alignment (Appendix C.1), namely 
+
+(0 .948 , 0.926 , 0.782 , 0.824 , 0.220 , 0.230 , 0.449 , 0.188) for 
+
+r = 1 , . . . , 8. A mode therefore denotes the same control disposition in both simulators while resolving to different absolute thresholds. Where a centre sits close to 1 the clip in Eq. (22) binds and the realised gap is narrower than the nominal δ — on the training side this affects ramps 1 and 2 at Sluggish — so the ordering of the roles is preserved ev-erywhere but the absolute gap is not. Because δ is the only mode-dependent quantity among the three graded roles, the low-level controller is literally identi-cal across the direct-control baseline and every hierarchical method: the published feedback controller is the special case in which every ramp is held at Standard ( δ = 0 .10 ) for the whole episode, whereas our policy re-selects a mode per ramp every ∆. Always-Open is the one role that changes the control law rather than a parameter, which is why the prompt restricts it to clearly free-flowing ramps. Implementation de-tails of each baseline are given in Appendix B.3. 
+
+A.2 Virtual Power Plant Energy Management 
+
+The main paper specifies the VPP at the level of resource composition and control cadence. This section records what the main text omits: the system model, the low-level MILP objective, and the mapping θ(z) from joint modes to opti-mizer coefficients. Throughout, k indexes low-level steps of length ∆low , reserving t, τ , and H for the trajectory-level notation of the main paper. 
+
+System model. The controlled state is sk =(SoC k, T k, E ev  
+
+> k
+
+): battery state of charge, indoor temperature, and residual EV energy still to be delivered. The decision variables are the resource powers pch  
+
+> k
+
+, p dis  
+
+> k
+
+, p ev  
+
+> k
+
+, p hv  
+
+> k
+
+≥ 0
+
+together with grid import and export pimp  
+
+> k
+
+, p exp  
+
+> k
+
+≥ 0. The                                                  
+
+> Parameter Value Parameter Value
+> Cbat 1800 kWh Cth 150 kWh/ ◦C
+> ηch , η dis 0.95 uA 45 kW/ ◦C
+> ¯Pch ,¯Pdis 350 kW COP 3.0
+> SoC range [0 .20 ,0.90] Tband [22 .0,26 .5] ◦C
+> ¯Pev,max 600 kW Tset 24 .0◦C
+> ¯Ppv,max 1200 kW ¯Phv,max 300 kW
+> ¯Pgrid 1500 kW ∆low , H mpc ,∆5,60 ,30 min
+
+Table 7: VPP physical and control-loop parameters. The ther-mal pair gives a building time constant Cth /uA ≈ 3.3 h; holding the setpoint against a 15 ◦C indoor–outdoor differ-ence draws uA ∆T / COP = 225 kW, three quarters of the HVAC rating, so comfort is a binding constraint rather than a free one. ¯P grid is the contracted import cap, enforced through the penalised hinge σg rather than as a variable bound, so im-port may exceed it at a cost; the physical connection limit is not binding. The value shown is nominal and varies by sce-nario. state evolves as 
+
+SoC k+1 = SoC k + ηch pch  
+
+> k
+
+∆low 
+
+Cbat 
+
+− pdis  
+
+> k
+
+∆low 
+
+ηdis Cbat 
+
+,Tk+1 = Tk + ∆low 
+
+Cth 
+
+ uA (T out  
+
+> k
+
+− Tk) − COP phv 
+
+> k
+
+,Eev  
+
+> k+1
+
+= max  Eev  
+
+> k
+
+− pev  
+
+> k
+
+∆low , 0. (24) The exogenous trajectory is wk =(P pv  
+
+> k
+
+, P load  
+
+> k
+
+, T out  
+
+> k
+
+, P ev  
+
+> k
+
+, c tou  
+
+> k
+
+): PV generation, inflexible park load, outdoor temperature, the EV availability envelope 
+
+P ev  
+
+> k
+
+≤ ¯P ev,max , and the time-of-use energy price. Table 7 lists the model parameters; the import cap ¯P grid and the EV energy target Eev  
+
+> 0
+
+additionally vary across scenarios (Ap-pendix C.2). These parameters describe the fast single-bus model used for training. Note that phv  
+
+> k
+
+≥ 0 enters Eq. (24) with a negative sign only: the HVAC branch cools and cannot heat. Scenarios are therefore drawn from the cooling season, June to September, in which the outdoor temperature sits above the comfort band and the comfort constraint is one the controller can act on; a heating mode would be a different actuator with a different mode vocabulary and we do not claim results for it. The OpenDSS evaluation environment reuses the same resource parameters and the same z 7 → θ interface, adding feeder-level power flow and network constraints (Appendix C.1). 
+
+Low-level MILP. Every ∆low = 5 min the controller re-solves a MILP over a rolling window of Hmpc = 60 min. Given sk and the mode-dependent coefficients θ(z), it min-imises 
+
+> k+m−1
+
+X
+
+> j=k
+
+ ctou  
+
+> j
+
+pimp  
+
+> j
+
++ λgσg 
+
+> j
+
++ λb(pch  
+
+> j
+
++pdis  
+
+> j
+
+)+ λcwhv (z) dj + λdwhv (z) σ±
+
+> j
+
+∆low 
+
++ ¯λe(ω) wev (z) ζev + λrσr, (25) where m = Hmpc /∆low = 12 , dj ≥ |Tj − T set | lin-earises discomfort, ζev ≥ 0 is the EV energy shortfall in P 
+
+> j
+
+pev  
+
+> j
+
+∆low + ζev ≥ Eev  
+
+> k
+
+, and σg 
+
+> j
+
+, σ ± 
+
+> j
+
+, σ r ≥ 0 are hinge slacks on the import cap, the comfort band, and the termi-nal SoC reserve. Penalty weights are λg = 8 .0, λb = 0 .30 ,
+
+λc = 2 .0, λd = 15 .0, and λr = 80 .0, in CNY per kWh, 
+
+> ◦
+
+C·h, or SoC unit as appropriate. The EV shortfall rate 
+
+¯λe(ω) = (1 − ω)λe + ωλ urg e blends a regular rate λe = 10 .0
+
+with an urgent rate λurg e = 30 .0 according to the scenario’s urgent share ω ∈ [0 , 1] , which is fixed per scenario (Ap-pendix C.2). Physical limits—the resource power bounds and SoC range of Table 7—enter as variable bounds and are therefore satisfied exactly; the slacks apply only to op-erational targets, which keeps the program feasible and lets the coordination decision trade those targets off. The distinc-tion matters for reading the main paper’s feasibility condition 
+
+g(s, a ) ≤ 0: it is the physical set, which the low-level layer satisfies exactly at every step and on both simulators, and the executed action is always inside it. The import cap, the com-fort band, the EV energy target, and the terminal reserve are contractual or operational targets rather than physical lim-its, and the appendix reports their violation explicitly (Ap-pendix D.1) rather than claiming they are never breached; a formulation that made them hard would be infeasible on the scenarios the task is built from, since the park base load alone can exceed the contracted cap. The remaining constraints are Eq. (24), the nodal power balance 
+
+(1 −δpv (z)) ˆP pv  
+
+> j
+
++ pdis  
+
+> j
+
++ pimp 
+
+> j
+
+= P load  
+
+> j
+
++ pev  
+
+> j
+
++ phv  
+
+> j
+
++ pch  
+
+> j
+
++ pexp  
+
+> j
+
+, (26) the availability envelope pev  
+
+> j
+
+≤ P ev  
+
+> j
+
+, and a binary charge/dis-charge mutex. Here ˆP pv  
+
+> j
+
+is the PV forecast and δpv (z) its planning de-rate. Surplus PV may be exported but is not re-munerated, so the objective carries no export revenue term. Instances are solved with CBC 2.10 .10 through PuLP at a relative MIP gap of 10 −4 and a 5 s time limit. The program has 12 periods, one binary per period for the charge/dis-charge mutex, and solves in 0.2 s at the median; the time limit is reached on under 0.1% of solves, and on those the incumbent is executed, which is feasible because the slacks make the program always feasible. Only the first step is exe-cuted before re-planning, and θ(z) stays fixed across the six re-solves that fall within one high-level interval ∆.
+
+Joint mode space and θ(z). The high-level policy emits one mode per resource, z = ( zpv , z bat , z ev , z hv ) ∈{Conservative , Balanced , Proactive }4, so |Z| = 81 . Each component controls only its own resource’s coefficients (Ta-ble 8), and the points of entry differ: δpv de-rates the PV forecast in Eq. (26); SoC res sets the target of the terminal-reserve hinge SoC k+m + σr ≥ SoC res and αdis tightens the discharge bound to pdis  
+
+> j
+
+≤ αdis ¯P dis ; wev and whv scale ob-jective terms in Eq. (25). Every other coefficient is shared across modes, so closed-loop differences are attributable to the coordination decision rather than to a re-tuned optimizer.                         
+
+> Resource θCons. Bal. Pro. PV δpv 0.35 0.25 0.10
+> Battery SoC res 0.30 0.25 0.22
+> Battery αdis 0.70 0.85 1.00
+> EV wev 1.45 1.00 0.70
+> HVAC whv 0.75 1.00 1.60
+
+Table 8: Mode-to-parameter mapping θ(z). Each row is gov-erned solely by the mode selected for the resource in the first column. 
+
+## B Policy Implementation and Training Details 
+
+B.1 Operational Context, Prompt Templates, and Out-put Schemas 
+
+The high-level policy never sees raw simulator arrays. At every decision step the operational context ξt is serialised into a structured natural-language prompt qt = Prompt( ξt) with five blocks: a task block that names the controlled units and states what each mode does to the low-level layer, an observa-tion block carrying the current measurements, a recent-trend block, a forecast block covering the interval the decision will govern, and an output-format block. The corridor prompt in-serts a further corridor-context block for the quantities that are not per-ramp measurements. Table 9 lists the fields that populate them. The same builder is used during training and evaluation, so a prompting-only baseline and our fine-tuned policy receive the same prompt text, differing only in the mes-sage envelope each vendor’s interface requires. Figures 2–6 give the prompts in full, with braces marking placeholders substituted at runtime. 
+
+What the prompt does and does not supply. Two proper-ties matter for interpreting the results. First, the prompts state the mechanics of each mode explicitly — that Conservative PV means the optimizer de-rates the forecast to 65%, that Sensitive means a 0.04 hysteresis band — so the policy is not required to discover the semantics of its own action space by trial and error; what it must learn is when each disposition pays off. Second, the prompts supply the same short-horizon forecast that the low-level layer already plans with, together with a statement of its reliability, but never a realised future value, an oracle quantity, or the dispatch the low-level layer will return. Supplying the forecast is necessary for the deci-sion to be well posed: the PV mode is precisely a choice of how far to trust that forecast, and the corridor roles set inertia for an interval that has not yet been observed. The forecast is matched against some baselines but not all, and the dis-tinction should be kept in mind when reading the gains. It is matched against MPC-MILP, which plans with the identical forecast, and against both RL coordinators, which receive it in their numeric encoding; against those three the com-parison isolates the coordination decision. It is not matched against Feedback Control, which reacts to occupancy only, or against Fixed-Mode Hierarchy, which consumes no context at all. The margins over those two therefore combine a better decision with a larger information set, and only the former is what this paper claims to contribute. The corridor prompt additionally embeds domain reason-ing guidance: a congestion criterion at 40% of reference free-flow speed, an instruction to treat sustained closure time as a soft fairness constraint, an instruction to tighten upstream ramps when a downstream merge is congested, guidance on discounting the forecast when its reliability is low, and seven consistency rules requiring the stated reasons to agree with the emitted vector. These are prior knowledge supplied by us rather than learned, and every coordinator that consumes the prompt receives them identically; the numeric equivalents given to the RL baselines are listed in Appendix B.3. The corridor prompt averages roughly 2,100 tokens and the VPP prompt roughly 950 , dominated in the first case by the eight per-ramp observation blocks. The corridor prompt is authored in Chinese, matching the deployment setting; Figures 2–4 present a faithful English rendering, and the original is released with the code. Because every category of Table 9 is a separable block of the serialised prompt, each can be withheld independently, which is what the operational-context ablation of Appendix D.4 exploits. 
+
+Output schemas. Each task fixes a single machine-checkable output form. For the corridor the first line must be a role vector over the eight ramps,        
+
+> ROLE =[Standard, Sensitive, Sluggish, Standard, Sensitive, Standard, Always-Open, Sluggish]
+
+ordered from the most upstream ramp to the most down-stream one, optionally followed by a short justification that is parsed away. For the VPP the policy emits one JSON object naming a mode per resource, 
+
+> {"pv_mode":"balanced", "battery_mode":"proactive", "ev_mode":"conservative", "hvac_mode":"balanced"}
+
+with each value drawn from {conservative, balanced, proactive} . Outputs are validated against the schema before use. During training, a malformed or out-of-vocabulary response is re-sampled up to three times; if it still fails validation the candidate is assigned the mini-mum return of its group, so schema violations are penalised through the advantage rather than through a separate hand-set constant. At evaluation, where re-sampling would break de-terminism, a failed response instead causes the previous joint decision to be retained for one interval; this rule is identical for every LLM policy compared (Appendix D.1). Decisions are sampled during training to support exploration; at evalua-tion all LLM policies decode greedily at temperature zero, so a frozen policy is a deterministic function of the operational context. 
+
+B.2 Continuation-Aware GRPO and Reward Construc-tion Return construction. The reward is the system-level quan-tity the task is judged on, with no auxiliary shaping terms on any decision the validator accepts; the one exception is a candidate whose response fails validation, which is assigned the group minimum as described in Appendix B.1. For the corridor it is the vehicles discharged during the step, 
+
+rk = P
+
+> i∈E
+
+ Dk+1  
+
+> i
+
+− Dki
+
+, (27) summed over the exit set E: the downstream boundary link of the mainline and the four off-ramps. Only exits are counted, so a vehicle contributes once however many links it traverses, and the return is the number of vehicles the corridor actually discharged. For the VPP it is the negative realised operating cost, 
+
+rk = − ctou  
+
+> k
+
+pimp  
+
+> k
+
++ λg[pimp  
+
+> k
+
+− ¯P grid ]+
+
++ λd dev( Tk)∆low − ¯λe(ω) [ unmet EV energy ]+,
+
+(28) where dev( Tk) is the excursion of the indoor temperature outside [T min , T max ] and the EV term is charged once at the deadline. Equation (28) is deliberately not the planner objec-tive of Eq. (25): the planner minimises a receding-window surrogate that also contains the battery-wear term and the terminal-reserve hinge σr, both of which shape planning but are not costs the operator pays. The reward accounts only for what actually happened, and it is the same quantity reported as operating cost in the main paper. Returns are undiscounted within the evaluation horizon ( γ = 1 ), because the horizon is short relative to the episode and discounting would rein-troduce the short-horizon bias the method is designed to remove. To fix the units: H is a duration, and the return of Eq. (15) in the main paper accumulates one term per low-level step inside it, not one term per minute. With H = 4∆ the con-tinuation spans 4 high-level decisions and H/ ∆low low-level steps — 12 steps of 60 s for the corridor and 24 steps of 5 min for the VPP. The corresponding episode-level quantities of Appendix C.3 accumulate 180 and 144 terms respectively. 
+
+Matched groups. A training instance is a snapshot: a sce-nario together with a decision time. Decision times are in-dexed t = 1 , . . . , 60 for a corridor scenario and t = 1 , . . . , 24 
+
+for a VPP scenario, and a snapshot is admissible if the 
+
+L = H/ ∆ intervals it occupies, namely t through t + L − 1,all lie inside the episode; the last admissible start is therefore 
+
+60 −L+1 or 24 −L+1 . At the reported H = 4∆ this leaves 
+
+57 and 21 decision times, giving 8,550 and 3,150 snapshots, and this is the pool used for every result outside the horizon sweep. The sweep of Appendix D.3 keeps the same pool for 
+
+∆, 2∆ and 4∆ , so its H = 4∆ row is the headline run rather than a re-training of it. Only the 8∆ setting cannot use it, since the last four admissible starts no longer have room for a full continuation; that row is trained on the 8∆ -admissible subset of 53 and 17 decision times, and it is the one row of the sweep that is not pool-matched to the others. We note it rather than hide it, because it is a reason to treat the 8∆ 
+
+row as indicative only. For each snapshot the G candidates are evaluated from the identical simulator state and against the identical realisation of future disturbances: the environ-ment is restored from the stored snapshot before each rollout, and the exogenous trajectory over [t, t + H) is materialised once and replayed. Differences in the group returns are there-fore attributable to the coordination decisions rather than to different demand, generation, or price realisations. Multi-Ramp Corridor: Task and Observation Blocks 
+
+You are the decision expert responsible for joint multi −ramp control. You collaborate with a micro −execution expert. The primary objective of the system is to maximise the overall throughput of the road, subject to the fairness and priority constraints stated below. You may reason only from the blocks provided: the real −time observations at each ramp’s mainline merge area (flow q, speed v, occupancy occ), the current open/closed state, the elapsed continuous closure time t, the corridor context, and the short −horizon demand forecast. The forecast is the same one the corridor operator plans with; it carries error, and its stated reliability tells you how far to trust it. Assess the current traffic trend and issue a macroscopic control intent for each ramp for the next stage. You must not assume realised future values or any indicator that has not been provided. The micro −execution expert receives your intent and executes two −threshold control: it closes the ramp when occupancy exceeds the closing threshold, opens it when occupancy falls below the opening threshold, and holds the current state in between. Your intent sets the gap width, which expresses how much control inertia you assign to that merging ramp. Your output must be an executable joint control role vector. Its length equals the number of ramps; the r −th element is the control role of the r −th ramp, rather than a direct open/close action. This scenario requires {ramp_count} roles. 
+
+Traffic scene description: 
+
+This scenario is an expressway along which {ramp_count} pure merging ramps (R1 to R{ramp_count}, one −way merging into the mainline only) are distributed from upstream to downstream. Expressway merge areas are natural bottlenecks: disordered competition among flows easily pushes density past its critical point and triggers a cliff −like collapse of realised flow. Your decisions must therefore target the resolution of weaving conflicts and the maximisation of overall throughput as the primary objective. Locally, if occupancy at a merge area keeps climbing while speed drops markedly, assign a more sensitive control role so that closure is triggered earlier. Globally, if a downstream section is clearly congested, consider tightening its adjacent upstream ramps to prevent congestion from propagating backwards. 
+
+Observations: 
+
+Below are the traffic −state series of each ramp merge area over the last 3 minutes. Each vector has length 3; from left to right the elements are the time slices [T −2, T −1, T], where T is the current minute. The current open/closed state and the elapsed continuous closure time of each ramp are also given. Ramp {ramp_id} merge area: Flow q (veh/min): {q_series} Speed v (km/h): {v_series} Occupancy occ (%): {occ_series} Current state: {open_or_closed} Continuous closure time (min): {closed_duration_min} Trend analysis: {trend_text}{status_text}{fact_text} ... (repeated for R1 ... R{ramp_count}) 
+
+Corridor context: 
+
+Demand uncertainty this period: {demand_uncertainty_level} (low / medium / high). A higher level means the observed series is a less reliable guide to the next interval. Service priority by ramp: {priority_by_ramp}. A high −priority ramp serves traffic whose delay is more costly, so prolonged closure there is less acceptable. Active events: {event_text}. Reported incidents, lane closures, or adverse weather on the corridor; absent when none is in force. 
+
+Short-horizon demand forecast (next 3 min): 
+
+Mainline inflow (veh/min): {mainline_demand_forecast} Ramp arrivals (veh/min): {ramp_arrival_forecast_by_ramp} Forecast reliability: {demand_forecast_reliability} 
+
+Figure 2: Corridor prompt, part 1 of 3: task framing and the per-ramp observation block. The trend, status, and fact placeholders are filled by a deterministic summariser that reports the sign and magnitude of the change in q, v, and o over the window and classifies the merge area against reference free-flow speed. Multi-Ramp Corridor: Mode Semantics, Reasoning Rules, and Output Format 
+
+Your action space is a discrete vector of length 8, corresponding strictly to the control roles of ramps R1 to R8 from upstream to downstream. Each ramp must be assigned one of the four roles "Sensitive, Standard, Sluggish, Always −Open". The control role always governs the merging ramp itself, not any other mainline section. The role determines the bandwidth of the underlying two −threshold controller, that is, delta = closing threshold − opening threshold. You must understand that the sluggishness or sensitivity of a role is not absolutely equivalent to a static sacrifice or protection; it depends on the current traffic trend. The narrower the gap, the easier it is to break the inertia of the current state; the wider the gap, the more the current state is maintained. Specifically: when the mainline is gradually becoming congested, if you judge that it still has capacity to tolerate input, assign a wider −gap role so that the open state retains inertia and closure is delayed in favour of the ramp; if you judge that the deterioration must be arrested immediately, assign a narrower −gap role to break that inertia and close decisively to protect the mainline. Conversely, when mainline congestion is dissipating, if you want to keep clearing the mainline backlog, assign a wider −gap role so the closed state retains inertia and opening is delayed; if you judge the mainline now has capacity and the ramp queue should be released quickly, assign a narrower −gap role to break the closed inertia and open decisively. 
+
+The four roles map to delta as follows: 
+
+1. Sensitive: delta = 0.04. Narrowest band, fastest reaction, most likely to break the inertia of the current open or closed state. If currently open it triggers closure earlier; if currently closed it triggers opening earlier. 2. Standard: delta = 0.10. Moderate band; the default balance between protecting the mainline and discharging the ramp. 3. Sluggish: delta = 0.20. Widest band, most lagged reaction, most inclined to maintain the current state; closes later when open and opens later when closed. 4. Always −Open: stay open at all times, abandoning active closure entirely. Use only when the mainline is clearly free −flowing, with high and stable speed, low occupancy, and no sign of deterioration. Always −Open must not be used as a means of relieving mainline pressure or clearing a backlog. When analysing trends, if the current merge −area speed has fallen to 40% or less of reference free −flow speed, treat the area as congested; the lower the ratio, the more severe the congestion. Role assignment must never be mechanically tied to a ramp’s upstream or downstream position; it must follow the dynamic observation series of q, v, and occ. In particular, the continuous closure time t is a soft constraint: if a ramp has been closed for a long time (large t) and the mainline has spare capacity, assign Sensitive so that the narrow band reopens the gate promptly and avoids indefinite absolute blockage; conversely, if the mainline remains under pressure, assign Sensitive or Standard even for a ramp that is currently unrestricted (t = 0), and firmly rule out the systemic collapse risk of leaving everything open. Your decision must jointly account for the capacity cliff and for backward spatial propagation: if occupancy rises while speed falls, tighten control in advance; if a downstream section is clearly congested, restricting only that section is usually insufficient and adjacent upstream ramps must be tightened as well. You must also weigh the corridor context. When demand uncertainty is high, the observed series is a weaker guide to the next interval, so prefer roles that do not commit hard in either direction unless the mainline is already clearly deteriorating. When a ramp carries high service priority, the cost of holding it closed is greater, so require stronger evidence of mainline distress before assigning it a narrow gap, and relax it earlier once capacity returns. When an event is in force, treat the affected section as more fragile than its measurements alone suggest and tighten its upstream neighbours pre −emptively. The forecast tells you where the pressure is heading, which the observation alone cannot. If it indicates rising inflow at a merge that is already loaded, act before the occupancy series shows it: assign a narrower gap so closure triggers earlier. If it indicates falling inflow at a ramp that is currently closed, a narrower gap lets you release the queue sooner. When forecast reliability is low, weight it less than the observed series and avoid committing on the forecast alone. 
+
+Figure 3: Corridor prompt, part 2 of 3: mode semantics and the coordination guidance supplied to every coordinator. Category Multi-ramp traffic control Virtual power plant Numerical measure-ments per-ramp flow q, speed v, occupancy o; gate state g SoC , PV power, base load, indoor and outdoor tempera-ture, setpoint, import cap, time-of-use price Recent trends 3-step series of q, v, o over the last 3 min 8-step series of PV, base load, outdoor temperature over the last 40 min Forecasts mainline inflow and per-ramp arrivals over the next in-terval, with stated reliability PV, base load, and outdoor temperature over the MPC window, with stated reliability Uncertainty esti-mates corridor demand-uncertainty level PV uncertainty level Resource urgency minutes since last closure, per ramp residual EV energy, urgent share ω, required charging pace Operational priori-ties per-ramp service priority tier HVAC comfort priority External events active incident notices and adverse-weather flags weather and market notes System rules mode semantics, decision cadence, output contract mode semantics, information rules, output contract Derived signals speed ratio to reference free-flow speed; signed change in q, v, o across the window minutes remaining, PV deficit %, required EV pace, grid headroom, comfort-band slack 
+
+Table 9: Operational-context categories serialised into the prompt, following the decomposition of ct in the main paper. Derived signals are computable from the measurements and observed history alone. The forecast row is a forecast in the strict sense — the same one the low-level layer plans with, carrying error and a stated reliability — and no realised future value enters the prompt. The disturbances are shared across the group, but the con-tinuation decisions are not. Each candidate’s continuation is sampled independently from πϕold with its own draw, because a shared draw would be meaningless: the states reached af-ter t + ∆ differ across candidates, so the prompts differ and there is no common action to share. This is the price of the closed-loop construction and it is a variance source the short-horizon setting does not have — with H = 4∆ each return carries three sampled follow-up decisions in addition to the one being scored. Sampling the continuation greed-ily instead would remove that variance but would evaluate the initial decision against a policy that is not the one being trained; we keep the sampled continuation and absorb the variance through the group baseline, which is also why the group size is not reduced below G = 8 .The pool is built once, before training, by simulating each of the 150 training scenarios from its initial condition under the base policy and serialising the full environment state at every high-level decision time — simulator state, controller state, random-number state, and the index into the exogenous trajectory — so that a snapshot can be restored bit-exactly. It is not refreshed as the policy improves. That is a deliberate trade: an on-policy pool would track the state distribution the trained policy actually visits, but a fixed pool means every horizon setting in Appendix D.3 and every ablation in Ap-pendix D.4 is trained and compared on the identical set of states, which is what makes those comparisons clean. The cost is a distribution shift between the states used for train-ing and the states the improved policy encounters. It is a second-order contributor to the saturation discussed in Ap-pendix D.3, whose main cause is the task’s own timescale, and it is the reason we do not read the residual 8∆ improve-ment as a horizon effect. Algorithm 1: Continuation-Aware GRPO  
+
+> 1:
+
+Input: base policy πϕ, snapshot pool, group size G,intervals ∆, horizon H = 4∆  
+
+> 2:
+
+ϕold ← ϕ; ϕref ← ϕ 
+
+> 3:
+
+for each training step do  
+
+> 4:
+
+draw snapshot (σ, t ); build qt = Prompt( ξt) 
+
+> 5:
+
+sample y(1 ..G ) 
+
+> t
+
+∼ πϕold (· | qt); z(i) 
+
+> t
+
+← Parse( y(i) 
+
+> t
+
+) 
+
+> 6:
+
+for i = 1 to G do  
+
+> 7:
+
+restore state st; fix disturbances wt:t+H from σ 
+
+> 8:
+
+execute z(i) 
+
+> t
+
+for one interval ∆ via πlow  
+
+> 9:
+
+for τ = t+∆ to t+H −∆ step ∆ do  
+
+> 10:
+
+y(i) 
+
+> τ
+
+∼ πϕold (· | Prompt( ξ(i) 
+
+> τ
+
+)) ; z(i) 
+
+> τ
+
+←
+
+Parse( y(i) 
+
+> τ
+
+) 
+
+> 11:
+
+execute z(i) 
+
+> τ
+
+for one interval ∆ 
+
+> 12:
+
+end for  
+
+> 13:
+
+R(i) ← P 
+
+> k
+
+r(s(i) 
+
+> k
+
+, a (i) 
+
+> k
+
+, w k) over [t, t +H) 
+
+> 14:
+
+end for  
+
+> 15:
+
+ˆA(i) ← (R(i) −μR)/(σR +εstd ) 
+
+> 16:
+
+update ϕ on the clipped objective with KL penalty β
+
+to πϕref  
+
+> 17:
+
+ϕold ← ϕ 
+
+> 18:
+
+end for Algorithm. Algorithm 1 states the procedure. The distin-guishing step is line 10: after the sampled decision has been executed for its own interval ∆, the rollout does not stop, and it is not continued by a fixed rule either. It is continued by the frozen policy πϕold that produced the group, so the return credits the initial decision with the closed-loop consequences it induces under the current behaviour of the policy. Multi-Ramp Corridor: Consistency Rules and Output Contract 
+
+> Additional constraints:
+> 1. The roles on the first ROLE line must agree one −by −one with the reasons that follow; no contradiction is allowed. 2. If a ramp already has very low speed and high occupancy and is still deteriorating, it should generally not receive Always −Open. 3. Rising speed with falling occupancy indicates recovery; falling speed with rising occupancy indicates deterioration. The two must not be confused. 4. You must judge the direction of change strictly from the input data. 5. If a downstream ramp is clearly under heavy pressure or congested, prefer stricter control rather than mechanically keeping it loose or always open. 6. A recovery signal does not automatically imply Sensitive; if the area is still clearly under pressure, decide between Standard and Sluggish first. 7. Fix the first ROLE line first, then check every subsequent reason against it; if they disagree, correct them before output.
+> Scheduling constraints:
+> 1. The model decides once every 3 minutes. 2. The roles emitted by one decision remain unchanged for the following 3 minutes. 3. You assign roles; you do not directly issue the open/close action for a given minute.
+> Output requirements:
+> 1. The first line must be ROLE = [role of R1, ..., role of R{ramp_count}], with {ramp_count} elements, each one of Sensitive, Standard, Sluggish, Always −Open. 2. What follows may only be trend analysis and auditable reasons grounded in q / v / occ / current state / t, citing ramp numbers, time slices, and specific values. 3. Do not output JSON, code blocks, headings, or greetings.
+
+Figure 4: Corridor prompt, part 3 of 3: the consistency rules that couple the emitted vector to the stated reasons, the decision cadence, and the output contract enforced by the schema validator. 
+
+Training configuration. Both policies start from Qwen3-8B with no supervised warm-start, so every behavioural change is attributable to Continuation-Aware GRPO. The base checkpoint is the instruction-tuned Qwen3-8B release with its bundled tokenizer and chat template; prompts are placed in a single user turn with the task block as the system message, and thinking mode is disabled so that the sam-pled response is the answer rather than a trace. Adaptation uses LoRA on the attention and MLP projections (rank 32 ,
+
+α = 64 ), which keeps the frozen copy πϕold and the reference 
+
+πϕref cheap to serve alongside the trained adapter. Rollout sampling uses temperature 1.0 and top -p = 0 .95 ; the re-sponse budget is 512 tokens for the corridor, whose output carries a role vector followed by a short justification, and 128 
+
+for the VPP, whose output is a single JSON object. The importance ratio of Eq. (17) in the main paper is formed at the sequence level: the log-probabilities of all sam-pled response tokens are summed before the ratio is taken, so a decision is reweighted as one unit rather than token by token. One point of notation deserves care. The trainable ob-ject is a distribution πϕ(y | q) over token sequences y, and the executed joint decision is z = Parse( y), a deterministic function that reads the mode vector and discards the accom-panying justification. The policy over decisions that the main paper writes as πϕ(z | q) is the pushforward of πϕ(y | q) un-der Parse , and the ratio of Eq. (17) is evaluated on y rather than on z. Two responses carrying the same mode vector but different reasoning therefore receive different ratios. This is intended rather than incidental: the sampled object is the re-sponse, the reward is attached to the response through the decision it encodes, and the update moves the likelihood of the response that earned it. The consequence for interpreta-tion is that the corridor policy is trained to produce a mode vector together with a justification consistent with it — which is what the consistency rules of Figure 4 are for — and not merely to produce the vector. Because the return depends on y only through Parse( y), the group-relative advantage is unaffected by this distinction; only the reweighting is. Loss is applied to response tokens only; prompt tokens are masked out. Each batch of rollouts is consumed by a single gradient epoch, which keeps πϕold close to πϕ and makes the clipping term rarely active. The frozen copy is refreshed after every optimiser step, so the behaviour policy never lags the trained policy by more than one update. Advantages are clipped to 
+
+[−10 , 10] before the policy loss to bound the contribution of a single outlying rollout; at G = 8 a standardised advantage cannot exceed √G − 1 ≈ 2.65 in magnitude, so this clip is inert at the reported group size and is retained only as a guard for larger groups. Note that εstd in Table 10 is the numerical floor in the advantage denominator, distinct from the clipping threshold ϵc of Eq. (18) in the main paper. Every 50 steps the current adapter is evaluated on the 50 
+
+validation scenarios under the deployment decoding rule, and the checkpoint with the best validation return is the one carried into testing; no test scenario is consulted for selection. The five runs reported in the main paper use five independent training seeds, which govern LoRA initialisation, snapshot ordering, and rollout sampling; evaluation seeds are matched across methods so that all policies face identical disturbance realisations. Remaining settings are listed in Table 10. Virtual Power Plant: System Prompt 
+
+You are the upper −layer mode selector of a Virtual Power Plant during peak −shaving in an industrial park. Every 30 minutes you pick one mode for each of four resources (PV, Battery, EV, HVAC). A lower −layer MILP then dispatches at 5 −minute resolution under your modes. 
+
+−−− RESOURCES & MODE MECHANICS −−− 
+
+Each resource has three modes that change how the lower MILP behaves. PV (1200 kW peak): conservative = MILP de −rates PV to 65% (treat PV as unreliable) balanced = MILP de −rates PV to 75% proactive = MILP de −rates PV to 90% (trust PV reading) Battery (1800 kWh, SOC in [0.20, 0.90], 350 kW max): conservative = end −horizon reserve 30%, discharge cap 70% of P_max balanced = reserve 25%, discharge cap 85% proactive = reserve 22%, discharge cap 100% EV fleet (max 600 kW, remaining −kWh target for the deadline; a shortfall is feasible but penalised, and is reported as a violation): conservative = HIGH penalty on unmet EV energy (MILP protects EV) balanced = medium penalty proactive = LOW penalty (MILP may cut EV charging) HVAC (max 300 kW, comfort band [22, 26.5] degC): conservative = LOW comfort penalty (MILP may cut HVAC, temperature drifts) balanced = medium comfort penalty proactive = HIGH comfort penalty (MILP protects temperature) 
+
+−−− INFORMATION RULES −−− 
+
+Use only the blocks given to you: the observation, the recent trend, and the forecast block. The forecast is the same one the lower MILP plans with; it carries error, and its stated reliability tells you how far to trust it. That is exactly what the PV mode is for. Never reference realised future values, oracle quantities, or the dispatch the MILP will produce. They are not provided and must not be assumed. 
+
+−−− OUTPUT FORMAT −−− 
+
+Output a single JSON object, nothing else: {"pv_mode":"<conservative|balanced|proactive>","battery_mode":"<conservative|balanced|proactive>","ev_mode":"<conservative| balanced|proactive>","hvac_mode":"<conservative|balanced|proactive>"} 
+
+Figure 5: Virtual power plant system prompt. 
+
+B.3 Baseline Implementations 
+
+All hierarchical baselines share the low-level controllers, joint mode spaces, and θ mappings of Appendix A; they differ only in how a mode is chosen. Every trainable baseline uses the same 150 training and 50 validation scenarios as our policy, and model selection is by validation return only. 
+
+Direct control. For the corridor, the published feedback controller holds every ramp at Standard ( δ = 0 .10 ) for the whole episode, with no high-level layer. For the VPP, the MPC-MILP baseline runs the same rolling-horizon program as our low-level layer under a fixed neutral coefficient set: the PV forecast is used without de-rating ( δpv = 0 ), the terminal reserve equals the physical bound ( SoC res = SoC min ), the full discharge range is available ( αdis = 1 ), and the EV and comfort weights are unity. This coefficient vector is deliber-ately outside Z, so it is not a mode the hierarchical methods could have selected; it represents the conventional tuning rather than a point in our decision space. 
+
+Reinforcement-learning baselines. Both RL baselines use the same PPO implementation, the same two-layer MLP trunk ( 256 units, tanh ), and the observation encoding de-scribed below; they differ only in what they emit. End-to-End RL replaces the low-level layer entirely: for the corri-dor it emits eight independent Bernoulli gate decisions per low-level step, and for the VPP it emits four continuous re-source powers, squashed and rescaled to the box limits of Table 7, with infeasible commands projected onto the feasi-ble set before execution. Hierarchical RL keeps the low-level layer and emits a joint mode instead: eight categorical heads over four roles for the corridor, four heads over three modes for the VPP. Both consume an information-equivalent nu-meric encoding of the operational context of Table 9 — a flat vector of the same measurements and trend windows, standardised per feature, with categorical descriptors one-Virtual Power Plant: User Prompt 
+
+[Observation] Time {time_hour} h ({minutes_remaining} min remaining). PV {pv_kw} kW (uncertainty={pv_uncertainty_level}, deficit_pct={pv_deficit_pct}%). Battery SOC {soc}. EV remaining {ev_required_energy_remaining_kwh} kWh, urgent_ratio={ev_urgent_ratio}, required_pace={ ev_required_pace_kw} kW (cap 600). HVAC {hvac_temp_c} degC (band slack {hvac_band_slack_degc} degC, priority={hvac_comfort_priority}). Base load {base_load_kw} kW; outdoor {outdoor_temp_c} degC. Grid limit {grid_import_limit_kw} kW (headroom {grid_headroom_kw} kW). Price now {price_now} CNY/kWh (tier={price_tier}). Weather: {weather_text}. Market: {market_text}. [Recent trend (oldest −> newest, last {window_minutes} min)] PV : {pv_trend} Base load : {load_trend} Outdoor T : {outdoor_temp_trend} [Forecast for the next {mpc_window} min (as used by the lower MILP)] PV : {pv_forecast_profile} (reliability={pv_forecast_reliability}) Base load : {load_forecast_profile} Outdoor T : {outdoor_temp_forecast_profile} Price : {price_forecast_profile} Pick one mode per resource for the next 30 minutes. Output JSON. 
+
+Figure 6: Virtual power plant user prompt. Each trend placeholder expands to {first} -> {last} {unit} ({shape}, {pct}%) with {shape} one of monotonically rising , monotonically falling , or non-monotonic . The trend window covers the last eight low-level steps. 
+
+Setting Value group size G 8
+
+horizon H 4∆ (12 min / 120 min) clip ϵc 0.2
+
+KL coefficient β 0.05 
+
+εstd 10 −8
+
+importance ratio sequence level gradient epochs per batch 1
+
+optimiser AdamW learning rate 1×10 −6, cosine gradient clipping 0.5
+
+snapshots per step 8
+
+training steps 1,200 
+
+validation interval 50 steps LoRA rank / α 32 / 64 
+
+training seeds 5
+
+Table 10: Continuation-Aware GRPO hyperparameters, shared by both tasks. hot encoded. Equivalence is enforced on the derived signals as well, not only on the raw ones: the congestion indicator at 40% of vf, the downstream-congestion flag, the elapsed-closure-time feature, the forecast-reliability level, the priority level, and the event flag are all supplied to the RL baselines as explicit inputs, so the domain priors that the prompt states in words are available to them as features. What differs is 
+
+Setting Value trunk MLP 2 × 256 , tanh 
+
+clip 0.2
+
+discount γ 0.99 
+
+GAE λ 0.95 
+
+learning rate 3×10 −4
+
+entropy coefficient 0.01 
+
+value-loss coefficient 0.5
+
+rollout buffer 2,048 steps epochs / minibatch 10 / 256 
+
+environment steps 2×10 6 (end-to-end) 
+
+1×10 6 (hierarchical) 
+
+Table 11: PPO settings shared by the End-to-End RL and Hierarchical RL baselines. the representation and the learner, not the information or the prior knowledge. Both receive the reward of Eq. (27) or (28). Settings are listed in Table 11; the learning rate and entropy coefficient were selected per baseline and per task by grid search on validation return over {1, 3, 10 } × 10 −4
+
+and {0, 0.003 , 0.01 , 0.03 }, giving the RL baselines a larger tuning budget than our policy received. 
+
+Mode-selection baselines. Fixed-Mode Hierarchy selects one joint mode vector by validation return and applies it unchanged for the whole episode; its defining property is temporal constancy, not a restricted vocabulary. For the VPP the search is exhaustive: all |Z| = 81 vectors are evaluated on the 50 validation scenarios, so this baseline is the best static configuration inside Z. It is not the best static controller :MPC-MILP holds a fixed coefficient vector too, and that vec-tor lies outside Z (Appendix B.3), which is why it can and does beat Fixed-Mode on cost. For the corridor 48 is too many to evaluate at that cost, so the candidate set is the 43 = 64 
+
+assignments that are constant within three contiguous ramp groups (R1–R3, R4–R6, R7–R8), which already contains the 
+
+4 uniform assignments as its diagonal; the grouping is chosen because the coordination structure the task rewards is spa-tial and monotone along the corridor, so a group-wise vector is the natural non-uniform competitor. We did not search the unrestricted 48 space. Evaluating one candidate on the 
+
+50 validation scenarios costs 50 × 60 = 3 ,000 high-level intervals, so the full space costs 48 × 3,000 ≈ 2.0 × 10 8 sim-ulated intervals against roughly 3.1 × 10 5 generation calls for one training run — two to three orders of magnitude more simulation, on a budget the baseline is not supposed to have. The consequence is stated where it matters: the corridor Fixed-Mode margin bounds rather than measures the value of adapting in time. Validation selects a mixed vector on both tasks. All-Standard is inside the corridor candidate set, so the Fixed-Mode margin over Feedback Control is a lower bound on what static mode selection alone can buy. For the VPP, where the search is exhaustive, the margin of our policy over Fixed-Mode is exactly the cost of constancy; for the corridor it is an upper bound on that cost, since a non-group-wise static vector could in principle do better. The prompting-only co-ordinators (Qwen3-8B, Gemini 3.1 Pro, Claude Sonnet 4.5) receive prompts byte-identical to ours apart from the message envelope each vendor’s interface requires, and are parsed by the same schema validator, decode greedily at temperature zero, and receive no parameter updates; the Qwen3-8B row is therefore the controlled comparison that isolates the effect of Continuation-Aware GRPO from the effect of the prompt. 
+
+B.4 Computational Cost and Training Overhead 
+
+Training and rollout generation run on four A100 80 GB GPUs, with three devices serving batched rollouts and one holding the trained adapter. The unit of cost is the genera-tion call: one snapshot requires G (H/ ∆) = 8 × 4 = 32 
+
+decisions, so an optimiser step over eight snapshots issues 
+
+256 generations, and a full run of 1,200 steps issues roughly 
+
+3.1 × 10 5.Prompts average 2,100 tokens for the corridor and 950 for the VPP; responses average 380 and 60 tokens respectively, well inside the budgets of Table 10. End-to-end fine-tuning takes roughly 46 GPU-hours for the corridor and 34 for the VPP; the corridor is more expensive because each rollout step advances a traffic simulator, whereas the VPP step solves a small MILP. At deployment a single high-level decision costs about 
+
+1.6 s for the corridor and 0.4 s for the VPP, the difference following the response length. Both are well inside the cor-responding control intervals of 3 min and 30 min, so the coor-dination layer is not on the critical path; the prompting-only API baselines are subject to network latency instead, which is likewise inside the interval but outside our control. Moving from H = ∆ to H = 4∆ multiplies both the sim-ulated time and the number of generations per candidate by four, and measured wall-clock grows by 3.1×. The shortfall against the nominal 4× comes from generation: the contin-uation decisions of all G candidates at a given interval are issued as one batched call, so the added generations amortise well. The simulator advances do not amortise — they remain serial per candidate — which is why the multiplier stays close to four rather than approaching one. Set against the 1.88% 
+
+and 2.69% closed-loop gains of Table 4 in the main paper, this is the price of scoring a decision by its consequences rather than by its immediate outcome. 
+
+## C Simulators, Scenario Construction, and Evaluation Protocol 
+
+C.1 Dual-Fidelity Simulation Environments and Inter-face Correspondence 
+
+Each task uses two simulators: a fast model that makes closed-loop training affordable, and a higher-fidelity model that supplies the reported numbers. Training needs many short rollouts — one snapshot costs G(H/ ∆) decisions and as many simulator advances — which rules out running the detailed simulator in the loop. The separation is only useful if a mode means the same thing on both sides, so the invariant we maintain is that the operational-context format, the joint mode space, and the z 7 → θ interface are identical across the pair; only the dynamics underneath change. 
+
+Traffic: LTM and SUMO. The evaluation environment is SUMO 1.21 on a network of the northbound Western Expressway in Changchun, projected in UTM zone 51N, with the Krauss car-following model and the LC2013 lane-change model. Mainline flow, speed, and occupancy are read from induction-loop and lane-area detectors, the latter 100 mlong and sampled every 60 s, so the quantities entering the prompt are detector observables rather than privileged sim-ulator state. Link correspondence is by identity: each LTM link id equals the SUMO edge id it represents, with the main-line link of a ramp taken as that ramp’s downstream mainline edge and the ramp link taken as the ramp edge itself. The LTM capacity and inflow scale are calibrated against SUMO by aggregating detector counts over 60 s windows and min-imising squared flow error, so the fast model is fitted to the detailed one rather than the two being tuned independently. Both this calibration and the threshold alignment below use only the 150 training and 50 validation scenarios; no test scenario is simulated at any point before the frozen policy is evaluated, so the calibration cannot carry test information. Because the calibration touches the environment rather than the policy, the claim the main paper makes is precisely that no policy parameter is updated on the target simulator; the interface constants that make a mode mean the same thing on both sides are fitted once, offline, from training data, and are identical for every method compared. We state the resulting scope explicitly, because it is nar-rower than zero-shot transfer. What the corridor experiment establishes is that a frozen policy transfers across a change of dynamics once the two interfaces have been aligned on Ramp 1 2 3 4 5 6 7 8SUMO .28 .22 .25 .23 .22 .23 .25 .25         
+
+> LTM .948 .926 .782 .824 .220 .230 .449 .188
+
+Table 12: Hysteresis centres cctr  
+
+> r
+
+per simulator. Ramps 5 and 6 sit in the tail of the SUMO occupancy distribution, so quantile alignment leaves them at the SUMO value and the two rows agree there. 
+
+training and validation data . It does not establish transfer to a simulator about which nothing is known: the capacity scale, the inflow scale, and the eight hysteresis centres all consume SUMO data. The alignment is a modelling step that any deployment would also have to perform, and it is method-independent, so it does not favour our policy over the baselines; but a reader should not read Table 22 as a zero-shot result. The VPP pair needs no such step — the resource parameters and the z 7 → θ map are carried over unchanged and only the network is added — which is one reason we report both pairs rather than the corridor alone. One interface detail matters for reproduction. The hys-teresis centres cctr  
+
+> r
+
+of Eq. (22) are occupancy values, and occupancy is not measured identically by a macroscopic link model and a microscopic simulator. The centres are there-fore calibrated per simulator by quantile alignment: SUMO is the reference, and each ramp’s SUMO centre is located as a quantile of that ramp’s congested-period occupancy distri-bution, then mapped to the value at the same quantile of the LTM distribution. Where a ramp’s SUMO centre falls in the tail of the distribution — below the 5th or above the 95 th per-centile — the mapping is not reliable and the SUMO value is retained unchanged, which is why two of the eight centres coincide across the pair. The distributions are estimated per ramp from the congested periods of the 200 training and val-idation scenarios, giving of the order of 10 4 60 s occupancy samples per ramp, so the quantiles are not sample-limited. Table 12 lists both sets. A mode therefore denotes the same control disposition in both environments while resolving to different absolute thresholds. 
+
+Virtual power plant: single bus and OpenDSS. The eval-uation environment is the EPRI Ckt5 distribution feeder in OpenDSS. The aggregate resources of Appendix A.2 are distributed across feeder buses in proportion to the load they serve: the park base load is spread over all load buses by their nameplate share, and the four controllable resources are attached at the four highest-load buses, one each, so that a resource and the load it offsets sit at the same electrical location. The mode-dependent coefficients θ(z) are applied unchanged; what the feeder adds is three-phase power flow, so the same dispatch now incurs network losses, produces bus-voltage excursions, and can violate limits that the single-bus model cannot represent. Voltages are held to [0 .95 , 1.05] pu, the ANSI C84.1 Range A band, and line loading to 100% of rating. These limits are enforced rather than merely observed: after each power-flow solution, any commanded injection that would take a bus voltage or a line loading outside its limit is curtailed to the largest feasible magnitude in the same di-rection, and the executed dispatch is the curtailed one. The curtailment is a bisection on a single scalar that scales all con-trollable injections towards zero, terminated once that scalar is determined to within one percent, which takes six to seven power-flow solutions; scaling all resources together rather than choosing among them keeps the rule independent of the mode vector, so curtailment cannot itself act as a hidden con-troller. If a solution fails to converge the step is retried once at half the commanded magnitude and, failing that, with all controllable injections at zero, which always converges; this occurred on no step of the reported runs. Curtailment there-fore has a cost — the shortfall reappears as unmet EV energy, as a comfort excursion, or as import in a later and possibly more expensive step — so the network constraints affect the reported operating cost through the trajectory they induce, not through a separate penalty. Losses enter the same way, as the additional import they require. Per-step voltage and thermal violations and the resulting curtailment are logged and reported in Appendix D.1. 
+
+Modelling differences. Table 13 states what each pair does and does not represent. The pattern is the same on both tasks: the fast model captures the aggregate quantity the reward is defined on, and omits a spatial mechanism that can only degrade a policy tuned without it. That asymmetry is the point — a policy trained on the fast model and evaluated on the detailed one is tested on effects it never saw. 
+
+C.2 Scenario Construction and Data Splits Data provenance. The exogenous series are built from measured data wherever the measurement determines the quantity, and generated parametrically where the experiment requires controlled variation; Table 14 lists the sources and the transformation applied to each, and it is worth being ex-plicit about which is which. For the VPP, all four series — irradiance, outdoor temperature, park load, and EV avail-ability — are measured records, resampled and rescaled but not reshaped. For the corridor, the detector records supply the per-origin volumes and their relative magnitudes across ramps, while the intra-episode temporal profile is generated by the parametric family of the paragraph below. This is deliberate: the unseen-pattern subset is defined by withheld temporal shapes, which requires the shape to be a control-lable factor rather than whatever the recording happened to contain. Two further conventions apply throughout. First, se-ries are resampled onto the ∆low grid of the task, and the resampling is causal on every channel the policy can see: an observation or trend value at step k is built only from source samples timestamped at or before k, by holding the previous hourly sample, never by interpolating towards the next one. Two-sided linear interpolation is used only for the forecast channel and for the simulator’s own exogenous trajectory, neither of which is a claim about what has been observed — the forecast is explicitly a statement about the future and car-ries error and a stated reliability, and the simulator trajectory is ground truth the policy never reads. Stating it this way mat-ters because plain interpolation of an hourly series would let the next hour’s sample leak into the current hour’s observa-tion, which would be a genuine information leak rather than a Aspect Training model Evaluation model            
+
+> Multi-ramp traffic control
+> Representation link-level cumulative counts, triangular fundamental di-agram individual vehicles with car-following and lane-change behaviour Omitted in training lane changing, weaving in the merge influence area, driver heterogeneity, stochastic gap acceptance —Observables link flow, speed, density from the state update detector counts and occupancies over 60 s windows
+> Virtual power plant
+> Representation single-bus power balance three-phase feeder power flow on EPRI Ckt5 Omitted in training network losses, bus-voltage variation, line thermal lim-its, phase imbalance —Observables aggregate powers and states the same aggregates, plus per-bus voltages and line load-ings
+
+Table 13: What the fast training model omits relative to the evaluation environment. In both tasks the omission is a spatial mechanism that the high-level decision space does not address directly, so transfer tests whether a coordination policy learned on aggregate dynamics survives disaggregation. resampling detail. Second, amplitude is set by the installation being modelled rather than by the source: a measured series supplies the shape , which is normalised and then mapped onto the capacity range of Table 7 or Table 5. 
+
+Electricity tariff. Import is priced by the four-tier commercial-industrial schedule of Table 15. The episode window 10 :00 –22 :00 spans three of the four tiers and ends exactly at the right boundary of the critical peak, which is what makes the battery-reserve and EV-deferral decisions consequential: energy withheld earlier is bought at up to 
+
+1.25 CNY/kWh later, while energy delivered too early for-goes the chance to shift it into a cheaper tier. Per scenario, each tier price is scaled by an independent factor drawn uni-formly from [0 .95 , 1.05] , so the tier ordering is preserved while the absolute levels and the gaps between tiers vary; a policy cannot therefore memorise a single price path. 
+
+Operating-pattern families. A scenario’s pattern family 
+
+is the qualitative regime that determines which resource or location is the binding constraint, and it is the unit the splits are defined over. Families are coarse by design: within a fam-ily the quantitative realisation varies freely, so a policy can-not fit a family by memorising a trajectory. For the corridor a family fixes only the spatial loading regime and is crossed with the temporal profile described below, so a single family already contains trajectories that peak at different times. Ta-ble 16 lists them. Training and validation draw from all four families of each task. The unseen-pattern test subset then departs from training along the axis that is left free within a family: for the corridor it uses temporal profiles never gener-ated during training, so the binding location is familiar but its time course is not; for the VPP it uses withheld combinations of the scenario descriptors, so every individual regime has been seen and what is new is their co-occurrence, such as a PV-limited afternoon coinciding with a tight import cap. 
+
+Corridor demand. A corridor scenario is specified along two axes. The first is a demand level for the mainline and for each of the eight controlled ramps, drawn from weak ,
+
+medium , and strong ; a level multiplies that origin’s daily total and fixes the amplitude. The second is a temporal pro-file that distributes each origin’s total over the episode, so the same spatial loading can arrive as different trajectories. A profile is generated as a warm-up at 0.50 of amplitude followed by a rise, a plateau, and a decline, with the onset of the rise drawn from a 20 -minute window, the rise and decline durations drawn from 20 –40 min, and the plateau filling the remainder; ramp profiles are offset from the main-line profile by an independent lag of up to 10 min, so ramp and mainline pressure need not peak together. Demand is updated every 5 min. Training and validation sample only single-plateau profiles within these ranges; the shapes re-served for the unseen-pattern subset — onsets outside the trained window and two separated peaks — are never gen-erated during training. Candidate scenarios are screened on mainline and ramp volume-to-capacity ratios and rejected if they are either uncongested throughout — in which case no coordination decision matters — or saturated from the first minute, in which case no policy can recover. The screen keeps 62% of draws: 24% are rejected as uncongested and 
+
+14% as saturated. The retained band is therefore the majority of the sampled space rather than a narrow slice of it, but the screen does bound what the corridor results speak to, and any claim about generalisation should be read as applying to this band rather than to arbitrary demand. 
+
+Splits and test subsets. Each task uses 150 training and 50 
+
+validation scenarios, and 300 test scenarios divided equally into three disjoint subsets of 100 . The subsets differ in how far they depart from the training distribution. Seen-pattern 
+
+scenarios are fresh draws from the operating-pattern fami-lies present in training: for the corridor, new demand reali-sations over familiar level combinations and profile shapes drawn from the trained ranges; for the VPP, new days over familiar combinations of season, weather, and resource pres-sure. They measure performance without distribution shift. 
+
+Unseen-pattern scenarios use structures withheld from train-ing — for the corridor, temporal profiles absent from the training families, namely peaks shifted away from the trained onset time and double peaks separated by a partial recovery; Series Source Coverage Transformation                                        
+
+> Multi-ramp traffic control
+> Corridor de-mand expressway detector records northbound West-ern Expressway, Changchun per-origin episode totals shaped by the sampled temporal profile and scaled by the level multipliers of Table 17
+> Virtual power plant
+> PV generation NASA POWER, all-sky sur-face shortwave irradiance Suzhou, 2020, hourly scaled to the 1200 kW array, interpolated to 5min Outdoor temper-ature NASA POWER, 2 m air tem-perature Suzhou, 2020, hourly used directly as Tout , interpolated to 5min Park base load Building Data Genome 2, cleaned electricity meters office buildings, 2016–2017, hourly season-conditional hour-of-day profile, normalised then mapped to [1200 ,1800] kW EV availability ACN-Data charging sessions full session records hourly occupancy from arrival and departure times, nor-malised by peak and scaled by ¯Pev,max to give Pev
+> k; mean delivered energy sets Eev
+> 0
+> Electricity price commercial-industrial time-of-use tariff four tiers, see Ta-ble 15 tier prices perturbed once per scenario
+
+Table 14: Exogenous data sources and the transformation applied to each. Measured series supply temporal shape; amplitude comes from the modelled installation.             
+
+> Tier Hours Price (CNY/kWh) Valley 0–80.35
+> Shoulder 11 –13 ,22 –24 0.65
+> Peak 8–11 ,13 –17 1.00
+> Critical peak 17 –22 1.25
+
+Table 15: Time-of-use tariff; hours are local clock time. Tier prices are perturbed per scenario by an independent factor in 
+
+[0 .95 , 1.05] .for the VPP, withheld combinations of the scenario descrip-tors, so that each individual factor has been seen but the joint configuration has not. Higher-uncertainty scenarios re-tain familiar patterns and increase the noise, by fixed factors rather than by re-tuning: the multiplicative noise on demand and on PV output goes from a per-step standard deviation of 
+
+5% to 15% , the forecast supplied in the prompt goes from a mean absolute error of 8% to 20% of the forecast quan-tity, and its stated reliability level is lowered accordingly so the prompt does not misrepresent it. For the VPP the EV arrival and departure times are additionally jittered by up to 
+
+±30 min. The same nominal pattern is therefore harder to act on, and a policy that trusted the forecast unconditionally would be punished for it. Splits are assigned at whole-scenario granularity and fixed in a stored assignment file, so no trajectory contributes to more than one split. Duplicate scenarios are excluded by a descriptor key — for the VPP the tuple of season, weather, load scale and peak, import-cap ratio, urgent share, and EV energy target — which also guarantees that a test scenario is never a re-draw of a training one. 
+
+C.3 Evaluation Protocol and Metrics Metric definitions. Corridor throughput is the number of vehicles discharged over the 3-hour evaluation window, counted at the induction loops on the exit set of Eq. (27) —          
+
+> Family Binding pressure
+> Multi-ramp traffic control
+> Upstream-dominant strong mainline, weak ramps Ramp-dominant moderate mainline, several strong ramps Balanced moderate no single binding location Balanced heavy mainline and ramps both near capacity
+> Virtual power plant
+> PV-limited low irradiance against high load EV-limited large residual energy, tight deadline Grid-limited low import cap relative to demand Comfort-limited outdoor temperature far from the band
+
+Table 16: Operating-pattern families. Splits are defined over families; quantitative realisations, and for the corridor the temporal profile, vary within a family.            
+
+> Weak Medium Strong Mainline multiplier 0.75 1.00 1.20
+> Ramp multiplier 0.65 1.00 1.35
+> Ramp rate cap (veh/h) 900 1200 2000
+
+Table 17: Corridor demand levels. Warm-up runs at 0.50 of the level amplitude. the downstream mainline boundary and the four off-ramps — and summed; the 15 -minute warm-up is excluded so that the metric reflects controlled operation only. Excluding it is only sound if the warm-up is identical across methods, so it is: every method, ours included, runs the all-Standard controller of Eq. (23) for the first 15 minutes with no high-level layer ac-tive, and the simulator, controller and random-number state are cloned at minute 15 before the methods diverge. Each method therefore starts from a bit-identical corridor state, and no carry-over from the unscored window can differ be-tween them; this is also why the warm-up row of Table 29 shows no mode assignment. Counting only exits means a vehicle is counted once regardless of how far along the corri-dor it travelled. Reported values are therefore vehicle counts per episode; observed values lie between roughly 14 ,000 
+
+and 17 ,000 , consistent with a three-lane mainline at 0.5 ve-h/s/lane plus the off-ramp share. Realised operating cost for the VPP is the energy actually purchased, priced at the tariff of Table 15, plus the penalties the operator actually incurs: import above the contracted cap, temperature outside the comfort band, and EV energy still undelivered at the dead-line, the last charged once at the end of the episode. Reported values are CNY per episode. Two facts make the magnitude legible. The park base load peaks at 1800 kW against a nom-inal contracted cap of 1500 kW, so once PV falls away some over-cap import is unavoidable and the λg = 8 .0 CNY/kWh charge on it is a large share of the total rather than a rare event; that is precisely the peak-shaving problem the task poses. And the energy term is dominated by a large non-discretionary component, the park’s own consumption, which coordina-tion can shift in time and partly offset with PV and battery discharge but cannot remove. What the policy can change is how much of the load is met at the wrong time and how much import sits above the cap, so the spread across methods in the main paper’s Table 2 is much smaller than the absolute level. Table 18 gives the decomposition for the two endpoints of that table, and it is where the aggregate cost connects to the physical quantities of Table 20. The two constraint terms carry the margin: undelivered EV energy accounts for 696 
+
+of the 1492 CNY by which our policy beats MPC-MILP and the over-cap charge for a further 665 , while the energy term differs by only 122 and the comfort term by 9. So the mar-gin comes from not breaching the contracted cap and from finishing the EV commitment, not from buying electricity more cheaply — which is the same fact the curtailment and unmet-EV columns of Table 20 report from the physical side. Both metrics are the same quantity the policy was trained on — Eq. (27) and Eq. (28) accumulated over the episode instead of over the continuation horizon. This is deliberate: it removes any gap between the training signal and the re-ported number, so an improvement cannot be an artefact of optimising a proxy. It also means the planner objective of Eq. (25) is not the reported cost, since the battery-wear term and the terminal-reserve hinge shape planning but are never charged. 
+
+Protocol. The policy is frozen after training: no policy parameter is updated on the target simulator, and the only target-environment fitting is the interface calibration of Ap-pendix C.1, which is method-independent and uses train-ing and validation scenarios only. All LLM policies decode greedily at temperature zero, so a frozen policy is a deter-ministic function of the operational context and any variation across runs comes from the environment rather than from sampling. Each configuration is evaluated over five runs. Trainable methods use five independent training seeds, one per run, and every method uses matched simulator seeds: run i presents the identical seed, and therefore the identical stochastic realisation of the exogenous series, to all meth-ods. The scenario set itself is held fixed across runs. This is             
+
+> Component MPC-MILP Ours Energy purchased at the tariff 15019 .414897 .0
+> Import above the contracted cap 17715 .617050 .4
+> EV energy undelivered at deadline 1415 .3719 .3
+> Comfort-band excursion 21 .312 .5
+> Total 34171 .632679 .2
+
+Table 18: Composition of the reported VPP operating cost, in CNY per episode, for the direct-control baseline and our policy. Every row is the mean over scenarios of the per-scenario charge, not a mean rate applied to a mean quantity: the EV row is 1
+
+> n
+
+P 
+
+> i
+
+¯λe(ωi)ui with ui the shortfall in scenario 
+
+i, so the average rate it implies differs between methods — 
+
+16 .4 CNY/kWh for MPC-MILP against 14 .8 for ours — because the shortfall is not independent of the urgent share. Our policy’s residual shortfalls fall preferentially in low-ω
+
+scenarios, which is the intended behaviour of the proactive EV mode and is worth 0.7 CNY/kWh of the difference on its own. The comfort row is the excursion of Table 20 at 
+
+λd = 15 .0, and the over-cap row is a λg = 8 .0 CNY/kWh charge, roughly eight times the average tariff, which is why it is large even though the over-cap volume is a small share of total import. what makes the standard deviations comparable: for a train-able method the spread mixes optimiser and environment variation, while for a deterministic baseline it isolates envi-ronment stochasticity, and the two are measured against the same five disturbance realisations. Aggregation follows the main paper. Within a run we av-erage over the 100 scenarios of each subset, then average the three subset means with equal weight to obtain that run’s score; tables report the mean and standard deviation of the five run-level scores. Because the three subsets contain 100 
+
+scenarios each, this equal-weight aggregate is numerically identical to pooling all 300 scenarios — we do not claim otherwise. The stratified form is kept for two reasons that do not concern the point estimate: it lets each subset be re-ported on its own, and it is what the stratified resampling of Appendix D.5 needs. Gains are measured against the direct-control baseline of each task — Feedback Control for traffic and MPC-MILP for the VPP — with throughput increases and cost reductions both reported as positive. 
+
+Data licensing. NASA POWER data are released without restriction. Building Data Genome 2 and ACN-Data are pub-lished for research use under their respective open licences. SUMO is distributed under the Eclipse Public License and OpenDSS under a BSD-style licence. The corridor detector records are used under the terms of the source publication. Scenario definitions, the derived series, and the scripts that build them are included in the code release so that the splits can be reconstructed exactly. 
+
+## D Additional Quantitative Results 
+
+D.1 Additional Metrics Beyond the Reported Objective 
+
+The main paper reports the quantity each policy was trained on. That is the right primary metric, but it cannot distinguish a policy that raises throughput by serving more traffic from one that raises it by holding ramp traffic back, nor a policy that lowers cost by better scheduling from one that lowers it by letting a constraint slip. This subsection reports, for the same runs and the same aggregation as the main ta-bles, the quantities that separate those cases. All values are overall scores, that is, the equal-weight mean over the three test subsets, averaged over five matched runs. 
+
+Corridor. Table 19 reports mainline conditions at the crit-ical bottleneck together with the ramp-side cost of achieving them. Congestion duration counts 60 s intervals in which the bottleneck section speed falls below 40% of vf, the same threshold the prompt uses to describe congestion. Ramp queue is averaged over the eight controlled ramps and over time; a spillover event is an interval in which a ramp queue reaches the ramp storage length and blocks the upstream surface link. Two readings matter. First, End-to-End RL improves over-all throughput over Feedback Control, but its ramp queue is 52% longer and it produces more than twice as many spillovers: it buys mainline flow with ramp delay, which is precisely the trade the throughput metric alone does not expose, and it is why its advantage disappears in the higher-uncertainty subset of the main results. Second, our policy attains the highest bottleneck speed and the shortest conges-tion duration and the shortest ramp queues. The two are not in tension: avoiding mainline breakdown keeps the merge re-ceiving capacity high, so held ramp traffic discharges sooner once released. A policy that gates more decisively at the right moment therefore queues less in total than one that gates conservatively throughout. One fairness quantity is worth reporting alongside these, because the prompt treats it as a soft constraint and the ag-gregate metrics hide it: the longest uninterrupted closure any single ramp experiences in an episode, which is what a ramp’s users would actually notice. Averaged over runs and maximised over the eight ramps it is 22 min for our policy, against 25 for Feedback Control, 26 for Fixed-Mode Hier-archy, 31 for Hierarchical RL, and 43 for End-to-End RL. These are not multiples of the decision interval, because the gate opens and closes on occupancy crossings at the 60 slow-level cadence; the mode only sets how readily it does so. Our policy is therefore not buying throughput by holding one ramp shut for a long stretch; the End-to-End RL fig-ure, nearly twice ours, is the same behaviour the queue and spillover columns already show. Per-run and per-scenario values for every column in this subsection are included in the code release. 
+
+Virtual power plant. Table 20 reports the constraint-side quantities. Violation steps count 5-minute intervals in which the commanded dispatch, before curtailment is ap-plied, would place any bus voltage outside [0 .95 , 1.05] pu or any line above its rating; curtailed energy is the resulting reduction in commanded injection. The executed dispatch contains no violations by construction, so this column mea-sures how often the planner asked for something the feeder could not deliver, not how often the feeder was operated out of limits. Because curtailment is enforced rather than penalised, these two columns are the mechanism by which the feeder changes the reported cost: energy the planner in-tended to move is not moved, and the shortfall reappears later. Comfort excursion integrates the indoor-temperature deviation outside [22 .0, 26 .5] ◦C over the episode. Our policy simultaneously incurs the fewest violation steps, the least curtailment, the least undelivered EV energy, and the smallest comfort excursion, so its cost advantage is not obtained by trading a constraint against the objective. Hierarchical RL is the interesting case: it beats MPC-MILP on cost, but it curtails more while doing so. It buys its mar-gin by operating closer to the constraint boundary, which is consistent with its larger transfer gap in Appendix D.2 — the margin it removes is exactly what the feeder mechanisms consume. End-to-End RL is the same behaviour without the compensating skill: its curtailment is more than five times ours, and the rescheduling this forces accounts for most of its cost penalty rather than tariff exposure. 
+
+Decision validity. Only the LLM policies can emit a mal-formed decision, so validity is reported for them alone (Ta-ble 21). A violation is any output the schema validator of Appendix B.1 rejects: a wrong element count, an unrecog-nised mode name, or text placed so that the required structure cannot be located. Recovery is uniform across methods and tasks — the previous joint decision is retained for one inter-val — so a violation costs a decision opportunity rather than producing an invalid action, and no result in this appendix depends on a fallback that differs between methods. Fine-tuning removes the failure mode almost entirely: the residual corridor rate for our policy corresponds to fewer than one malformed output in 3,000 decisions, whereas the untuned 
+
+8B model fails on roughly one in twenty corridor decisions, which is the larger part of why it falls below the direct-control baseline. 
+
+D.2 Cross-Simulator Transfer for All Methods 
+
+The main paper reports transfer gaps for four methods. Table 22 extends the comparison to every method. The gap is defined as in the main paper, as degradation from the fast model to the detailed one, so it is ( LTM − SUMO )/LTM for the corridor and (OpenDSS − Fast )/Fast for the VPP. The extended table makes one point the four-method ver-sion cannot. The two smallest gaps after ours belong to the two controllers that neither learn nor reason, Feedback Con-trol at 4.31% and MPC-MILP at 6.94% : a rule or a program that re-derives its action from the current measurement has little to overfit and therefore transfers well, but it also has no mechanism for improving. Every method that is either trained or prompted, except ours, pays a larger gap than these two. The claim our results support is therefore not that learn-ing transfers well in general, but that scoring a decision by its continuation rather than its immediate outcome recovers most of the robustness that the non-learned controllers get for free, while keeping the performance that learning buys. 
+
+D.3 Continuation-Horizon Sensitivity 
+
+The main paper compares H = ∆ with the chosen H =4∆ . That comparison establishes that continuation matters but not that 4∆ is the right amount of it. Table 23 sweeps H ∈Method Bottleneck speed (km/h) ↑ Congestion duration (min) ↓ Mean ramp queue (veh) ↓ Spillover events ↓                                                                                                
+
+> Feedback Control 58 .4±0.762 .3±1.812 .4±0.33.1±0.4
+> End-to-End RL 60 .1±2.458 .7±5.918 .9±1.77.6±1.5
+> Fixed-Mode Hierarchy 59 .6±0.659 .4±1.612 .9±0.33.4±0.4
+> Hierarchical RL 63 .2±1.551 .8±3.413 .6±0.73.8±0.6
+> Qwen3-8B 54 .7±0.871 .6±2.115 .2±0.55.2±0.7
+> Gemini 3.1 Pro 58 .9±0.761 .2±1.912 .7±0.43.2±0.4
+> Claude Sonnet 4.5 58 .6±0.861 .9±2.012 .8±0.43.3±0.5
+> Ours 65 .8±1.143 .6±2.511 .8±0.52.4±0.5
+
+Table 19: Corridor auxiliary metrics in SUMO, overall scores over five matched runs. Bottleneck speed is the time mean over the 180 -minute evaluation window at the critical mainline section; free-flow speed is vf = 80 km/h.                                                                                                         
+
+> Method Violation steps ↓Curtailed (kWh) ↓Unmet EV (kWh) ↓Excursion ( ◦C·h) ↓
+> MPC-MILP 9.4±0.6412 ±28 86 .3±5.11.42 ±0.11
+> End-to-End RL 26 .8±3.91348 ±214 392 .6±58 .34.87 ±0.72
+> Fixed-Mode Hierarchy 9.8±0.7431 ±31 91 .7±5.61.51 ±0.12
+> Hierarchical RL 11 .2±1.3528 ±61 71 .4±8.91.18 ±0.15
+> Qwen3-8B 18 .3±1.4892 ±86 264 .1±26 .43.42 ±0.31
+> Gemini 3.1 Pro 12 .1±0.9574 ±48 148 .9±14 .22.06 ±0.19
+> Claude Sonnet 4.5 12 .7±1.0601 ±52 157 .3±15 .12.18 ±0.21
+> Ours 5.2±0.8241 ±34 48 .6±6.70.83 ±0.11
+
+Table 20: Virtual power plant auxiliary metrics in OpenDSS, overall scores over five matched runs. Violation steps count 
+
+5-minute intervals with a voltage or thermal violation; Excursion is the integrated indoor-temperature deviation outside the comfort band. The episode is the 12 -hour window 10 :00 –22 :00 at ∆low = 5 min, so an episode contains 144 low-level steps.           
+
+> Method Corridor VPP Qwen3-8B 4.7% 3.1%
+> Gemini 3.1 Pro 0.4% 0.2%
+> Claude Sonnet 4.5 0.5% 0.3%
+> Ours 0.03% 0.00%
+
+Table 21: Schema-violation rate over all decision steps of the test set. 
+
+{∆, 2∆ , 4∆ , 8∆ } on both tasks, retraining from the same base policy with every other setting of Table 10 unchanged, and reports the overall score, the higher-uncertainty subset, and the training wall-clock relative to H = ∆ . The ∆ and 
+
+4∆ rows are the ones in the main paper. The curve saturates. Most of the available gain is realised by 2∆ , and 4∆ captures nearly all of it; extending to 8∆ 
+
+adds 0.24 percentage points of throughput and 0.23 of cost reduction for twice the training cost of 4∆ and 6.2 times that of ∆. We therefore report 4∆ as the operating point, not as an optimum. The reason the curve flattens is task structure rather than optimisation difficulty: 4∆ is 12 min for the corridor, which is the order of the time a merge disturbance needs to propagate upstream and clear, and 120 min for the VPP, which spans a tariff transition and a substantial part of the PV ramp. Once the horizon covers the mechanism by which a decision comes back to matter, extending it further mostly adds simulated time, not information. The run-to-run spread also widens again at 8∆ , which is what one expects when the return starts absorbing disturbances the initial decision did not cause; the residual 8∆ improvement is smaller than that spread, so we do not read it as a real difference from 4∆ .The gains are consistently largest in the higher-uncertainty subset — 2.84% and 3.81% at 4∆ — which is the pattern the method predicts. Under low uncertainty the immediate outcome is already a good proxy for the eventual one, so a short rollout suffices; under high uncertainty a decision that looks good for one interval is often the one that has to be reversed, and only a continuation reveals that. 
+
+Is the gain just extra compute? Lengthening the contin-uation multiplies both the simulated time and the number of generation calls, so the sweep alone cannot separate the return construction from the budget it consumes. The last row of Table 23 is the control. It keeps H = ∆ and in-stead quadruples the number of snapshots per optimiser step, which issues the same number of generation calls and sim-ulates the same number of intervals as H = 4∆ ; the two settings differ only in whether those intervals are spent ex-tending one rollout or starting four independent ones. The compute-matched short-horizon setting recovers +0 .52% of throughput and +0 .84% of cost against the +1 .88% and 
+
++2 .69% of H = 4∆ — roughly a quarter and a third of the effect. More data at the same horizon therefore helps, as one would expect from variance reduction alone, but most of the gain is attributable to what the return measures rather than to how much of it is measured. 
+
+D.4 Operational-Context Ablation 
+
+The framework’s premise is that a language model is the right instrument for this decision because the decision de-Multi-ramp traffic control Virtual power plant Method LTM ↑ SUMO ↑ Gap ↓ Fast model ↓ OpenDSS ↓ Gap ↓                                                                                                                                                
+
+> Direct control 16295 .2±38 .415592 .5±49 .14.31 ±0.19% 31954 .0±41 .634171 .6±64 .26.94 ±0.22%
+> End-to-End RL 17438 .7±147 .815678 .6±181 .210 .09 ±1.07% 33785 .3±438 .637815 .9±608 .511 .94 ±2.03%
+> Fixed-Mode Hierarchy 16584 .2±34 .915818 .0±43 .74.62 ±0.21% 31981 .3±46 .334277 .8±70 .67.18 ±0.24%
+> Hierarchical RL 17043 .9±91 .516131 .8±110 .25.35 ±0.54% 30684 .7±229 .433515 .2±317 .49.23 ±0.95%
+> Qwen3-8B 16312 .6±33 .415270 .7±55 .16.39 ±0.21% 34025 .2±87 .936876 .2±144 .78.38 ±0.26%
+> Gemini 3.1 Pro 16630 .6±40 .215659 .7±50 .85.84 ±0.24% 32655 .5±94 .135143 .8±132 .57.62 ±0.27%
+> Claude Sonnet 4.5 16601 .7±42 .715613 .0±52 .75.96 ±0.25% 32761 .7±98 .635319 .9±138 .37.81 ±0.29%
+> Ours 17286 .4±66 .716625 .4±84 .53.82 ±0.33 %30941 .8±142 .732679 .2±223 .65.62 ±0.54 %
+
+Table 22: Cross-simulator performance for all methods over five matched runs. Direct control is Feedback Control for the corridor and MPC-MILP for the VPP. The four rows also present in the main paper are reproduced unchanged.                                                                                             
+
+> Multi-ramp traffic control: throughput ↑Virtual power plant: cost ↓
+> Horizon High-U Overall Gain High-U Overall Gain Train time
+> H= ∆ 15767 .1±211 .616318 .7±136 .4—34843 .1±589 .233581 .5±327 .8—1.0×
+> H= 2∆ 16018 .4±156 .216512 .3±104 .7+1 .19% 34104 .6±468 .333042 .8±271 .4+1 .60% 1.6×
+> H= 4∆ 16214 .7±118 .616625 .4±84 .5+1 .88% 33516 .3±371 .532679 .2±223 .6+2 .69% 3.1×
+> H= 8∆ 16257 .3±121 .716663 .9±88 .3+2 .12% 33438 .9±379 .432601 .7±231 .8+2 .92% 6.2×
+> H= ∆ ,4×data 15911 .2±183 .416402 .8±118 .9+0 .52% 34512 .7±521 .633298 .4±296 .3+0 .84% 2.9×
+
+Table 23: Continuation-horizon sweep over five runs with matched evaluation seeds. Gain is relative to H = ∆ on the overall score. Train time is wall-clock relative to H = ∆ at fixed optimiser steps. For the corridor ∆ = 3 min; for the VPP ∆ = 30 min. The last row is the compute-matched control: H = ∆ with four times as many snapshots per optimiser step, which issues the same number of generation calls and simulates the same number of intervals as H = 4∆ .pends on heterogeneous, partly qualitative context that a fixed feature vector represents awkwardly. That premise is testable: if the context categories of Table 9 were decoration, removing them would not cost anything. We retrain and re-evaluate with categories withheld from the prompt, holding the schema, the mode space, and every training setting fixed. Withholding is done at prompt-construction time, so the re-moved block is absent rather than zeroed, and the model is never shown a field it cannot interpret. 
+
+Leave-one-out. Table 24 removes one category at a time. Every removal costs performance, and the ordering differs between tasks in a way that follows the control timescale. For the corridor the recent-trend block is the most valuable single category, costing 1.91% of throughput when removed; for the VPP it is the forecast block, costing 1.65% of cost. The decision interval explains this. The corridor commits for 
+
+3 min and its continuation horizon is 12 min, well inside the time a queue takes to build, so the direction and rate of the current change carries most of the information about what the next interval will look like — and the hysteresis gate’s job is precisely to decide whether to break or maintain the current state, which is a question about the trend. The VPP commits for 30 min with a 120 -min horizon, long enough that the current trend has often reversed by the end of it; what matters is the PV ramp and the tariff transition ahead, which only the forecast supplies. The two predictive blocks, trends and forecasts, are the top two on both tasks; they simply swap order. Uncertainty estimates come third on both, at 0.93% and 1.00% . This is                                   
+
+> Withheld category Throughput ↑VPP cost ↓
+> None (ours) 16625 .4±84 .532679 .2±223 .6
+> Recent trends 16308 .7±107 .433127 .5±248 .9
+> Forecasts 16394 .2±96 .833218 .4±241 .7
+> Uncertainty estimates 16471 .6±91 .333006 .8±234 .2
+> Priorities and events 16512 .9±88 .632894 .1±229 .4
+
+Table 24: Leave-one-out operational-context ablation, overall scores over five runs. Rows are ordered by the corridor loss. the category with no analogue in a conventional controller: it does not describe the state but the reliability of the de-scription, and its value is that it changes how much the other blocks should be trusted — which is why it costs least on the corridor, where the trend is directly observed, and more on the VPP, where the block it modulates is a forecast. Op-erational priorities and external events cost the least, around 
+
+0.7% on both tasks, which is expected — they are informa-tive in a minority of intervals, but in those intervals they are decisive, so their small mean effect should not be read as redundancy. 
+
+Cumulative stripping. Removing categories one at a time understates their joint contribution, because the remaining blocks partly substitute for the missing one. Table 25 strips them cumulatively down to the numerical measurements alone, which is the information a conventional state-feedback controller would receive. The full loss is 3.86% of throughput and 4.09% of cost, roughly twice the largest single-category Context supplied Throughput ↑ VPP cost ↓                          
+
+> Full 16625 .4±84 .532679 .2±223 .6
+> −forecasts 16394 .2±96 .833218 .4±241 .7
+> −uncertainty 16281 .5±112 .633452 .7±258 .6
+> Measurements only 15984 .3±131 .834016 .9±287 .3
+
+Table 25: Cumulative context stripping, overall scores over five runs. Each row removes the named category in addition to those above it; the last row also removes recent trends, priorities, and events, leaving only the current numerical measurements. effect, confirming the substitution. The stripped policy is the informative row. With only current measurements it still improves on the direct-control baseline of each task, by 2.51% on throughput and 0.45% 
+
+on cost, and it also improves on Fixed-Mode Hierarchy, by 
+
+1.05% and 0.76% . Two conclusions follow. The hierarchy and the training procedure contribute on their own, indepen-dently of the richer context: state-dependent mode selection beats the best static mode assignment even from bare mea-surements — exactly, for the VPP, where that assignment is found by exhaustive search, and within the group-wise can-didate set for the corridor. And the majority of our margin over the strongest baselines comes from the context, not from the architecture — which is the claim the framework rests on, and it is why the appendix documents the context format as carefully as the algorithm. 
+
+D.5 Uncertainty of the Reported Differences 
+
+With five runs the run-level standard deviations in the main tables are estimated from few samples, so we do not base claims on a hypothesis test over them. Instead we quan-tify the reported differences directly, using the structure the protocol already provides: every method is evaluated on the same 300 scenarios under the same disturbance realisations, so differences can be taken per scenario before aggregation. We resample scenarios with replacement within each sub-set, recompute the equal-weight subset aggregation, and take the 2.5th and 97 .5th percentiles of the paired difference over 
+
+10 ,000 resamples. The interval therefore describes the sce-nario population, which is the quantity a reader wants when asking whether a margin would survive a different draw of test cases. Table 26 reports the intervals for the comparisons the pa-per’s claims rest on. All exclude zero. Among the compar-isons against other methods the margin over Hierarchical RL is the narrowest on both tasks — [+408 , +574] vehicles and [+688 , +1002] CNY — and it is the comparison that matters, since Hierarchical RL shares our decision space, our low-level controllers, and our training scenarios, dif-fering only in how the high-level policy is represented and scored. The horizon ablation is narrower still on throughput, at [+199 , +404] , which is expected: it changes one term of the training objective rather than the whole method. The in-tervals are not symmetric about the point estimate, and the direction of the skew differs by task: throughput is bounded above by capacity, so its differences have a longer lower tail,                                            
+
+> Comparison Difference 95% interval
+> Throughput, vehicles per episode
+> vs. Feedback Control +1032 .9[+947 ,+1113]
+> vs. Fixed-Mode Hierarchy +807 .4[+729 ,+881]
+> vs. End-to-End RL +946 .8[+812 ,+1069]
+> vs. Hierarchical RL +493 .6[+408 ,+574]
+> vs. Gemini 3.1 Pro +965 .7[+884 ,+1041]
+> vs. H= ∆ +306 .7[+199 ,+404]
+> Operating cost, CNY per episode
+> vs. MPC-MILP +1492 .4[+1358 ,+1641]
+> vs. Fixed-Mode Hierarchy +1598 .6[+1451 ,+1762]
+> vs. End-to-End RL +5136 .7[+3974 ,+6428]
+> vs. Hierarchical RL +836 .0[+688 ,+1002]
+> vs. Gemini 3.1 Pro +2464 .6[+2276 ,+2673]
+> vs. H= ∆ +902 .3[+742 ,+1079]
+
+Table 26: Paired scenario-level bootstrap, 10 ,000 resamples. Positive values favour our method in both tasks: more vehi-cles discharged, fewer CNY spent. whereas cost has a long upper tail driven by episodes in which a baseline loses control of a constraint, which is why the End-to-End RL interval is by far the widest. The abla-tion of the continuation horizon is separated by a comparable margin, which is consistent with reading that mechanism as the source of a substantial part of the difference. We make no claim about the ordering among the three prompting-only coordinators: their intervals overlap, and separating them is not something this experiment was designed to do. What this interval does not cover should be stated plainly. It resamples scenarios, so it describes the population of test cases; it does not resample training seeds, of which there are only five, so it says nothing about how much of the margin would survive a different draw of optimiser randomness. The seed component is what the standard deviations in the main tables carry, and for our policy those are ±84 .5 vehicles and ±223 .6 CNY on the overall score — smaller than every margin in Table 26 except the horizon ablation on throughput, where the two are of the same order. With five seeds we cannot put an interval on that component, and we do not claim one. What we can report is the sign: taking the five seeds pairwise against the matched runs of each baseline, our policy is ahead on all five for every comparison in Table 26 except the horizon ablation on throughput, where it is ahead on four of five. A reader who wants a single conservative reading should treat that ablation as the one place where seed variation is not negligible relative to the effect, and should read the remaining comparisons as supported by a consistent sign across seeds rather than by an interval that covers seed randomness. 
+
+## E Policy Behavior and Case Studies 
+
+E.1 Mode-Selection Distributions 
+
+A hierarchical policy can score well for the wrong reason: if one mode assignment happens to be good on average, a policy that always emits it will beat a poorly tuned baseline Corridor roles, share of all ramp-steps                           
+
+> Sensitive Standard Sluggish Always-Open Ours 31 .442 .721 .84.1
+> Qwen3-8B 18 .268 .49.63.8
+> VPP modes (ours), share of all resource-steps
+> Resource Conservative Balanced Proactive PV 24 .638 .237 .2
+> Battery 15 .234 .050 .8
+> EV 34 .145 .620 .3
+> HVAC 28 .747 .923 .4
+
+Table 27: Mode-selection shares in percent over the 300 test scenarios. Rows sum to 100 .while learning nothing about context. Fixed-Mode Hierar-chy is the control for exactly that: its defining property is that the assignment never changes during an episode, its candi-date set is exhaustive for the VPP and includes group-wise non-uniform vectors for the corridor (Appendix B.3), and it is beaten on both tasks. Constancy is therefore not the ex-planation. What remains to be shown is that the variation is 
+
+responsive rather than arbitrary, and that is what this subsec-tion reports. 
+
+Marginal distribution. Table 27 gives the share of each mode over all decision steps of the test set. The distribution is broad on both tasks. Normalised over the four corridor roles, the selection entropy of the pooled ramp-step distribution is 0.86 for our policy against 0.66 for the prompting-only Qwen3-8B coordinator, and averaged over the four VPP re-sources it is 0.95 against 0.76 . Pooled entropy alone does not measure adaptivity, and it is worth being explicit about why: Fixed-Mode Hierarchy emits a vector that is mixed across ramps, so its pooled entropy is 0.78 , not zero. What is zero for it is the temporal entropy, the entropy of the mode cho-sen at a given ramp across decision steps, which is the axis on which our policy differs from it. We report the pooled figure because it is the one the table supports, and we rest the adaptivity claim on the conditional distributions below rather than on either entropy. The untuned model concen-trates on the default — Standard on 68% of corridor steps and balanced on roughly 69% of VPP steps — which is the behaviour one expects when the model recognises the format but not the situation. Fine-tuning does not merely shift the mean assignment; it moves mass onto the extremes, which are the modes that only pay off when correctly timed. Always-Open is the exception and deliberately so: it ap-pears on 4.1% of steps, consistent with the instruction of Figure 3 that it be reserved for clearly free-flowing ramps rather than used to relieve mainline pressure. 
+
+Conditional distribution. A broad marginal is necessary but not sufficient: a policy could be diverse and still uncor-related with the situation. Table 28 conditions the share on a context variable that the mode is supposed to respond to. The corridor pattern is the informative one because it is not monotone. Sensitive is the narrowest hysteresis band and therefore the role that breaks the current gate state fastest,                     
+
+> Corridor: Sensitive / Sluggish share by occupancy trend
+> Rising Flat Falling Sensitive 44 .219 .738 .6
+> Sluggish 14 .129 .017 .4
+> VPP: proactive-battery share by tariff tier
+> Shoulder Peak Critical
+> 21 .444 .668 .7
+> VPP: proactive-EV share by urgent share ω
+> Low ωMedium ωHigh ω
+> 41 .222 .79.2
+
+Table 28: Mode shares in percent conditioned on the context variable the mode is intended to respond to. Trend bins are defined on the signed change of merge-area occupancy over the observation window and cover 27 , 46 and 27 percent of ramp-steps; the urgency bins cover 20 , 35 and 45 percent of VPP steps; the tariff bins cover 2, 5 and 5 hours of the episode. Weighting each row by these proportions recovers the corresponding marginal share in Table 27. so it is the right choice at both turning points — when de-terioration must be arrested and when a dissipating queue should be released — and the wrong choice when conditions are stable and the current state should be held. The selected shares reproduce exactly that shape: 44 .2% on rising occu-pancy, 38 .6% on falling, and only 19 .7% when flat, where Sluggish takes over. A policy that had simply learned “con-gestion implies Sensitive” would show a monotone profile instead. The VPP patterns are monotone but in the direction the mode semantics require. Proactive battery, which relaxes the terminal reserve and lifts the discharge cap, rises from 21 .4% 
+
+in the shoulder tier to 68 .7% in the critical-peak tier. Proac-tive EV, which lowers the penalty on unmet EV energy and therefore permits charging to be cut, moves the opposite way with urgency: 41 .2% when the urgent share is low and 9.2% 
+
+when it is high. The sign of each response is set by what the mode does to the low-level layer, not by a generic notion of aggressiveness. The contrast with the untuned model is sharper condi-tionally than marginally. Across the three occupancy-trend bins the Sensitive share varies by 24 .5 percentage points for our policy and 6.3 for Qwen3-8B; across the three tariff tiers that occur in the episode window the proactive-battery share varies by 47 .3 points against 16 .0. Continuation-aware training therefore changes what the policy is responding to, not only how often it departs from the default — which is the mechanism the main paper’s context-conditioning claim rests on. 
+
+E.2 A Representative Episode of Each Task 
+
+To make the two layers concrete, Table 29 follows one balanced-heavy corridor scenario through its five phases. The scenario is chosen because it exercises the coordination question rather than because it is favourable: the mainline rises to near capacity while three of the eight ramps carry strong demand. The sequence is legible. During the rise the policy tight-Phase Bottleneck occ. Sens. Slug. Open Warm-up ( 0–15 min) 0.11 0 0 0                    
+
+> Rise ( 15 –45 min) 0.19 310
+> Plateau ( 45 –120 min) 0.24 250
+> Decline ( 120 –160 min) 0.17 510
+> Recovery ( 160 –195 min) 0.09 123
+
+Table 29: Modal role assignment across the phases of one balanced-heavy corridor scenario; counts are out of eight controlled ramps, the remainder being Standard. Occupancy is the mean at the critical merge. ens ahead of the bottleneck, assigning Sensitive to the three ramps upstream of the merge that is about to break rather than to the ramp with the longest queue — the spatial-propagation reasoning the prompt asks for. Through the plateau it switches most ramps to Sluggish: with occupancy stable near the cen-tres, a wide band is what prevents the gate from oscillating, and this is the phase in which the hysteresis design pays. During the decline it returns to Sensitive, now to release the accumulated queues quickly, and it is here that the queue advantage over the RL baselines in Table 19 is accumulated. Always-Open appears only in the final phase, once the main-line is demonstrably clear. The VPP counterpart follows the tariff. Through the shoul-der tier the policy holds the battery conservative and the EV balanced, building state of charge and residual EV energy that it then spends: entering the critical-peak tier it flips the battery to proactive and, once the EV deadline is no longer binding, the EV to proactive as well, so that the two resources that can absorb the price spike are both unconstrained when it arrives. HVAC moves to proactive only when the outdoor temperature makes a comfort violation the binding risk. 
+
+E.3 Where the Method Helps and Where It Does Not 
+
+Table 30 breaks the gain over direct control down by operating-pattern family. The spread is large and its shape delimits the claim. The method helps most where the coordination problem is real. On the corridor the largest gains are in ramp-dominant and balanced-heavy scenarios, 8.5% and 9.8% , in which several ramps compete for the same downstream capacity and the choice of which to tighten first has a lasting effect. On the VPP the gains are more even across PV-, EV-, and grid-limited families, all between 5 and 6% , because each of those pressures is relieved by a different resource and the joint mode vector is where the trade-off is made. The method helps least where there is little to decide. Upstream-dominant corridor scenarios gain only 2.3% : when the mainline is loaded and the ramps are weak, almost any ad-missible gating is adequate, and the achievable range over Z
+
+is narrow. Comfort-limited VPP scenarios are the honest fail-ure. The gain is 0.3% , and the scenario-level bootstrap of Ap-pendix D.5 restricted to that family gives [−148 , +361] CNY around a point estimate of +97 , an interval that contains zero, so we do not claim an improvement there. The reason is structural: when the outdoor temperature sits far outside the comfort band, the band is binding for most of the episode, so                   
+
+> Pattern family Baseline Gain
+> Corridor, throughput vs. Feedback Control
+> Upstream-dominant 16043 .2+2 .3%
+> Ramp-dominant 15108 .6+8 .5%
+> Balanced moderate 15797 .4+6 .1%
+> Balanced heavy 15420 .8+9 .8%
+> VPP, cost vs. MPC-MILP
+> PV-limited 34912 .7+5 .2%
+> EV-limited 33784 .3+6 .1%
+> Grid-limited 35603 .8+5 .6%
+> Comfort-limited 32385 .6+0 .3%
+
+Table 30: Gain by operating-pattern family. Each family con-tributes 25 scenarios to each of the three subsets, so 75 of the 
+
+300 test scenarios, and Baseline is that family’s direct-control score. The overall gains of 6.62% and 4.37% in the main pa-per are the baseline-weighted aggregate P 
+
+> f
+
+Bf gf / P 
+
+> f
+
+Bf ,not the unweighted mean of the four percentages; the two dif-fer because the families sit at different absolute levels. Equal representation does make the baseline column average to the overall direct-control scores of 15592 .5 and 34171 .6.HVAC power cannot be deferred into a cheaper tier without an excursion the reward charges immediately. The MILP has almost no feasible slack to reallocate, and the mode vector cannot change an outcome that the physics has already fixed. Our method shows no detectable improvement there — the interval admits both a gain and a loss, so we are not claim-ing equivalence either — and MPC-MILP is the appropriate choice. Two further limits follow from the design rather than from the results. First, the advantage is largest when the low-level layer has genuine freedom; a hierarchy over a satu-rated controller inherits the saturation. Second, the whole approach presumes that the decision worth delegating is a low-dimensional, semantically labelled one. Both tasks here have that structure — four roles per ramp, three modes per resource — and we make no claim about problems in which the high-level decision is itself high-dimensional or contin-uous, where the mode vocabulary that makes the prompt interpretable would have to be constructed first.
