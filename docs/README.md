@@ -41,7 +41,7 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-19</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-20</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
     <strong class="dpr-home-dashboard-count">共 33 篇</strong>
@@ -51,7 +51,7 @@
     <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>20</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-19 21:17:53 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-20 21:19:19 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共读33篇论文，精读20篇、速读13篇，覆盖机器人与具身智能前沿方向。最值得关注的是G0.5统一推理与动作流、BICPO-VLA异步控制优化这两项9.0分精读工作。建议普通读者优先消化精读高分论文，速读中可留意开放词汇操作与机器人记忆压缩方向。</p>
+<p>今日共扫描33篇论文，精读20篇、速读13篇，聚焦具身智能与视觉-语言-动作模型（VLA）。</p>
+<p>最值得关注的是两项9.0分精读工作：G0.5实现机器人推理与行动的统一自回归流，BICPO-VLA通过行为识别续优偏好优化提升异步控制平滑性。</p>
+<p>建议优先精读这两篇高分论文，并顺带浏览速读中关于结构化探索与边缘协同推理的三篇8.0分工作。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -76,7 +78,7 @@
   <div class="dpr-home-dashboard-body">
 <ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="G0.5: One Autoregressive Stream for Robot Reasoning and Action">G0.5: One Autoregressive Stream for Robot Reasoning and Action</span></li><li><span class="dpr-home-dashboard-paper-title" title="BICPO-VLA: Behavior-Identified Continuation Preference Optimization for Smooth Asynchronous Vision-Language-Action Control">BICPO-VLA: Behavior-Identified Continuation Preference Optimization for Smooth Asynchronous Vision-Language-Action Control</span></li><li><span class="dpr-home-dashboard-paper-title" title="Reflex: Enabling Fast and Predictive Vision-Language-Action Models for Reaction-Critical Manipulation">Reflex: Enabling Fast and Predictive Vision-Language-Action Models for Reaction-Critical Manipulation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>12</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>5</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>2</strong></span><span class="dpr-home-dashboard-tag">control <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>8</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>5</strong></span><span class="dpr-home-dashboard-tag">control <strong>4</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>3</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -87,9 +89,9 @@
     <strong class="dpr-home-dashboard-count">13 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Embodied Multimodal Grounding for Open-Vocabulary Mobile Manipulation via Semantic 3D Gaussian Splatting">Embodied Multimodal Grounding for Open-Vocabulary Mobile Manipulation via Semantic 3D Gaussian Splatting</span></li><li><span class="dpr-home-dashboard-paper-title" title="Remember Smarter: Visual History Compressor and Hyperbolic Experience Space for Robotic Memory">Remember Smarter: Visual History Compressor and Hyperbolic Experience Space for Robotic Memory</span></li><li><span class="dpr-home-dashboard-paper-title" title="Model-Free Based Computations of Recursive Control Barrier Function: Ultra-Local Model Approach">Model-Free Based Computations of Recursive Control Barrier Function: Ultra-Local Model Approach</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="StructRL: Structured Action-Space Exploration for Flow-Based VLAs">StructRL: Structured Action-Space Exploration for Flow-Based VLAs</span></li><li><span class="dpr-home-dashboard-paper-title" title="EcoVLA: Energy-Efficient Device-Edge Co-Inference for Vision-Language-Action Models under Real-Time Constraints">EcoVLA: Energy-Efficient Device-Edge Co-Inference for Vision-Language-Action Models under Real-Time Constraints</span></li><li><span class="dpr-home-dashboard-paper-title" title="Zetta $ζ$: An Efficient Closed-Loop Embodied Harness for Self-Evolving Physical Intelligence">Zetta $ζ$: An Efficient Closed-Loop Embodied Harness for Self-Evolving Physical Intelligence</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">control <strong>5</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>5</strong></span><span class="dpr-home-dashboard-tag">vla <strong>3</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>6</strong></span><span class="dpr-home-dashboard-tag">vla <strong>5</strong></span><span class="dpr-home-dashboard-tag">control <strong>1</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>1</strong></span></div>
 </section>
 </div>
 
