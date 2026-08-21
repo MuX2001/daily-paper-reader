@@ -1,0 +1,1355 @@
+Title: Hybrid Feedback Sampling for Sample-Efficient Model Predictive Control
+
+URL Source: https://arxiv.org/pdf/2608.19443v1
+
+Published Time: Fri, 21 Aug 2026 00:13:26 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# Hybrid Feedback Sampling for Sample-Efficient Model Predictive Control 
+
+Chaoyi Pan 1,∗, Zeji Yi 1,∗, John Zhang 2, Zachary Manchester 2, Guannan Qu 1, Guanya Shi 3
+
+Abstract — Thanks to its parallelizability and flexibility, sampling-based Model Predictive Control (MPC) has become widely popular for controlling real-world robotic systems. How-ever, for high-dimensional and open-loop unstable dynamical systems, the required number of samples to improve the control sequence will grow exponentially with the horizon, leading to poor sample efficiency and numerical instability. This paper investigates the instability of shooting methods in sampling-based MPC and shows that the optimal sampling proposal distribution can be realized by sampling with an optimized feed-back policy. We refer to this algorithm as Feedback Sampling MPC (FS-MPC). FS-MPC involves a hybrid sampling design which balances local and global search based on the system stability and the available computation budget. Our theoretical analysis shows that our hybrid sampling approach achieves faster convergence than standard MPPI and better optimal-ity than standard feedback sampling. Empirically, in diverse contact-rich control tasks like humanoid loco-manipulation and dexterous manipulation, we show that FS-MPC successfully tackles dynamically unstable tasks where standard sample-based approaches struggle, and strictly outperforms feedback policies alone. Finally, we validate our method on humanoid robot locomotion and manipulation tasks in the real world. 
+
+I. I NTRODUCTION 
+
+Sampling-based model-predictive control (MPC), such as model-predictive path integral control (MPPI), has emerged as a popular approach for solving challenging real-time optimal control problems [1] thanks to its straightforward im-plementation and natural parallelizability on modern GPUs. However, most successful applications of sampling-based MPC are limited to open-loop stable tasks such as au-tonomous vehicles [2], quadrupeds [3], [4], or quasi-static manipulation [5]. When applied to inherently unstable sys-tems like quadrotors or humanoid robots, these sampling-based algorithms suffer from numerical instability during long open-loop rollouts (see Figure 1). To overcome this challenge, efficient sampling strategies for unstable systems are needed. Existing work roughly falls into three camps. Improved covariance and filtering designs [6]–[8] help the sampler stay near stable trajectories, horizon reduction techniques such as value function shaping and control sequence interpolation [9] shrink the effective 
+
+> ∗
+
+Equal contribution. 
+
+> 1
+
+C. Pan, Z. Yi, and G. Qu are with the Department of Electrical and Computer Engineering, Carnegie Mellon University, Pittsburgh, PA 15213, USA ( {chaoyip,zejiy,gqu }@andrew.cmu.edu ). 
+
+> 2
+
+J. Zhang and Z. Manchester are with the Department of Aeronautics and Astronautics, Massachusetts Institute of Technology, Cambridge, MA 02139, USA ( {jzhang3,zacm }@mit.edu ). 
+
+> 3
+
+G. Shi is with the Robotics Institute, Carnegie Mellon University, Pittsburgh, PA 15213, USA ( guanyas@andrew.cmu.edu ). (b) FS-MPC deploy on H1 humanoid robot (a) FS-MPC v.s. MPPI    
+
+> 0.0 2.5 5.0 Sampled Cost Distribution 0.00 0.25 0.50 0.75 1.00 FS-MPC MPPI
+
+Fig. 1. (a) Motivation of FS-MPC: showing the sampling distributions of FS-MPC (left) and standard MPPI (middle), and the distributions of their samples’ costs (right), where the quadrotor is initialized at the same state. Given the long horizon navigation task with unstable quadrotor dynamics, feedback sampling can stabilize the system while MPPI’s samples diverge. Therefore, the cost distribution of FS-MPC is significantly more optimal. (b) Deploy FS-MPC on the real humanoid robot. When planning over contact-rich and unstable humanoid dynamics, FS-MPC can control the robot with both stability and precision. 
+
+prediction horizon, and offline learning of sampling distribu-tions [10]–[12] produces better proposal distributions after random exploration. All these approaches improve sampling efficiency but do not directly address the instability of the open-loop rollout step. Because the fundamental instability originates there, these techniques still experience sampling divergence as the horizon lengthens, and the only way to maintain stability is to exponentially increase the sample count. We address this by introducing a sampling strategy that is designed with the rollout instability in mind. In this paper, we introduce Feedback Sampling MPC, or FS-MPC. We discover that the optimal sampling pro-posal distribution for linear time-variant (LTV) systems is equivalent to sampling from the optimal feedback policy for the same system. We further extend this idea to general nonlinear systems that are not linearizable using a learned stabilizer. Lastly, to ensure both sample efficiency and global convergence, FS-MPC employs a hybrid feedback sampling design that adjusts the feedback sample ratio based on system stability and available computation budget. 
+
+Contributions: Our main contributions are three-fold: 1) Bounded Sample Complexity for Sampling-based MPC: We analyze the sample inefficiency of MPPI (Theorem 1) and propose a hybrid feedback sam-arXiv:2608.19443v1 [cs.RO] 19 Aug 2026 pling rule for general nonlinear systems that improves sample efficiency compared to standard MPPI with feedback controller. 2) Practical Algorithms: We provide a practical imple-mentation of our feedback sampling approach, which is compatible with both iLQR and RL as feedback controllers for general nonlinear systems. 3) Experimental Validation: We validate the method’s performance in various high-dimensional, contact-rich, and unstable tasks (e.g., humanoid locomotion and ma-nipulation) in both simulations (Sections V-A and V-B) and the real world (Section V-C), solving tasks that were previously intractable for sampling-based methods. 
+
+Organization: In Section III, we begin by introducing the optimal control problem and sampling-based methods, which suffer from sample inefficiency. In the algorithm section (Section IV), we first look at the sample inefficiency of MPPI in Section IV-A and explain why optimal proposal distribution design mitigates sample inefficiency and leads to a natural feedback sampling design in linearizable systems (Section IV-B). We further extend this idea to general lin-earizable systems where a hybrid feedback sampling design is proposed to balance the sample efficiency and global con-vergence in Section IV-C. Additionally, a learned feedback extension is proposed to handle systems where dynamics are not differentiable in Section IV-D. Finally, in Section V, we evaluate the method’s performance in simulation (Sections V-A and V-B) and on a real-world humanoid (Unitree H1) (Section V-C). II. R ELATED WORK 
+
+A. Sampling-based MPC 
+
+Sampling-based MPC [1], [7] has been widely adopted in robotics control [9], [13], [14] for its flexibility and scalability. To improve the sampling efficiency, distribution improvement methods like CMA-ES [15], CEM [16] and learned distribution [14] are proposed. Sampling-based MPC has been widely used in non-convex control tasks like off-road driving [17], legged robot locomotion [3], [4] and manipulation [5], [9]. However, for unstable systems, the numerical instability of sampling-based MPC is a long-standing problem [6], [17] due to its stochastic nature and the instability of the open-loop trajectory sampling process. 
+
+B. Gradient-based Nonlinear MPC 
+
+Nonlinear MPC (NMPC) through formulations like se-quential quadratic programming (SQP, [18]), differentiable dynamic programming (DDP, [19]), and iterative linear quadratic regulator (iLQR, [20]) relies on differentiating through the optimal control problem. NMPC has been suc-cessfully achieved real-time control for legged robot loco-motion [21]–[23]. However, due to the high dimensionality of these systems and the inherent discontinuities of the contact dynamics, computing derivatives for these systems are non-trivial and not amenable to parallel hardware ac-celeration [24]. To achieve real-time control, heuristics such as hierarchical design [25], [26], reduced-order models and fixed contact modes are often deployed [27], [28] to simplify or convexify the original nonconvex problem. 
+
+C. Hybrid MPC 
+
+To solve non-convex problems with stability, the combi-nation of sampling and gradient-based methods has been ex-plored for safety and robustness. Our work is closely related to covariance steering [2], [29], [30] used in safety-critical sampling-based MPC. The idea of integrating gradient-based method to sampling is also explored in robust sampling [13], [31] with tube constraint and hierarchical design. This idea was originally proposed as Tube MPPI [7], which aims to stabilize the sampling distribution in a tube given model uncertainty. Another design to improve the sam-pling efficiency is to combine offline learning with online sampling with learned sampling distribution [10], dynamics model [12] and value function [14] while still keeping the same open-loop rollout step. FS-MPC differs from these methods in two ways: Objective-wise, FS-MPC aims to achieve optimality/improvement over the standard sampling-based MPC, while these methods aim to improve robustness and safety, leading to conservative sampling. Method-wise, FS-MPC is a meta-algorithm that can be instantiated with different feedback controllers, while the feedback in Tube-MPPI and Safe-MPPI requires differentiable dynamics that can be handled by gradient-based solvers. III. F ORMULATION 
+
+A. Notation 
+
+For standard control notation, we use xt ∈ Rn to denote the system state at time t and ut ∈ Rm to denote the control input at time t. Control and state sequences are written in uppercase, e.g. U = u1: H and X = x1: H+1 , where H is the prediction horizon. For samples drawn from a distribution, the i-th sample is written as [·]i. Specifically, the sampled control sequence is denoted [V ]i = [ v1: H ]i, where i indicates the sample index. The optimization-iteration index is k, and 
+
+Uk refers to the optimized control sequence produced at iteration k.
+
+B. Optimal Control Problem 
+
+This paper considers the following discrete-time optimal control problem: 
+
+min 
+
+> u1: H
+
+J(u1: H ) = 
+
+> H
+
+X
+
+> h=1
+
+c(xh, u h) + cf (xH+1 ), (1a) s.t. xh+1 = f (xh, u h) ∀h ∈ { 1, . . . , H }, (1b) 
+
+xH+1 ∈ X , u 1: H ∈ V (1c) where xh ∈ Rn is the state with feasible set X , uh ∈ Rm
+
+is the control input with feasible set V, f : Rn × Rm → Rn
+
+is the system dynamics, c : Rn × Rm → R is the running cost function, cf : Rn → R is the terminal cost function, and H is the prediction horizon. For simplicity, we denote control sequence with Uk = u1: H and state sequence with Xk = x1: H+1 . MPC algorithms will solve Equation (1a) in a receding horizon manner. 
+
+C. Sampling-based Optimal Control 
+
+Sampling-based optimal control updates the control se-quence U = u1: H in a zeroth-order manner as shown in Algorithm 1. At each iteration, the algorithm samples N
+
+control sequences [Vk]1: N ∼ q(·; Uk, θ k) from the proposal distribution. The proposal distribution q(·; Uk, θ k) should be easy to sample from, where θk denotes its parameters. For in-stance, in MPPI, the proposal distribution is a isotropic Gaus-sian: q(·; Uk, θ k) = N (Uk, σ 2I). Then, the sampled control sequences are rolled out in the open-loop manner to get the system state sequence [Xk]i ← rollout (x0, [Vk]i), i =1, . . . , N starting from the same initial state x0. Next, the cumulative cost of each sampled trajectory ([ Xk]i, [Vk]i)
+
+is computed: [Jk]i ← cost ([ Xk]i, [Vk]i), i = 1, . . . , N .Finally, an update rule is applied to the control sequence, which depends on the specific algorithm. For instance, in MPPI, the update rule is softmax which combines samples with lower cost with higher weights: 
+
+Uk+1 =
+
+PNi=1 exp( − [Jk ]i 
+
+> λ
+
+)[ Vk]i
+
+PNi=1 exp( − [Jk ]i 
+
+> λ
+
+) (2) where λ is a temperature parameter. As λ → 0, the update rule is equivalent to selecting the best control sequence leading to the smallest cost. The subsequent discussion is agnostic to the specific update rule and is not limited to MPPI since we focus on analyzing each individual sample’s quality. The above iteration is repeated for K times until convergence. Running the algorithm in a receding-horizon manner yields a closed-loop sampling-based controller. 
+
+Algorithm 1 General Sampling-Based Optimal Control  
+
+> 1:
+
+Initialization: x0 ∼ X 0, U 0 ← 0 
+
+> 2:
+
+for k = 0 to K do ▷ Main optimization loop  
+
+> 3:
+
+[Vk]1: N ∼ q(·; Uk, θ k) ▷ Sample control sequences  
+
+> 4:
+
+[Xk]1: N ← rollout (x0, [Vk]1: N ) ▷ Rollout system dynamics  
+
+> 5:
+
+[Jk]1: N ← cost ([ Xk]1: N , [Vk]1: N ) ▷ Compute cumulative cost  
+
+> 6:
+
+Uk+1 ←          
+
+> PNi=1 exp( −[Jk]iλ)[ Vk]i
+> PNi=1 exp( −[Jk]iλ)
+
+▷ Update control sequence  
+
+> 7:
+
+end for  
+
+> 8:
+
+return UK
+
+IV. F EEDBACK SAMPLING 
+
+We formally introduce our feedback sampling framework by first examining the root cause of sampling inefficiency. In Section IV-A, we demonstrate that even in simplest unstable linear systems with optimal nominal control, open-loop shooting in sampling-based MPC still suffers from exponential sample complexity given long horizon and high-dimensionality. Motivated by this, Section IV-B derives an optimal sampling distribution for linear time-variant systems (LTV), uncovering a duality between optimal sampling dis-tribution and feedback policy. Leveraging this insight, Sec-tion IV-C generalizes this approach to a practical algorithm with a hybrid feedback law for linearizable systems with non-convex objectives, balancing sample efficiency and global convergence. A learned feedback extension is proposed to handle systems where dynamics are not differentiable in Sec-tion IV-D. The final algorithm is summarized in Section IV-E. 
+
+A. Sample Inefficiency of Sampling-based MPC 
+
+Open-loop shooting is unstable. MPPI’s sample inefficiency stems from its open-loop rollout step in shooting procedure. When the system is unstable, the sampled states can quickly diverge, leading to unstable behavior. We illustrate this behavior with a simple LQR counterex-ample. Consider the linear dynamics xh+1 = Ax h +Bu h and the quadratic cost J = x⊤ 
+
+> H
+
+Qx H +PH−1 
+
+> h=0
+
+(x⊤ 
+
+> h
+
+Qx h +u⊤ 
+
+> h
+
+Ru h)
+
+with Q, R ⪰ 0. When the open-loop system is unstable, the probability of sampling a stable trajectory remains exponen-tially small, as formalized in Theorem 1. 
+
+Theorem 1 (Exponential Sample Complexity of MPPI) .
+
+Consider an controllable unstable linear system with L2
+
+norm ∥A∥2 > 1 and rank (B) = dim (x). Let [Vk]i ∼N (Uk, σ 2I). Then the following results hold: 
+
+1) (Expected cost.) 
+
+E [J([ Vk]i)] = Θ( ∥A∥H 
+
+> 2
+
+)
+
+2) (Tail probability.) For small ε > 0, we have 
+
+Pr J([ Vk]i) ≤ Hε ≤ O √Hε ∥A∥−2H
+
+> 2
+
+.
+
+3) (Sample complexity.) To obtain at least one sample U
+
+satisfying J(U ) ≤ Hε with high probability 1 − δ, the required number of i.i.d. samples N satisfies 
+
+N = Θ ∥A∥2H−22
+
+√Hε log 1
+
+δ
+
+!
+
+for sufficient small ε ∼ o(1 /H )
+
+See Proof of Theorem 1 for the detailed derivation. The-orem 1 implies that MPPI cannot reliably discover low-cost trajectories because almost all samples diverge and incur high cost. Even when Uk = U ∗, the best nominal control sequence, the exponential complexity remains. To address this, we next optimize the sampling proposal distribution q(·)
+
+so that each sample has a higher chance of staying near the nominal trajectory. Section IV-B shows that this optimization naturally introduces feedback into the sampling process. 
+
+B. Optimal Feedback Sampling for Linear Systems 
+
+Optimal proposal distribution design for LTV systems. 
+
+We motivate our feedback sampling design by studying the time-variant linear quadratic programming (TVLQR) problem. We target to improve overall sample efficiency by optimizing proposal covariance matrix for a single sample expected cost: 
+
+min   
+
+> Σk≻0
+
+E[Vk ]i∼N (Uk ,Σk ) [J([ Vk]i)] (3) where J([ Vk]i) = 
+
+> H
+
+X
+
+> h=1
+
+ [xh]⊤ 
+
+> i
+
+Qh[xh]i + [ vh]⊤ 
+
+> i
+
+Rh[vh]i
+
+
+
++ [ xH+1 ]⊤ 
+
+> i
+
+QH+1 [xH+1 ]i, det (Σ k) = 1 
+
+where Qh, R h are the state and control cost matrices at step 
+
+h, respectively. [X]i = [ x1: H+1 ]i is the rollout trajectory of control sequence [Vk]i, i.e. [xh+1 ]i = Ah[xh]i + Bh[vh]i.Equation (3) is a matrix optimization problem that admits a closed-form solution, as proved in CoVO-MPC [32]. 
+
+Optimized proposal distribution restricts divergence. 
+
+Minimizing Equation (3) yields a sampler that generates trajectories with bounded cost variance, which stops trajec-tories’ cost from exploding. 
+
+Theorem 2 (Optimal Gaussian proposal removes hori-zon blow-up near an LQR optimum) . Consider a time-varying linear system with H steps, xh+1 = Ahxh +
+
+Bhuh, h = 0 , . . . , H − 1, with quadratic cost as in (3) , and let U ⋆ ∈ RmH be an optimal stacked open-loop control sequence. Consider Gaussian proposals with optimal mean, 
+
+Vk ∼ N (U ⋆, Σ) , and choose the covariance under a fixed-determinant constraint: 
+
+Σ⋆k = arg min  
+
+> det(Σ)=1
+
+E[J(Vk)] .
+
+Then the following results hold: 
+
+1) (Expected cost.) 
+
+E [J([ Vk]i)] = Θ( H)
+
+2) (Variance.) 
+
+Var [J([ Vk]i)] = Θ( H)
+
+3) (Tail probability.) There exists a constant ε ∼ Θ(1) 
+
+such that 
+
+Pr J([ Vk]i) ≤ Hε = Θ(1) 
+
+4) (Sample complexity.) 
+
+N = Θ(log(1 /δ )) 
+
+to obtain at least one sample satisfying J([ Vk]i) ≤ Hε 
+
+with probability at least 1 − δ
+
+None of these quantities exhibit exponential growth with horizon length H.
+
+Proof is available in Proof of Theorem 2. Theorem 2 indicates that the optimized covariance keeps the expected cost bounded and maintains a constant success probability regardless of horizon length. Compared to the isotropic Gaussian from Theorem 1, the optimized sampler introduces off-diagonal correlations that make it more expressive across time and control dimensions, which largely improves the probability of sampling a low cost trajectory from exponen-tially small to constant, and leads to higher sample efficiency. 
+
+Optimal proposal is equivalent to sampling with feed-back. To understand why the optimal proposal covariance matrix removes the dependence on the horizon H, we now show the optimal proposal covariance matrix is equivalent to adding feedback when rolling out the control sequence in the sampling process. Note that Equation (3) is a quadratic program (QP) and can be solved efficiently with forward-backward dynamic programming, which shares the same structure as iLQR. Consider the following iLQR controller with feedback and injected noise wh ∼ N (0 , σ 2I):
+
+uh+1 = −Khxh + Zhwh, (4) where design of Zh depends on the value function Ph from iLQR, which can be computed by the following backward pass: 
+
+Kh =  R + B⊤Ph+1 B−1 B⊤Ph+1 AZh =  R + B⊤Ph+1 B− 12
+
+Ph = Qh + K⊤
+
+> h
+
+
+
+Ph+1 − A⊤Ph+1 A
+
+
+
+Kh
+
+We next show that the distribution of uh+1 induced by this noisy feedback matches N (Uk, Σ∗
+
+> k
+
+).
+
+Theorem 3 (Equivalence between feedback sampling and optimal sampling distribution) . Given a linear system with quadratic cost, consider the control distribution given by 
+
+[uh+1 ]i = −Kh[xh]i + Zh[wh]i, [wh]i ∼ N (0 , σ 2I),
+
+which induces a Gaussian distribution on the full control sequence [Vk]i = [ u1: H ]i. When λ → 0 and N → ∞ , the covariance of the resulting Feedback MPPI distribution of 
+
+[Vk]i achieves the optimum Σ∗
+
+> k
+
+, where: 
+
+Σ∗ 
+
+> k
+
+= arg min  
+
+> Σ
+
+E[Vk ]i∼N (Uk ,Σ) [J([ Xk]i, [Vk]i)] . (5) (1) Feedback Sampling (2) Open-loop Sampling     
+
+> (a1)Planned Trajectory (a2)Planned Trajectory (b1)Optimal Control Distribution (b2) Isotropic Control Distribution (c1) Linear Realization (c2) Linear Realization
+> Fig. 2. Visualization of shooting control sequence (a), its joint covariance matrix (b) and its linear realization (c). (1) sampling with iLQR feedback
+> K∗(c1) would lead to stable sampling distribution (b1) which has a rich pattern. (2) Standard MPPI sampling rule (c2) would lead to an isotropic Gaussian distribution (b2), which is not optimal. From the perspective of joint control distribution design, feedback sampling can be viewed as the state space equivalent realization of optimal covariance matrix Σ∗
+> k.
+
+Proof is available in Proof of Theorem 3. Theorem 3 states the equivalence between the following two ways to sample a control sequence Ut used for rollout: 1) Recursively sample from a iLQR feedback controller with additional noise wh ∼ N (0 , σ 2I) or 2) Directly sample from a higher dimensional Gaussian distribution with covariance matrix Σ∗ 
+
+> k
+
+∈ RmH ×mH .The idea is similar to dynamic programming: instead of directly sampling from a high dimensional Gaussian distri-bution, we can recursively sample from a lower dimensional Gaussian distribution and apply a feedback rule to achieve the same effect. Figure 2 illustrates the equivalence between feedback sampling and optimal sampling distribution: when sampling from feedback sampling rule (c1), the resulting control sequence [Vk]i would have the same distribution as the one sampled from optimal sampling distribution (b1). The connection between recursive sampling and direct sampling could also explains why FS-MPC is superior to standard MPPI: with feedback design, the resulting control sequence 
+
+Ut (b1) would have richer pattern than the one sampled from standard MPPI (b2). Actually, what we have shown in Theorem 3 is exactly the optimal sampling covariance design for linear stochastic systems in [32] with minimum state space realization [33]–[35]. 
+
+C. Hybrid Feedback Sampling for Linearizable Systems 
+
+The previous subsection established optimal covariance design for LTV systems with quadratic costs and demon-strated its equivalence to optimal iLQR feedback design. In this subsection, we focus on nonlinear systems. While the provably optimal sampling strategy for nonlinear system is generally difficult to obtain, the feedback design of previous subsection can be extended to nonlinear systems which we present below and validate in Section V, assuming we can still differentiate the dynamics and cost. 
+
+Extension to nonlinear systems via linearization. A naive approach involves approximating the nonlinear dynamics with a linear model (e.g., via finite differencing or use differentiable simulators) and applying the derived sampling design directly. However, such linearization is valid only locally. Consequently, a covariance design based solely on local linearization may converge to a local minimizer, failing to explore the broader state space in non-convex landscapes of the nonlinear optimal problem. To address this, we propose a hybrid feedback sam-pling strategy that combines gradient-based and sampling-based methods, balancing local exploitation (guided by the linearized feedback) and global exploration. As illustrated in Figure 3, we define the hybrid proposal distribution as a mixture model: 
+
+qα(Uk) = α q (·; Uk, Σ∗
+
+> k
+
+)
+
+| {z }
+
+> Local Search
+
++(1 − α) q(·; Uk, σ 2I)
+
+| {z }
+
+> Global Search
+
+, (6) where Σ∗ 
+
+> k
+
+is the covariance matrix optimized via Equa-tion (3), corresponding to locally linearized dynamics and local quadratic approximation of the cost. The second term (1) hybrid feedback samplin  
+
+> (2) vanilla feedback samplin
+> (a1) t=0 sample from both local and globa
+> (b1) t=0
+> strong feedback -> poor sample
+> (b2) t=
+> (a2) t=
+> Fig. 3. Hybrid feedback sampling balances local and global search. (1) Hybrid feedback sampling draws from both local and global proposal distributions, enabling escape from local minima. (2) Standard feedback sampling relies solely on the local distribution, often failing to traverse high-cost barriers.
+
+in Equation (6), possessing larger variance according to The-orem 1, can cover the global landscape better at the cost of worse sample complexity. The scalar α ∈ [0 , 1] determines the mixing ratio between the informative local feedback and the isotropic global noise. A critical challenge lies in select-ing the optimal α to balance these competing objectives. 
+
+Mixed proposal distribution design. We design the mixing ratio α to ensure that the risk of missing a local minimum is bounded, guaranteeing sensible progress at each iteration while preventing divergence. We observe that the sample cost variance under the optimized proposal q(·; Uk, Σ∗
+
+> k
+
+) is bounded, specifically Var [J(Vk)] = Θ( mH ) according to Theorem 2, where m
+
+is the control dimension and H is the horizon. Given single sample’s probability of reaching local minimum is a constant 
+
+P (J([ Vk]i) − J(Ulocal ) < ϵ) = Clocal  
+
+> mH
+
+, the chance of at least one sample is near local optimal is P (min i J([ Vk]i) −
+
+J(Ulocal ) < ϵ ) = 1 − (1 − Clocal  
+
+> mH
+
+)Nlocal . Let P (min i J([ Vk]i) −
+
+J(Ulocal ) < ϵ ) > 1 − δ, we have 
+
+Nlocal ≥ mH Clocal 
+
+log 1
+
+δ := N ∗ 
+
+> local
+
+(7) Once this local condition is satisfied, additional samples can be allocated to global exploration without degrading the chance of sampling local minima. In practice, we determine 
+
+α dynamically based on the total sample count N :
+
+α = min 
+
+ N ∗
+
+> local
+
+N , 1
+
+
+
+, (8) Under this scheme, the algorithm prioritizes the optimized feedback sampler ( α → 1) to ensure the local minimizer is discovered in the low-sample regime. As N increases, the surplus samples are directed toward standard sampling without feedback to enhance global exploration. D. Hybrid Feedback Sampling for Non-differentiable Sys-tems 
+
+In contact-rich control problems, system dynamics may become non-differentiable, rendering gradient-based meth-ods (e.g., DDP or iLQR) inapplicable. A key advantage of sampling-based MPC is its derivative-free nature. Therefore, we consider cases where the feedback proposal distribution cannot be optimized via gradient-based methods. 
+
+Extension to non-differentiable systems. Even in the ab-sence of gradients, it is possible to obtain a local feedback policy using RL methods, such as PPO [36]. The objective of such a stochastic policy matches that of our optimal covari-ance formulation Equation (5) with a generalized proposal distribution parameterized by θ:
+
+min  
+
+> θ
+
+E[Vk ]i∼q(·;Uk ,θ ) [J([ Xk]i, [Vk]i)] . (9) We extend our framework to support pre-trained nonlinear neural policies. Let πθ∗ denote a trained RL stochastic policy 
+
+parameterized by θ∗. This implicitly defines a local proposal distribution q(·; Uk, θ ∗) via the following recursive sampling procedure: 
+
+[vh]k ∼ πθ∗ ([ xh]k), [xh+1 ]k = f ([ xh]k, [vh]k). (10) The generalized hybrid proposal distribution becomes: 
+
+qα(Uk) = α q (·; Uk, θ ∗)
+
+| {z }
+
+> Local Search
+
++(1 − α) q(·; Uk, σ 2I)
+
+| {z }
+
+> Global Search
+
+, (11) where θ∗ represents either the parameters of the RL policy or the covariance matrix from iLQR, depending on the availability of gradients. For optimal α choice, we follow the same principle as the one in Section IV-C. We assume that the feedback policy is able to generate trajectory’s cost with bounded variance. Therefore, we use a fixed number of samples to find the local minimum, where α is also given by Equation (8). 
+
+E. Algorithm Realization 
+
+The full Hybrid Feedback Sampling algorithm is sum-marized in Algorithm 2. Compared to standard MPPI, our approach introduces two major improvements: 1) A locally optimized sampling parameter that enhances sample efficiency. 2) A hybrid proposal distribution that balances local ex-ploitation and global exploration. When applied in a receding horizon setting, we refer to this method as Feedback Sampling MPC (FS-MPC). V. E XPERIMENTS 
+
+In this section, we demonstrate FS-MPC’s sample ef-ficiency with optimized sampling distribution as well as its performance in real-world deployment. Our experiments show that FS-MPC can significantly improve over standard MPPI by 43 .4% on cumulative cost with a suboptimal feedback controller. 
+
+Algorithm 2 Feedback Sampling for Optimal Control  
+
+> 1:
+
+Input: Initial state x0, initial control sequence U0,parameters λ, α 0. 
+
+> 2:
+
+Determine mixing ratio α and split N into Nlocal , N global  
+
+> 3:
+
+for k = 0 to K do ▷ Optimization iterations  
+
+> 4:
+
+θ∗
+
+> k
+
+/Σ∗ 
+
+> k
+
+← solve (9) or (3) ▷ Optimize sample parameter  
+
+> 5:
+
+Sample [Vk]1: Nlocal ∼ q(·; Uk, θ ∗
+
+> k
+
+/Σ∗
+
+> k
+
+) ▷ Local proposal  
+
+> 6:
+
+Sample [Vk]Nlocal +1: N ∼ q(·; Uk, σ 2
+
+> k
+
+I) ▷ Global proposal  
+
+> 7:
+
+[Xk]1: N ← rollout (x0, [Vk]1: N ) ▷ Forward dynamics  
+
+> 8:
+
+[Jk]1: N ← cost ([ Xk]1: N , [Vk]1: N ) ▷ Evaluate trajectories  
+
+> 9:
+
+Uk+1 ←      
+
+> PNi=1 exp( −[Jk]i/λ )[ Vk]i
+> PNi=1 exp( −[Jk]i/λ )
+
+▷ Update mean control  
+
+> 10:
+
+end for  
+
+> 11:
+
+return UK
+
+A. FS-MPC for linearizable systems 
+
+We start by evaluating FS-MPC on linearizable systems where the optimal sampling distribution can be approximated by a Gaussian distribution. To assess whether FS-MPC can generate better samples with an optimized feedback sampling strategy, we evaluate it on a set of unstable control tasks ranging from lower-dimensional classical control tasks to high-dimensional legged robot manipulation tasks, as shown in Figure 4. For unstable tasks like Quadrotor and Quadruped Hill, the robot might hit an obstacle and fall over, which re-quires not only stabilization but also recovering when it gets stuck. For manipulation tasks like H1-2 PNP and Allegro, the controller needs to stabilize both the robot and the object while reasoning over contact, making these tasks challenging for both gradient-based and sampling-based MPC. As shown in Table I, FS-MPC realizes the benefits of both gradient-based and sampling-based MPC: it steadily outperforms standard sampling-based MPC across all tasks thanks to the feedback design, which limits the divergence of samples illustrated in Figure 4. Meanwhile, FS-MPC maintains comparable performance on contact-free tasks like Acrobot and Quadrotor while substantially outperforming iLQR on long-horizon contact-rich tasks such as H1-2 PNP and Allegro, where iLQR fails because of noisy gradients and local minima. 
+
+B. FS-MPC for non-differentiable systems 
+
+When the system is non-differentiable, a stable proposal distribution requires more complex parameterization. FS-MPC supports using RL policies as feedback, which can be trained without gradient information. Here, we evaluate FS-MPC with a PPO-trained neural-network policy as feedback using the Brax [37] simulator. The PPO controller is trained with 3M steps until convergence and the sampling number across all tasks is set to N = 32 .(a) Acrobot (b) Quadrotor (c) Quadruped Hill (d) H-2 PNP MPPI FS-MPC MPPI MPPI MPPI FS-MPC FS-MPC FS-MPC 
+
+> (e) Allegro
+
+Fig. 4. Task overview over different controllers. (a) Acrobot: the controller needs to swing up the pendulum from the bottom to the top and then balance it at an unstable equilibrium. (b) Quadrotor: the controller needs to track a desired trajectory and fly through a few gates. The quadrotor is unstable and colliding with a gate can lead to a crash. (c) Quadruped Hill: the controller needs to track desired key points to navigate a hill. Due to the uneven terrain, the quadruped would fall and need to get up. (d) H1-2 PNP: the controller needs to do whole-body control for a 23-DoF humanoid robot to pick up and place a box on the target location. The system involves both an unstable system (the humanoid robot) and long-horizon reasoning over the contact. (e) Allegro: a in-hand reorientation task with allegro hand. The robot needs to reorient the object to a random target orientation. In all tasks, the white line is the sampled trajectory, and the pink line is the planned trajectory. Controllers iLQR MPPI F-MPPI FS-MPC Acrobot 104 .55 ± 0.63 117 .16 ± 0.20 122 .12 ± 7.45 76 .38 ± 15 .24                                                  
+
+> Quadrotor 8.44 ±0.37 13 .36 ±9.77 8.78 ±0.20 7.99 ±0.40
+> Quadruped Hill 3.39 ±0.70 2.79 ±0.02 2.68 ±0.17 2.51 ±0.04
+> Allegro 16 .86 ±2.40 12 .22 ±4.84 9.27 ±1.28 6.50 ±0.38
+> H1-2 PNP 1.72 ±0.06 1.55 ±0.15 2.00 ±0.43 1.06 ±0.10
+
+TABLE I COST COMPARISON BETWEEN CONTROLLERS WITH I LQR FEEDBACK .FROM TOP TO BOTTOM : TASKS ARE SORTED FROM LOWER -DIMENSIONAL TO HIGHER -DIMENSIONAL , AND FROM CONTACT -FREE TO CONTACT -RICH . FS-MPC CAN CONSISTENTLY OUTPERFORM MPPI AND I LQR. 
+
+Table II shows the cost comparison between different con-trollers. For nonlinear feedback controllers, the role of hybrid feedback is more significant. Interestingly, when comparing the performance of F-MPPI with the nominal PPO controller, F-MPPI performs even worse than the nominal controller. This is due to the instability introduced by injecting noise into the nominal controller and the inability to explore the landscape because of the strong feedback, leading to a noisy PPO policy. On the contrary, FS-MPC can still outperform both the nominal PPO controller and MPPI thanks to the hybrid feedback design: it balances local exploitation and global exploration to effectively search the landscape. 
+
+Tasks humanoidrun humanoidstandup iLQR - -
+
+PPO −12 .34 ± 0.01 −24 .76 ± 0.01 
+
+MPPI −12 .50 ± 0.00 −27 .75 ± 0.47 
+
+F-MPPI (w/ PPO) −10 .07 ± 0.22 −21 .14 ± 0.06 
+
+FS-MPC (w/ PPO) −15 .65 ± 0.10 −29 .41 ± 0.55 
+
+TABLE II ROLLOUT TRAJECTORY CUMULATIVE COST ON THE HUMANOID RUNNING /STANDING UP TASK .
+
+C. Deployment on real robot 
+
+Another advantage of sampling with feedback is that it preserves the robustness of the sampling procedure. We de-ploy FS-MPC on a full-size humanoid robot (Unitree H1) for whole-body control to conduct locomotion and manipulation tasks as shown in Figure 6. For locomotion, we task the robot with walking from one end of the room to the other while tracking a linear trajectory. Figure 5 and Table III show the tracking error of MPPI, iLQR, and FS-MPC. For unstable systems like the humanoid robot, MPPI failed to stabilize the robot due to the high variance of the sampling procedure while FS-MPC finishes the task thanks to the feedback design. Compared with iLQR, FS-MPC shows promising performance but only marginal improvement. We believe this stems from the limitations of our current state estimation system, which uses a MoCap system to get the robot state. The MoCap system’s limited accuracy and communication delay failed to provide precise contact information, leading to high variance in cost. Further discussion can be found in Section VI. 0.0 2.5 5.0 7.5 10 .0 12 .5 15 .0 17 .5Time (s) 0.00 0.02 0.04 0.06 Tracking Error (m) 
+
+H1 Walking Tracking Error in Real World 
+
+iLQR FS-MPC Reference 
+
+Fig. 5. Tracking error of iLQR and FS-MPC on real robot. 
+
+Methods MPPI iLQR FS-MPC 
+
+Tracking Error (m) Failed 0.93 ± 1.00 0.70 ± 0.66 
+
+TABLE III TRACKING ERROR COMPARISON OVER DIFFERENT CONTROLLERS IN THE REAL WORLD . MPPI FAILED DUE TO THE HIGH VARIANCE OF THE SAMPLING PROCEDURE . FS-MPC CAN STILL STABILIZE THE ROBOT THANKS TO THE FEEDBACK DESIGN .
+
+For manipulation, we task the robot with holding a cylin-der and placing it into a cart. Both tasks require the controller to reason over the contact while maintaining balance. The MPPI policy generates noisy and unstable behavior, leading the robot into an unrecoverable crash. Meanwhile, FS-MPC can still generate stable and robust behavior thanks to the feedback design. 
+
+D. Implementation Details 
+
+To realize the algorithm in real time, we made a few algorithmic tweaks to enable efficient and stable online H1 Walking H1 Pick and Place  
+
+> FS-MPC MPPI
+> MPPI FS-MPC
+
+Fig. 6. FS-MPC on real robot. Upper: H1 humanoid robot walking from one side of the room to the other. Lower: H1 humanoid robot holding a cylinder and put it into a cart. FS-MPC can finish the task while MPPI failed due to unstable sampling. 
+
+computation. 
+
+Hyperparameter choice. For hybrid feedback sampling, we set the local search sample count to Nlocal = 8 and the global search sample count to Nglobal = N − Nlocal = 24 for all tasks. We set softmax temperature λ = 1 .0 for all tasks. 
+
+Real robot setup. We use a Unitree H1 humanoid robot for real-world experiments. For perception, we combine the robot’s proprioception with an external Vicon motion capture system to get the robot’s state. The robot state is then fed into the MuJoCo MPC framework [9] to generate the reference trajectory. The target joint position command is then sent to the robot through a low-level controller. VI. C ONCLUSION AND LIMITATIONS 
+
+This paper introduces FS-MPC, a general feedback-based sampling rule that resolves the sampling inefficiency of MPPI. By leveraging hybrid feedback sampling, FS-MPC achieves superior performance compared to using a feedback policy alone. We demonstrate its effectiveness in controlling highly unstable, contact-rich tasks, both in simulation and on real-world robotic systems. Future work can further enhance the scalability of FS-MPC by integrating learned components such as value functions or model-based estimators into the sampling process. These additions could help reduce vari-ance, improve computational efficiency, and make FS-MPC more suitable for real-time applications in high-dimensional robotic systems. ACKNOWLEDGMENT 
+
+This project is partially funded by NSF Award 2512805. Guannan Qu is supported by the Pennsylvania Infrastructure Technology Alliance, NSF Grant 2154171, CAREER Award 2339112, the Carnegie Mellon University Manufacturing Futures Institute, and Jane Street. Zeji Yi acknowledges support from the Wei Shen and Xuehong Zhang Presidential Fellowship from the College of Engineering at Carnegie Mellon University and is partially funded by the Amazon AI PhD Fellowship. Chaoyi Pan acknowledges support from the William J. Happel Fellowship in the Department of Electrical and Computer Engineering at Carnegie Mellon University and the 2024–2025 Hsu Chang Memorial Fellowship at Carnegie Mellon University. Guanya Shi holds concurrent appointments as an Assistant Professor at Carnegie Mellon University and as an Amazon Scholar. This paper describes work performed at Carnegie Mellon University and is not associated with Amazon. REFERENCES [1] G. Williams, P. Drews, B. Goldfain, J. M. Rehg, and E. A. Theodorou, “Aggressive driving with model predictive path integral control,” in 
+
+2016 IEEE International Conference on Robotics and Automation (ICRA) , May 2016, pp. 1433–1440. [2] J. Yin, Z. Zhang, E. A. Theodorou, and P. Tsiotras, “Improving Model Predictive Path Integral using Covariance Steering,” ArXiv , 2021. [3] H. Xue, C. Pan, Z. Yi, G. Qu, and G. Shi, “Full-Order Sampling-Based MPC for Torque-Level Locomotion Control via Diffusion-Style Annealing,” Sept. 2024. [4] J. Alvarez-Padilla, J. Z. Zhang, S. Kwok, J. M. Dolan, and Z. Manch-ester, “Real-Time Whole-Body Control of Legged Robots with Model-Predictive Path Integral Control,” Sept. 2024. [5] A. H. Li, P. Culbertson, V. Kurtz, and A. D. Ames, “DROP: Dexterous Reorientation via Online Planning,” Oct. 2024. [6] I. M. Balci, E. Bakolas, B. Vlahov, and E. Theodorou, “Constrained Covariance Steering Based Tube-MPPI,” Apr. 2022. [7] G. Williams, B. Goldfain, P. Drews, K. Saigol, J. Rehg, and E. Theodorou, “Robust Sampling Based Model Predictive Control with Sparse Objective Information,” in Robotics: Science and Systems XIV .Robotics: Science and Systems Foundation, June 2018. [8] M. Gandhi, H. Almubarak, and E. Theodorou, “Safe Importance Sampling in Model Predictive Path Integral Control,” Mar. 2023. [9] T. Howell, N. Gileadi, S. Tunyasuvunakool, K. Zakka, T. Erez, and Y. Tassa, “Predictive Sampling: Real-time Behaviour Synthesis with MuJoCo,” Dec. 2022. [10] J. Sacks and B. Boots, “Learning Sampling Distributions for Model Predictive Control,” in Proceedings of The 6th Conference on Robot Learning . PMLR, Mar. 2023, pp. 1733–1742. [11] J. Yin, O. So, E. Y. Yu, C. Fan, and P. Tsiotras. Safe Beyond the Horizon: Efficient Sampling-based MPC with Neural Control Barrier Functions. [12] S. Adhau, S. Gros, and S. Skogestad, “Reinforcement learning based MPC with neural dynamical models,” European Journal of Control ,vol. 80, p. 101048, Nov. 2024. [13] J. Pravitra, K. A. Ackerman, C. Cao, N. Hovakimyan, and E. A. Theodorou, “L1-Adaptive MPPI Architecture for Robust and Agile Control of Multirotors,” Mar. 2020. [14] J. Sacks, R. Rana, K. Huang, A. Spitzer, G. Shi, and B. Boots, “Deep Model Predictive Optimization,” Oct. 2023. [15] Y. Akimoto, Y. Nagata, I. Ono, and S. Kobayashi, “Theoretical Foundation for CMA-ES from Information Geometry Perspective,” 
+
+Algorithmica , vol. 64, no. 4, pp. 698–716, Dec. 2012. [16] P.-T. De Boer, D. P. Kroese, S. Mannor, and R. Y. Rubinstein, “A Tutorial on the Cross-Entropy Method,” Annals of Operations Research , vol. 134, no. 1, pp. 19–67, Feb. 2005. [17] T. Kim, G. Park, K. Kwak, J. Bae, and W. Lee, “Smooth Model Predictive Path Integral Control without Smoothing,” IEEE Robotics and Automation Letters , vol. 7, no. 4, pp. 10 406–10 413, Oct. 2022. [18] A. Sideris and J. Bobrow, “An efficient sequential linear quadratic algorithm for solving nonlinear optimal control problems,” in Proceed-ings of the 2005, American Control Conference, 2005. , June 2005, pp. 2275–2280 vol. 4. [19] Y. Tassa, N. Mansard, and E. Todorov, “Control-limited differential dynamic programming,” in 2014 IEEE International Conference on Robotics and Automation (ICRA) , May 2014, pp. 1168–1175. [20] J. Carius, R. Ranftl, V. Koltun, and M. Hutter, “Trajectory Optimiza-tion With Implicit Hard Contacts,” IEEE Robotics and Automation Letters , vol. 3, no. 4, pp. 3316–3323, Oct. 2018. [21] H.-W. Park, P. M. Wensing, and S. Kim, “High-speed bounding with the MIT Cheetah 2: Control design and experiments,” Other repository , Feb. 2017. [22] R. Grandia, F. Jenelten, S. Yang, F. Farshidian, and M. Hutter, “Perceptive Locomotion through Nonlinear Model Predictive Control,” Aug. 2022. [23] M. Neunert, M. St¨ auble, M. Giftthaler, C. D. Bellicoso, J. Carius, C. Gehring, M. Hutter, and J. Buchli, “Whole-Body Nonlinear Model Predictive Control Through Contacts for Quadrupeds,” IEEE Robotics and Automation Letters , vol. 3, no. 3, pp. 1458–1465, July 2018. [24] J. Carpentier, G. Saurel, G. Buondonno, J. Mirabel, F. Lamiraux, O. Stasse, and N. Mansard, “The pinocchio c++ library: A fast and flexible implementation of rigid body dynamics algorithms and their analytical derivatives,” in 2019 IEEE/SICE International Symposium on System Integration (SII) . IEEE, 2019, pp. 614–619. [25] J. Martinez, L. King, H. Park, and B. Nicholson, “Real-Time Nonlinear Model Predictive Control for a Hypersonic Glider.” [26] R. Scattolini and P. Colaneri, “Hierarchical model predictive control,” in 2007 46th IEEE Conference on Decision and Control , Dec. 2007, pp. 4803–4808. [27] C. Khazoom, S. Hong, M. Chignoli, E. Stanger-Jones, and S. Kim, “Tailoring Solution Accuracy for Fast Whole-body Model Predictive Control of Legged Robots,” July 2024. [28] S. Kuindersma, F. Permenter, and R. Tedrake, “An Efficiently Solvable Quadratic Program for Stabilizing Dynamic Locomotion,” in 2014 IEEE International Conference on Robotics and Automation (ICRA) ,May 2014, pp. 2589–2594. [29] K. Okamoto and P. Tsiotras, “Optimal Stochastic Vehicle Path Plan-ning Using Covariance Steering,” Sept. 2018. [30] J. Ridderhof, K. Okamoto, and P. Tsiotras, “Chance Constrained Covariance Control for Linear Stochastic Systems With Output Feed-back,” Sept. 2020. [31] J. Yin, Z. Zhang, E. Theodorou, and P. Tsiotras, “Trajectory Dis-tribution Control for Model Predictive Path Integral Control using Covariance Steering,” in 2022 International Conference on Robotics and Automation (ICRA) . Philadelphia, PA, USA: IEEE, May 2022, pp. 1478–1484. [32] Z. Yi, C. Pan, G. He, G. Qu, and G. Shi, “CoVO-MPC: Theoretical Analysis of Sampling-based MPC and Optimal Covariance Design,” Jan. 2024. [33] B. L. Ho and R. E. Kalman, “Editorial: Effective construction of linear state-variable models from input/output functions: Die Konstruktion von linearen Modeilen in der Darstellung durch Zustandsvariable aus den Beziehungen f¨ ur Ein- und Ausgangsgr¨ oßen,” at - Automatisierung-stechnik , vol. 14, no. 1-12, pp. 545–548, Dec. 1966. [34] G. Picci, “Stochastic realization of Gaussian processes,” Proceedings of the IEEE , vol. 64, no. 1, pp. 112–122, Jan. 1976. [35] H. Akaike, “Markovian Representation of Stochastic Processes by Canonical Variables,” SIAM Journal on Control , vol. 13, no. 1, pp. 162–173, Jan. 1975. [36] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov, “Proximal Policy Optimization Algorithms,” Aug. 2017. [37] C. D. Freeman, E. Frey, A. Raichuk, S. Girgin, I. Mordatch, and O. Bachem, “Brax – A Differentiable Physics Engine for Large Scale Rigid Body Simulation,” June 2021. APPENDIX 
+
+Notation 
+
+Symbol Meaning Definition 
+
+n state dimension 
+
+m control dimension 
+
+At Discrete-time system matrix at time t At ∈ Rn×n
+
+Bt Discrete-time input matrix at time t Bt ∈ Rn×m
+
+Qt state cost matrix at time t Qt ∈ Rn×n, Q t ⪰ 0
+
+Rt control cost matrix at time t Rt ∈ Rm×m, R t ⪰ 0
+
+H finite time horizon 
+
+Pt cost-to-go matrix at time t solution from backward-pass LQR 
+
+Kt feedback gain matrix solution from backward-pass LQR 
+
+Zt scale matrix for stochastic control solution from backward-pass LQR 
+
+xt state at time tut control input at time t ut = −Ktxt + Ztwt
+
+¯ut nominal control input at time t
+
+Σt covariance matrix for noise at time twt noise vector wt ∼ N (0 , σ 2I)
+
+X state sequence X = [ x1, x 2, . . . , x H+1 ]⊤
+
+U full control sequence U = [ u1, u 2, . . . , u H ]⊤
+
+λ inverse temperature parameter in MPPI 
+
+N sample size 
+
+[V ]i i-th sample of control sequence Vi = [ v1, v 2, . . . , v H ]⊤
+
+TABLE IV NOTATION TABLE 
+
+Proof of MPPI Sample Complexity Proof of Theorem 1. Without loss of generality, we here assume that U ∗ = Ut, which means that the mean of the Gaussian distribution is just the optimal point, guarantees a higher probability to getting more optimal points. By applying the unit vector e0 = [ ⃗u 0, 0, · · · , 0]⊤ to the cost function, one can get 
+
+J(U )|U =e0 = e⊤ 
+
+> 0
+
+De 0 =
+
+> H
+
+X
+
+> t=1
+
+(At−1B⃗ u 0)⊤Q(At−1B⃗ u 0) + ⃗u 0T R⃗ u 0
+
+≥ ∥ Q−1∥−12 ∥B−1∥−22
+
+X
+
+> t
+
+yT (A⊤A)t−1y
+
+Here y = B⃗ u 0  
+
+> ∥B⃗ u0∥
+
+, and the inequality comes from that Q ≻ 0, and the system is controllable and B is the full rank. So the minimum eigen value of Q, B can be denoted as ∥Q−1∥−12 > 0 and ∥B−1∥−12 > 0. Further, there exist ⃗u 0 so that 
+
+Ay = ∥A∥22y. Therefore, because 
+
+∥ X
+
+> t
+
+(A⊤A)t−1∥22 = X
+
+> t
+
+∥A⊤A∥2t−22 .
+
+We get the lower bounds of D’s two norm ∥D∥2 that 
+
+∥D∥22 ≥ ∥A⊤A∥2H 
+
+> 2
+
+− 1
+
+∥A⊤A∥22 − 1 ∥Q−1∥−12 ∥B−1∥−22
+
+Denote the associated unit eigenvector of D’s largest eigen with vmax (D). Then: 
+
+J(U ) = 12 U T D U ≥ 12 ∥D∥22
+
+ U T vmax (D)2.Step 1: Single-sample bound. To have J(U ) ≤ Hε , it is necessary that  
+
+> 12
+
+∥D∥22
+
+ U T vmax 
+
+2 ≤ Hε =⇒ U T vmax ≤
+
+s
+
+2H ε 
+
+∥D∥22
+
+≈
+
+s
+
+2H∥Q−1∥∥ B−1∥2ε
+
+∥A⊤A∥2H−2 . (12) Given U ∼ N (0 , I ), UT vmax ∼ N (0 , 1) ,
+
+Pr |U T vmax | ≤ r ≤ 2 r/ √2π ∀r ∈ R
+
+Here we take the value according to Equation (12), so 
+
+Pr J(U) ≤ Hε ≤ Pr |U T vmax | ≤ 
+
+s
+
+2H ε 
+
+∥D∥22
+
+≤ O  pH∥Q−1∥∥ B−1∥2ε
+
+∥A⊤A∥H−1 .,
+
+Moreover, we argue that because ∥D∥ = O(∥A⊤A∥H ), for any fixed λ > 0. There exists H, such that ∥D∥ ≫ λ.Therefore, it is reasonable to take lim λ→0 as an example to anlyze. 
+
+Step 2: Multi-sample bound. Here we use a simplified model to analyze J(Uout ). That is to analyze min J(Vk). and we can conclude that 
+
+Pr 
+
+
+
+min  
+
+> i≤N
+
+J([ Vk]i) ≤ Hε 
+
+
+
+= 1 −  1 − Pr( J(Vk) ≤ Hε )N .
+
+In order to let Pr(min J(Vk) ≤ ε) ≥ 1 − δ, we need to have 
+
+ 1 − Pr( J(Vk) ≤ Hε )N ≤ δ. 
+
+Therefore, 
+
+N ≥ log(1 /δ )
+
+− log  1 − Pr( J(Vk) ≤ Hε ) = log(1 /δ )log 
+
+ 11−Pr( J(Vk )≤Hε )
+
+ .
+
+Plugging the single-sample upper bound from Step 1, 
+
+Pr( J(Vk) ≤ Hε ) ≤ O  √H∥Q−1∥∥ B−1∥2ε
+
+> ∥A⊤A∥H−1
+
+,
+
+yields an exponential-in-H sample complexity (up to polynomial factors in H and ε): 
+
+N ≥ Θ ∥A∥2H−22
+
+√Hε log 1
+
+δ
+
+!
+
+Proof of Sample Complexity with Optimized Sampling Distribution Proof of Theorem 2. We first clarify the quadratic form and the matrix D. Consider the LTV dynamics over horizon H,
+
+xh+1 = Ahxh + Bhuh, and stack the states and controls as 
+
+X := [ x⊤ 
+
+> 1
+
+, . . . , x ⊤
+
+> H+1
+
+]⊤ ∈ Rn(H+1) , U := [ u⊤ 
+
+> 0
+
+, . . . , u ⊤
+
+> H−1
+
+]⊤ ∈ RmH .
+
+Then there exists a (block lower-triangular) matrix M ∈ Rn(H+1) ×mH and a vector b (depending on x0) such that X =
+
+M U + b. More explicitly, if we stack X0 := [ x⊤ 
+
+> 0
+
+, . . . , x ⊤ 
+
+> H
+
+]⊤ ∈ Rn(H+1) and U := [ u⊤ 
+
+> 0
+
+, . . . , u ⊤
+
+> H−1
+
+]⊤ ∈ RmH , then 
+
+X0 = M U +¯b for some ¯b depending on x0, where M is block lower-triangular with blocks Mij ∈ Rn×m (row i corresponds to xi−1 and column j corresponds to uj−1) given by 
+
+Mij =
+
+(
+
+Ai−2Ai−3 · · · Aj Bj−1, i > j, 
+
+0, i ≤ j, i, j ∈ { 1, . . . , H },
+
+with the convention that an empty product equals the identity. In the time-invariant case ( Ah ≡ A, Bh ≡ B), this reduces to Mij = A i−j−1B for i > j and Mij = 0 for i ≤ j. Let 
+
+Q := blkdiag( Q1, . . . , Q H+1 ), R := blkdiag( R0, . . . , R H−1),
+
+so that the quadratic cost can be written as J(U ) = X⊤QX + U ⊤RU . Expanding in U gives 
+
+J(U ) = U ⊤(M ⊤QM + R)U + 2 b⊤QM U + b⊤Qb. Around an optimal open-loop solution U ⋆, the linear and constant terms can be absorbed by shifting, yielding 
+
+J(U ) = ( U − U ⋆)⊤D (U − U ⋆), D := M ⊤QM + R ≻ 0,
+
+where D is the Hessian of J with respect to the stacked control U (positivity holds, e.g., if R ≻ 0). We proceed in steps. 
+
+Step 1: Reduce the objective to tr( DΣ) . Let Z := Vk − U ⋆. Under Vk ∼ N (U ⋆, Σ) , we have Z ∼ N (0 , Σ) and 
+
+J(Vk) = Z⊤DZ. 
+
+Using the standard identity for centered Gaussians and quadratic forms, 
+
+E[Z⊤DZ ] = tr( DΣ) . (13) Hence the covariance optimization is equivalent to 
+
+min   
+
+> Σ⪰0,det(Σ)=1
+
+tr( DΣ) . (14) 
+
+Step 2: Solve (14) under det(Σ) = 1 . Consider the Lagrangian with the constraint expressed as log det(Σ) = 0 :
+
+L(Σ , ν ) = tr( DΣ) − ν log det(Σ) .
+
+For Σ ≻ 0, the first-order stationarity condition is 
+
+∇ΣL(Σ , ν ) = D − νΣ−1 = 0 ,
+
+which yields Σ = νD −1. Enforcing det(Σ) = 1 gives 
+
+1 = det( νD −1) = νmH det( D−1) = νmH 
+
+det D ,
+
+so ν = (det D)1/(mH ). Define the horizon-normalized constant 
+
+ρ := m (det D)1/(mH ).
+
+Therefore 
+
+Σ⋆k = ρm D−1,
+
+which gives the claimed closed form. 
+
+Step 3: Derive the exact distribution of J(Vk). Let z ∼ N (0 , I mH ) and write 
+
+Z =
+
+r ρm D−1/2z, 
+
+which has covariance E[ZZ ⊤] = ρm D−1 = Σ ⋆k. Then 
+
+J(Vk) = Z⊤DZ = ρm z⊤z. 
+
+Since z⊤z ∼ χ2 
+
+> mH
+
+, we obtain 
+
+J(Vk) d
+
+= ρm χ2 
+
+> mH
+
+.
+
+Step 4: Compute mean and variance. From the representation J(Vk) d
+
+= ρm χ2 
+
+> mH
+
+and the standard moments of χ2 
+
+> mH
+
+,
+
+E[χ2 
+
+> mH
+
+] = mH, Var( χ2 
+
+> mH
+
+) = 2 mH, 
+
+we immediately get 
+
+E[J(Vk)] = ρ H = Θ( H) Var( J(Vk)) = 2 ρ2
+
+m H = Θ( H)
+
+In particular, for fixed control dimension m, both the mean and variance scale as Θ( H). Moreover, in common LQR settings, the determinant-geometric-mean factor (det D)1/(mH ) (and hence ρ) can be treated as Θ(1) with respect to H; see Lemma 1 and Remark VI for a representative LTI/normalized-cost case (where Q = I and R = I, so D = M ⊤QM + R =
+
+I + M ⊤M = ¯D). In particular, if the associated Riccati recursion Pk+1 = I + AP kA⊤ − AP kB(I + B⊤PkB)−1B⊤PkA⊤
+
+converges to a fixed point P ⋆ ⪰ 0 satisfying the algebraic Riccati equation 
+
+P ⋆ = I + AP ⋆A⊤ − AP ⋆B I + B⊤P ⋆B−1B⊤P ⋆A⊤,then (det ¯D)1/(mH ) → det  I + B⊤P ⋆B1/m , and thus 
+
+ρ = m(det ¯D)1/(mH ) −→ m det  I + B⊤P ⋆B1/m ,
+
+a constant depending only on (A, B ) (via P ⋆) and independent of H.
+
+Step 5: Probability Pr {J(Vk) ≤ Hε } is a constant (with a quantitative asymptotic). We here choose ε = ρ to make the probability a constant. By J(Vk) d
+
+= ρm χ2 
+
+> mH
+
+,
+
+Pr {J(Vk) ≤ Hε } = Pr  ρm χ2 
+
+> mH
+
+≤ Hε = Pr χ2 
+
+> mH
+
+≤ mH ε/ρ .
+
+With ε = ρ, this becomes Pr {χ2 
+
+> mH
+
+≤ mH }. Let z1, . . . , z mH 
+
+> i.i.d.
+
+∼ N (0 , 1) so that χ2 
+
+> mH
+
+= PmH i=1 z2 
+
+> i
+
+. Define centered i.i.d. variables 
+
+Yi := z2 
+
+> i
+
+− 1, E[Yi] = 0 , Var( Yi) = 2 .
+
+Then 
+
+χ2 
+
+> mH
+
+− mH 
+
+√2mH =
+
+PmH i=1 Yi
+
+√2mH .
+
+By the Berry–Esseen theorem (applied to {Yi}, which have finite third absolute moment), there exists a universal constant 
+
+CBE > 0 such that for all H ≥ 1,
+
+sup 
+
+> x∈R
+
+Pr 
+
+ χ2 
+
+> mH
+
+− mH 
+
+√2mH ≤ x
+
+
+
+− Φ( x) ≤ CBE 
+
+√mH , (15) where Φ is the standard normal CDF. Evaluating at x = 0 gives 
+
+Pr {χ2 
+
+> mH
+
+≤ mH } − Φ(0) ≤ CBE 
+
+√mH .
+
+Since Φ(0) = 1 /2, we obtain 
+
+Pr {χ2 
+
+> mH
+
+≤ mH } = 12 + O
+
+ 1
+
+√mH 
+
+
+
+,
+
+which gives the stated quantitative asymptotic. In particular, choose any d0 large enough that CBE /√d0 ≤ 1/6 and set 
+
+p0 := 1 /3; then for all H such that mH ≥ d0,
+
+Pr {χ2 
+
+> mH
+
+≤ mH } ≥ 12 − CBE 
+
+√mH ≥ 12 − 16 = 13 = Θ(1) 
+
+yielding a constant lower bound. Therefore, 
+
+Pr {J(Vk) ≤ Hε } ≥ 13 = Θ(1) .
+
+Step 6: Sample complexity for one success with high probability. Let Ei := {J(V (i) 
+
+> k
+
+) ≤ Hε }. Under i.i.d. sampling, 
+
+Pr( Ei) = pH := Pr {J(Vk) ≤ Hε } and the events {Ei} are independent. Thus 
+
+Pr {∃ i ≤ N : Ei} = 1 − Pr ∩Ni=1 Eci = 1 − (1 − pH )N .
+
+From Step 5, for all H such that mH ≥ d0 we have pH ≥ p0 (with p0 := 1 /3). Hence 
+
+Pr 
+
+n
+
+∃i ≤ N : J(V (i) 
+
+> k
+
+) ≤ Hε 
+
+o
+
+≥ 1 − (1 − p0)N .
+
+To make the right-hand side at least 1 − δ, it suffices that 
+
+(1 − p0)N ≤ δ ⇐⇒ N ≥ log(1 /δ )
+
+− log(1 − p0) ≥ log(1 /δ )log( 32 ) = Θ(log(1 /δ )) .
+
+which gives the stated logarithmic-in-1/δ sample complexity. This concludes the proof. 
+
+Lemma 1 (Geometric-mean determinant factorization via a Riccati recursion (LTI, normalized cost)) . Let A ∈ Rn×n,
+
+B ∈ Rn×m with rank( B) = m, and horizon H ≥ 1. Define the strictly block-lower matrix M ∈ R(nH )×(mH ) by block entries 
+
+Mij =
+
+(
+
+A i−j−1B, i > j, 
+
+0, i ≤ j, i, j ∈ { 1, . . . , H },and define ¯D := ImH + M ⊤M ∈ SmH  
+
+> ++
+
+.
+
+Let {Pk}Hk=0 ⊂ Sn 
+
+> +
+
+be generated by 
+
+P0 := 0 , (16) 
+
+Sk := Im + B⊤PkB, (17) 
+
+Pk+1 := In + AP kA⊤ − AP kB S −1 
+
+> k
+
+B⊤PkA⊤, k = 0 , 1, . . . , H − 1. (18) 
+
+Then the determinant admits the factorization 
+
+det( ¯D) = 
+
+> H−1
+
+Y
+
+> k=0
+
+det( Sk),
+
+and hence 
+
+det( ¯D)1/H =
+
+> H−1
+
+Y
+
+> k=0
+
+det  Im + B⊤PkB!1/H 
+
+.
+
+Proof. Step 1: Lifted dynamics representation. Consider the linear system 
+
+xt+1 = Ax t + Bu t, x0 = 0 ,
+
+with inputs ut ∈ Rm and states xt ∈ Rn for t = 0 , . . . , H − 1. Define stacked vectors 
+
+u := 
+
+
+
+u0
+
+...
+
+uH−1
+
+ ∈ RmH , x := 
+
+
+
+x1
+
+...
+
+xH
+
+ ∈ RnH .
+
+By unrolling the recursion, 
+
+xt+1 =
+
+> t
+
+X
+
+> j=0
+
+At−j Bu j ,
+
+so the lifted map u 7 → x is linear and can be written as 
+
+x = M u, 
+
+where M is exactly the strictly block-lower matrix defined in the lemma. 
+
+Step 2: Schur complement reduction. Introduce the symmetric block matrix 
+
+K := 
+
+ImH M ⊤
+
+M InH 
+
+
+
+.
+
+Since InH ≻ 0, the Schur complement formula yields 
+
+det( K) = det( InH ) det  ImH + M ⊤I−1 
+
+> nH
+
+M  = det( ¯D). (19) Thus it suffices to factorize det( K).
+
+Step 3: Sequential elimination gives Riccati and determinant factors. Perform block Gaussian elimination on K in time order (eliminate (u0, x 1), (u1, x 2), . . . ). The resulting Schur complements on the state blocks yield the Riccati recursion (18), and each elimination step contributes a multiplicative determinant factor det( Sk), where Sk = Im + B⊤PkB. Consequently, 
+
+det( K) = 
+
+> H−1
+
+Y
+
+> k=0
+
+det( Sk).
+
+Combining with (19) yields det( ¯D) = QH−1 
+
+> k=0
+
+det( Sk).
+
+Step 4: Take geometric means. Taking H-th roots gives the stated identity for det( ¯D)1/H .
+
+Remark: [Steady-state limit] Assume the Riccati recursion (18) admits a finite fixed point P ⋆ ⪰ 0 and that Pk → P ⋆
+
+as k → ∞ . Define S⋆ := Im + B⊤P ⋆B. Then, as H → ∞ ,
+
+det( ¯D)1/H =
+
+> H−1
+
+Y
+
+> k=0
+
+det( Sk)
+
+!1/H 
+
+−→ det( S⋆) = det  Im + B⊤P ⋆B.Equivalently, the control-dimension-normalized geometric mean 
+
+det( ¯D)1/(mH ) =  det( ¯D)1/H 1/m −→ det( S⋆)1/m ,
+
+which is a constant depending only on (A, B ) through the steady-state Riccati solution P ⋆, and is independent of the horizon. 
+
+Proof of Feedback Sampling Equivalence to Optimal Sampling Distribution Optimization Proof of Theorem 3. First, observe that in Feedback MPPI, each control ut is defined by 
+
+ut = −Ktxt + Ztwt, xt+1 = Ax t + Bu t, wt ∼ N (0 , I ).
+
+One can rewrite the full control sequence as 
+
+U = C Z W, 
+
+where Z = diag( Z1, . . . , Z T ), W = w⊤ 
+
+> 1
+
+· · · w⊤
+
+> T
+
+⊤, and C collects all the linear feedback relationships. Therefore, the control distribution is Gaussian: 
+
+U ∼ N (0 , C Z Z ⊤ C⊤).
+
+Next, CoVO solves 
+
+min  
+
+> L
+
+E
+
+h 12 U ⊤D U 
+
+i
+
+subject to U = LW, L⊤L = I, 
+
+where D = M ⊤Q M + R, and M , Q, R define the stage and terminal costs in block-diagonal form. Because 
+
+E
+
+h 12 U ⊤D U 
+
+i
+
+= 12 Tr  D E[U U ⊤],
+
+the optimization is equivalent to finding L that minimizes 12 Tr( D LL ⊤) under L⊤L = I. The minimizer L∗ satisfies 
+
+L∗⊤ D L ∗ = I, L∗ = D−1/2  √D.
+
+Hence, the optimal control distribution is 
+
+U ∼ N  0, L ∗L∗⊤ .
+
+To see that Feedback MPPI matches the CoVO solution, verify that ZT C⊤ D C Z = I. Under LQR-based gains {Kt}
+
+and scale matrices {Zt}, one obtains 
+
+(CZ )⊤ D (CZ ) = I, 
+
+which implies C Z is a valid CoVO optimizer (it satisfies the same constraint as L∗). Consequently, the distribution U ∼N (0 , C Z Z ⊤C⊤) is the same as U ∼ N (0 , L ∗L∗⊤ ). Therefore, when λ → 0 and N → ∞ and the mean is the LQR-optimal mean control, Feedback MPPI recovers the CoVO distribution exactly. Another way to see the equivalence is via the classical insight that any stationary Gaussian process can be represented as the output of a linear system driven by white noise. In Feedback MPPI, the sequence of controls U emerges from propagating white noise W through a linear transformation C Z . Simultaneously, the CoVO framework seeks a linear map L∗ such that 
+
+EU ⊤D U  is minimized under L∗⊤ L∗ = I. Since one can interpret the LQR-based recursion as producing the unique factor C Z that satisfies (C Z )⊤D (C Z ) = I, it follows that C Z coincides with the CoVO solution L∗. Hence, Feedback MPPI (with noise scaling given by {Zt} and mean given by the LQR solution) yields exactly the CoVO-optimal Gaussian distribution for U .
