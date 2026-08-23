@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-22</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-23</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 24 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 16 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>16</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>8</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>9</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>7</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-22 20:38:49 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-23 19:47:06 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共筛读24篇论文，精读16篇、速读8篇，聚焦机器人学习与操作前沿。最值得关注的是两篇9.0分精读：BICPO-VLA与Reflex，分别用行为延续偏好优化和快速预测机制提升VLA模型的平滑异步控制与反应式操作。建议普通读者从这两篇入手了解VLA模型的最新改进，再顺藤摸瓜浏览速读中的机器人记忆压缩与双足地形适应内容。</p>
+<p>今日16篇论文聚焦VLA操作与推理效率，其中2篇精读满分（9.0）分别攻克触觉残差适配与数据合成统一规划。最值得关注的方向是“触觉增强VLA操控”和“数据合成+规划统一”，两者均显著提升真实操作表现。建议普通读者优先关注触觉感知与数据效率的结合，这是当前机器人学习落地的最实用突破口。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">16 篇</strong>
+    <strong class="dpr-home-dashboard-count">9 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="BICPO-VLA: Behavior-Identified Continuation Preference Optimization for Smooth Asynchronous Vision-Language-Action Control">BICPO-VLA: Behavior-Identified Continuation Preference Optimization for Smooth Asynchronous Vision-Language-Action Control</span></li><li><span class="dpr-home-dashboard-paper-title" title="Reflex: Enabling Fast and Predictive Vision-Language-Action Models for Reaction-Critical Manipulation">Reflex: Enabling Fast and Predictive Vision-Language-Action Models for Reaction-Critical Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Algorithm-Architecture Co-Design for Efficient VLA Inference via Speculative Inference and Verification">Algorithm-Architecture Co-Design for Efficient VLA Inference via Speculative Inference and Verification</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="ViTaR: Visuo-Tactile Residual Adaptation for Foundation VLA Manipulation">ViTaR: Visuo-Tactile Residual Adaptation for Foundation VLA Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Scaling Manual-Grounded Appliance Manipulation with Data Synthesis and Unified Planning">Scaling Manual-Grounded Appliance Manipulation with Data Synthesis and Unified Planning</span></li><li><span class="dpr-home-dashboard-paper-title" title="GigaBrain-0.7: Scaling Embodied Foundation Models to Emergent Capabilities with a Three-System Architecture">GigaBrain-0.7: Scaling Embodied Foundation Models to Emergent Capabilities with a Three-System Architecture</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>9</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>3</strong></span><span class="dpr-home-dashboard-tag">control <strong>2</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>7</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>2</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">8 篇</strong>
+    <strong class="dpr-home-dashboard-count">7 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Remember Smarter: Visual History Compressor and Hyperbolic Experience Space for Robotic Memory">Remember Smarter: Visual History Compressor and Hyperbolic Experience Space for Robotic Memory</span></li><li><span class="dpr-home-dashboard-paper-title" title="MILD: Tractable Terrain Modeling for Learning Improved Bipedal Locomotion on Deformable Surfaces">MILD: Tractable Terrain Modeling for Learning Improved Bipedal Locomotion on Deformable Surfaces</span></li><li><span class="dpr-home-dashboard-paper-title" title="PVRA: A Pointwise Key-point Voting Framework for Robotic Assembly">PVRA: A Pointwise Key-point Voting Framework for Robotic Assembly</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Remember Smarter: Visual History Compressor and Hyperbolic Experience Space for Robotic Memory">Remember Smarter: Visual History Compressor and Hyperbolic Experience Space for Robotic Memory</span></li><li><span class="dpr-home-dashboard-paper-title" title="EcoVLA: Energy-Efficient Device-Edge Co-Inference for Vision-Language-Action Models under Real-Time Constraints">EcoVLA: Energy-Efficient Device-Edge Co-Inference for Vision-Language-Action Models under Real-Time Constraints</span></li><li><span class="dpr-home-dashboard-paper-title" title="Algorithm-Architecture Co-Design for Efficient VLA Inference via Speculative Inference and Verification">Algorithm-Architecture Co-Design for Efficient VLA Inference via Speculative Inference and Verification</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>6</strong></span><span class="dpr-home-dashboard-tag">vla <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>4</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>2</strong></span><span class="dpr-home-dashboard-tag">control <strong>1</strong></span></div>
 </section>
 </div>
 
