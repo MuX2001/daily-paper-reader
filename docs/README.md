@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-25</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-26</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 34 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 26 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>21</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>14</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>12</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-25 21:02:34 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-26 22:22:10 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共读34篇论文，精读21篇，聚焦具身智能与机器人操作前沿。最值得关注的是两篇9分VLA工作：NebulaVLA的双频指导机制与基于自演示生成控制的多任务微调方法。下一步可延伸探索强化学习在多机任务分配中的分布偏移鲁棒性。</p>
+<p>今日精读聚焦具身智能VLA，重点覆盖《Fine-Tuning VLAs with Self-Demonstrated Generative Control》与《OrthoSkillVLA》两篇高分工作，速读则涉及人形运动合成、社交智能与决策优化。最值得关注的是VLA的自我演示生成控制与持续技能学习子空间适配，两者均获9.0高分，适合进阶者深挖。建议普通读者优先浏览速读中《Natural Sit-to-Stand》等8分论文，快速把握运动生成与决策结合的前沿动态。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">21 篇</strong>
+    <strong class="dpr-home-dashboard-count">14 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="NebulaVLA: A Dual-Frequency Vision-Language-Action Model With Guide Action for Robotic Manipulation">NebulaVLA: A Dual-Frequency Vision-Language-Action Model With Guide Action for Robotic Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Fine-Tuning VLAs with Self-Demonstrated Generative Control for Multi-Task Manipulation">Fine-Tuning VLAs with Self-Demonstrated Generative Control for Multi-Task Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="OrthoSkillVLA: Continual Skill Learning via Gradient-Informed Skill Subspace Adaptation">OrthoSkillVLA: Continual Skill Learning via Gradient-Informed Skill Subspace Adaptation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Fine-Tuning VLAs with Self-Demonstrated Generative Control for Multi-Task Manipulation">Fine-Tuning VLAs with Self-Demonstrated Generative Control for Multi-Task Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="OrthoSkillVLA: Continual Skill Learning via Gradient-Informed Skill Subspace Adaptation">OrthoSkillVLA: Continual Skill Learning via Gradient-Informed Skill Subspace Adaptation</span></li><li><span class="dpr-home-dashboard-paper-title" title="ViTacPhys: Physical Property-Aware Grasping from Human Visual-Tactile Demonstrations">ViTacPhys: Physical Property-Aware Grasping from Human Visual-Tactile Demonstrations</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>7</strong></span><span class="dpr-home-dashboard-tag">control <strong>6</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>4</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>4</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>7</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>6</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>1</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">13 篇</strong>
+    <strong class="dpr-home-dashboard-count">12 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Model-Based Reinforcement Learning for Heterogeneous Multi-Robot Task Assignment Under Distribution Shifts">Model-Based Reinforcement Learning for Heterogeneous Multi-Robot Task Assignment Under Distribution Shifts</span></li><li><span class="dpr-home-dashboard-paper-title" title="Force/Torque-Based Kinematic Adaptation for Robotic Manipulation Tasks">Force/Torque-Based Kinematic Adaptation for Robotic Manipulation Tasks</span></li><li><span class="dpr-home-dashboard-paper-title" title="CIDER: Continual Interactive Distillation for Embodied Reinforcement Learning">CIDER: Continual Interactive Distillation for Embodied Reinforcement Learning</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Natural Sit-to-Stand Motion Synthesis For Humanoids via Guided Assistance Curricula and Staged Rewards">Natural Sit-to-Stand Motion Synthesis For Humanoids via Guided Assistance Curricula and Staged Rewards</span></li><li><span class="dpr-home-dashboard-paper-title" title="Ludi${}_{\scriptscriptstyle 0.1}$: An Agentic System for Socially Intelligent Robots">Ludi${}_{\scriptscriptstyle 0.1}$: An Agentic System for Socially Intelligent Robots</span></li><li><span class="dpr-home-dashboard-paper-title" title="Guided Riemannian Optimization (GuRO): Bridging Model Predictive Control and Decision Transformers">Guided Riemannian Optimization (GuRO): Bridging Model Predictive Control and Decision Transformers</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>8</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>3</strong></span><span class="dpr-home-dashboard-tag">control <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">control <strong>5</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>5</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>2</strong></span></div>
 </section>
 </div>
 
