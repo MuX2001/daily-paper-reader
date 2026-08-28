@@ -1,0 +1,3854 @@
+Title: Dispersive Forward Tree Search for Optimal Control: Coverage, Complexity, and Computation
+
+URL Source: https://arxiv.org/pdf/2608.26314v1
+
+Published Time: Fri, 28 Aug 2026 00:09:26 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# Dispersive Forward Tree Search for Optimal Control: Coverage, Complexity, and Computation 
+
+Shashank A. Deshpande 1 and Jonathan P. How 1
+
+Abstract 
+
+Steering-based planners require solutions to state-to-state boundary value problems, which can be inaccessible for nonlinear platforms. Forward propagation evades the steering requirement, but the finite-sample behavior of the associated planners remains uncharacterized and their implementations underperform in practice. This paper develops a propagation-based kinodynamic planner with deterministic finite-sample near-optimality guarantees. We work within the large class of differentially flat nonlinear systems and show that a forward tree of locally dispersive control commands contains a near-optimal trajectory at a certified tree size. We provide a general mechanism to construct dispersive command sets for control-affine systems, which are necessary to implement the search algorithm prescribed by the theory. We show that covering the certified trajectory class irrespective of cost provably demands a tree exponentially sized in the problem horizon, and present a cost-conditioned dominance pruning procedure that retains near-optimality at a tree size polynomial in the horizon. We implement the resulting search algorithm, Dispersive Forward Tree search (DFT *), as breadth-first expansion of the forward tree, which maps naturally onto parallel hardware. We design efficient dispersive samplers for the unicycle, the trailer car, and the quadrotor and evaluate challenging planning tasks for these platforms. DFT * delivers consistently competitive and often substantially better solution quality than state-of-the-art kinodynamic planners at comparable solution times on embedded-tier processors, accelerating further as parallel compute is scaled. We also implement DFT * in a receding-horizon loop to demonstrate real-time planning in dynamic environments at embedded-tier compute budgets. 
+
+Keywords 
+
+Kinodynamic motion planning, sampling-based motion planning, optimal control, differential flatness, dispersion 
+
+1 Introduction 
+
+This paper addresses the finite-sample performance of sampling-based kinodynamic planners that search the reachable solution space by forward propagation of sampled control commands. For the class of differentially flat nonlinear systems, we develop deterministic, non-asymptotic guarantees on the solution quality attainable at a finite sampling budget. Sampling-based algorithms constitute a canonical approach to kinodynamic motion planning, with theoretical guarantees of completeness and optimality as their foundational properties. Early algorithms in this field explore a configuration space by randomized sampling, most prominently under the Voronoi bias, and guarantee probabilistic convergence to a solution (Kavraki et al. 1996; LaValle and Kuffner 2001; Kleinbort et al. 2019). Successive refinements strengthen this guarantee to asymptotic optimality and provide probabilistic convergence to an optimal solution (Karaman and Frazzoli 2011; Li et al. 2016). A vast majority of sampling-based algorithms sample system states in the configuration space and rely on state-to-state steering executed by solving a boundary value problem (BVP). Strong theoretical properties are available in the incumbent literature for this class of planning algorithms. First, the asymptotic optimality of PRM * and RRT * (Karaman and Frazzoli 2011) transfers to their kinodynamic instantiation when optimal steering between states is available (Perez et al. 2012; Webb and van den Berg 2013; Schmerling et al. 2015). Further, FMT * (Janson et al. 2015) provides a non-asymptotic analysis and derives a convergence rate to optimality alongside a quantified probability of a near-optimal path at finite sample count. This analysis is extended to a deterministic set of guarantees in Janson et al. (2018). Optimal point-to-point steering, however, is rarely available for nonlinear systems, as the required BVP can be challenging to solve. A second approach avoids the need for steering by sampling in the control space and numerically propagating the dynamics under the sampled command. While asymptotic guarantees of completeness and optimality are available for this class of algorithms (LaValle and Kuffner 2001; Kleinbort et al. 2019; Li et al. 2016; Paden and Frazzoli 2020), a non-asymptotic analysis, including convergence rates and finite-sample near-optimality guarantees, remains absent. The central difficulty is that finite-sample guarantees require quantifying how well a finite collection of sampled commands covers the resulting space of dynamically feasible trajectories.        
+
+> 1Department of Aeronautics and Astronautics, Massachusetts Institute of Technology, Cambridge, MA, USA
+> Corresponding author:
+> Shashank A. Deshpande, Department of Aeronautics and Astronautics, Massachusetts Institute of Technology, 77 Massachusetts Avenue, Cambridge, MA 02139, USA. Email: croshank@mit.edu Code: https://github.com/croshank/DFTSearch arXiv:2608.26314v1 [cs.RO] 26 Aug 2026
+
+2 
+
+> Figure 1. Dispersive forward tree search for online navigation in dynamic environments. The forward tree of dispersive commands is grown subject to safety predicates from the static and moving obstacles. The colored segmentation records tree depth, and the concentric rings mark the worst-case reachable sets of nearby moving obstacles at the matching depths.
+
+In this paper, we address this difficulty for the large family of nonlinear systems that are differentially flat (Murray et al. 1995). Differential flatness provides a finite-dimensional representation that allows us to construct locally dispersive command sets, whose rollouts cover a reference trajectory class at a specified distance, without requiring point-to-point steering. We show that the resulting forward tree provides a quantified cover of a trajectory class executable by an eroded control authority. This yields deterministic near-optimality bounds, measured against the optimal cost over the class of smooth trajectories that are robust to the problem constraints with a quantified margin, for all sufficiently regular cost functionals. Such coverage, however, requires tree sizes exponential in the problem horizon, rendering direct deployment intractable. For a permissive class of cost functionals that aggregate recursively in time, together with temporally composable constraints, we therefore introduce a pruning procedure that retains near-optimality while reducing the required tree size, and hence the deployment computation, to a polynomial in the problem horizon. The constructed locally dispersive command sets, combined with the dominance pruning procedure, form our algorithm, Dispersive Forward Tree search (DFT *). In summary, this paper makes the following contributions: 
+
+• Finite-sample theory. Deterministic, finite-sample near-optimality guarantees for kinodynamic search under forward propagation on differentially flat nonlinear systems. 
+
+• Dispersive sampling. Locally dispersive command samplers with cardinality bounds and an explicit construction for control-affine systems, alongside efficient designs for the unicycle, the trailer car, and the quadrotor. 
+
+• Algorithm and implementation. DFT *, a massively parallelized implementation of our steering-free search, with a dominance pruning procedure to control the tree size in the problem horizon, and an online adaptation, WWDFT *, for real-time planning in dynamic environments. 
+
+• Evaluation. Offline evaluation on the Dynobench instances against state-of-the-art kinodynamic planners to validate dominant near-optimality, and real-time evaluation of WWDFT * in dynamic environments to validate safety-assured deployment at embedded-tier compute. The remainder of this paper is organized as follows. Section 2 reviews related literature in the field. Sections 3 and 4 recall preliminaries and develop the planning problem alongside its flat reformulation. Section 5 develops our theory of dispersive tree search, and Section 6 presents the DFT * algorithm, its online adoption WWDFT *, and the full evaluation suite. All proofs are delegated to the Appendix. 
+
+2 Related Work 
+
+In this section, we review the principal approaches to kinodynamic motion planning alongside their theoretical properties and situate our contribution against this landscape. 
+
+2.1 Convergence Properties of Sampling-based Motion Planning 
+
+Sampling-based motion planners divide broadly into two categories. Planners in the first category sample states in the configuration space and connect them by solving a two-point boundary value problem (BVP), while those in the other sample commands in the control space and numerically propagate the dynamics forward. In either case, the convergence properties of sampling-based planners have guided progress in this field. In Table 1 we organize this progression for the two categories of sampling-based planners based on convergence to optimality being probabilistic or deterministic and whether finite-sample performance guarantees are available. 
+
+2.1.1 Configuration-space sampling and BVP steering 
+
+When optimal state-to-state steering is available, sampling-based kinodynamic planners inherit their convergence guarantees from geometric planning. Karaman and Frazzoli (2011) establish the asymptotic optimality of PRM * and RRT *
+
+for geometric problems, which transfers to kinodynamic planning for linear systems under quadratic cost (Perez et al. 2012; Webb and van den Berg 2013) and linear systems with drift (Schmerling et al. 2015). The geometric statements of Karaman and Frazzoli (2011) are refined by FMT * (Janson et al. 2015), and the probability of attaining a near-optimal solution at a finite sample count is quantified. This refinement is subsequently derandomized in Janson et al. (2018), where dispersive sampling is leveraged to obtain deterministic finite-sample guarantees alongside asymptotic optimality. The finite-sample statements of Janson et al. (2015) rest on probabilistic exhaustivity, the property that every path of sufficient clearance is traced, with a given probability, by a path within a surrounding spatial tube. A recent contribution, FLASK (Duong et al. 2026), carries probabilistic exhaustivity to samples in the flat output space and develops fast BVP connections between flat state samples for linear-quadratic minimum-time (LQMT) costs. Deshpande and How 3
+
+Table 1. Convergence guarantees in sampling-based kinodynamic planning. Notation: cn — returned cost at n samples; c∗ —optimal cost; c∗ 
+
+> δ
+
+— optimum over δ-robust solutions; c∗ 
+
+> ε
+
+— optimum under ε-eroded control authority; Dn — sample dispersion; δA(n)
+
+— command-set dispersion of an n-node tree. Remaining symbols are schematic.                                                                  
+
+> Class Planning algorithm Mechanism Convergence property Probabilistic, asymptotic RRT */PRM *
+> (Perez et al. 2012; Webb and van den Berg 2013; Schmerling et al. 2015) Optimal steering Pr  lim ncn=c∗= 1
+> Kinodynamic RRT
+> (LaValle and Kuffner 2001; Kleinbort et al. 2019) Forward propagation Pr  cn<∞→1
+> SST
+> (Li et al. 2016) Forward propagation Pr  lim ncn≤(1 + α(δ)) c∗
+> δ
+> = 1
+> Probabilistic, finite-sample FMT *
+> (Janson et al. 2015) Geometric connections Pr  cn≤(1 + ϵ)c∗≥1−ρ(n)
+> FLASK
+> (Duong et al. 2026) Flat LQMT steering Pr  cn≤(1 + ϵ)c∗≥1−ρ(n)
+> Deterministic, asymptotic gPRM
+> (Janson et al. 2018) Geometric connections lim ncn=c∗
+> GLC
+> (Paden and Frazzoli 2020) Forward propagation lim ncn=c∗
+> Deterministic, finite-sample gPRM
+> (Janson et al. 2018) Geometric connections cn≤ 1 + 2Dn
+> rn−2Dn
+> c∗
+> δ
+> DFT *
+> (This work) Forward propagation cn≤c∗
+> ε+O(δA(n))
+
+2.1.2 Control-space sampling and forward propagation 
+
+The steering requirement of solving a state-to-state boundary value problem can be evaded altogether by propagating sampled control commands forward through the system’s dynamics. Available convergence properties of planners in the propagation arm however remain relatively weak. Probabilistic completeness of the original kinodynamic RRT (LaValle and Kuffner 2001) was established only recently (Kleinbort et al. 2019), and guarantees the discovery of a suboptimal solution in the asymptotic limit. Stable Sparse RRT (SST) (Li et al. 2016) modifies the sampling mechanism of the kinodynamic RRT and introduces a witness pruning procedure to obtain probabilistic asymptotic convergence to a δ-robust optimum. GLC (Paden and Frazzoli 2020) searches a deterministic grid of control samples, dominance-prunes on state-space cells, and guarantees convergence to the optimal cost as the grid refines. However, the sampling resolution demanded by the analysis grows exponentially with the planning horizon. 
+
+2.2 Graph Search over Motion Primitives 
+
+When the requisite BVP for state-to-state steering is expensive to solve, as is often the case for nonlinear systems, graph search over a precomputed library of motion primitives remains an effective approach (Pivtoraiko et al. 2009; Frazzoli et al. 2005; Sakçak et al. 2019; Ortiz-Haro et al. 2025). Sakçak et al. (2019) propose regeneration of boundary-value-optimal primitives at each resolution of a lattice in the state space and prove a resolution-dependent near-optimality of the cost. iDb-A * (Ortiz-Haro et al. 2025) relaxes primitive matching requirements and allows bounded discontinuities in the solution trajectories, which are repaired afterwards by trajectory optimization. This relaxation lets iDb-A * solve challenging kinodynamic problems across the Dynobench suite (Ortiz-Haro et al. 2025), including aerial and articulated platforms, at state-of-the-art solution quality. 
+
+2.3 Optimization and Entropy Methods 
+
+Nonlinear trajectory optimization frameworks such as TrajOpt (Schulman et al. 2014), GuSTO (Bonalli et al. 2019), and Crocoddyl (Mastalli et al. 2020) compute locally optimal trajectories under the full system dynamics, with constraints imposed explicitly or via penalties in the cost. These methods can find high-quality solutions but remain expensive as well as sensitive to initialization (Ortiz-Haro et al. 2025). For online planning, reduced-order models admit lighter formulations optimizing polynomial splines in real time, most prominently deployed for ground and aerial navigation (Wang et al. 2022; Zhou et al. 2021; Kondo et al. 2026). Sampling-based optimizers such as MPPI (Williams et al. 2018) and the cross-entropy method (Kobilarov 2012) replace gradients with importance-weighted rollouts of sampled controls. Every problem requirement is superposed into the rollout cost, and hard constraints such as collision avoidance are imposed as soft penalties over the same. 
+
+2.4 Parallel Computation for Fast Planning 
+
+Modern sampling-based planners have increasingly benefitted from hardware parallelism. Parallel processing on GPUs is particularly suitable for parallel propagation of control samples (Perrault et al. 2025) as well as batched frontier expansions of steering-based planners (Ichter et al. 2017). SIMD cores on consumer CPUs have also been shown to sharply accelerate forward kinematics and collision checks by vectorization over batched robot configurations (Thomason et al. 2024; Duong et al. 2026). In this work, we accordingly exploit the data-parallel structure of depth-synchronized control propagation and dominance pruning and implement DFT * with fused GPU kernels that sample, propagate, and grade candidate trajectories. 4
+
+3 Preliminaries 
+
+In this section, we recollect some preliminary definitions and results utilized by our theoretical development later. 
+
+3.1 Dynamic Feedback Linearization and Differential Flatness 
+
+Consider a nonlinear control system on the state space X ⊆ 
+
+Rn, with the compact input set U ⊂ Rm and the smooth dynamics 
+
+˙x = f (x, u ). (1) 
+
+Definition 3.1. (Differential flatness (Fliess et al. 1995)). The system (1) is differentially flat if there exist a flat output 
+
+z = h x, u, ˙u, . . . , u (p) ∈ Rd, d = m, 
+
+with differentially independent components, * and smooth maps Ψx, Ψu of z and finitely many of its derivatives such that, along every trajectory of the system, 
+
+x = Ψ x
+
+ z, ˙z, . . . , u = Ψ u
+
+ z, ˙z, . . . .
+
+Differential flatness is equivalent to dynamic feedback linearizability in the following sense, which vastly simplifies the analytic structure of flat systems. A dynamic feedback 
+
+˙ζ = a(x, ζ, w ), u = κ(x, ζ, w ),
+
+with compensator state ζ ∈ Rq and new input w ∈ Rm, is 
+
+endogenous if 
+
+ζ = σ x, u, ˙u, . . . , u (s)
+
+along every closed-loop trajectory. 
+
+Theorem 3.2. (Fliess–Lévine–Martin–Rouchon (Fliess et al. 1995, 1999)). The system (1) is differentially flat in a neighborhood of a regular point † if and only if there exist indices R = ( r1, . . . , r d), an endogenous dynamic feedback, and a local diffeomorphism 
+
+(x, ζ ) 7 →  zi, ˙zi, . . . , z (ri−1) 
+
+> i
+
+di=1 
+
+under which the closed-loop system takes the Brunovský form 
+
+z(ri) 
+
+> i
+
+= wi, i = 1 , . . . , d. 
+
+The variable w = ( w1, . . . , w d) is called the flat input , the tuple  zi, ˙zi, . . . , z (ri−1) 
+
+> i
+
+di=1 is the flat state of dimension 
+
+|R| = P 
+
+> i
+
+ri, and the integer d is the flat dimension .Following Definition 3.1, the flat output z may additionally depend on the input and its derivatives. Such a dependence can be absorbed into the compensator state following Theorem 3.2, as the following remark records. 
+
+Remark 3.3. (State-determined flat output). Consider the extended system of Theorem 3.2 with state (x, ζ ) and input w.Each component zi and each derivative z(k) 
+
+> i
+
+, 0 ≤ k ≤ ri − 1,is a coordinate of the diffeomorphism 
+
+(x, ζ ) 7 →  zi, ˙zi, . . . , z (ri−1) 
+
+> i
+
+di=1 .
+
+There accordingly exists a map ˜h such that 
+
+z(t) = ˜h x(t), ζ (t)
+
+along every trajectory of the extended system. We work with the extended state whenever necessary and write z = h(x)
+
+without loss of generality. 
+
+3.2 Dispersion and Metric Entropy 
+
+Let (M, ρ ) be a metric space and let Z ⊆ M be totally bounded. 
+
+Definition 3.4. (Dispersion (Niederreiter 1992)). The 
+
+dispersion of a finite set P ⊂ M over Z is 
+
+disp( P ; Z) = sup 
+
+> ζ∈Z
+
+min  
+
+> p∈P
+
+ρ(ζ, p ),
+
+the radius of the largest ball centered in Z that contains no point of P .
+
+Example 3.5. Let Z = M = [0 , 1] with the metric ρ(x, y ) = 
+
+|x − y|.(i) The midpoints of the three equal subintervals of [0 , 1] ,
+
+P3 =
+
+n 16 , 12 , 56
+
+o
+
+,
+
+satisfy disp( P3; [0 , 1]) = 1 /6.(ii) In general, the set of the midpoints of the n equal subintervals of [0 , 1] ,
+
+Pn =
+
+n 2k − 12n : k = 1 , . . . , n 
+
+o
+
+,
+
+attains the least dispersion 1/(2 n) among sets of n points. 
+
+Definition 3.6. (Covering and packing numbers). Let s > 0.(i) The covering number of Z is the size of its smallest subset with dispersion at most s over Z,
+
+Ns(Z) = min  |Q| : Q ⊆ Z , disp( Q; Z) ≤ s .
+
+(ii) The packing number of Z is the size of its largest subset with members pairwise more than s apart, 
+
+Ps(Z) = max 
+
+n
+
+|Q| : Q ⊆ Z , min   
+
+> q̸=q′∈Q
+
+ρ(q, q ′) > s 
+
+o
+
+.
+
+Example 3.7. Let Z = [0 , 1] as in Example 3.5. (i) The midpoint sets Pn of Example 3.5 are the smallest covers, so 
+
+Ns
+
+ [0 , 1]  =
+
+l 12s
+
+m
+
+.
+
+(ii) The ⌈1/s ⌉ evenly spaced points form a largest set with pairwise separation exceeding s, so 
+
+Ps
+
+ [0 , 1]  =
+
+l 1
+
+s
+
+m
+
+.       
+
+> ∗No non-trivial differential relation Φ z, ˙z, . . . , z (k)= 0 — e.g. ˙z1=z2
+> — holds along all trajectories.
+> †A point at which the flatness maps are defined and smooth. The singular locus — zero net thrust for the quadrotor, zero velocity for the unicycle — is excluded.
+
+Deshpande and How 5
+
+At scale s, the covering and the packing numbers obey the relationship 
+
+P2s(Z) ≤ Ns(Z) ≤ Ps(Z).
+
+The quantity log Ns(Z) is called the metric entropy of Z at scale s (Kolmogorov and Tikhomirov 1959). In the following result, we recall the classical entropy estimate for Lipschitz function classes, which our complexity results build upon. 
+
+Theorem 3.8. (Entropy of Lipschitz classes (Kolmogorov and Tikhomirov 1959)). For M > 0, let Lip M be the set of 
+
+M -Lipschitz continuous functions on [0 , 1] that vanish at zero, 
+
+Lip M =  f ∈ C([0 , 1]) : f (0) = 0 ,
+
+|f (τ ) − f (τ ′)| ≤ M |τ − τ ′|∀ τ, τ ′ ∈ [0 , 1] ,
+
+and let it carry the supremum metric 
+
+ρ(f, h ) = sup  
+
+> τ∈[0 ,1]
+
+f (τ ) − h(τ ) .
+
+There exists a universal constant c0 such that 
+
+log Ns
+
+ Lip M
+
+ ≤ c0
+
+Ms for every 0 < s ≤ M. 
+
+4 Problem Formulation 
+
+Consider a platform governed by the nonlinear control system (1), with state x ∈ X ⊂ Rn and control input u ∈ U ⊂ Rm.Our theoretical development applies to a generic finite-horizon optimal control problem (OCP) for such a platform, with the following structure: 
+
+min  
+
+> u(·)
+
+J x(·)
+
+s.t. ˙x(t) = f  x(t), u (t), t ∈ [0 , T ],g x(·) ≥ 0 ∀ g ∈ G ,x(0) = xinit ,
+
+(2) where the cost functional J : C([0 , T ]; X ) → R and the predicates g : C([0 , T ]; X ) → R, g ∈ G , read the state trajectory. This structure subsumes kinodynamic motion planning instances, which are of typical interest in this work. 
+
+Example 4.1. (Kinodynamic planning). Given a time-varying free space Xfree (t) ⊆ X , a goal region Xgoal ⊆ X , and an initial state xinit , the kinodynamic motion planning problem 
+
+min   
+
+> Tf, u (·)
+
+Tf
+
+s.t. ˙x(t) = f  x(t), u (t), t ∈ [0 , T f ],x(t) ∈ X free (t), t ∈ [0 , T f ],x(Tf ) ∈ X goal , x(0) = xinit 
+
+(3) asks for a control signal whose trajectory from the initial state remains in the free space and arrives in the goal region in minimum time. Let sd( x, X \ X free (t)) denote the signed distance of the state x to the obstacle set X \ X free (t), and let dist( x, Xgoal ) denote the distance of x to the goal region. Then, setting the predicates and the cost as 
+
+gfree 
+
+ x(·) = min   
+
+> t∈[0 ,T ]
+
+sd  x(t), X \ X free (t),ggoal 
+
+ x(·) = − min   
+
+> t∈[0 ,T ]
+
+dist  x(t), Xgoal 
+
+,J x(·) = inf  t : x(t) ∈ X goal 
+
+recovers (3) within the structure of (2) on a horizon T long enough to contain candidate solutions. 
+
+4.1 Assumptions 
+
+The theoretical development of this paper rests on a generic set of assumptions enumerated below. (i) Regularity: The dynamics f is regular enough that, starting from any state x ∈ X , each admissible control u :[0 , T ] → U generates a unique trajectory of (1). (ii) Differential flatness with indices R: The system is differentially flat in the sense of Theorem 3.2, with flat output z = h(x) ∈ Rd following Remark 3.3 and indices 
+
+R = ( r1, . . . , r d), on a fixed open domain of regular points. Denote 
+
+jet z :=  zi, ˙zi, . . . , z (ri−1) 
+
+> i
+
+di=1 ∈ R|R|,z(R) :=  z(ri)
+
+> i
+
+di=1 ∈ Rd,
+
+|R| := P 
+
+> i
+
+ri, ¯r := max i ri,
+
+and let | · | ∞ denote the entrywise maximum norm. The flatness maps of Definition 3.1 accordingly take the continuously differentiable form 
+
+x(t) = Ψ x
+
+ jet z(t), u(t) = Ψ u
+
+ jet z(t), z (R)(t)
+
+along every trajectory. Conversely, let z(·) be a curve with components zi in the Sobolev space W ri,∞([0 , τ ]; R) of scalar functions with essentially bounded derivatives up to order ri. Suppose that, for almost every t ∈ [0 , τ ],
+
+Ψu
+
+ jet z(t), z (R)(t) ∈ U. 
+
+Then z = h x(·) for a trajectory x(·) of the system, realized by the control u(t) = Ψ u
+
+ jet z(t), z (R)(t) from the state 
+
+x(0) = Ψ x
+
+ jet z(0) .(iii) Compact input set: The input set U ⊂ Rm is compact. (iv) Jet observability: There is a map Ξ = (Ξ i,k )1≤i≤d, 0≤k≤ri−1 such that, along every trajectory of the system, 
+
+jet z(t) = Ξ  x(t).
+
+Following Remark 3.3, an extension of the state renders the jet observable whenever required. 
+
+4.2 Flat Reformulation 
+
+It is convenient for our development downstream that the OCP (2) be recast into a flat reformulation, which we attend to in this section. 6
+
+Let π : [0 , τ ] → X be a trajectory , a continuous curve in the state space, with the output trace 
+
+zπ = h ◦ π ∈ C([0 , τ ]; Rd).
+
+By jet observability, the output jet along a trajectory is the function Ξ of its state, and we write 
+
+jet zπ (t) = Ξ  π(t), z(k) 
+
+> π,i
+
+(t) = Ξ i,k 
+
+ π(t).
+
+By flatness (ii) and jet observability (iv), the state along a trajectory is a function of the output jet, 
+
+x(t) = Ψ x
+
+ jet z(t), jet z(t) = Ξ  x(t),
+
+so the cost and the predicates of (2) induce functionals of the output jet curve, which we continue to denote by J and g,
+
+J x(·) = J Ψx(jet z(·))  =: J jet z(·),g x(·) =: g jet z(·), g ∈ G .
+
+Moreover, by the flatness converse in (ii), the trajectories of admissible controls from xinit are exactly the state realizations of the output curves z(·), zi ∈ W ri,∞([0 , T ]; R), whose induced control lies in U almost everywhere and that start at the initial jet. The problem (2) is therefore equivalent to the output-space problem 
+
+min  
+
+> z(·)
+
+J jet z(·)
+
+s.t. Ψu
+
+ jet z(t), z (R)(t) ∈ U a.e. on [0 , T ],g jet z(·) ≥ 0 ∀ g ∈ G ,
+
+jet z(0) = Ξ  xinit 
+
+.
+
+(4) Our theory below addresses (2) through this flat reformula-tion. We close the section by recording a notational convention used throughout the development. 
+
+Remark 4.2. (Evaluation on output traces). Along a trajectory 
+
+π, each component zπ,i of the output trace is ri-times differentiable, and its derivatives assemble the jet curve 
+
+jet zπ (t) =  zπ,i (t), ˙zπ,i (t), . . . , z (ri−1)  
+
+> π,i
+
+(t)di=1 .
+
+The output trace therefore determines the arguments of the cost and the predicates, and we write 
+
+J zπ
+
+, g zπ
+
+, g ∈ G ,
+
+for their evaluations along the trajectory. 
+
+5 Dispersive Tree Search: Coverage and Complexity 
+
+This section contains all the major theoretical results of our article. We begin with an overview of the development before presenting our results through the rest of the section. 
+
+5.1 Overview of Results 
+
+In this subsection, we offer an overarching summary of the theoretical results that follow through the rest of this section. The central object of our investigation is a dispersive forward tree . Given a finite set A of flat-input commands of unit duration, the dispersive tree T of depth K with its root node at the state xinit is grown by recursively applying every command of A at each node. The command set A is dispersive 
+
+in the sense that each local trajectory starting from a state x
+
+falls within a deviation δ of the finite set of rollouts grown by 
+
+A.Our development proceeds to establish coverage results for dispersive forward trees. In particular, we certify that a smooth trajectory class generated by interior control commands is covered by the forward tree at a deviation O(δ), uniformly in the tree depth. Following this coverage, dispersive trees are then able to attain closure to the optimal cost of trajectories in this class that remain robust to the problem predicates — the M -smooth, 
+
+ε-eroded, γ-robust optimum 
+
+J∗ 
+
+> M,γ,ε
+
+= inf  
+
+> u
+
+J(zu)
+
+u ε -interior to U, g(zu) ≥ γ ∀ g ∈ G ,zu M -smooth ,
+
+where zu denotes the output trace of the trajectory under the control u from xinit .Our results permit the control erosion ε and the predicate robustness γ to scale with the local dispersion δA of the command set. Attaining a finer dispersion, however, requires exponentially many commands, and the complete dispersive tree grows intractably large over long horizons. Indeed, using packing number estimates, we show that a tree size exponential in the horizon is necessary to maintain dispersive coverage over the trajectory class. Fortunately, we show that for a large class of costs and predicates encompassing common planning objectives, it is possible to deploy spatio-temporal pruning at a desired scale 
+
+s, and prune down the required tree size to a polynomial complexity O Kd+1 (M/s )|R|, and with it the deployment compute to O |A| Kd+1 (M/s )|R|, all while maintaining closure to the optimal trajectories of the class. The remainder of this section develops these results in order. In Section 5.2, we formalize dispersive local sampling and exhibit the complexity and generic constructions of dispersive command sets. In Section 5.3, we prove coverage of the smooth interior trajectory class and closure of the search cost to the optimum J∗
+
+> M,γ,ε
+
+. Section 5.4 establishes the necessity of an exponential tree, and in Section 5.5, we develop the dominance pruning procedure that reduces the required size to a polynomial in the horizon. 
+
+5.2 Dispersive Local Sampling 
+
+Our theory throughout operates under the following metric defined on the trajectories of the flat system. Deshpande and How 7
+
+Definition 5.1. (Sobolev metric). For state trajectories π, π ′
+
+both defined on an interval I, the Sobolev metric reads their output jets, d π, π ′; I =sup 
+
+> t∈I
+
+max  
+
+> 1≤i≤d
+
+max  
+
+> 0≤k≤ri−1
+
+z(k) 
+
+> π,i
+
+(t) − z(k)
+
+> π′,i
+
+(t) ;
+
+when I is omitted it is the common domain of the two trajectories. Further, we operate within smoothness envelopes on the system’s trajectories, handling the M -smooth trajectory classes defined below throughout. 
+
+Definition 5.2. (M -smooth trajectory class). For M > 0, a trajectory π of the system is M -smooth if its jet and flat input are bounded by M , i.e., 
+
+z(k) 
+
+> π,i
+
+(t) ≤ M, 1 ≤ k ≤ ri, 1 ≤ i ≤ d, (5) with w := z(R) as the flat input. We denote the class of M -smooth trajectories by EM .In this subsection, we are concerned with the existence, complexity, and construction of a dispersive command set. A command set generates a finite set of local trajectories of the system starting from a given state, as the defining sequence below clarifies. 
+
+Definition 5.3. (i) A command a is a measurable flat input wa : [0 , 1] → Rd. Following the integrator chain of Theorem 3.2, the command a at a state x produces the flat trajectory 
+
+zxa,i (t)=
+
+> ri−1
+
+X
+
+> k=0
+
+Ξi,k (x) tk
+
+k! +
+
+Z t
+
+> 0
+
+(t − s)ri−1
+
+(ri − 1)! wa,i (s) d s
+
+=: roll x(a)i(t),
+
+(6) where Ξ( x) is the output jet at x from jet observability (iv); we call zxa the flat rollout of a from x, and the control it induces is 
+
+uxa(t) = Ψ u
+
+ jet zxa (t), w a(t).
+
+A command set A is a finite set of commands. (ii) The accepted set of A at x is 
+
+A(x) =  a ∈ A : uxa(t) ∈ U a.e. on [0 , 1] ,
+
+the commands whose induced control is admissible. (iii) A command sequence (a1, . . . , a K ) is accepted from x
+
+if each ak is accepted at the state reached by its predecessor. Given a state x, the accepted commands a ∈ A (x) sample finitely many local trajectories over a time window. We are interested in the scale at which this finite set covers the class of all locally admissible trajectories. We work with M -smooth trajectories generated by control inputs sampled in the ε-interior of the input set U , as formalized below. 
+
+Definition 5.4. (Eroded admissibility). For ε > 0, the ε-eroded input set is 
+
+U ε =  u ∈ U : u + [ −ε, ε ]m ⊆ U ,
+
+and an admissible control u is ε-eroded , i.e., u ∈ U ε, if 
+
+u(t) ∈ U ε a.e. Let πxu be the trajectory generated by u from a state x. The class 
+
+UεM (x) :=  u ∈ U ε : πxu ∈ E M
+
+defines the set of ε-eroded controls whose trajectory from x
+
+is M -smooth. The coverage offered by a command set over a local trajectory class is measured by its dispersion over the class, as defined below. Recall Definition 3.4, here taken in the Sobolev metric 
+
+d(·, ·; [0 , 1]) of Definition 5.1. 
+
+Definition 5.5. (Dispersive Command Sets). Let V be a class of admissible controls on [0 , 1] . The command set A is δ-dispersive over V at a state x ∈ X if 
+
+disp 
+
+ roll x(a) : a ∈ A (x) ;  πxv : v ∈ V 
+
+
+
+≤ δ. 
+
+Our downstream development that certifies coverage and optimality for the OCP (2) presupposes locally dispersive command sets. In our first result below, we record the existence of such a set at every state and estimate its size via the metric entropy of a local trajectory class. 
+
+Proposition 5.6. (Existence and complexity). Let x ∈ X 
+
+and δ ∈ (0 , M ]. There exists a command set A∗ that is δ-dispersive at x over the M -smooth admissible class  v :
+
+πxv ∈ E M . Moreover, its cardinality obeys 
+
+log |A ∗| ≤ c⋆ d Mδ ,
+
+where c⋆ is an independent numerical constant. 
+
+To execute dispersive forward tree search, a deterministic procedure that constructs a dispersive command set at every state is necessary. One such procedure is provided below for 
+
+control-affine systems. The idea is to sample and roll out flat inputs dispersively, and reject trajectories that violate authority requirements. Suppose that 
+
+f (x, u ) = f0(x) + g(x) u, 
+
+with f0 and g continuous and g(x) of full column rank on the domain, and that the input set U is convex. Control-affine dynamics render the input map affine in the flat input. 
+
+Lemma 5.7. (Affinity of the input map). Under the control-affine supposition, the input map Ψu of Assumption (ii), Section 4.1, satisfies 
+
+Ψu
+
+ jet z, w  = α jet z + B jet z w, 
+
+with α and B locally Lipschitz. 
+
+For j ∈ N, write Ijℓ := [ ℓ−1 
+
+> j
+
+, ℓj ], 1 ≤ ℓ ≤ j, for the equal subwindows of [0 , 1] . A lattice quantization of the flat input on such subwindows realizes a deterministic procedure to construct a dispersive command set, as proven by the theorem below. 8
+
+Theorem 5.8. (Dispersion realization). Let δ ∈ (0 , M/ 2] , set 
+
+j := ⌈4√d M/δ ⌉ and n := ⌈2√d M/δ ⌉, and let 
+
+G =
+
+n
+
+−M + (2 k − 1) Mn : k = 1 , . . . , n 
+
+od
+
+consist of the centers of the uniform grid of [−M, M ]d with n
+
+cells per axis. For every ε ≥ 2 LΨ δ, the lattice command set 
+
+A =  wg : g ∈ Gj , wg Ijℓ
+
+≡ gℓ,
+
+is δ-dispersive over UεM (x) at every state x, and 
+
+log |A| ≤ cd
+
+Mδ log 
+
+
+
+1 + Mδ
+
+
+
+,
+
+with cd = cd(d) a constant depending on the flat dimension d
+
+alone. 
+
+We prove Theorem 5.8 in Appendix A.3. The theorem provides a system-agnostic constructive path to dispersive sampling in the low-dispersion regime δ < r U /(2 LΨ), with 
+
+rU the inradius of the input set. The construction uses command sets only mildly larger than the upper estimate of Proposition 5.6. In practice, system-agnostic sampling as prescribed by the theorem can be very inefficient due to low acceptance rates |A (x)|/|A| , wasting computation as most samples at large δ violate the admissibility requirement 
+
+Ψu(jet z, w ) ∈ U . As a result, experimental implementations must leverage additional system arithmetic to sample efficiently, as we demonstrate in our platform catalog of Section 6.2.2. 
+
+5.3 Coverage and Optimality 
+
+In this subsection, we establish the coverage and optimality guarantees of dispersive forward trees. We prove that the tree generated by a δA-dispersive command set covers the 
+
+M -smooth eroded trajectory class at a deviation O(δA)
+
+throughout the problem horizon. Our result rests on a margin correction mechanism which shows that the additional authority available to the command set can be leveraged to track a uniformly wide tube around an eroded smooth reference. The mechanism addresses a central obstruction to finite-sample coverage. While dispersive sampling places a tree node within O(δA) of a reference trajectory over a single window, these deviations compound through the dynamics, and the accumulated error grows exponentially in the horizon under the classical Grönwall estimate. An eroded reference, however, leaves the command set spare control authority which is utilized to repeatedly steer the deviated state back onto the reference within one window (Figure 2), resetting the error iteratively across each window. Suppose that the continuously differentiable input map Ψu
+
+holds the Lipschitz constant LΨ in the supremum norm over the Sobolev envelope E2M (recall Definition 5.2). 
+
+Lemma 5.9. (Margin Correction). For some ε ∈ (0 , L ΨM ]
+
+and M ′ := M + ε/ (2 LΨ), let u ∈ U εM (x) be an ε-eroded admissible control on an interval I from a state x ∈ X , and let (CB+1)          
+
+> tk
+> tk+ 1
+> tk+ 2 tk+ 3
+> reference u
+> corrector
+> command trajectory
+> Figure 2. Corrective tracking of an eroded reference πuby a dispersive command trajectory, certified by correctors ν.
+
+zu(t) = h πu(t) be its flat trajectory. Let x′ ∈ X be another state satisfying 
+
+Ξ( x′) − jet zu(t) ∞ ≤ s
+
+at a time t with [t, t + 1] ⊆ I. There exists a constant CB > 0
+
+such that if 
+
+s ≤ ε
+
+2 LΨ CB
+
+,
+
+then there exists a corrector control ν ∈ U ε/ 2  
+
+> M′
+
+(x′) on [t, t +1] whose trajectory πν from x′ satisfies 
+
+d πν , π u; [ t, t + 1]  ≤ CB s, π ν (t + 1) = πu(t + 1) .
+
+The corrector therefore corrects the margin error s =
+
+Ξ( x′) − jet zu(t) ∞ within one window. As shown in the proof of Lemma 5.9 in Appendix A.4, the constant CB is given by 
+
+CB = max  
+
+> 1≤i≤d
+
+cQ(ri),
+
+where cQ(r) ≥ 1 is the norm of Hermite interpolation on the unit window, bounding every derivative through order r of the polynomial that matches prescribed jets of order r − 1 at both endpoints, in proportion to the largest prescribed value. Both CB and the abbreviation cB := (2 LΨ CB )−1 are fixed henceforth. It then follows, as we show in the theorem below, that dispersive commands anchor to the above correctors and track 
+
+O(δA) tubes around eroded M -smooth references (Figure 2). Note that the correctors utilize some additional authority, namely half the erosion ε they can certify correction for, as well as the additional smoothness headroom M ′ = M +
+
+ε/ (2 LΨ). As a result, the command sets below demand local dispersion over the class Uε/ 2  
+
+> M′
+
+.
+
+Theorem 5.10. (Eroded coverage). Let ε ∈ (0 , L ΨM ] with 
+
+M ′ := M + ε/ (2 LΨ), let K be a horizon, and let u ∈UεM (xinit ) be an ε-eroded admissible control on [0 , K ].Suppose A is δA-dispersive over Uε/ 2  
+
+> M′
+
+(x) at every state x,with δA ≤ cB ε. Then there exists an accepted command sequence (a1, . . . , a K ) ∈ A K whose trajectory π from xinit 
+
+satisfies 
+
+d π, π u; [0 , K ] ≤ (CB + 1) δA.
+
+Hence the command tree tracks a tube of width (CB + 1) δA
+
+around the reference trajectory πu.Deshpande and How 9
+
+Once tube proximity is established, the passage to cost closure is standard following some assumed regularity on the cost functional as well as the problem predicates (Li et al. 2016; Karaman and Frazzoli 2011). Let LJ , L G > 0 be such that for all trajectories π, π ′ defined on [0 , T ],
+
+J(zπ ) − J(zπ′ ) ≤ LJ d(π, π ′),
+
+g(zπ ) − g(zπ′ ) ≤ LG d(π, π ′) ∀ g ∈ G . (7) Since x(t) = Ψ x
+
+ jet z(t) with Ψx locally Lipschitz, any Lipschitz functional of the state curve qualifies, 
+
+J x(·) − J x′(·) ≤ L sup  
+
+> t∈[0 ,T ]
+
+x(t) − x′(t) .
+
+We define the robust eroded optimum of (2) as the optimum achieved by M -smooth trajectories of eroded inputs on tightened predicates. For a predicate margin γ ≥ 0 and an input erosion ε > 0, define 
+
+UM,γ,ε =  u ∈ U εM (xinit ) : g zu
+
+ ≥ γ ∀ g ∈ G ,J∗ 
+
+> M,γ,ε
+
+= inf 
+
+> u∈U M,γ,ε
+
+J zu
+
+.
+
+It is then immediate, as recorded by the theorem below, that 
+
+O(δA) dispersion achieves O(δA)-eroded optimality. 
+
+Theorem 5.11. (Eroded optimality). Let the horizon T ∈
+
+N and ε ∈ (0 , L ΨM ] with M ′ := M + ε/ (2 LΨ). Suppose 
+
+UM,γ,ε ̸ = ∅, and that A is δA-dispersive over Uε/ 2  
+
+> M′
+
+(x)
+
+at every state x, with δA ≤ cB ε and γ ≥ LG (CB +1) δA. Then there exists an accepted command sequence 
+
+(a1, . . . , a T ) ∈ A T whose trajectory π from xinit is feasible for (2) ,
+
+g zπ
+
+ ≥ 0 ∀ g ∈ G ,
+
+and whose cost satisfies 
+
+J zπ
+
+ ≤ J∗ 
+
+> M,γ,ε
+
++ LJ (CB + 1) δA.
+
+Coverage of the M -smooth trajectory class in the sense of Theorem 5.10 naively requires a command tree of size |A| K
+
+for trajectories of horizon K. With log |A| ∼ c⋆ d M/δ A as estimated by Proposition 5.6, the tree size demanded by naive growth is O e c⋆dKM/δ A
+
+, exponentially exploding in the problem horizon at given certification requirements 
+
+(δA, M ). In the next subsection, we show that such an exponential growth is an unavoidable requirement if one demands coverage of the entire M -smooth class. 
+
+5.4 The Necessary Size of Covering Trees 
+
+A command tree , or an A-tree , rooted at an initial state xinit 
+
+is a finite set of nodes in X such that each node other than the root is the endpoint state of an accepted command from a parent node. Denote by Φa(x′) the endpoint state of a command a ∈ A (x′) from the node x′, then a node at depth 
+
+k has the form 
+
+x = Φ ak ◦ Φak−1 ◦ · · · ◦ Φa1 (xinit )
+
+for some command sequence (a1, . . . , a k) accepted from 
+
+xinit . In particular, Theorem 5.10 states that the complete 
+
+A-tree of depth K, the tree holding every accepted sequence, contains, for every u ∈ U εM (xinit ), a trajectory within (CB +1) δA of πu over [0 , K ].As we have argued, the complete A-tree of depth K holds 
+
+O e c⋆dKM/δ A
+
+ nodes, rendering solution search upon it computationally intractable. However, this in itself does not imply that dispersive M -smooth coverage is out of reach, because the complete tree is redundant and tubes of width 
+
+E′ := ( CB + 1) δA contain interchangeable paths within the tree. A relatively sparse subtree may then deliver our coverage guarantees and enable tractable solution search. In this subsection, we show that despite this redundancy, the minimal tree that offers coverage over the M -smooth class does not escape the exponential explosion in the horizon. We show that the required size of the covering tree is bounded below by the packing number of the target trajectory class, and estimate the packing number of the target using the standard metric entropy machinery introduced in Section 3.2. For a horizon K and ε > 0, let ZK be the M -smooth ε-eroded trajectory class from xinit over the horizon [0 , K ], carrying the metric d(·, ·; [0 , K ]) , and write Ps(K) := Ps(ZK ) for its packing number at scale s > 0, following Definition 3.6. The following proposition, proven in Appendix A.7, estimates the necessary size of a command tree that maintains dispersive coverage on ZK .
+
+Proposition 5.12. (Coverage complexity). Let ε, E > 0, let 
+
+K be a horizon, and let T be a command tree of depth K.(i) If T contains a trajectory within E of πu over [0 , K ] for every u ∈ U εM (xinit ), then it contains at least P2E (K)
+
+distinct trajectories of depth K.(ii) Suppose the eroded input set retains a ball, u0 +[−η, η ]m ⊆ U ε for some u0 ∈ U whose constant control from xinit carries an (M/ 2) -smooth trajectory, and η ∈
+
+(0 , L ΨM/ 2] . Then there is a constant κ = κ(R) > 0 such that, for every 0 < s ≤ κ η/L Ψ,
+
+log Ps(K) ≥ κ η K log 2 2 LΨ s .
+
+It follows that the tree T of (i) must contain at least 
+
+2 κηK/ (4 LΨE) nodes whenever 2E ≤ κ η/L Ψ.
+
+Proposition 5.12 shows that so long as the smooth eroded trajectory class retains a non-trivial interior, its packing number grows exponentially in the horizon K, following which the size of every covering tree must explode exponentially. The linear rate O(δA) of the optimality gap relative to the local dispersion of the sampler is trivially tight if one considers the cost of tracking a reference at K = 1 . The following example uses the packing number machinery to present the same result for a K-horizon trajectory tracking problem for completeness. 
+
+Example 5.13. Consider the trajectory tracking OCP 
+
+min  
+
+> u(·)
+
+d πu, π u◦ ; [0 , K ]
+
+s.t. ˙x = f (x, u ), x(0) = xinit ,10 
+
+where u◦ ∈ U εM (xinit ) is a reference control, so that J∗ 
+
+> M,γ,ε
+
+=0.(i) Equip each state x with the δA-dispersive command set 
+
+A∗(x) of Proposition 5.6 at M ′ with δA ≤ cB ε, and let T be the complete tree of depth K, carrying N ≤
+
+sup x |A ∗(x)|K trajectories. Applying Theorem 5.11, for every reference u◦,
+
+∃ π ∈ T : J(π) ≤ (CB + 1) δA.
+
+Conversely, apply Proposition 5.12(ii) at the scale 2s with 
+
+s := κ η K log 2 8 LΨ log N
+
+to furnish a packing Q ⊂ Z K of |Q| > N members pairwise over 2s apart. Then, for every π ∈ T ,
+
+ q ∈ Q : d(π, q ; [0 , K ]) ≤ s ≤ 1,
+
+and |Q| > N leaves a member πu◦ ∈ Q with 
+
+J(π) = d π, π u◦ ; [0 , K ] > s ∀ π ∈ T .
+
+Substituting log N ≤ K sup x log |A ∗(x)| ≤ 
+
+c⋆ d KM ′/δ A into s, the two sides sandwich the worst-case optimality gap of the complete tree, 
+
+κ η log 2 8 c⋆ d L Ψ M ′ δA ≤ sup  
+
+> u◦∈ U εM(xinit )
+
+min  
+
+> π∈T
+
+J(π) − J∗
+
+> M,γ,ε
+
+≤ (CB + 1) δA.
+
+The optimality gap estimated by Theorem 5.11 is therefore tight in its rate O(δA).(ii) Let instead T be any set of at most 2K trajectories. Apply Proposition 5.12(ii) with the scale s := κ η/ (4 LΨ)
+
+to furnish a packing Q ⊂ Z K of 4K > |T | members pairwise over s apart. Every trajectory of T then lies within s/ 2 of at most one member of Q, leaving a member 
+
+πu◦ ∈ Q with 
+
+J(π) = d π, π u◦ ; [0 , K ] > s
+
+2 = κ η 
+
+8 LΨ
+
+∀ π ∈ T .
+
+Subexponential trees submit to the above cost floor regardless of the local dispersion δA of their sampler. (iii) We numerically instantiate the trajectory tracking problem on the scalar double integrator ¨x = u, with z = x, d = 1 ,
+
+U = [ −1, 1] , and ε = 0 .25 . Theorem 5.8 makes dispersive command sets in the form Aj,n with j subwindows and n
+
+grid levels. We enumerate the complete tree of each Aj,n 
+
+up to K = 6 and record the tracking cost 
+
+ek = min  
+
+> π∈ A k
+
+d π, π u; [0 , k ], k = 1 , . . . , K, 
+
+against random ε-eroded references and an extremal reference |u| = 1 .– In Figure 3(a), we observe that the eroded error stays nearly flat in k while the extremal error grows steadily, as it must, since |u| = 1 exceeds every level of the lattice. 1 2 3 4 5 6Horizon Depth k            
+
+> 0.0 0.1 0.2 0.3 0.4 0.5 Coverage Error
+> eroded references extremal reference
+> (a) 0.1 0.2 0.3 0.4 0.5 0.6 0.7 Local Dispersion δ
+> 0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 Coverage Error at  k = 6
+> (1,2) (1,3) (1,4) (1,6) (1,8) (2,2) (2,3) (3,2) (2,4) (2,5) (3,3) (2,6) (3,4)
+> fit y= 0.65 δ(b)
+
+Figure 3. Coverage on the double integrator ( ε = 0 .25 ). (a) Coverage error ek = min π∈A k d π, π u; [0 , k ] for (j, n ) = (1 , 8) ,four eroded references (band) and the extremal reference. (b) e6
+
+vs the local dispersion δA over Uε/ 2, one point per family. 
+
+– In Figure 3(b), the terminal error falls linearly with the dispersion, e6 ≈ 0.65 δA, below the worst-case certified (CB + 1) δA with CB = cQ(2) = 10 (gray points carry sampled lower bounds on δA and are excluded from the fit). Complete trees become quickly intractable as they hold 
+
+|A| K ≈ 10 11 trajectories at |A| ∼ 64 at the finest family we experiment with, which motivates the dominance pruning procedure of the next subsection as a necessary precursor to the deployment of dispersive forward trees for sampling-based planning. 
+
+5.5 Dominance Pruning 
+
+Despite the analysis of the previous subsection rendering trajectory class coverage intractable, it is possible to maintain dispersive coverage over a subclass of near-optimal trajectories and tractably realize the optimality certificate of Theorem 5.11. In this subsection, we present a spatio-temporal dominance pruning procedure that leverages structural properties of the underlying OCP to iteratively prune the forward tree synchronously with its growth and allows us to maintain near-optimality while curtailing the necessary tree size, and with it the deployment compute, to a polynomial order in the horizon length. The procedure we present requires some restriction on the structure of the OCP (2), namely we attend to temporally aggregating costs and separating predicates. This setting generalizes popular structure in kinodynamic planning such as additive Lipschitz costs and static collision constraints considered by SST (Li et al. 2016). 
+
+Definition 5.14. (Aggregating costs, separating predicates). (i) The cost J(·) of (2) is recursively aggregated if there exist an initial value Σ0 ∈ R, window updates ϱk : R ×
+
+C [k, k + 1]  → R, and a nondecreasing Lφ-Lipschitz 
+
+φ : R → R such that, for every trajectory π on [0 , K ],
+
+J zπ
+
+ = φ ΣK
+
+, Σk+1 = ϱk
+
+
+
+Σk, z π [k, k +1] 
+
+
+
+,
+
+(8) and the window updates satisfy, for all aggregates Σ, Σ′ ∈
+
+R and trajectories π, π ′,
+
+ϱk
+
+
+
+Σ, z π [k, k +1] 
+
+
+
+≤ ϱk
+
+
+
+Σ′, z π [k, k +1] 
+
+
+
+if Σ ≤ Σ′,Deshpande and How 11 
+
+ϱk
+
+
+
+Σ, z π [k, k +1] 
+
+
+
+− ϱk
+
+
+
+Σ′, z π [k, k +1] 
+
+
+
+≤ Σ − Σ′ ,
+
+ϱk
+
+
+
+Σ, z π [k, k +1] 
+
+
+
+− ϱk
+
+
+
+Σ, z π′ [k, k +1] 
+
+
+
+≤ L d  π, π ′; [ k, k + 1] .
+
+That is, in order, the window updates are nondecreasing in the aggregate, non-expansive relative to aggregate perturbations, and L-Lipschitz in the window trajectory. The aggregate Lipschitz constant of the cost in the sense of (7) is recovered as LJ = Lφ K L .(ii) The predicates g ∈ G of (2) separate over the time windows if there exist LG -Lipschitz window predicates gk
+
+such that, for every trajectory π on [0 , K ],
+
+g zπ
+
+ = min  
+
+> 0≤k<K
+
+gk
+
+
+
+zπ [k, k +1] 
+
+
+
+. (9) The slightly uncomfortable abstract structure imposed by Definition 5.14 allows the admission of some practically useful planning instances beyond Lipschitz additives and static obstacles, as listed by the example below. 
+
+Example 5.15. The following costs and predicates carry the structure of Definition 5.14, as verifiable by direct inspection. 1. Discounted sums. ϱk(Σ , w ) = Σ + βkℓk(w) with β ≤
+
+1 and φ = id . At β = 1 we recover the usual window-additive costs like the arc length and the integral of a Lipschitz running cost. 2. Running extrema. ϱk(Σ , w ) = min {Σ, c k(w)}, and likewise the maximum, such as the closest approach to a goal region, the peak tracking error, and the least clearance over the horizon. 3. Spatio-temporal robustness. For a margin μ : Rd → R,the robustness of the safety specification, μ z(t) ≥ 0
+
+throughout [0 , K ], is 
+
+J zπ
+
+ = min  
+
+> t∈[0 ,K ]
+
+μ zπ (t),
+
+the running minimum of the window margins ck(w) = min t∈[k, k +1] μ w(t), and the robustness of the reach specification, μ z(t) ≥ 0 at some t ∈ [0 , K ], is the corresponding running maximum (Fainekos and Pappas 2009). 4. Dynamic collision avoidance. The predicate 
+
+gk(w) = min t∈[k, k +1] dist  w(t), O (t) − r
+
+maintains the clearance r from the reachable set 
+
+O(t) of a moving obstacle. 5. Visibility maintenance. The predicate gk(w) = min t∈[k, k +1] dist  [w(t), p (t)] , O  − r keeps the line of sight [w(t), p (t)] to a moving target p(t) away from known occluders O.6. Envelope margins. The predicate gk(w) = min t∈[k, k +1] 
+
+ vmax − | ˙w(t)| bounds the speed along the trajectory. We now describe the dominance pruning procedure. 
+
+Procedure 5.16. (Dominance pruning). Let x be a depth-k
+
+node of the command sequence (a1, . . . , a k) and let πx be the corresponding trajectory on [0 , k ], carrying the running summary Σ( x) along the recursion (8). Fix a radius s > 0 and let 
+
+qs(ξ) := sξ/s , ξ ∈ R|R|,
+
+assign each jet the corner of its cell in the grid sZ|R|, where 
+
+⌊·⌋ denotes the componentwise floor. The dominance-pruned tree of depth K is grown by the recursion V0 := {xinit } and, for 0 ≤ k < K ,
+
+bVk+1 := 
+
+
+
+Φa(x)
+
+x ∈ Vk, a ∈ A (x),gk
+
+ zπΦa(x) [k, k +1] 
+
+ ≥ 0 ∀ g ∈ G 
+
+zπΦa(x) [k, k +1] 2M -smooth 
+
+
+
+,Vk+1 := 
+
+(
+
+x ∈ bVk+1 
+
+Σ( x) ≤ Σ( x′) ∀ x′ ∈ bVk+1 
+
+with qs
+
+ Ξ( x′) = qs
+
+ Ξ( x))
+
+.
+
+With ties resolved arbitrarily, dominance pruning retains exactly one node per occupied cell of the jet-space grid at each depth k. The pruned tree is a command tree with the node set SKk=0 Vk.Note that jet space quantization for dominance pruning is equivalent to state space quantization and pruning following 
+
+dist( x, x ′) ≤ ρ =⇒ Ξ( x) − Ξ( x′) ∞ ≤ Lx ρ
+
+for a metric dist on the states. 
+
+Theorem 5.17. (Sparse tree optimality). Let ε ∈ (0 , L ΨM ]
+
+with M ′ := M + ε/ (2 LΨ), and let the cost and the predicates of the OCP (2) obey the structure of Definition 5.14. Suppose A is δA-dispersive over Uε/ 2  
+
+> M′
+
+(x) at every state x,with every command input bounded by 2M , ∥wa∥∞ ≤ 2M
+
+for all a ∈ A (x). Pick a pruning radius s > 0 and a predicate margin γ ≥ 0 with 
+
+δA + s ≤ cB ε, γ ≥ LG (CB + 1)  δA + s,
+
+and suppose the reference class UM,γ,ε is nonempty. Then the pruned tree of Procedure 5.16 at radius s of depth K holds at most 
+
+K
+
+ 8KM s
+
+d 8Ms
+
+|R|− d
+
++ 1 
+
+nodes, and contains an accepted command sequence 
+
+(a1, . . . , a K ) whose trajectory π from xinit is feasible for 
+
+(2) ,
+
+g zπ
+
+ ≥ 0 ∀ g ∈ G ,
+
+and whose cost satisfies 
+
+J zπ
+
+ ≤ J∗ 
+
+> M,γ,ε
+
++ LJ (CB + 1)  δA + s.
+
+The theorem is proven in Appendix A.8. Dominance pruning thus curtails our search tree to a polynomial size in the problem horizon while retaining the optimality certificate of Theorem 5.11 up to an increment δA → δA + s = δA + Lx ρ
+
+in the certified gap. Dominance-pruned tree search costs 12 xy        
+
+> depth  k
+> Dominance Pruning retains 1/9 arriving candidates in the cell.
+> k= 0
+> k= 1
+> k= 2
+> Figure 4. Dominance pruning illustrated for the 2D single integrator ˙p=u. At each depth k, one representative is retained per occupied state-space cell.
+
+roughly 
+
+O
+
+
+
+|A| K
+
+ 8KM s
+
+d 8Ms
+
+|R|− d 
+
+compute iterations, with a massive parallelization scope across each depth. This renders dispersive forward tree search implementable for kinodynamic planning on embedded-tier parallel processors, as we demonstrate in the next section. 
+
+6 Dispersive Tree Search: Algorithm and Experiments 
+
+In this section we present DFT *, a massively parallel implementation of dispersive forward tree search with depth-synchronous dominance pruning. We evaluate this implementation on Dynobench (Ortiz-Haro et al. 2025), a kinodynamic planning benchmark, against state-of-the-art planners based on sampling, motion-primitive search, and optimization. We further present a receding horizon implementation of DFT *, WarpWalker (WWDFT *), and evaluate its realtime planning performance in dynamic environments against the state of the art. Finally, we study the near-optimality of DFT * on a simple K-integrator system where strong nonlinear optimization frameworks are available for relative comparison. 
+
+6.1 Kinodynamic Planning with Forward Dispersive Search 
+
+To recall notation, z = h(x) ∈ Rd is the flat output with orders R = ( r1, . . . , r d), Ξ( x) is the output jet at a state x,and a command a from a command set A is a measurable flat input wa : [0 , ∆] → W . A command produces the flat rollout zxa = roll x(a) from a state x through the integrator chain, along with the endpoint state Φa(x). Finally, let dist 
+
+be a metric on states and cell( x) the quantization of x at a pruning radius ρ in this metric. We present DFT * as Algorithm 1. 
+
+Algorithm 1 DFT * — breadth-first forward dispersive search 
+
+k ← 0; V0 ← { xstart }; Σ( xstart ) ← Σ0
+
+repeat 
+
+bVk+1 ← ∅ 
+
+for all x ∈ Vk do for all a ∈ A (x) do 
+
+zxa ← roll x(a) on [0 , ∆] ; x′ ← Φa(x)
+
+if gk
+
+ zxa
+
+ ≥ 0 for all g ∈ G :
+
+Σ( x′) ← ϱk
+
+ Σ( x), z xa
+
+
+
+parent( x′) ← (x, a )
+
+add x′ to bVk+1 
+
+Vk+1 ←
+
+(
+
+x′ ∈ bVk+1 
+
+Σ( x′) ≤ Σ( x′′ ) ∀x′′ ∈ bVk+1 
+
+with cell( x′′ ) = cell( x′)
+
+)
+
+k ← k + 1 
+
+until termination condition 
+
+return πx minimizing Σ( x) over x ∈ Vk
+
+Note that at each depth k, the pairs (x, a ) with x ∈ Vk and 
+
+a ∈ A (x) evaluate independently of one another, so the at most |Vk| · |A| pairs expand concurrently, followed by the pruning step. The nested loops parallelize across the available threads, and the loop over k is the only sequential dimension of the search. The construction of Vk+1 from Vk is thus implemented as an invocation of a fused CUDA kernel. Each thread integrates the window of its pair (x, a ) in substeps and checks the predicates. The performance of DFT * freely improves within a given wall-clock budget as the available parallel compute scales. As a result, we emulate different tiers of deployment by capping the kernel grid to the streaming-multiprocessor (SM) count of representative devices. We use 8 SMs to emulate the Jetson Orin Nano and 16 for the AGX Orin, a popular set of onboard processors, while the full desktop GPU evaluations use all 
+
+128 SMs of an RTX 4090. 
+
+6.1.1 Algorithmic Variants 
+
+Our headline algorithm DFT * (Algorithm 1) performs an unbiased breadth-first search on the dispersive tree and thus carries the near-optimality certificate of Theorem 5.17 for the general class of optimal control problems (2). Kinodynamic planning problems admit additional problem structure which planning algorithms (Ortiz-Haro et al. 2025; Duong et al. 2026) routinely leverage. Such structural leverage is also admissible within the DFT * framework, which can bias the search on the dispersive tree while converging to the same 
+
+near-optimal solutions and maintaining the same certificate. We therefore include two specializations of Algorithm 1 in our evaluation for completeness. 
+
+Spatial Dominance Pruning: When the problem predicates are static, gk = g for every depth k, such as in static obstacle evasion, the pruning procedure keeps one dominant node per cell, as opposed to one per cell for each depth, so that with Deshpande and How 13 
+
+V0: k := S 
+
+> j≤k
+
+Vj ,
+
+Vk+1 := 
+
+(
+
+x ∈ bVk+1 
+
+Σ( x) ≤ Σ( x′) ∀ x′ ∈ bVk+1 ∪ V0: k
+
+with cell( x′) = cell( x)
+
+)
+
+.
+
+A* Beam Search: When the cost-to-go J∗(x, t ) admits a consistent estimate h, the running summary Σ of Algorithm 1 estimates the total cost as f := Σ + h, and A* beam search (Hart et al. 1968) is optimal on the dispersive tree at a lower sample count. Expansion proceeds over batches of estimated minimum cost nodes instead of the lowest depth ordering of Algorithm 1. In addition to the headline algorithm DFT *, we evaluate DFT *-Static, DFT-A * and DFT-A *-Static, which apply either or both of the above specializations and recover the same solutions at lower computation wall times. The Dynobench instances of Section 6.2 are static kinodynamic planning problems, so that both specializations apply and save up to 44 × of the computation time. We report these results in Appendix C. 
+
+6.2 Kinodynamic Planning on Dynobench 
+
+We now evaluate DFT * on kinodynamic planning problems from Dynobench (Ortiz-Haro et al. 2025), across platforms spanning the first- and second-order unicycles, the car with a trailer, and quadrotors under two parameterizations. 
+
+6.2.1 Pushforward Construction of Dispersive Commands 
+
+In our evaluation we deploy dispersive command sets constructed by a pushforward mechanism. For each platform, we select a discrete set G ⊂ U of admissible control signals and push it through the system flow, 
+
+A = A(x) =  πxu : u ∈ G .
+
+The command set at a state x is therefore an image of G
+
+under the dynamical flow of the system. For each of our constructions, we provide dispersion estimates of the form 
+
+δA ≤ ϱ(G, M )
+
+over the M -smooth trajectory class, where the estimate ϱ
+
+vanishes as G is refined. This construction mechanism is notably in contrast to the ‘universal’ pullback construction mechanism suggested by Theorem 5.8. The flat input lattice sampled by Theorem 5.8 remains agnostic to the underlying dynamical system and enforces control admissibility by rejecting the commands 
+
+ w ∈ A : Ψ u
+
+ jet z(t), w (t) /∈ U for some t ∈ [0 , 1] .
+
+Such pullback rejections can only be processed after a forward pass through the system dynamics. We find that the acceptance rates |A (x)|/|A| can be quite low at deployment resolutions and massively waste compute resources, limiting the system-agnostic pullback mechanism to an object of theoretical completeness. Theorem 5.8 therefore serves as a certificate of existence and constructibility of dispersive command sets across the entire flat class, while effective deployment of DFT * leverages additional platform structure via the specific pushforward designs of the catalog below. 
+
+6.2.2 Command Sets for the Catalog 
+
+We present the catalog of differentially flat platforms we use for our evaluation. We briefly describe the dynamics of each platform, followed by its flat reduction and the command sets we use for our deployment. A compact summary of these constructions is presented in this section, and we refer the reader to Appendix B for the detailed calculus. Figure 5 visualizes the dispersive trees generated by our construction. 
+
+Notation: I1, . . . , I j denote the j equal subwindows of the window [0 , ∆] , indexed by ℓ, and a command holds its sampled channels constant on each subwindow. Gn[l, u ]
+
+denotes the n-level grid 
+
+Gn[l, u ] = 
+
+n
+
+l + kn−1 (u − l) : k = 0 , . . . , n − 1
+
+o
+
+of spacing (u − l)/(n − 1) , and dS1 (θ, θ ′) = min |θ −
+
+θ′|, 2π − | θ − θ′| the angular distance on S1. The dispersion bounds provided over the M -smooth trajectory class are derived in Appendix B. 
+
+1. Unicycle, first order. The first-order unicycle operates with the state (x, y, θ ) ∈ R2 × S1, the position and orientation, the control input u = ( v, ω ) ∈ [− 12 , 12 ]2, the forward speed and angular velocity, and the dynamics 
+
+˙x = v cos θ, ˙y = v sin θ, ˙θ = ω. 
+
+The system is flat with the output z = ( x, y ) and orders 
+
+R = (2 , 2) , the defining relations 
+
+v = ±∥ ˙z∥, θ = atan2  ± ˙y, ± ˙x, ω = ˙z ∧ ¨z
+
+∥ ˙z∥2 .
+
+Let g = ( vℓ, ω ℓ)jℓ=1 ∈ Gn
+
+− 12 , 12
+
+2j . A command wg holds the control constant at (v, ω ) = ( vℓ, ω ℓ) on Iℓ, yielding 
+
+A(x) = 
+
+n
+
+wg : g ∈ Gn
+
+− 12 , 12
+
+2j o
+
+,wg (t) = vℓ ωℓ
+
+ − sin θ(t), cos θ(t), t ∈ Iℓ,
+
+with θ(t) = θℓ−1 + ωℓ (t − tℓ−1), and the dispersion 
+
+δn,j ≤ 1 + ∆ /22 ( n − 1) +
+
+√2 M + 18
+
+ ∆
+
+j −−−−−→ 
+
+> n↑, j ↑
+
+0.
+
+We use the state-space quantization metric 
+
+dist = (x − x′, y − y′) + 12 dS1 (θ, θ ′).
+
+For evaluation, we use the window ∆ = 0 .5 s, j = 1 , n = 8 ,the pruning radius ρ = 0 .08 , and the goal tolerance δ0 = 0 .1.
+
+2. Unicycle, second order. The second-order unicycle operates with the state (x, y, θ, v, ω ), the position, orientation, forward speed |v| ≤ 12 , and angular velocity |ω| ≤ 12 , the control input u = ( a, α ) ∈ [− 14 , 14 ]2, the forward and the angular acceleration, and the dynamics 
+
+˙x = v cos θ, ˙y = v sin θ, ˙θ = ω, ˙v = a, ˙ω = α. 14 -0.50 0.50 -0.11 0.11 
+
+(x, y, θ) = (0, 0, 0) 
+
+xy
+
+(a) Unicycle, first order  
+
+> 00.36 -0.013 0.013
+
+(x, y, θ, v, ω) = (0, 0, 0, 0.25, 0) 
+
+xy
+
+(b) Unicycle, second order  
+
+> -0.030 0.30 -0.14 0.14
+
+(x, y, θ0, θ1) = (0, 0, 0, 0) 
+
+xy
+
+(c) Car with trailer  
+
+> -0.53 0.53 -0.42 0.36
+
+(p, v, q, ω) = (0, 0, qid , 0) 
+
+xz
+
+(d) Quadrotor  
+
+> Figure 5. Depth-two forward trees under the constructed command sets. Gray trajectories represent those pruned off.
+
+The system is flat with the output z = ( x, y ) and orders R =(3 , 3) , the first-order relations defining (v, θ, ω ) as before, and 
+
+a = ⟨ ˙z, ¨z⟩∥ ˙z∥ , α = ˙z ∧ ... 
+
+z
+
+∥ ˙z∥2 − 2 ⟨ ˙z, ¨z⟩ ( ˙ z ∧ ¨z)
+
+∥ ˙z∥4 .
+
+Let g = ( aℓ, α ℓ)jℓ=1 ∈ Gn
+
+− 14 , 14
+
+2j . A command wg holds the control constant at (a, α ) = ( aℓ, α ℓ) on Iℓ, yielding 
+
+A(x) = 
+
+n
+
+wg : g ∈ Gn
+
+− 14 , 14
+
+2j o
+
+,wg (t) = 
+
+−vω 2 cos θ −  2aℓω + vα ℓ
+
+ sin θ
+
+−vω 2 sin θ +  2aℓω + vα ℓ
+
+ cos θ
+
+
+
+, t ∈ Iℓ,
+
+where (v, ω, θ ) obey ˙v = aℓ, ˙ω = αℓ, ˙θ = ω on Iℓ, and the dispersion 
+
+δn,j ≤ 2 + 3∆ 8 ( n − 1) +
+
+√2 M + 516 
+
+ ∆
+
+j −−−−−→ 
+
+> n↑, j ↑
+
+0.
+
+We use the state-space quantization metric 
+
+dist = ∥(x − x′, y − y′)∥ + dS1 (θ,θ ′)2 + |v−v′|+|ω−ω′| 
+
+> 4
+
+.
+
+For evaluation, we use the window ∆ = 0 .5 s, j = 1 , n = 4 ,the pruning radius ρ = 0 .05 , and the goal tolerance δ0 = 0 .1.
+
+3. Car with trailer. The car with trailer operates with the state (x, y, θ 0, θ 1), the car position, car heading, and trailer heading, with wheelbase L = 14 , hitch length ℓ = 12 , and hitch bound |θ0 − θ1|S1 < π 
+
+> 4
+
+. The control input u = ( v, ϕ ) ∈
+
+[− 110 , 12 ] × [− π 
+
+> 3
+
+, π 
+
+> 3
+
+] is the rolling speed and the steering angle. The dynamics obey 
+
+˙x = v cos θ0, ˙y = v sin θ0,
+
+˙θ0 = vL tan ϕ, ˙θ1 = vℓ sin( θ0 − θ1).
+
+The system is flat with the output the trailer position z =(x, y ) − ℓ (cos θ1, sin θ1) and orders R = (3 , 3) , the defining relations 
+
+θ1 = atan2  ± ˙zy , ± ˙zx
+
+, θ0 = θ1 + arctan ℓ ( ˙ z ∧ ¨z)
+
+∥ ˙z∥3 ,v = ±∥ ˙z∥
+
+cos( θ0 − θ1) , ϕ = arctan L ˙θ0
+
+v .
+
+Let g =  v0, ( ˙ vℓ, ϕ ℓ)jℓ=1 
+
+. A command wg applies the control signals v(t), ϕ (t) over the window [t0, t j ], where 
+
+v(t) = v(tℓ−1) + ˙ vℓ (t − tℓ−1), ϕ(t) = ϕℓ, t ∈ Iℓ,
+
+with 
+
+v(t0) ∈ Gn0
+
+− 110 , 12
+
+, ˙vℓ ∈ Gnv
+
+− 12 , 12
+
+,ϕℓ ∈ Gnϕ
+
+− π 
+
+> 3
+
+, π
+
+> 3
+
+,
+
+gated by the cheap rejection of commands with v(t) /∈− 110 , 12
+
+. The flat input follows through the reduction, 
+
+A(x) = 
+
+n
+
+wg : g ∈ Gn0 ×  Gnv × Gnϕ
+
+j o
+
+,wg (t) = 
+
+  ¨s − sω 21
+
+ cos θ1 −  2 ˙ s ω 1 + s ˙ω1
+
+ sin θ1 ¨s − sω 21
+
+ sin θ1 +  2 ˙ s ω 1 + s ˙ω1
+
+ cos θ1
+
+
+
+,
+
+where the trailer speed s = v cos( θ0 − θ1), the trailer rate 
+
+ω1 = ˙θ1, and their derivatives follow from the dynamics under the command. The command set provides the dispersion 
+
+δn,j ≤ c(∆) 
+
+ 1 
+
+> n0
+
++ 1 
+
+> nv
+
++ 1 
+
+> nϕ
+
++ M ∆
+
+> j
+
+
+
+−−−−−→ 
+
+> n↑, j ↑
+
+0
+
+over M -smooth references with mild regularity restrictions on the control signals. We use the state-space quantization metric 
+
+dist = ∥(x − x′, y − y′)∥ + dS1 (θ0,θ ′  
+
+> 0)+ dS1(θ1,θ ′
+> 1)2
+
+.
+
+For evaluation, we use the window ∆ = 0 .3 s, j = 1 ,
+
+(n0, n v , n ϕ) = (6 , 3, 4) amounting to |A| = 52 after the rejection, the pruning radius ρ = 0 .06 , and the goal tolerance 
+
+δ0 = 0 .1.
+
+4. Quadrotor. The quadrotor operates with the state 
+
+(p, q, v, ω ), the position p ∈ R3, attitude q ∈ S3, velocity, and body rate, with the mass m, inertia J, and mixer B0 mapping the rotor forces to the total thrust and the torques (c, τ ), the control input u ∈ [0 , 1.3] 4, the four rotor thrusts in hover units, and the dynamics 
+
+˙p = v, m ˙v = c b 3(q) − mge 3,
+
+˙q = 12 q ⊗ ω, J ˙ω = τ − ω × Jω. 
+
+The system is flat with the output z = ( p, ψ ), the position and the yaw, and orders R = (4 , 4, 4, 2) . The thrust, the attitude, Deshpande and How 15 
+
+the body rates, and the torque, which in turn specify the controls, are recovered as 
+
+c = m ∥¨p + ge 3∥, b3 = ¨p + ge 3
+
+∥¨p + ge 3∥ ,R =  b2 × b3, b 2, b 3
+
+, b2 = b3 × eψ
+
+∥b3 × eψ ∥ ,ω = R⊤ b3 × ˙b3 + s b 3
+
+, ˙b3 = m I − b3b⊤
+
+> 3
+
+ ... 
+
+pc ,s = ˙ψ ⟨b3, e 3⟩∥b3 × eψ ∥2 − ⟨˙b3 × eψ , b 2 × b3⟩∥b3 × eψ ∥ ,τ = J ˙ω + ω × Jω, 
+
+with eψ = (cos ψ, sin ψ, 0) the yaw direction, s the axial body rate, and ˙ω the derivative of the third row, a function of the snap p(4) and ¨ψ.The command set specification for the quadrotor is slightly more involved and uses a geometric SE (3) controller (Lee et al. 2010). The controller tracks a reference signal that specifies the thrust vector f = ¨ p + ge 3 and the axial body rate s = ⟨ω, e 3⟩.Let gref =  f0, ˙f0, ¨f , r  and the corresponding thrust signal be the quadratic ramp 
+
+f ref (t) = f0 + ˙f0 t + ¨f 
+
+> 2
+
+t2, ˙f ref (t) = ˙f0 + ¨f t, 
+
+along with the axial body rate r. The reference signal immediately determines the collective thrust by projecting the reference on the current axis b3 = R(q) e3,
+
+c = m clamp  ⟨f ref , b 3⟩, F −, F +
+
+. (10) It remains to determine the torque to specify the control signal u(t) = clip  B−10 (c, τ ), [0 , 1.3] 4, the mixer demand projected to the rotor box, corresponding to a command 
+
+wref . We follow the standard stabilizing cascade of the PX4 autopilot (Meier et al. 2015), where the torque tracks a demanded body rate as 
+
+τ = J kω (ωref − ω) + ˙ ωref  + ω × Jω, (11) where the body-rate reference is set to align the body axis along the thrust direction bref 3 = f ref /∥f ref ∥, clipped to the body-rate box: 
+
+˜ω = R(q)⊤
+
+kb θ b3×bref 3  
+
+> ∥b3×bref 3∥
+
++ bref 3 × ˙bref 3 + r b ref 3
+
+
+
+,ωref = clip  ˜ω, [−¯ω, ¯ω]3,
+
+(12) with θ = arccos b3, b ref 3 , and the normalized axis term set to 0 whenever b3 × bref 3 = 0 . Each gref is picked from 
+
+f0 ∈ ge 3+Gn0 [−¯a, ¯a]3, ˙f0 ∈ Gn1 [−¯ȷ, ¯ȷ]3,
+
+¨f ∈ Gn2 [−¯s, ¯s]3, r ∈ Gns [−¯r, ¯r],
+
+with ¯a, ¯ȷ, ¯s, and ¯r respectively constraining the acceleration, jerk, snap, and the axial body rate. The flat input follows along the rollout as the snap and the yaw acceleration, 
+
+A(x) = wref = ( p(4) , ¨ψ) : gref = ( f0, ˙f0, ¨f , r ) .
+
+The command set is δ-dispersive with 
+
+δn ≤ c(M, ∆) 
+
+ 1 
+
+> n0
+
++ 1 
+
+> n1
+
++ 1 
+
+> n2
+
++ 1 
+
+> ns
+
++ M ∆
+
+
+
+−−−−→  
+
+> n↑,∆↓
+
+0.
+
+We use the state-space quantization metric 
+
+dist = ∥p − p′∥ + arccos |⟨ q,q ′⟩|  
+
+> 2
+
++ ∥v−v′∥ 
+
+> 10
+
++ ∥ω−ω′∥ 
+
+> 20
+
+.
+
+For evaluation, we use the window ∆ = 0 .25 s, the lateral grids G5[−6, 6] and the vertical grid G5[−3, 2.9] , the gains 
+
+(kb, k ω ) = (12 , 30) , the pruning radius ρ = 0 .35 , and the goal tolerance δ0 = 0 .7, which amounts to |A| = 81 after the thrust is constrained to (F−, F +) = (0 .05 , 1.3) g.
+
+6.2.3 Evaluation 
+
+Dynobench is a collection of kinodynamic motion planning instances for each of the above platforms, specified by a tuple 
+
+(xstart , O, x goal , δ 0) with O ⊂ X the obstacle set. Each task is an instance of (2) whose cost is the trajectory duration and predicates are the obstacle clearance and terminal goal proximity 
+
+gobs 
+
+ x(·) = inf   
+
+> t∈[0 ,T ]
+
+dist  x(t), O − r, ggoal 
+
+ x(·) = δ0 − dist  x(T ), x goal 
+
+,
+
+with r ≥ 0 a clearance radius. We run Algorithm 1 along with the introduced command sets and the termination condition 
+
+min 
+
+> x′∈Vk
+
+dist  x′, x goal 
+
+ ≤ δ0.
+
+We benchmark DFT * on the Dynobench against iDb-A* (Ortiz-Haro et al. 2025) with its released motion primitives, as well as the two OMPL baselines SST * and RRT *+TO with their official dynoplan integrations. We run iDb-A * at its released configuration for each platform, including its own discontinuity bound δ0, and take its wall time to the first post-optimized feasible trajectory. We report the first solution costs and times for each of the planners in Table 2(a), the DFT * wall times at the embedded tier and, in blue, on the full RTX 4090. Additionally, for SST * we report an anytime solution at the 
+
+60 s budget. Extension 2 shows the DFT * first solutions for the trailer car and the quadrotor. Dynobench provides a post-hoc optimization step run via Crocoddyl (Mastalli et al. 2020), necessary to iron out the discontinuities in the initial solution of iDb-A *. As a result we also report post-optimization costs, seeding the optimizer with each planner’s first solution, in Table 2(b). DFT * solutions do not contain discontinuities, but the seeded post-hoc optimization does help compress the terminal goal tolerance nearly to 0 in addition to some performance benefits. Notably, the optimization does not erase the gap at the initial solution seeds and the respective advantage is often maintained. In Table 2(c), we report the performance of DFT * in comparison with the results reported in FLASK (Duong et al. 2026). For this table, we match the platform configurations of FLASK, the unicycle constrained to the nonnegative speed in [0 , 1] and the turn rate in [−1.5, 1.5] , while the quadrotor 16 
+
+Table 2. Offline planning in static environments. (a) First solutions on the Dynobench instances, averaged over 5 runs for each of the evaluated planners and DFT *. DFT * wall times reported use the Orin Nano equivalent compute tier ( 8 SMs), with the bracketed blue walls scaling the same computation to the full desktop RTX 4090; the CPU-based planners run on an Intel i9-14900KF. (b) Post-optimization, which both improves the trajectory and repairs its terminal discontinuity, closing the goal tolerance from δ0 to ∼0.For iDb-A * the optimizer additionally repairs the discontinuities its search leaves between motion primitives, so its first solution is already an optimizer output and we report that cost alone. (c) DFT * against the results reported by FLASK (Duong et al. 2026), the blue walls again the full RTX 4090, our two rows averaged over 5 runs as in (a). The reported cost is the path length but we continue to solve for minimum time, consistent with FLASK’s LQMT connections. The search variants of Section 6.1.1 are evaluated on the same instances as presented in Table 4 of Appendix C. The cost therein remains the same but the computation times improve due to the narrower search trees. 
+
+(a) DFT * (ours) iDb-A * SST * RRT *+TO system task cost (s) wall (ms) cost (s) wall (ms) cost (s) wall (ms) cost@60s cost (s) wall (ms) Unicycle 1st order bugtrap 21 .1 202 (32 ) 22 .5 269 72 .7 325 24 .4 27 .8 5171 
+
+kink 14 .0 61 (18 ) 21 .4 147 49 .7 106 15 .7 24 .5 418 
+
+parallelpark 3.5 4 (5) 3.9 5 12 .8 17 3.2 3.7 6
+
+Unicycle 2nd order bugtrap 24 .5 3218 (310 ) 25 .3 687 65 .9 5696 58 .5 40 .7 8156 
+
+kink 18 .9 1116 (107 ) 18 .1 235 95 .6 6856 88 .2 29 .1 1399 
+
+parallelpark 6.7 11 (4) 5.8 8 20 .2 991 13 .0 6.2 29 
+
+Car with a trailer bugtrap 19 .8 2713 (195 ) 19 .5 425 51 .1 11921 49 .7 40 .1 (2/5) 4637 
+
+kink 15 .9 1326 (95 ) 22 .9 634 64 .2 (4/5) 2666 59 .9 33 .5 3247 
+
+parallelpark 3.7 8 (3) 8.1 33 13 .1 (1/5) 15053 13 .1 3.5 20 
+
+Quadrotor 
+
+u = ( ui)4
+
+> i=1
+
+block 2.50 2443 (168 ) 6.58 753 – ( 0/5) – – 4.82 720 
+
+window 2.00 393 (30 ) 4.62 1543 – ( 0/5) – – 2.76 (1/5) 4024 
+
+inversion 3.25 420 (30 ) 6.14 365 – ( 0/5) – – – ( 0/5) –inversion obs. 3.80 2978 (250 ) 5.23 697 – ( 0/5) – – – ( 0/5) –
+
+(b) DFT * (ours) iDb-A *
+
+system task opt. (s) wall (ms) opt. (s) Unicycle 1st order bugtrap 20 .9 38 22 .5
+
+kink 13 .3 30 21 .4
+
+parallelpark 3.2 6 3.9
+
+Unicycle 2nd order bugtrap 25 .1 48 25 .3
+
+kink 17 .8 57 18 .1
+
+parallelpark 5.9 13 5.8
+
+Car with a trailer bugtrap 19 .0 30 19 .5
+
+kink 13 .5 68 22 .9
+
+parallelpark 3.6 12 8.1
+
+Quadrotor block 2.88 245 6.58 
+
+window 2.29 205 4.62 
+
+inversion 2.60 206 6.14 
+
+inversion obs. 3.55 416 5.23 
+
+(c) Unicycle 1st order Quadrotor u=( c, τ 1, τ 2, τ 3)
+
+bugtrap wall window block planner len (m) wall (ms) len (m) wall (ms) len (m) wall (ms) len (m) wall (ms) FLASK RRTConnect 12 .39 6.0 4.82 0.6 5.49 0.5 8.08 0.9
+
+FLASK SST *
+
+(BVP-aug.) 12 .51 48 .6 5.24 11 .0 6.28 22 .6 8.61 1.4
+
+FLASK SST *
+
+(SIMD-only) 12 .27 407 5.27 29 .5 6.96 629 9.56 4752 
+
+FLASK RRT (DP-based) 12 .25 565 5.61 24 .8 7.98 2631 8.75 7602 
+
+iDb-A * 11 .51 400 3.89 100 5.12 2700 7.94 4600 
+
+SST * 12 .38 200 4.97 100 6.72 46300 9.32 45800 
+
+Kino-PAX 13 .77 5.8 5.28 2.6 16 .41 178 .6 10 .36 21 .4
+
+DFT * (ours) 9.77 73 (7) 3.21 3.5 (1) 5.06 406 (30 ) 7.75 4335 (270 )DFT *-Static 9.97 11 (3) 3.21 2.6 (1) 5.18 199 (16 ) 7.61 1564 (104 )
+
+is commanded in total thrust and torque rather than the per-rotor thrusts, the catalog tracker clamping its torque demand to their torque box in place of the per-rotor clamp. In this parametrization random control propagation is considerably more well behaved, which is why SST * solves some of the quadrotor tasks. In Table 4 of Appendix C, we report the search variants of Section 6.1.1 on the same instances. The Dynobench instances pose static kinodynamic planning problems, so that both the A* beam ordering and the static dominance pruning apply, and together they reduce the planning wall time by up to 44 ×
+
+at the same solution costs. To summarize our findings across Tables 2(a), (b), and (c), DFT * finds solutions closest to the optimum in largely competent wall time budgets while deployed on embedded-tier parallel processing. These wall times shrink by up to 15 ×
+
+when we allow dedicated computation to scale all the way to what is available on the desktop RTX 4090. 
+
+6.3 Online Planning in Dynamic Environments 
+
+In this section, we present an online implementation of DFT * to demonstrate real-time performance of dispersive forward tree search. We address the problem of safety-assured quadrotor flight in the presence of obstacles with unknown dynamics. Our implementation involves a receding-horizon setup where DFT * is deployed to iteratively solve the fixed-horizon OCP (13) at a regular interval ∆. The online algorithm we call WarpWalker-DFT * (WWDFT *) is presented below as Algorithm 2. At each replanning step, we solve the following OCP from the current state: 
+
+min  
+
+> u(·)
+
+dist  x(K∆) , x goal 
+
+
+
+s.t. ˙x(t) = f  x(t), u (t),
+
+dist  x(t), o j
+
+ ≥ r + vj 
+
+> max
+
+t ∀ j, ∀ t ∈ [0 , K ∆] ,x(0) = xnow ,
+
+(13) Deshpande and How 17   
+
+> Table 3. Real-time planning in dynamic environments. Collision-free success rates and travel times are reported as mean over 5 runs. Relative worst-case violation of each of the imposed
+
+v/a/j constraints is also reported, structurally absent for WWDFT *.                                                                          
+
+> nst =18 ,ndyn =32 nst =35 ,ndyn =65 nst =70 ,ndyn =130 Max violation (%) Method Platform Constraints Succ. Ttrav (s) Succ. Ttrav (s) Succ. Ttrav (s) vaj
+> FAPP Triple integrator ∥v∥2≤8,∥a∥2≤12 .2,∥j∥2≤60 60% 21.06 60% 22.47 40% 20.02 39.3 17.0 2.1 MIGHTY Triple integrator ∥v∥2≤8,∥a∥2≤12 .2,∥j∥2≤60 100 %18.15 100 %18.61 100 %19.31 000.03 WWDFT *Triple integrator ∥v∥2≤8,∥a∥2≤12 .2,∥j∥2≤60 100 %15 .10 100 %15 .35 100 %15 .20 000WWDFT *3D quadrotor ∥v∥2≤8,|ω|≤ ωmax ,θ≤45 ◦100 %14 .25 100 %14 .50 100 %14 .60 0––(a) (b) (c) (d)
+> Figure 6. DFT *first solutions, pose snapshots drawn along the trajectory from start (blue) to goal (green): (a) first-order unicycle on parallel park, (b) second-order unicycle on bugtrap, (c) car with trailer through the kink passage, (d) quadrotor recovery with an obstacle.
+
+with oj the current position of the jth obstacle, vj 
+
+> max
+
+its speed bound, zero for a static obstacle, and r the clearance radius. We denote by G the set of predicates of OCP (13), and by 
+
+Gk its restriction to the window [k∆, (k + 1)∆] . Further, for nodes x, y of the forward tree, we write πx ⊆ πy to denote that the trajectory of y extends the trajectory of x, that is, y is a tree descendant of x.We formalize the safety guarantee for the committed trajectories of Algorithm 2. 
+
+Proposition 6.1. (Safety assurance). Suppose that (i) each obstacle moves no faster than its bound vj
+
+> max
+
+,(ii) the static map and the centers oj (t) are known at time t,(iii) each committed trajectory is executed exactly. Then the executed flight by Algorithm 2 maintains the clearance r from every obstacle until the goal is reached or a failure is declared. 
+
+Note that WWDFT * does not guarantee recursively feasible planning, and failure is possible whenever the certified tree empties, V1 = ∅, in which case WWDFT * declares failure. Recursive feasibility is in general impossible to guarantee for an unbounded-horizon problem with unknown obstacle dynamics. A larger planning horizon K adds robustness to the implementation at the cost of some added conservatism. 
+
+Algorithm 2 WWDFT * — receding-horizon DFT *
+
+repeat every ∆:
+
+V0 ← { xnow }
+
+▷ grow a certified tree to depth K (Algorithm 1) 
+
+for k = 0 , . . . , K − 1:
+
+bV ←
+
+(
+
+Φa(x) x ∈ Vk, a ∈ A (x),g zxa
+
+ ≥ 0 ∀ g ∈ G k
+
+)
+
+Vk+1 ←
+
+(
+
+x′ ∈ bV Σ( x′) ≤ Σ( x′′ ) ∀x′′ ∈ bV
+
+with cell( x′′ ) = cell( x′)
+
+)
+
+if V1 = ∅:declare failure 
+
+▷ commit to the deepest best trajectory 
+
+k∗ ← max { k : Vk̸ = ∅ } 
+
+y+ ← y ∈ Vk∗ : dist  y, x goal 
+
+ ≤ dist  Vk∗ , x goal 
+
+
+
+xnow ← x1 ∈ V1 : πx1 ⊆ πy+
+
+until dist  xnow , x goal 
+
+ ≤ δ0
+
+6.3.1 Benchmarking in Dynamic Environments 
+
+We compare the real-time performance of WWDFT * in simulation against two state-of-the-art trajectory planners for dynamic environments, FAPP (Lu et al. 2025) and MIGHTY (Kondo et al. 2026). Trajectory planners often adopt a reduced-order k-integrator model for quadrotor flight and rely on downstream tracking for physical execution. We therefore run two versions of WWDFT *. In the first, we use a reduced-order model with jerk input under kinodynamic constraints matched to FAPP and MIGHTY. In the second, we plan directly on the full quadrotor. The quadrotor model’s acceleration authority is significantly lesser than the reduced-order model’s, while its jerk authority is limited only by rotor lag, an electromechanical time constant of tens of milliseconds, and as a result it produces jerk well beyond the reduced-order bound. The planning task is to fly a point robot from pstart = (0 , 0, 3) 
+
+to the goal pgoal = (100 , 0, 3) m through a 110 × 12 × 5 mcorridor populated by 50 , 100 , and 200 obstacles on the easy, medium, and hard environments. Of the obstacles, 35% are static axis-aligned cuboids, pillars and bars of 0.4 m thickness and 4 m length, placed randomly through the environment. The remaining are spheres of radius 0.4 m following smooth nonlinear periodic trajectories at speeds up to vj 
+
+> max
+
+= 0 .7
+
+m/s. The map at any instant is known to each planner but the trajectories of the dynamic obstacles remain unknown. MIGHTY and FAPP receive exact current obstacle centers and velocities online and extrapolate at constant velocity, while WWDFT * receives centers only and certifies against 18      
+
+> Figure 7. WWDFT *mid-flight in the hard dynamic environment ( nst = 70 ,ndyn = 130 ). The quadrotor flies from the start to the goal (green, right) through static cuboids and moving spheres, trailing its executed trajectory in black.
+
+the isotropic reachable ball of the OCP above. We run five repetitions per environment for each planner. 
+
+Reduced-Order Model and Jerk Sampling: The reduced-order dynamical system is the trivially flat triple integrator with the state x = ( p, v, a ) and the three-dimensional jerk input, 
+
+˙p = v, ˙v = a, ˙a = j, 
+
+flat with the output z = p and orders R = (3 , 3, 3) , the jerk being itself the flat input. For this system the lattice construction of Theorem 5.8 deploys conveniently, up to pullbacks for the acceleration and velocity constraints. To this end, at each state x we use the command set 
+
+A(x) =  j ∈ G5
+
+ J(x) : ∥j∥2 ≤ ¯ȷ ,
+
+where G5(J(x)) places the five-level lattice G5[l, u ] of Section 6.2.2 on each axis interval of the box J(x), the state-conditioned window 
+
+J(x) = [ −¯ȷ, ¯ȷ]3 ∩ [−¯a, ¯a]3 − a
+
+∆ ∩ [−¯v, ¯v]3 − v − a∆∆2/2 .
+
+We use the state quantization metric ∥p − p′∥ + 12 ∥v − v′∥ + 
+
+> 18
+
+∥a − a′∥ and prune at the radius ρ = 1 .
+
+Sampling for the 3D Quadrotor: The full-order version plans on the quadrotor of Section 6.2.2, with the same reference construction and geometric tracking loop, re-instantiated on the Holybro X500 platform at a thrust-to-weight ratio of 1.69 with asymmetric first-order motor lag at time constants of 12 .5 and 25 ms. The held force references are sampled over the acceleration box of the platform envelope, laterally G5[−9.8, 9.8] and vertically G5[−8.2, 3.7] 
+
+m/s 2, and filtered to the combined thrust annulus [0 .37 , 16 .56] 
+
+m/s 2, which amounts to |A| = 101 . We prune at the radius 
+
+ρ = 1 under the state-space metric of Section 6.2.2. Throughout we use the constraints ∥v∥2 ≤ 8 m/s, ∥a∥2 ≤
+
+12 .2 m/s 2, and ∥j∥2 ≤ 60 m/s 3 across the two baselines and the k-integrator WWDFT *, which enforces them as hard rollout rejections. Whereas the baselines include them as penalties in their trajectory optimizers. For the 3D quadrotor we use the per-axis body-rate constraints (3 .84 , 3.84 , 3.49) 
+
+rad/s and cap the body tilt at 45 ◦, as recommended by the autopilot, which limits the achievable acceleration to 12 .2
+
+m/s 2 at full collective thrust in the maximizing direction and lesser otherwise. We report our experimental results in Table 3. A collision-free arrival within 0.75 m of the goal counts as success. Travel time reports the interval between goal issue and the arrival time, so that initial planning time is included for every method. WWDFT * is run at ∆ = 250 ms, K = 5 across all runs. We run MIGHTY with its default structure and optimizer settings; only static/dynamic collision weights are increased 10 ×. We evaluate FAPP at its supplied algorithmic defaults, changing only the task-defining quantities, namely the prescribed v/a/j bounds, the clearances representing the benchmark sphere and the point robot, and its native ideal-execution interface. Additional parameter tuning did not conclusively help. All of the evaluated methods make it to the goal region each trial. FAPP’s executed trajectories however penetrate a moving sphere in 7 of 15 trials and exceed at least one of the requested differential bounds in 10 of 15 . WWDFT *
+
+demonstrates safety-assured real-time flight (Proposition 6.1) across all 30 runs, and reports the fastest aggregate travel times. Extension 1 shows a complete WWDFT * episode in the hard dynamic environment. 
+
+7 Conclusion 
+
+We have developed a propagation-based kinodynamic planner with deterministic finite-sample near-optimality guarantees for the class of differentially flat nonlinear systems. Our theoretical results show that a forward tree of locally dispersive control commands contains a near-optimal trajectory which asymptotically converges to the optimum at a rate certified by the local dispersion. We also developed an efficient search algorithm DFT * that iteratively prunes the forward tree alongside its growth to avoid the exponential cost of naive dispersive search while maintaining near-optimality. We evaluated DFT * on offline planning problems across a diversity of platforms using our catalog of dispersive command sets designed for sample efficiency at low sample counts and show that it significantly improves upon the performance of other state-of-the-art algorithms. We additionally developed a receding-horizon implementation WWDFT * and demonstrated similar performance improvements for online navigation in dynamic, cluttered environments. A key limitation of our approach is that although dispersive sampling is provably realizable by the mechanism of Theorem 5.8, this mechanism is inefficient at low sample counts due to the nonlinear relationship between the control input, the system state, and the flat input. As a result, a careful utilization of additional structure of the control system to design efficient command sets is necessary for Deshpande and How 19 
+
+deployment. However, as we have shown across a wide range of platforms cataloged in this work, this is doable without much analytic trouble. Additionally, DFT * has been designed with a breadth-first search structure suitable for deployment on parallel processors such as GPUs but unsuitable for a naive deployment on CPUs without additional low-level programming that may plausibly leverage vectorization and fine-grained parallelism. 
+
+References 
+
+Bonalli R, Cauligi A, Bylard A and Pavone M (2019) GuSTO: Guided successive convexification for optimal trajectory optimization of nonlinear free-final-time control problems. In: 
+
+IEEE International Conference on Robotics and Automation .pp. 6741–6747. Duong T, Ramsey CW, Kingston Z, Thomason W and Kavraki LE (2026) Ultrafast sampling-based kinodynamic planning via differential flatness. arXiv:2603.16059 .Fainekos GE and Pappas GJ (2009) Robustness of temporal logic specifications for continuous-time signals. Theoretical Computer Science 410(42): 4262–4291. Fliess M, Lévine J, Martin P and Rouchon P (1995) Flatness and defect of non-linear systems: introductory theory and examples. 
+
+International Journal of Control 61(6): 1327–1361. Fliess M, Lévine J, Martin P and Rouchon P (1999) A Lie–Bäcklund approach to equivalence and flatness of nonlinear systems. IEEE Transactions on Automatic Control 44(5): 922–937. Frazzoli E, Dahleh MA and Feron E (2005) Maneuver-based motion planning for nonlinear systems with symmetries. IEEE Transactions on Robotics 21(6): 1077–1091. Hart PE, Nilsson NJ and Raphael B (1968) A formal basis for the heuristic determination of minimum cost paths. IEEE Transactions on Systems Science and Cybernetics 4(2): 100– 107. Ichter B, Schmerling E and Pavone M (2017) Group marching tree: Sampling-based approximately optimal motion planning on GPUs. In: IEEE International Conference on Robotic Computing . pp. 219–226. Janson L, Ichter B and Pavone M (2018) Deterministic sampling-based motion planning: optimality, complexity, and performance. The International Journal of Robotics Research 
+
+37(1): 46–61. Janson L, Schmerling E, Clark A and Pavone M (2015) Fast marching tree: a fast marching sampling-based method for optimal motion planning in many dimensions. The International Journal of Robotics Research 34(7): 883–921. Karaman S and Frazzoli E (2011) Sampling-based algorithms for optimal motion planning. The International Journal of Robotics Research 30(7): 846–894. Kavraki LE, Švestka P, Latombe JC and Overmars MH (1996) Probabilistic roadmaps for path planning in high-dimensional configuration spaces. IEEE Transactions on Robotics and Automation 12(4): 566–580. Kleinbort M, Solovey K, Littlefield Z, Bekris KE and Halperin D (2019) Probabilistic completeness of RRT for geometric and kinodynamic planning with forward propagation. IEEE Robotics and Automation Letters 4(2): 277–283. Kobilarov M (2012) Cross-entropy motion planning. The International Journal of Robotics Research 31(7): 855–871. Kolmogorov AN and Tikhomirov VM (1959) ε-entropy and ε-capacity of sets in functional spaces. Uspekhi Matematicheskikh Nauk 14(2): 3–86. English transl., American Mathematical Society Translations, Series 2, vol. 17 (1961), 277–364. Kondo K, Wu Y, Kumar V and How JP (2026) MIGHTY: Hermite spline-based efficient trajectory planning. IEEE Robotics and Automation Letters 11(6): 6664–6671. LaValle SM and Kuffner JJ (2001) Randomized kinodynamic planning. The International Journal of Robotics Research 20(5): 378–400. Lee T, Leok M and McClamroch NH (2010) Geometric tracking control of a quadrotor UAV on SE(3). In: IEEE Conference on Decision and Control . pp. 5420–5425. Li Y, Littlefield Z and Bekris KE (2016) Asymptotically optimal sampling-based kinodynamic planning. The International Journal of Robotics Research 35(5): 528–564. Lu M, Fan X, Chen H and Lu P (2025) FAPP: Fast and adaptive perception and planning for UAVs in dynamic cluttered environments. IEEE Transactions on Robotics 41: 871–886. Mastalli C, Budhiraja R, Merkt W, Saurel G, Hammoud B, Naveau M, Carpentier J, Righetti L, Vijayakumar S and Mansard N (2020) Crocoddyl: An efficient and versatile framework for multi-contact optimal control. In: IEEE International Conference on Robotics and Automation . pp. 2536–2542. Meier L, Honegger D and Pollefeys M (2015) PX4: A node-based multithreaded open source robotics framework for deeply embedded platforms. In: IEEE International Conference on Robotics and Automation . pp. 6235–6240. Murray RM, Rathinam M and Sluis W (1995) Differential flatness of mechanical control systems: a catalog of prototype systems. In: ASME International Mechanical Engineering Congress and Exposition . San Francisco, pp. 349–357. Niederreiter H (1992) Random Number Generation and Quasi-Monte Carlo Methods , CBMS-NSF Regional Conference Series in Applied Mathematics , volume 63. Philadelphia: SIAM. Ortiz-Haro J, Hönig W, Hartmann VN and Toussaint M (2025) iDb-A*: Iterative search and optimization for optimal kinodynamic motion planning. IEEE Transactions on Robotics 41: 2031– 2049. Paden B and Frazzoli E (2020) A generalized label correcting method for optimal kinodynamic motion planning. In: Algorithmic Foundations of Robotics XII , Springer Proceedings in Advanced Robotics , volume 13. Cham: Springer, pp. 512–527. Perez A, Platt R, Konidaris G, Kaelbling L and Lozano-Pérez T (2012) LQR-RRT*: optimal sampling-based motion planning with automatically derived extension heuristics. In: IEEE International Conference on Robotics and Automation . pp. 2537– 2542. Perrault N, Ho QH and Lahijanian M (2025) Kino-PAX: Highly parallel kinodynamic sampling-based planner. IEEE Robotics and Automation Letters 10(3): 2430–2437. Pivtoraiko M, Knepper RA and Kelly A (2009) Differentially constrained mobile robot motion planning in state lattices. 
+
+Journal of Field Robotics 26(3): 308–333. Sakçak B, Bascetta L, Ferretti G and Prandini M (2019) Sampling-based optimal kinodynamic planning with motion primitives. 
+
+Autonomous Robots 43(7): 1715–1732. 20 
+
+Schmerling E, Janson L and Pavone M (2015) Optimal sampling-based motion planning under differential constraints: the drift case with linear affine dynamics. In: IEEE Conference on Decision and Control . pp. 2574–2581. Schulman J, Duan Y, Ho J, Lee A, Awwal I, Bradlow H, Pan J, Patil S, Goldberg K and Abbeel P (2014) Motion planning with sequential convex optimization and convex collision checking. 
+
+The International Journal of Robotics Research 33(9): 1251– 1270. Stoer J and Bulirsch R (2002) Introduction to Numerical Analysis ,
+
+Texts in Applied Mathematics , volume 12. 3rd edition. New York: Springer. Thomason W, Kingston Z and Kavraki LE (2024) Motions in microseconds via vectorized sampling-based planning. In: IEEE International Conference on Robotics and Automation . pp. 8749– 8756. Wang Z, Zhou X, Xu C and Gao F (2022) Geometrically constrained trajectory optimization for multicopters. IEEE Transactions on Robotics 38(5): 3259–3278. Webb DJ and van den Berg J (2013) Kinodynamic RRT*: asymptotically optimal motion planning for robots with linear dynamics. In: IEEE International Conference on Robotics and Automation . pp. 5054–5061. Williams G, Drews P, Goldfain B, Rehg JM and Theodorou EA (2018) Information-theoretic model predictive control: Theory and applications to autonomous driving. IEEE Transactions on Robotics 34(6): 1603–1622. Zhou X, Wang Z, Ye H, Xu C and Gao F (2021) EGO-Planner: An ESDF-free gradient-based local planner for quadrotors. IEEE Robotics and Automation Letters 6(2): 478–485. 
+
+A Proofs 
+
+The following lemma, useful in our proofs, shows that dispersion in the supremum norm at the top-order flat derivatives bounds the dispersion in the canonical distance of Definition 5.1 on the trajectory space. 
+
+Lemma A.1. (Top-order reduction). Let z, z ′ be flat trajectories on [0 , 1] with jet z(0) = jet z′(0) . Then 
+
+sup 
+
+> t∈[0 ,1]
+
+jet z(t) − jet z′(t) ∞
+
+≤ max  
+
+> 1≤i≤d
+
+sup 
+
+> t∈[0 ,1]
+
+z(ri−1)  
+
+> i
+
+(t) − z′(ri−1)  
+
+> i
+
+(t) . (14) 
+
+Proof. Fix i and 0 ≤ k < r i − 1; write g := zi − z′ 
+
+> i
+
+and 
+
+m := ri − 1 − k. Then 
+
+g(k)(0) = g(k+1) (0) = · · · = g(ri−1) (0) = 0 ,
+
+so 
+
+g(k)(t) = 1(m − 1)! 
+
+Z t
+
+> 0
+
+(t − s)m−1 g(ri−1) (s) d s, 
+
+whence 
+
+g(k)(t) ≤ tm
+
+m! sup 
+
+> [0 ,1]
+
+g(ri−1) 
+
+≤ sup 
+
+> [0 ,1]
+
+g(ri−1) , t ∈ [0 , 1] .
+
+A.1 Proof of Proposition 5.6 (Existence and Complexity) 
+
+Fix an initial state x ∈ X and a dispersion δ ∈ (0 , M ]. Let v
+
+be an admissible control on [0 , 1] with M -smooth trajectory and zv be its flat trace starting at x. Denote the tuple of the top-order derivatives of such traces and their collection as 
+
+yv :=  z(ri−1) 
+
+> v,i
+
+di=1 ,
+
+Y(x) :=  yv : v admissible on [0 , 1] from x, 
+
+trajectory M -smooth .
+
+By jet observability (Assumption (iv), Section 4.1), given the M -smoothness of the trajectory (Definition 5.2), each component of the tuple yv obeys 
+
+yv,i (0) = Ξ i,r i−1(x),
+
+| ˙yv,i | = |wv,i | ≤ M a.e. on [0 , 1] .
+
+Therefore the translated collection is contained within a product of d classes of M -Lipschitz scalar curves vanishing at 0,
+
+Y(x) −  Ξi,r i−1(x)di=1 
+
+⊆
+
+> d
+
+Y
+
+> i=1
+
+ y ∈ C([0 , 1]) : y(0) = 0 ,
+
+|y(t) − y(s)| ≤ M |t − s| .
+
+The right-hand side is the d-fold product of the class Lip M
+
+of Theorem 3.8, and the theorem applied componentwise provides an external s-cover of Y(x) with covering number 
+
+log N (s) ≤ c⋆ d Ms , 0 < s ≤ M, 
+
+with c⋆ := c0 the constant of Theorem 3.8. Let g1, . . . , g N be such that 
+
+Y(x) ⊆
+
+> N
+
+[
+
+> ι=1
+
+Bδ/ 2(gι), log N ≤ 2 c⋆ d Mδ ,
+
+where Bs(g) := { y : max i sup [0 ,1] |yi − gi| ≤ s }. For each 
+
+ι with Bδ/ 2(gι) ∩ Y (x)̸ = ∅, pick a tuple yvι ∈ Bδ/ 2(gι) ∩Y(x) and assemble the command set 
+
+A∗ :=  aι :=  wvι,i 
+
+di=1 =   ˙yvι,i 
+
+di=1 
+
+: Bδ/ 2(gι) ∩ Y (x)̸ = ∅ .
+
+Pick aι ∈ A ∗ and solve the initial value problem z(R) = waι ,
+
+jet z(0) = Ξ( x), by integrating the chain (6). We obtain the flat trajectory under aι starting at x,
+
+zxaι,i (t) = 
+
+> ri−1
+
+X
+
+> k=0
+
+Ξi,k (x) tk
+
+k!+ 1(ri − 1)! 
+
+Z t
+
+> 0
+
+(t − s)ri−1 wvι,i (s) d s
+
+= zvι,i (t),Deshpande and How 21 
+
+the last equality being Taylor’s formula with integral remainder for zvι . Following Assumption (ii), Section 4.1, 
+
+uxaι (t) = Ψ u
+
+ jet zvι (t), w vι (t) = vι(t) ∈ U a.e. ,
+
+and hence each command in A∗ is accepted by construction, with roll x(aι) the flat trace of πxvι .Finally, for any admissible control v from x, yv ∈ Bδ/ 2(gι)
+
+for some ι, and there exists a picked tuple yvι ∈ Bδ/ 2(gι) ∩Y(x). Using the triangle inequality, 
+
+max  
+
+> 1≤i≤d
+
+sup 
+
+> [0 ,1]
+
+z(ri−1)  
+
+> v,i
+
+− z(ri−1)  
+
+> vι,i
+
+≤ δ, 
+
+and jet zv (0) = jet zvι (0) = Ξ( x). Following Lemma A.1, we have 
+
+min  
+
+> a∈A ∗
+
+d roll x(a), π xv ; [0 , 1]  ≤ δ. 
+
+Absorbing the factor 2 in log N ≤ 2 c⋆ d M/δ into c⋆
+
+completes our proof. 
+
+A.2 Proof of Lemma 5.7 (Affinity of the Input Map) 
+
+Fix a flat state ξ in the domain of Assumption (ii), Section 4.1, and w ∈ Rd. Following Theorem 3.2, the closed-loop system under the endogenous dynamic feedback with the constant new input w produces, from the flat state ξ, a trajectory x(·)
+
+of (1) whose flat trace z obeys 
+
+jet z(0) = ξ, z(R) ≡ w, 
+
+and along which, following Assumption (ii), 
+
+x(t) = Ψ x
+
+ jet z(t), u(t) = Ψ u
+
+ jet z(t), w .
+
+The jet propagates by the integrator chain, 
+
+ddt jet z(t) = S0 jet z(t) + Σ w, 
+
+where the constant matrices S0 and Σ act entrywise, for 
+
+1 ≤ i ≤ d, as 
+
+ S0 ξ 
+
+> i,k
+
+=
+
+(
+
+ξi,k +1 , 0 ≤ k ≤ ri − 2,
+
+0, k = ri − 1,
+
+ Σ w 
+
+> i,k
+
+=
+
+(
+
+0, 0 ≤ k ≤ ri − 2,wi, k = ri − 1.
+
+The map Ψx is continuously differentiable per Assumption (ii), so the chain rule gives, for every t,
+
+˙x(t) = DΨx
+
+ jet z(t)  S0 jet z(t) + Σ w,
+
+while the control-affine dynamics of (1) give, for almost every 
+
+t,
+
+˙x(t) = f0
+
+ x(t) + g x(t) u(t).
+
+Since g has full column rank, g+ := ( g⊤g)−1g⊤ left-inverts 
+
+g; equating the two expressions for ˙x(t) and solving for u(t)
+
+yields, for almost every t,
+
+Ψu
+
+ jet z(t), w  = u(t) = α jet z(t) + B jet z(t) w, 
+
+where 
+
+α(ξ) := g Ψx(ξ)+ DΨx(ξ) S0 ξ − f0(Ψ x(ξ)) ,B(ξ) := g Ψx(ξ)+DΨx(ξ) Σ .
+
+Both sides of the identity are continuous in t, following the continuity of Ψu, Ψx, DΨx, f0, and g, so it extends from almost every t to every t; at t = 0 , where jet z(0) = ξ,
+
+Ψu(ξ, w ) = α(ξ) + B(ξ) w. 
+
+Finally, α(ξ) = Ψ u(ξ, 0) and B(ξ) ek = Ψ u(ξ, e k) −
+
+Ψu(ξ, 0) for the coordinate vectors ek of Rd, both continuously differentiable per Assumption (ii), so α and B
+
+are locally Lipschitz. 
+
+A.3 Proof of Theorem 5.8 (Dispersion Realization) 
+
+We first prove the following lemma, which shows that the acceptance test (Definition 5.3) retains every command that approximates the flat input of an eroded admissible control in the specific sense introduced below. The realization proof thereafter rests on this lemma. 
+
+Lemma A.2. (Margin transfer). Let δ ∈ (0 , M/ 2] . Let v be an admissible control on [0 , 1] from a state x ∈ X whose trajectory is M -smooth, and let its flat input be wv . Let 
+
+j ≥ 4√d M/δ be an integer, Ijℓ = [ ℓ−1 
+
+> j
+
+, ℓj ], 1 ≤ ℓ ≤ j, the equal subwindows of [0 , 1] , and 
+
+¯wℓ := j
+
+Z
+
+> Ijℓ
+
+wv (s) d s ∈ [−M, M ]d
+
+the subwindow averages of wv . Let a be a command, constant on each subwindow with values aℓ, satisfying 
+
+|aℓ − ¯wℓ| ≤ δ/ 2, sup 
+
+> t∈[0 ,1]
+
+jet zxa (t) − jet zv (t) ∞ ≤ δ. 
+
+If v ∈ U ε with ε ≥ 2 LΨ δ, then a ∈ A (x).
+
+Proof. Let dist( u, S ) := inf u′∈S |u − u′|∞ denote the dis-tance in the supremum norm on Rm. Fix 1 ≤ ℓ ≤ j and t
+
+in the interior of Ijℓ , where uxa(t) = Ψ u(jet zxa (t), a ℓ). Note that, for every s ∈ Ijℓ , the pairs 
+
+ jet zv (s), w v (s),  jet zv (t), w v (s),
+
+ jet zv (t), ¯wℓ
+
+,  jet zxa (t), a ℓ
+
+
+
+are bounded entrywise by 2M , hence within the scope of the Lipschitz constant LΨ. This follows from the M -smoothness of the trajectory of v, together with the rollout bound sup [0 ,1] | jet zxa − jet zv |∞ ≤ δ ≤ M/ 2 hypothesized in the lemma. Since v ∈ U ε,
+
+Ψu
+
+ jet zv (s), w v (s) = v(s) ∈ U ε for a.e. s ∈ Ijℓ ,
+
+and every entry of jet zv is M -Lipschitz, again by the smoothness of the trajectory, so | jet zv (t) − jet zv (s)|∞ ≤
+
+M/j and 
+
+dist  Ψu(jet zv (t), w v (s)) , U ε
+
+≤ LΨ
+
+Mj for a.e. s ∈ Ijℓ .22 
+
+Following Lemma 5.7, 
+
+Ψu
+
+ jet zv (t), ¯wℓ
+
+ = α jet zv (t)
+
++ B jet zv (t) j
+
+Z
+
+> Ijℓ
+
+wv (s) d s
+
+= j
+
+Z
+
+> Ijℓ
+
+
+
+α jet zv (t)
+
++ B jet zv (t) wv (s)
+
+
+
+ds
+
+= j
+
+Z
+
+> Ijℓ
+
+Ψu
+
+ jet zv (t), w v (s) ds. U ε is convex as the erosion of the convex U , so the function 
+
+dist( · , U ε) is convex and Jensen’s inequality provides 
+
+dist  Ψu(jet zv (t), ¯wℓ), U ε
+
+≤ j
+
+Z
+
+> Ijℓ
+
+dist  Ψu(jet zv (t), w v (s)) , U ε ds
+
+≤ LΨ
+
+Mj .
+
+Finally | jet zxa (t) − jet zv (t)|∞ ≤ δ and |aℓ − ¯wℓ|∞ ≤ δ/ 2
+
+by hypothesis, so 
+
+dist  uxa(t), U ε ≤ LΨ δ + LΨ
+
+Mj
+
+≤ 54 LΨ δ < 2 LΨ δ ≤ ε, 
+
+using M/j ≤ δ/ (4 √d) ≤ δ/ 4. Hence uxa(t) ∈
+
+U ε + [ −ε, ε ]m ⊆ U for almost every t ∈ [0 , 1] , i.e., 
+
+a ∈ A (x).We now prove Theorem 5.8. Fix a state x ∈ X and an ε-eroded admissible control v ∈ U εM (x) with flat input wv . Its averages over the subwindows Ijℓ obey 
+
+¯wℓ := j
+
+Z
+
+> Ijℓ
+
+wv (s) d s ∈ [−M, M ]d, 1 ≤ ℓ ≤ j, 
+
+following the convexity of the box [−M, M ]d. The grid G of Theorem 5.8 has per-axis spacing 2M/n , and every point of 
+
+[−M, M ] lies within half a spacing of some center, so there is aℓ ∈ G with 
+
+|aℓ − ¯wℓ|∞ ≤ Mn ≤ δ
+
+2√d , |aℓ − ¯wℓ| ≤ δ
+
+2 ,
+
+where the two respectively follow using n ≥ 2√d M/δ and 
+
+| · | ≤ √d | · | ∞ on Rd. The command a := wg with g =(a1, . . . , a j ) ∈ Gj belongs to A.Write F (t) := R t 
+
+> 0
+
+(wv (s) − wa(s)) d s. At the subwindow boundaries tℓ = ℓ/j ,
+
+|F (tℓ)| ≤ X
+
+> ℓ′≤ℓ
+
+Z
+
+> Ijℓ′
+
+(wv − aℓ′ ) = X
+
+> ℓ′≤ℓ
+
+| ¯wℓ′ − aℓ′ |
+
+j ≤ δ
+
+2 ,
+
+while for t ∈ Ijℓ ,
+
+|F (t) − F (tℓ−1)| ≤ 
+
+Z
+
+> Ijℓ
+
+|wv − aℓ| ≤ 2√d M j ≤ δ
+
+2 ,
+
+so sup [0 ,1] |F | ≤ δ, in the Euclidean norm and hence entrywise. The rollouts zxa and zv share the initial jet, 
+
+jet zxa (0) = jet zv (0) = Ξ( x), and the top-order gap is F
+
+itself: 
+
+zx (ri−1)  
+
+> a,i
+
+(t) − z(ri−1)  
+
+> v,i
+
+(t) = 
+
+Z t
+
+> 0
+
+(wa,i − wv,i ) = −Fi(t).
+
+Lemma A.1 thus applies and we get sup [0 ,1] | jet zxa −
+
+jet zv |∞ ≤ δ. The constructed command a thus satisfies the hypotheses of Lemma A.2: for every ε ≥ 2 LΨ δ we obtain 
+
+a ∈ A (x) and 
+
+d roll x(a), π xv ; [0 , 1]  = sup 
+
+> [0 ,1]
+
+| jet zxa − jet zv |∞ ≤ δ. 
+
+Hence A is δ-dispersive over UεM (x) at every state x.It remains to estimate the cardinality of the constructed command set. We have |G| = nd and |A| ≤ | G|j . Taking logarithms, and using j = ⌈4√d M/δ ⌉ ≤ 5√d M/δ together with n ≤ 1 + 2 √d M/δ ≤ 2√d (1 + M/δ ),
+
+log |A| ≤ j d log n
+
+≤ 5√d M δ d
+
+
+
+log(2 √d) + log 
+
+
+
+1 + Mδ
+
+ 
+
+≤ cd
+
+Mδ log 
+
+
+
+1 + Mδ
+
+
+
+,
+
+the last inequality since log(1 + M/δ ) ≥ log 2 for δ ≤ M ,with cd := 5 d3/2 1 + log(2 √d)/ log 2  depending on the flat dimension d alone. 
+
+A.4 Proof of Lemma 5.9 (Margin Corrector) 
+
+Denote 
+
+η := Ξ( x′) − jet zu(t),
+
+so that the components obey 
+
+|ηi,k | = Ξi,k (x′) − z(k) 
+
+> u,i
+
+(t) ≤ s, 
+
+0 ≤ k ≤ ri − 1, 1 ≤ i ≤ d, 
+
+by hypothesis. For each component i, let Qi : [0 , 1] → R be the unique polynomial of degree at most 2ri − 1 satisfying the Hermite interpolation conditions 
+
+Q(k) 
+
+> i
+
+(0) = ηi,k , Q(k) 
+
+> i
+
+(1) = 0 , 0 ≤ k ≤ ri − 1.
+
+The claim below lets us control the regularity of this polynomial. 
+
+Claim A.3. (Two-point Hermite interpolation, (Stoer and Bulirsch 2002, Section 2.1.5)). Fix r ∈ N. For every data vector (η0, . . . , η r−1) ∈ Rr there is a unique polynomial Q
+
+of degree at most 2r − 1 satisfying the Hermite interpolation conditions 
+
+Q(k)(0) = ηk, Q(k)(1) = 0 , 0 ≤ k ≤ r − 1,
+
+and a constant cQ(r), the joint norm of the interpolation, depending on the order r alone, with 
+
+sup 
+
+> [0 ,1]
+
+Q(k) ≤ cQ(r) max  
+
+> 0≤k′≤r−1
+
+|ηk′ |, 0 ≤ k ≤ r. Deshpande and How 23 
+
+With r = ri and the data (ηi, 0, . . . , η i,r i−1),
+
+sup 
+
+> [0 ,1]
+
+Q(k) 
+
+> i
+
+≤ cQ(ri) s ≤ CB s, 0 ≤ k ≤ ri,
+
+where CB = max 1≤i≤d cQ(ri) as fixed in Section 5.3. Define the connecting trace 
+
+y(t′) := zu(t′) + Q(t′ − t), t′ ∈ [t, t + 1] ,Q := ( Q1, . . . , Q d).
+
+Its jet at t is Ξ( x′), at t + 1 it is the jet of zu, and its gap to the target obeys 
+
+jet y(t′) − jet zu(t′) ∞ ≤ CB s, 
+
+y(R)(t′) − z(R) 
+
+> u
+
+(t′) ∞ ≤ CB s, t′ ∈ [t, t + 1] .
+
+Following s ≤ ε/ (2 LΨCB ) and ε ≤ LΨM ,
+
+CB s ≤ ε
+
+2LΨ
+
+≤ M
+
+2 ,
+
+so, for 1 ≤ k ≤ ri, 1 ≤ i ≤ d, and t′ ∈ [t, t + 1] ,
+
+y(k) 
+
+> i
+
+(t′) ≤ z(k) 
+
+> u,i
+
+(t′) + Q(k) 
+
+> i
+
+(t′ − t)
+
+≤ M + CB s ≤ M ′,
+
+so the trace y is M ′-smooth on [t, t + 1] , placing the jets and flat inputs of both y and zu within the scope of the Lipschitz constant LΨ.Define the bridge control 
+
+ν(t′) := Ψ u
+
+ jet y(t′), y (R)(t′), t′ ∈ [t, t + 1] .
+
+Along the target, u(t′) = Ψ u(jet zu(t′), z (R) 
+
+> u
+
+(t′)) ∈ U ε
+
+almost everywhere, so 
+
+|ν(t′) − u(t′)|∞ ≤ LΨ max  | jet y(t′) − jet zu(t′)|∞,
+
+|y(R)(t′) − z(R) 
+
+> u
+
+(t′)|∞
+
+
+
+≤ LΨ CB s ≤ ε
+
+2 ,
+
+whence ν(t′) ∈ U ε/ 2 ⊆ U almost everywhere, since every q
+
+with |q|∞ ≤ ε/ 2 puts ν(t′) + q within ε of u(t′) ∈ U ε, hence inside U . The bridge control is therefore admissible, and following the converse in Assumption (ii), Section 4.1, the trace y is realized by a trajectory πν under ν from the state 
+
+Ψx
+
+ Ξ( x′) = x′.On [t, t + 1] the flat trace of πν is y = zu + Q(· − t), so that 
+
+jet zπν (t′) − jet zu(t′) ∞
+
+= max  
+
+> 1≤i≤d
+
+max  
+
+> 0≤k≤ri−1
+
+Q(k) 
+
+> i
+
+(t′ − t) ≤ CB s, 
+
+and at the far end the interpolation conditions Q(k)(1) = 0 
+
+give πν (t + 1) = Ψ x
+
+ jet zu(t + 1)  = πu(t + 1) , complet-ing the proof. 
+
+A.5 Proof of Theorem 5.10 (Eroded Coverage) 
+
+Write δ := δA. We choose the commands inductively and write π for the trajectory of (a1, . . . , a K ) from xinit ; the choice of ak+1 will depend only on π over [0 , k ], so this is well defined. We maintain, for every 1 ≤ k ≤ K, the two invariants (i) d π, π u; [0 , k ] ≤ CB δ + δ, 
+
+(ii) jet zπ (k) − jet zu(k) ∞ ≤ δ. 
+
+Seed. The restriction of u to [0 , 1] lies in UεM (xinit ) ⊆Uε/ 2  
+
+> M′
+
+(xinit ), and π and πu share the state xinit at time 0. Since 
+
+A is δ-dispersive over Uε/ 2  
+
+> M′
+
+(xinit ) at xinit , there is an accepted command a1 ∈ A (xinit ) with d roll xinit (a1), π u; [0 , 1]  ≤
+
+δ. Both invariants hold at k = 1 .
+
+Step. Suppose a1, . . . , a k are chosen and the invariants hold at 
+
+k. By (ii), the node π(k) is a state whose jet gap at time k is at most δ ≤ cB ε, so Lemma 5.9 (with t = k, s = δ, x′ = π(k))furnishes a corrector control ν ∈ U ε/ 2 
+
+> M′
+
+ π(k) on [k, k + 1] 
+
+whose trajectory πν from π(k) satisfies 
+
+d πν , π u; [ k, k + 1]  ≤ CB δ, πν (k + 1) = πu(k + 1) .
+
+By dispersion over Uε/ 2  
+
+> M′
+
+at π(k), applied to ν upon identifying 
+
+[k, k + 1] with [0 , 1] , there is an accepted command ak+1 ∈A(π(k)) with d roll π(k)(ak+1 ), π ν ; [ k, k + 1]  ≤ δ. The trajectory extended by ak+1 therefore satisfies 
+
+d π, π u; [ k, k + 1]  ≤ d π, π ν
+
+ + d πν , π u
+
+
+
+≤ δ + CB δ, (15) and, at the instant k + 1 , where πν (k + 1) = πu(k + 1) ,
+
+jet zπ (k + 1) − jet zu(k + 1) ∞ ≤ δ. (16) The bound (16) establishes invariant (ii) at k + 1 , and (15), combined with invariant (i) at k, extends invariant (i) to 
+
+[0 , k + 1] . Continuing the induction of invariant (i) through 
+
+k = K completes the proof. 
+
+A.6 Proof of Theorem 5.11 (Eroded Optimality) 
+
+Write E := CB δA + δA, so that the assumed margin reads 
+
+γ ≥ LG E.Fix n ≥ 1. Since UM,γ,ε ̸ = ∅, we may pick un ∈ U M,γ,ε with 
+
+J zun
+
+ ≤ J∗ 
+
+> M,γ,ε
+
++ 1 
+
+> n
+
+.
+
+The control un lies in UεM (xinit ) on [0 , T ]. We apply Theorem 5.10 to un with horizon K = T and obtain an accepted command sequence (an 
+
+> 1
+
+, . . . , a nT ) ∈ A T whose trajectory πn from xinit obeys 
+
+d πn, π un ; [0 , T ] ≤ E. 
+
+Following the Lipschitz supposition of Section 5.3, for every 
+
+g ∈ G ,
+
+g zπn
+
+ ≥ g zun
+
+ − LG E ≥ γ − LG E ≥ 0, (17) 24 
+
+and 
+
+J zπn
+
+ ≤ J zun
+
+ + LJ E ≤ J∗ 
+
+> M,γ,ε
+
++ 1 
+
+> n
+
++ LJ E. 
+
+(18) The set AT is finite, so some sequence (a1, . . . , a T ) recurs for infinitely many n. Its trajectory π is feasible following (17), and passing n → ∞ along the recurrence in (18) gives 
+
+J(zπ ) ≤ J∗ 
+
+> M,γ,ε
+
++ LJ E.
+
+A.7 Proof of Proposition 5.12 (Coverage Complexity) 
+
+Part (i). Let {πv1 , . . . , π vP } ⊂ Z K , P = P2E (K), be pairwise more than 2E apart, and let T be an A-tree as hypothesized. For each j pick a depth-K trajectory τj of 
+
+T with d(τj , π vj ; [0 , K ]) ≤ E. If τj = τj′ for j̸ = j′, then 
+
+d πvj , π vj′ ; [0 , K ] ≤ d πvj , τ j
+
+ + d τj′ , π vj′
+
+ ≤ 2E, 
+
+a contradiction. The τj are therefore P distinct trajectories of 
+
+T .
+
+Part (ii). Fix a flat component i with ri = ¯ r, any component serving with a constant of its own order, and the polynomial bump on the unit interval, 
+
+ϕ(t) := 1
+
+B t¯r (1 − t)¯r ,B := max  
+
+> 0≤k≤¯r
+
+sup 
+
+> t∈[0 ,1]
+
+dk
+
+dtk t¯r (1 − t)¯r ,
+
+so that |ϕ(k)| ≤ 1 on [0 , 1] for 0 ≤ k ≤ ¯r, while ϕ(k)(0) = 
+
+ϕ(k)(1) = 0 for 0 ≤ k ≤ ¯r − 1. The derivative ϕ(¯ r−1) is a polynomial of degree ¯r + 1 , not identically zero, so 
+
+κ := sup 
+
+> t∈[0 ,1]
+
+ϕ(¯ r−1) (t) > 0,
+
+attained at some t∗ ∈ [0 , 1] ; the constant depends on ¯r alone. Let A := η/L Ψ ≤ M/ 2 and 
+
+n := 
+
+j κ A s
+
+k
+
+≥ 1,
+
+following the hypothesis s ≤ κ η/L Ψ. Partition [0 , K ] into the Kn intervals Ib := [( b − 1) /n, b/n ], 1 ≤ b ≤ Kn , and for a sign pattern τ ∈ {− 1, +1 }Kn define the scalar perturbation 
+
+pτ (t) := An¯r τb ϕ nt − (b − 1) ,t ∈ Ib, 1 ≤ b ≤ Kn. 
+
+Since ϕ vanishes at the interval ends together with its derivatives through order ¯r − 1, the pieces glue into pτ ∈
+
+W ¯r, ∞([0 , K ]) with p(k) 
+
+> τ
+
+(0) = 0 for 0 ≤ k ≤ ¯r − 1 and 
+
+p(k) 
+
+> τ
+
+(t) ≤ A n k−¯r ≤ A, 0 ≤ k ≤ ¯r. 
+
+By hypothesis there is u0 ∈ U with u0 + [ −η, η ]m ⊆ U ε; let 
+
+u∗ ≡ u0 be the constant admissible control on [0 , K ] and let z∗ be its flat trajectory from xinit , per the regularity of Assumption (i). Perturb its component i alone, 
+
+zτ,i := z∗ 
+
+> i
+
++ pτ , zτ,j := z∗ 
+
+> j
+
+, j̸ = i. 
+
+The trajectory of the constant control is (M/ 2) -smooth by hypothesis, and the perturbation is bounded by A ≤ M/ 2
+
+through order ¯r, so the perturbed curves are M -smooth, their jets and flat inputs bounded entrywise well within 2M , and the Lipschitz bound on Ψu gives, almost everywhere on [0 , K ],
+
+Ψu
+
+ jet zτ , z (R)
+
+> τ
+
+ − Ψu
+
+ jet z∗, z ∗ (R) 
+
+> ∞
+
+≤ LΨ A = η. 
+
+The induced control uτ therefore deviates from u0 by at most 
+
+η and takes values in u0 + [ −η, η ]m ⊆ U ε. By the flatness converse of Assumption (ii), and since pτ vanishes at t = 0 
+
+together with its jet, zτ is realized from xinit by the admissible 
+
+ε-eroded control uτ , and its trajectory belongs to ZK .Finally, let τ̸ = τ ′ differ at an interval b and let tb := ( b −
+
+1 + t∗)/n ∈ Ib. The perturbations are supported on their own intervals, whereby 
+
+z(¯ r−1)  
+
+> τ,i
+
+(tb) − z(¯ r−1)   
+
+> τ′,i
+
+(tb)
+
+= τb − τ ′
+
+> b
+
+An ϕ(¯ r−1) (t∗)
+
+= 2 κ A n ≥ 2s > s. 
+
+This implies there exist 2Kn trajectories in ZK pairwise more than s apart, hence 
+
+log Ps(K) ≥ K n log 2 ≥ log 2 2 κ K ηLΨ s ,
+
+the last step since ⌊x⌋ ≥ x/ 2 for x ≥ 1.
+
+A.8 Proof of Theorem 5.17 (Sparse Tree Optimality) 
+
+Denote ρ := δA + s, so that the hypotheses of Theorem 5.17 read 
+
+ρ ≤ cB ε, γ ≥ LG (CB + 1) ρ. 
+
+Write Σ( x) for the summary of the accepted prefix of a node 
+
+x along the recursion (8). 
+
+Tree size. Every node of the pruned tree is reached by an accepted command sequence each window of which passed the smoothness screen of Procedure 5.16, so the flat trace of its trajectory is 2M -smooth throughout. At depth k ≤ K the jet coordinates of a node therefore obey 
+
+z(m) 
+
+> i
+
+(k) ≤ 2M, 1 ≤ m ≤ ri − 1,
+
+zi(k) − zi(0) ≤
+
+Z k
+
+> 0
+
+z′
+
+> i
+
+(t) dt ≤ 2M K, 
+
+so every derivative coordinate ranges over an interval of length 4M , and every position coordinate over an interval of length 4M K . An interval of length ℓ meets at most 
+
+⌊ℓ/s ⌋ + 2 ≤ ℓ/s + 2 cells of the grid sZ, and the hypotheses give s ≤ ρ ≤ cB ε ≤ M/ 2, whence 
+
+4Ms + 2 ≤ 8Ms , 4M K s + 2 ≤ 8KM s .Deshpande and How 25 
+
+The retention of Procedure 5.16 keeps at most one node per occupied cell after dominance pruning, whereby the size of the pruned tree is bounded by the enclosing volume, 
+
+Vk ≤
+
+ 8KM s
+
+d 8Ms
+
+|R|− d
+
+.
+
+The pruned tree thus holds at most 
+
+K (8 KM/s )d (8 M/s )|R|− d + 1 nodes, including the root. 
+
+Eroded Coverage and Optimality. Fix n ≥ 1. Since UM,γ,ε ̸ =
+
+∅, we may pick u ∈ U M,γ,ε with 
+
+J zu
+
+ ≤ J∗ 
+
+> M,γ,ε
+
++ 1 
+
+> n
+
+,
+
+an ε-eroded control on [0 , K ] with M -smooth trajec-tory. Let Σ∗ 
+
+> k
+
+denote the summary of zu along the recursion (8), so that Σ∗ 
+
+> 0
+
+= Σ 0 and J(zu) = φ(Σ ∗ 
+
+> K
+
+).Following the running-minimum decomposition g(zu) = min 0≤k<K gk
+
+ zu|[k, k +1] 
+
+ of (9) and g(zu) ≥ γ, every win-dow of u carries the full predicate margin, 
+
+gk
+
+ zu [k, k +1] 
+
+ ≥ γ ∀ g ∈ G , 0 ≤ k < K. (19) We claim, by induction on 0 ≤ k ≤ K, that the retained set 
+
+Vk holds a node xk satisfying 
+
+Ξ( xk) − jet zu(k) ∞ ≤ ρ, 
+
+Σ( xk) ≤ Σ∗ 
+
+> k
+
++ k L (CB + 1) ρ. (20) At k = 0 the node x0 = xinit serves, the jets and the summaries equal. Suppose (20) holds at k < K . The tail of u is ε-eroded and ρ ≤ cB ε, so Lemma 5.9 (with t = k, s = ρ, x′ = xk)furnishes a corrector control ν ∈ U ε/ 2  
+
+> M′
+
+(xk) on [k, k + 1] 
+
+whose trajectory πν from xk satisfies 
+
+d πν , π u; [ k, k + 1]  ≤ CB ρ, πν (k + 1) = πu(k + 1) .
+
+By dispersion over Uε/ 2  
+
+> M′
+
+at xk, applied to ν upon identifying 
+
+[k, k + 1] with [0 , 1] , there is an accepted command a ∈A(xk) with d roll xk (a), π ν ; [ k, k + 1]  ≤ δA. Write y := Φa(xk) for the child, πy for its trajectory, extending πxk by the realized window of a from xk. Then 
+
+d πy , π u; [ k, k + 1]  ≤ δA + CB ρ ≤ (CB + 1) ρ, 
+
+Ξ( y) − jet zu(k + 1) ∞ ≤ δA,
+
+(21) and the jet bound holds at the instant k + 1 , where 
+
+πν (k + 1) = πu(k + 1) . The following consequences are then immediate. The summary over the window [k, k + 1] 
+
+tracks the reference’s summary, 
+
+Σ( y) = ϱk
+
+
+
+Σ( xk), z πy [k, k +1] 
+
+
+
+≤ ϱk
+
+
+
+Σ∗ 
+
+> k
+
++ k L (CB + 1) ρ, z πy [k, k +1] 
+
+
+
+by (20), monotonicity 
+
+≤ ϱk
+
+
+
+Σ∗
+
+> k
+
+, z πy [k, k +1] 
+
+
+
++ k L (CB + 1) ρ
+
+by non-expansiveness 
+
+≤ ϱk
+
+
+
+Σ∗
+
+> k
+
+, z u [k, k +1] 
+
+
+
++ ( k + 1) L (CB + 1) ρ
+
+by the window Lipschitz bound, (21) 
+
+= Σ ∗ 
+
+> k+1
+
++ ( k + 1) L (CB + 1) ρ
+
+by (8) .
+
+Similarly, the windowed Lipschitz structure of the predicates of Definition 5.14, alongside (19) and γ ≥ LG (CB + 1) ρ,gives 
+
+gk
+
+
+
+zπy [k, k +1] 
+
+
+
+≥ γ − LG (CB + 1) ρ ≥ 0 ∀ g ∈ G .
+
+The window of πy also passes the smoothness screen, its jets deviating from those of the M -smooth reference by at most 
+
+(CB + 1) ρ ≤ M following ρ ≤ cB ε, ε ≤ LΨM , and CB ≥
+
+1, while its flat input is the command input wa, bounded by 
+
+2M by hypothesis. Hence y ∈ bVk+1 (Procedure 5.16). At least one node xk+1 ∈ Vk+1 in the occupied cell qs(Ξ( y)) 
+
+then survives the pruning with Σ( xk+1 ) ≤ Σ( y), and since the jet Ξ( xk+1 ) deviates from Ξ( y) by at most s in every coordinate, 
+
+Ξ( xk+1 ) − jet zu(k + 1) ∞ ≤ s + δA = ρ, 
+
+and both bounds required by the induction (20) hold at 
+
+k + 1 . Continuing the induction through K, it follows by the monotonicity and the Lipschitz bound of the read-out φ
+
+that the retained set VK holds a node xK = xnK with 
+
+J zπxK
+
+ = φ Σ( xK )
+
+≤ φ Σ∗ 
+
+> K
+
++ K L (CB + 1) ρ
+
+≤ J zu
+
+ + Lφ K L (CB + 1) ρ
+
+≤ J∗ 
+
+> M,γ,ε
+
++ 1 
+
+> n
+
++ Lφ K L (CB + 1) ρ. 
+
+Every window of every candidate of Procedure 5.16 passed the screen gj ≥ 0, so g zπxK
+
+ ≥ 0 for every g ∈ G by the running-minimum decomposition (9), and the trajectory of 
+
+xnK is feasible for (2). Since the pruned tree is independent of n and VK is finite, some node recurs for infinitely many n,and passing n → ∞ along the recurrence establishes 
+
+J zπ
+
+ ≤ J∗ 
+
+> M,γ,ε
+
++ Lφ K L (CB + 1)  δA + s,
+
+the claimed gap with LJ = Lφ K L .
+
+A.9 Proof of Proposition 6.1 (Safety Assurance) 
+
+Consider a window committed at a time t0 and let x(t),
+
+t ∈ [t0, t 0 + ∆] , be the trajectory executed through it, exact by supposition (iii). The commit certifies the predicates of OCP (13) along the committed trajectory against the centers 
+
+oj (t0), known exactly at the commit by supposition (ii), so that 
+
+dist  x(t), o j (t0) ≥ r + vj 
+
+> max
+
+(t − t0).
+
+Meanwhile, supposition (i) bounds the displacement of each obstacle, 
+
+oj (t) − oj (t0) ≤ vj 
+
+> max
+
+(t − t0),26 
+
+and the triangle inequality yields dist( x(t), o j (t)) ≥ r
+
+throughout the window. Every window of the executed flight is committed, and the claim follows by induction over the commits. 
+
+B Command Set Dispersion for the Platform Catalog 
+
+We derive the dispersion bounds for each of the platforms asserted in Section 6.2.2, each in the notation of its construction. Each construction samples its command channels from explicit bounded grids, so the command inputs satisfy the uniform bound hypothesized by Theorem 5.17 whenever the grid boxes are sized within [−2M, 2M ]d.
+
+1. Unicycle, first order. Let π∗ be an M -smooth admissible reference from the same state. Following |¨x∗|, |¨y∗| ≤ M , the tangential rate obeys | ˙v∗| ≤ √2 M . Choose vℓ closest to 
+
+v∗(tℓ) on Iℓ and ωℓ closest to ω∗ averaged on Iℓ. Then 
+
+sup 
+
+> t≤∆
+
+|va(t) − v∗(t)| ≤ 12( n−1) + √2M ∆ 
+
+> j
+
+,
+
+sup 
+
+> t≤∆
+
+|θ(t) − θ∗(t)| ≤ 12
+
+ 1 
+
+> n−1
+
++ 12j
+
+
+
+∆,
+
+Since ˙z = v (cos θ, sin θ) and |v∗| ≤ 12 ,
+
+sup 
+
+> t≤∆
+
+| ˙z − ˙z∗| ≤ 12( n−1) + √2M ∆ 
+
+> j
+
++ 14
+
+ 1 
+
+> n−1
+
++ 12j
+
+
+
+∆,
+
+sup 
+
+> t≤∆
+
+|z − z∗| ≤ ∆ sup 
+
+> t≤∆
+
+| ˙z − ˙z∗|,
+
+so in the metric of Definition 5.1, for ∆ ≤ 1,
+
+d πa, π ∗; [0 , ∆]  ≤ 1 + ∆ /22 ( n − 1) +
+
+√2 M + 18
+
+ ∆
+
+j .
+
+2. Unicycle, second order. Let π∗ be an M -smooth admissible reference from the same state. The jet of the reduction is 
+
+˙z = v (cos θ, sin θ),
+
+¨z = a (cos θ, sin θ) + vω (− sin θ, cos θ),
+
+so that a = (cos θ, sin θ), ¨z . Differentiating along the trajectory, 
+
+˙a = ω (− sin θ, cos θ), ¨z + (cos θ, sin θ), ... 
+
+z
+
+= vω 2 + (cos θ, sin θ), ... 
+
+z .
+
+With | ... 
+
+x ∗|, | ... 
+
+y ∗| ≤ M and |v∗|, |ω∗| ≤ 12 ,
+
+| ˙a∗| ≤ 12 · 14 + √2 M = √2 M + 18 =: Ma.
+
+Using aℓ and αℓ closest to a∗ and α∗ averaged on Iℓ, both speeds are integrals of gridded channels, and 
+
+sup 
+
+> t≤∆
+
+|v − v∗|, sup 
+
+> t≤∆
+
+|ω − ω∗| ≤ E := 14
+
+ 1 
+
+> n−1
+
++ 12j
+
+
+
+∆,
+
+and integrating once more, sup t≤∆ |θ − θ∗| ≤ E∆. Since 
+
+|v∗| ≤ 12 and |(cos θ, sin θ) − (cos θ∗, sin θ∗)| ≤ | θ − θ∗|,
+
+| ˙z − ˙z∗| ≤ | v − v∗| + |v∗| | θ − θ∗| ≤ E
+
+
+
+1 + ∆2
+
+
+
+,
+
+|z − z∗| ≤ ∆ sup 
+
+> t≤∆
+
+| ˙z − ˙z∗|.
+
+Further, 
+
+|¨z − ¨z∗| ≤ | aℓ − a∗| + |vω − v∗ω∗| + 12 |θ − θ∗|≤ 14( n−1) + Ma∆ 
+
+> j
+
++ E 1 + ∆2
+
+.
+
+So, for ∆ ≤ 1,
+
+d πa, π ∗; [0 , ∆]  ≤ 2 + 3∆ 8 ( n − 1) +
+
+√2 M + 516 
+
+ ∆
+
+j .
+
+3. Car with trailer. Let β = θ0 − θ1 be the hitch angle and s = v cos β the signed speed of the trailer. Along any trajectory, 
+
+˙z = s (cos θ1, sin θ1),
+
+¨z = ˙ s (cos θ1, sin θ1) + v2 sin β cos βℓ (− sin θ1, cos θ1).
+
+(22) Let π∗ be an M -smooth admissible reference from the same state, with controls u∗ = ( v∗, ϕ ∗). Differentiating s =
+
+v cos β,
+
+¨z =
+
+
+
+˙v cos β − v2 
+
+> L
+
+sin β tan ϕ + v2 
+
+> ℓ
+
+sin 2β
+
+
+
+(cos θ1, sin θ1)+ v2 sin β cos βℓ (− sin θ1, cos θ1).
+
+We suppose 
+
+| ˙v∗| ≤ 12 , |¨v∗|, | ˙ϕ∗| ≤ M a.e. ,
+
+which are mild additional restrictions on the input signal. Let h0 = 325 , h1 = 12 , and hϕ = 2π 
+
+> 9
+
+be the spacings of G6,
+
+G3, and G4. Using v0 closest to v∗(0) , and ˙vℓ and ϕℓ whose value and whose tangent are closest to ˙v∗ and tan ϕ∗ averaged on Iℓ,
+
+|v − v∗| ≤ h0 
+
+> 2
+
++ h1 
+
+> 2
+
+∆ + c M ∆ 
+
+> j
+
+,
+
+|θk − θ∗
+
+> k
+
+| ≤ c
+
+
+
+h0 + h1 + hϕ + 1
+
+> j
+
+
+
+∆, k = 0 , 1,
+
+the trailer angle obeying ˙θ1 = vℓ sin β with its comparison factor e¯v∆/ℓ absorbed into c. Through (22), 
+
+| ˙z − ˙z∗|, |¨z − ¨z∗| ≤ c
+
+
+
+h0 + h1 + hϕ + M ∆
+
+> j
+
+
+
+,
+
+|z − z∗| ≤ ∆ sup 
+
+> t≤∆
+
+| ˙z − ˙z∗|,
+
+so in the metric of Definition 5.1 
+
+d πg , π ∗; [0 , ∆]  ≤ c
+
+
+
+h0 + h1 + hϕ + M ∆
+
+j
+
+
+
+,
+
+with c = c(¯ v, L, ℓ, ∆) a constant depending on the speed bound ¯v = 12 , the wheelbase L, the hitch length ℓ, and the window ∆ alone, vanishing in the grids and the subdivision together. 
+
+4. Quadrotor. Along any trajectory, 
+
+¨p = cm R(q) e3 − ge 3,
+
+... 
+
+p = ˙cm R(q) e3 + cm R(q) ω × e3
+
+,
+
+(23) Deshpande and How 27 
+
+so that the flat jet depends on the thrust and its rate (c, ˙c) in addition to the state. Let π∗ be an M -smooth admissible reference from the same state, f ∗ = ¨ p∗ + ge 3 its thrust, and s∗ = ⟨R(q∗) ω∗, b ∗
+
+> 3
+
+⟩ its axial body rate. We suppose the thrust γ-interior to the authority, the body rate bounded, and the thrust axis nowhere parallel to eψ∗ =(cos ψ∗, sin ψ∗, 0) :
+
+F− + γ ≤ ∥ f ∗∥ ≤ F+ − γ, ω∗ ∈ [−¯ω, ¯ω]3,
+
+∥b∗ 
+
+> 3
+
+× eψ∗ ∥ ≥ γψ .
+
+Along the reference, the angular velocity decomposes about the thrust axis, 
+
+R(q∗) ω∗ = b∗ 
+
+> 3
+
+× ˙b∗ 
+
+> 3
+
++ s∗b∗
+
+> 3
+
+, ˙b∗ 
+
+> 3
+
+=  I − b∗
+
+> 3
+
+(b∗
+
+> 3
+
+)⊤ ˙f ∗
+
+∥f ∗∥ ,
+
+so |s∗| ≤ ∥ ω∗∥ ≤ √3 ¯ ω.
+
+M -smoothness bounds | ... 
+
+p ∗|, |p(4) ∗|, | ¨ψ∗| ≤ M . The rate 
+
+˙f ∗ = ... 
+
+p ∗ is therefore √3M -Lipschitz. Differentiating the axial body rate s∗ = ⟨R(q∗) ω∗, b ∗
+
+> 3
+
+⟩,
+
+˙s∗ = R(q∗) ˙ ω∗, b ∗ 
+
+> 3
+
++ R(q∗) ω∗, ˙b∗ 
+
+> 3
+
+= R(q∗) ˙ ω∗, b ∗ 
+
+> 3
+
+,
+
+the rotation contributing R(q∗)( ω∗ × ω∗) = 0 and the second term vanishing against the decomposition, ⟨b∗ 
+
+> 3
+
+× ˙b∗ 
+
+> 3
+
++
+
+s∗b∗
+
+> 3
+
+, ˙b∗
+
+> 3
+
+⟩ = 0 . Following J ˙ω∗ = τ ∗ − ω∗ × Jω ∗,
+
+| ˙s∗| ≤ ∥ ˙ω∗∥ = J−1 τ ∗ − ω∗ × Jω ∗ ≤ Ms,
+
+with τ ∗ from the admissible rotors u∗ ∈ [0 , 1.3] 4 and Ms aconstant of the inertia, the mixer, and ¯ω.Let h0, h1, h2, and hs be the interval spacings of Gn0 , Gn1 ,
+
+Gn2 , and Gns . Pick ¯a ≥ F+ + g, ¯ȷ, ¯s ≥ M , and ¯r ≥ √3 ¯ ω.Using f0 and ˙f0 closest to f ∗(0) and ˙f ∗(0) , and ¨f and r
+
+closest to ¨f ∗ and s∗ averaged on [0 , ∆] , we get, for t ≤ ∆,
+
+f ref (t) − f ∗(t) ≤√3 h0
+
+2 + c h1 + h2
+
+∆ + c M ∆2,
+
+˙f ref (t) − ˙f ∗(t) ≤√3 h1
+
+2 +
+
+√3 h2
+
+2 ∆ + c M ∆.
+
+(24) Both trajectories leave the same state, so the attitude and the body rate at t = 0 are shared, and f ∗(0) = c∗(0)  
+
+> m
+
+R(q(0)) e3
+
+is along b3(0) . Let θ be the angle from b3 to bref 3 and eω =
+
+ω − ωref the body-rate error. Following ∥f0 − f ∗(0) ∥ ≤ √32 h0, and supposing √32 h0 ≤ γ so that ∥f0∥ ≥ ∥ f ∗(0) ∥ −  
+
+> √32
+
+h0 ≥ F−,
+
+sin θ(0) = 
+
+ f0 − f ∗(0)  × b3(0) 
+
+∥f0∥ ≤√3 h0
+
+2 F−
+
+.
+
+Comparing the demand of (12) at t = 0 with the decomposition of R(q∗) ω∗,
+
+|eω (0) | ≤ kb θ(0) + bref 3 × ˙bref 3 − b∗ 
+
+> 3
+
+× ˙b∗
+
+> 3
+
++ |r − s∗(0) | + |s∗(0) | bref 3 − b∗
+
+> 3
+
+≤ c h0 + h1 + hs + Ms∆,
+
+the last two terms from r matched to s∗ averaged on [0 , ∆] .Substituting the torque (11) into J ˙ω = τ − ω × Jω ,
+
+˙eω = ˙ ω − ˙ωref = −kω eω , |eω (t)| = |eω (0) | e−kω t.
+
+Differentiating cos θ = ⟨b3, b ref 3 ⟩ with ˙b3 = R (ω × e3) and 
+
+ω = ωref + eω , the feedforward and the axial terms cancel, leaving 
+
+− sin θ ˙θ = kb θ sin θ + R (eω × e3), b ref 3
+
+≥  kb θ − | eω | sin θ, 
+
+so ˙θ ≤ − kb θ + |eω | and, for kω > k b,
+
+θ(t) ≤ θ(0) e−kbt + |eω (0) |
+
+kω − kb
+
+.
+
+Following (24), let ∥f ref − f ∗∥ ≤ γ/ 2, so that ∥f ref ∥ ∈ 
+
+[F− + γ/ 2, F +], and let the grids be fine enough that the bounds above keep θ ≤ pγ/F +. Then 
+
+⟨f ref , b 3⟩ = ∥f ref ∥ cos θ ≥ F− + γ 
+
+> 2
+
+− F+ θ2 
+
+> 2
+
+≥ F−,
+
+the clamp of (10) is inactive, c = m⟨f ref , b 3⟩, and  
+
+> cm
+
+b3 − f ref = − I − b3b⊤
+
+> 3
+
+f ref , cm b3 − f ref ≤ F+ θ. 
+
+Combining with (24) through (23), where ω × b3 discards the axial channel, 
+
+∥¨p − ¨p∗∥, ∥ ... 
+
+p − ... 
+
+p ∗∥ ≤ c h0 + h1 + h2 + M ∆,
+
+∥ ˙p − ˙p∗∥ ≤ ∆ sup 
+
+> t≤∆
+
+∥¨p − ¨p∗∥,
+
+∥p − p∗∥ ≤ ∆ sup 
+
+> t≤∆
+
+∥ ˙p − ˙p∗∥.
+
+With ∥b∗ 
+
+> 3
+
+× eψ∗ ∥ ≥ γψ and ∥b3 − b∗
+
+> 3
+
+∥ ≤ γψ 
+
+> 2
+
+, ψ and ˙ψ are smooth functions of the attitude and the body rate along both trajectories, so in the metric of Definition 5.1 
+
+d(πref , π ∗; [0 , ∆]) ≤ c(h0 + h1 + h2 + hs + ( M + Ms)∆) ,
+
+with c = c(kb, k ω , F −, F +, ¯ω, M, ∆) a constant depending on the gains, the thrust envelope, the body-rate box, the envelope constant, and the window alone, vanishing in the grids and the window together. It remains to account for the rotor projection of the construction, u = clip  B−10 (c, τ ), [0 , 1.3] 4. Abbreviate the bound above, ϱ := h0 + h1 + h2 + hs + ( M + Ms) ∆ . The reference is admissible, u∗ ∈ [0 , 1.3] 4, so the projection is nonexpansive and fixes u∗, while the demand map of (10) and (11) is Lipschitz for θ < π and deviates from u∗ by c ϱ along the reference. The state deviation e of the executed rollout hence obeys 
+
+˙e ≤ L e + clip B−10 (c, τ ) − u∗  ≤ L′ e + c ϱ, 
+
+and Gronwall over the window recovers the displayed bound with c enlarged by eL′∆, mirroring the rejection step of Theorem 5.8. 
+
+C Search Variants on the Dynobench Instances 
+
+See Table 4. 28 
+
+Table 4. The search variants of Section 6.1.1 on the Dynobench instances of Section 6.2, averaged over 5 runs at the Orin Nano compute tier and reported against the headline algorithm DFT *. The static variants run at the pruning radius lowered by 0.01 , without which their cross-depth claims can starve the frontier short of the goal on some runs. 
+
+DFT * DFT *-Static DFT-A * DFT-A *-Static system task cost (s) wall (ms) cost (s) wall (ms) cost (s) wall (ms) cost (s) wall (ms) Unicycle 1st order bugtrap 21 .4 169 21 .2 18 21 .3 82 21 .5 24 
+
+kink 14 .1 50 13 .6 8 14 .1 9 13 .4 6
+
+parallelpark 3.5 2 3.2 1 3.4 2 3.1 2
+
+Unicycle 2nd order bugtrap 24 .5 3220 24 .2 388 24 .4 1117 23 .7 333 
+
+kink 18 .8 1100 18 .0 176 19 .2 176 17 .6 76 
+
+parallelpark 6.7 10 6.0 10 7.0 11 6.0 10 
+
+Car with a trailer bugtrap 19 .8 2718 19 .5 217 20 .0 928 19 .7 148 
+
+kink 15 .6 1251 15 .2 152 15 .9 89 14 .9 28 
+
+parallelpark 3.5 6 4.4 12 4.1 9 4.9 12 
+
+Quadrotor 
+
+u = ( ui)4
+
+> i=1
+
+block 2.55 2719 2.50 995 2.50 1727 2.50 931 
+
+window 2.00 385 1.90 150 2.00 362 1.95 164 
+
+inversion 3.10 313 3.60 205 3.20 653 3.65 300 
+
+inversion obs. 3.90 3345 4.25 934 4.10 5262 4.05 1012 
+
+D Index to Multimedia Extensions 
+
+Extension Media type Description 1 Video WWDFT * hard dynamic episode 2 Video DFT * Dynobench solutions
