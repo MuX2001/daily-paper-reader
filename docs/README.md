@@ -44,14 +44,14 @@
       <span class="dpr-home-dashboard-kicker">2026-08-29</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 21 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 27 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
-    <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>9</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>12</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>2 次</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>14</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-29 03:35:52 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-29 22:50:52 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共读21篇，精读9篇、速读12篇，聚焦视觉-语言-动作（VLA）模型与机器人控制前沿。最值得关注的是两篇满分精读论文《Pointing-VLA》与《Gripper-aware VLA》，均致力于提升VLA操作的交互精度与环境适应性。下一步建议普通读者优先从这两篇精读入手，理解空间指向与夹爪感知如何增强机器人操作能力。</p>
+<p>今日精读聚焦具身智能，27篇推荐中14篇精读，其中两篇满分论文均围绕视觉-语言-动作操作模型。最值得关注《Pointing-VLA》的指向性空间交互与《Gripper-aware VLA》的抓取感知设计，均为10.0分。后续可重点跟踪机器人操作领域的高分VLA进展，速读中的控制优化与人机协作方向也值得一瞥。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">9 篇</strong>
+    <strong class="dpr-home-dashboard-count">14 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Pointing-VLA: Typed Spatial Grounding Interfaces for Vision-Language-Action Manipulation">Pointing-VLA: Typed Spatial Grounding Interfaces for Vision-Language-Action Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Gripper-aware Vision Language Action Models">Gripper-aware Vision Language Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Hierarchical Skill Retrieval for Data-Efficient Adaptation of Vision-Language-Action Models">Hierarchical Skill Retrieval for Data-Efficient Adaptation of Vision-Language-Action Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Pointing-VLA: Typed Spatial Grounding Interfaces for Vision-Language-Action Manipulation">Pointing-VLA: Typed Spatial Grounding Interfaces for Vision-Language-Action Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Gripper-aware Vision Language Action Models">Gripper-aware Vision Language Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="TemporalFlow-VLA: Learning Physically Grounded Execution History for Long-Horizon Robot Manipulation">TemporalFlow-VLA: Learning Physically Grounded Execution History for Long-Horizon Robot Manipulation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>4</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>3</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>7</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>6</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>3</strong></span><span class="dpr-home-dashboard-tag">control <strong>1</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">12 篇</strong>
+    <strong class="dpr-home-dashboard-count">13 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Scaling-Based Reciprocal Control Barrier Functions for Nonholonomic Mobile Robots">Scaling-Based Reciprocal Control Barrier Functions for Nonholonomic Mobile Robots</span></li><li><span class="dpr-home-dashboard-paper-title" title="Control-Oriented Learning for Dynamic Tracking and Stability Analysis of Soft Pneumatic Actuators">Control-Oriented Learning for Dynamic Tracking and Stability Analysis of Soft Pneumatic Actuators</span></li><li><span class="dpr-home-dashboard-paper-title" title="RA-VLA: Retrieval-Augmented VLA for Test-Time Adaptation">RA-VLA: Retrieval-Augmented VLA for Test-Time Adaptation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Zeroth-Order Nonsmooth Nonconvex Optimization with Convex Liftings and Its Application to State-Feedback $H_\infty$ Policy Optimization">Zeroth-Order Nonsmooth Nonconvex Optimization with Convex Liftings and Its Application to State-Feedback $H_\infty$ Policy Optimization</span></li><li><span class="dpr-home-dashboard-paper-title" title="Control-Oriented Learning for Dynamic Tracking and Stability Analysis of Soft Pneumatic Actuators">Control-Oriented Learning for Dynamic Tracking and Stability Analysis of Soft Pneumatic Actuators</span></li><li><span class="dpr-home-dashboard-paper-title" title="Generative Action-Chunk Sampling for Adaptive Stiffness Control in Physical Human-Robot Collaboration">Generative Action-Chunk Sampling for Adaptive Stiffness Control in Physical Human-Robot Collaboration</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>5</strong></span><span class="dpr-home-dashboard-tag">control <strong>3</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>3</strong></span><span class="dpr-home-dashboard-tag">vla <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>5</strong></span><span class="dpr-home-dashboard-tag">control <strong>4</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>3</strong></span><span class="dpr-home-dashboard-tag">vla <strong>1</strong></span></div>
 </section>
 </div>
 

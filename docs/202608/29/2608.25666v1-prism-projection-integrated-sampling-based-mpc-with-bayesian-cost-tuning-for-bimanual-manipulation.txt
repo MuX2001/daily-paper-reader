@@ -1,0 +1,1894 @@
+Title: PRISM: Projection-Integrated Sampling-Based MPC with Bayesian Cost Tuning for Bimanual Manipulation
+
+URL Source: https://arxiv.org/pdf/2608.25666v1
+
+Published Time: Thu, 27 Aug 2026 01:08:18 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+> 1
+
+# PRISM: Projection-Integrated Sampling-Based MPC with Bayesian Cost Tuning for Bimanual Manipulation 
+
+Alinjar Dan 1∗, Iryna Hurova 1∗, Karl Kruusam¨ ae 1, Arun Kumar Singh 1
+
+Fig. 1: Simulation and real-world execution of PRISM. Two UR5e arms cooperatively pick up a tray and navigate through a cluttered workspace to place it between two obstacles. Left-to-right sequences demonstrate the system dynamically adapting its trajectory to maintain a level grasp during the move phase 
+
+Abstract —Bimanual manipulation in cluttered, contact-rich en-vironments remains challenging because it requires coordinated motion generation, interaction-aware planning, and reliable ex-ecution under tight kinematic constraints. We present PRISM, a projection-integrated sampling-based Model Predictive Control (MPC) framework that uses a GPU-accelerated physics simulator as an online world model for complex dual-arm manipulation. The main algorithmic contribution is a QP-guided control sampling strategy that decouples trajectory exploration from kinematic feasibility. At each MPC step, sampled joint-velocity trajectories are projected onto the set of motions satisfying joint position, velocity, acceleration, and jerk bounds, together with an initial-velocity boundary condition, before rollout evaluation. This enables broad yet feasible exploration of coordinated biman-ual behaviors. To support efficient online execution, we derive a custom ADMM/Bregman-splitting QP solver that exploits joint-wise separability and reusable matrix factorizations. We further use Bayesian optimization to tune task-cost weights offline, reducing manual parameter selection. We evaluate PRISM on challenging variants of PerAct 2
+
+tasks, including obstacle-constrained ball transport, tray trans-port, cube handover, and box lifting. Experiments show im-proved robustness and task success relative to represen-tative sampling-based baselines, while maintaining real-time or near-real-time execution. We also demonstrate success-ful sim-to-real transfer on dual UR5e manipulators, high-lighting the practical potential of physics-based online plan-ning for contact-rich bimanual manipulation. Project details, including code and supplementary videos, are available at 
+
+https://sites.google.com/view/prismbimanual .
+
+Note to Practitioners —This paper addresses the problem of programming dual-arm robots to reliably manipulate and trans-port objects in cluttered workspaces, with applications in assem-bly and logistics. Rather than relying on task-specific policies learned from large demonstration datasets, our framework uses a GPU-accelerated physics simulator as an online world model to evaluate many candidate bimanual motions in parallel at each control step and select a feasible action sequence for the current scene. A key practical feature is that smooth, executable motions are enforced directly during the search process: sampled trajectories are projected onto a set satisfying joint position, velocity, acceleration, and jerk limits before rollout evaluation. This enables broad exploration while avoiding highly oscillatory 
+
+> ∗
+
+These authors contributed equally to this work.  
+
+> 1
+
+University of Tartu, Narva mnt 18, 51009, Tartu, Estonia Alinjar Dan: Post-doc, alinjardannitdgp2014@gmail.com Iryna Hurova: Post-graduate student, iryna.gurova@gmail.com Karl Kruusam¨ ae: Associate Professor, karl.kruusamae@ut.ee Arun Kumar Singh: Associate Professor, aks1812@gmail.com 
+
+or dynamically inconsistent commands, which is beneficial for real robot execution. The task-cost weights are tuned offline using Bayesian optimization, reducing manual parameter ad-justment without increasing online control cost. The approach requires a reasonably accurate physics model of the robot and workspace, and the task cost structure must still be designed by the user; within these assumptions, it provides a practical alternative to demonstration-heavy policy learning for contact-rich bimanual manipulation and related constraint-aware robotic planning problems. 
+
+Index Terms —Bimanual, Sampling based MPC, Bayesian Op-timization, Quadratic programming, MuJoCo. 
+
+I. I NTRODUCTION 
+
+Dual-arm manipulation represents a significant frontier in robotics, holding the promise of emulating human-level dexter-ity for complex tasks such as intricate assembly, collaborative object handling, and dynamic interaction with unstructured environments. The ability to coordinate two robotic arms unlocks capabilities that are difficult or impossible for a single manipulator, including stabilizing large objects, performing simultaneous actions, and applying opposing forces. This potential has fueled a surge of research interest, with the goal of developing autonomous systems that can operate robustly and intelligently in the physical world. In recent years, the dominant paradigm for tackling bi-manual manipulation has been end-to-end learning [1]–[4]. Approaches based on imitation learning and reinforcement learning have demonstrated remarkable success in learning complex, high-dimensional policies directly from data. Their popularity stems from two key strengths. First, they can directly map high-dimensional perceptual input to motor com-mands. Second, they bypass the need to explicitly model the interactions between the arms and between the arms and the objects they manipulate. For example, consider the task of lifting a ball with both arms: by learning directly from demonstration data, imitation learning avoids the need to ex-plicitly model the contact forces between the ball and the end-effectors. However, the success of these approaches is pred-icated on the availability of sufficiently diverse training data and remains tightly coupled to the distribution of demonstrated scenarios. When faced with environmental configurations not well-represented in the training set—such as novel obstacle arXiv:2608.25666v1 [cs.RO] 26 Aug 2026 2
+
+placements or modified task constraints—learned policies may require additional data collection or fine-tuning to recover reliable performance (see Fig. 12 for an illustrative example). This sensitivity to distribution shift motivates the exploration of alternative planning approaches that can adapt online to previously unseen configurations. In this work, we investigate a complementary paradigm: real-time, model-based planning with a GPU-accelerated physics simulator serving as an online world model. Rather than learning a monolithic task policy, our approach uses massively parallel physics rollouts to evaluate large batches of candidate bimanual motion sequences at every planning step. This allows the planner to directly reason over the current geometric and physical state of the scene, including previously unseen obstacle layouts, object poses, and contact interactions. Such an approach is particularly attractive for contact-rich bimanual manipulation, where collecting sufficiently diverse expert demonstrations is itself challenging and where task success depends on adapting motions online to the evolving interaction dynamics. 
+
+Our Algorithmic Contribution: We present PRISM, aprojection-integrated sampling-based Model Predictive Con-trol (MPC) framework, augmented with Bayesian optimiza-tion, for complex bimanual manipulation tasks. PRISM com-bines GPU-parallel physics-based rollout evaluation with a Quadratic Program(QP)-guided control sampling strategy that decouples trajectory exploration from kinematic feasibility. At each MPC step, the planner samples joint-velocity trajectories from an adaptive Gaussian distribution, projects every sample onto the set of trajectories satisfying joint position, velocity, acceleration, and jerk bounds together with MPC boundary-continuity constraints, and evaluates the resulting feasible roll-outs in parallel through the GPU-accelerated MuJoCo world model. Because feasibility is enforced before rollout, rather than introduced through post-processing or soft penalties, the optimizer can employ aggressive exploration covariances while ensuring that all candidate motions remain smooth and executable. The projected samples are then importance-weighted and used to update both the sampling mean and covariance, yielding a receding-horizon optimizer that pro-gressively concentrates on high-quality coordinated bimanual behaviors. 
+
+Benefits of our Approach: We apply PRISM to challeng-ing variants of tasks from the PerAct 2 benchmark [3]. For example, we extend a standard ball-lifting task into a longer-horizon transport problem in which the object must be moved through an obstacle-constrained workspace. These settings are especially demanding for learned policies when the required avoidance strategies are not represented in the training distri-bution. Across ball transport, tray transport, cube handover, and box lifting, we show that PRISM outperforms representa-tive sampling-based alternatives such as [5]–[7] in robustness, task success, and execution efficiency in the considered bi-manual settings. We further quantify the gains provided by Bayesian optimization of the cost weights and demonstrate successful sim-to-real transfer on dual UR5e manipulators, including cluttered manipulation scenarios. Finally, we provide a preliminary qualitative comparison with [2] to illustrate the complementary strength of online planning under geometric distribution shift. II. RELATED WORK We organize the relevant literature along four axes: sampling-based planning for manipulation, smoothness in sampling-based MPC, automatic cost-function tuning, and end-to-end learning for bimanual manipulation. 
+
+A. Sampling-Based Planning for Manipulation 
+
+Gradient-based trajectory optimization has been applied to bimanual tasks such as synchronous pick-and-place [8] and co-operative object transportation [9], [10]. These methods can be highly effective when the task geometry and contact structure are well characterized. However, extending them to cluttered settings or manipulation problems involving the making and breaking of contacts often requires substantial task-specific modeling. In contrast, sampling-based optimization [11], [12] requires only the ability to evaluate forward rollouts of a world model and arbitrary task costs. This flexibility has made sampling-based MPC increasingly attractive for contact-rich manipulation, particularly as GPU-accelerated physics simulators such as MuJoCo [11] and IsaacGym [12] enable massively parallel trajectory evaluation. Among sampling-based approaches, Howell et al. [11] demonstrated preliminary bimanual manipulation results using predictive sampling with MuJoCo, while Pezzato et al. [12] scaled sampling-based MPC through parallelized physics sim-ulation in IsaacGym. A central difficulty in extending such methods to complex bimanual manipulation is the presence of coordination constraints and closed-chain-like interaction structures. Classical motion-planning theory emphasizes that exact closed-chain constraints define lower-dimensional man-ifolds that are difficult to explore using naive random sam-pling [13]. Traditional control approaches address this issue through carefully designed boundary-layer or noninteracting controllers [14], while more recent learning-based methods use generative models such as CVAEs, CGANs [13], or energy-based samplers [15] to draw constraint-aware samples offline. However, such approaches typically separate task-constraint learning from online environmental reasoning, and their applicability to contact-rich manipulation with changing obstacle configurations remains limited.          
+
+> Our Improvement: Our approach discovers coordinated dual-arm behavior by exploring directly in the combined joint space, while coordination requirements are expressed through task costs evaluated in the physics world model. Building on the predictive-sampling paradigm of [11], we introduce a sub-stantially more structured optimizer that enforces jerk-bounded smoothness on all sampled trajectories and permits higher exploration noise. Unlike approaches that rely on offline learned constraint samplers, our method handles contact-rich manipu-lation online, runs at 10 –16 Hz in the considered settings, and is validated in both simulation and real-world experiments.
+
+B. Smoothness in Sampling-Based MPC 
+
+A well-known limitation of sampling-based MPC algorithms such as MPPI [16] and CEM [7] is that sampled control 3
+
+sequences can be highly non-smooth. This may lead to oscilla-tory actuation, degraded warm-starting across MPC iterations, and poor task performance in systems with physical bandwidth or actuator limits. Several strategies have been proposed to address this issue. 
+
+a) Post-hoc filtering: A common approach is to smooth the selected control sequence after the optimizer update, for example using a Savitzky–Golay filter (SGF) [6]. While simple to implement, post-hoc filtering does not alter the trajectories evaluated during optimization and provides no guarantee that the resulting controls satisfy actuator or derivative bounds. 
+
+b) Control-space lifting: Kim et al. [17] proposed sam-pling in the space of control derivatives while treating controls as additional state variables. This shifts smoothness handling into the optimization process through augmented dynamics and penalty terms. However, the method introduces additional design choices and cost weights, and these difficulties become more pronounced when higher-order derivative limits are re-quired. 
+
+c) Frequency-domain shaping: Vlahov et al. [18] intro-duced colored-noise sampling for MPPI, biasing perturbations toward low-frequency components. More recently, Kicki [5] proposed LPF-MPPI, which applies a Butterworth low-pass filter to sampled perturbations before rollout. These methods provide direct control over the spectral content of exploration noise, but they do not enforce strict bounds on control deriva-tives. A low-frequency sample can still violate acceleration or jerk limits if its amplitude is sufficiently large. In addition, such methods do not directly impose boundary conditions needed for continuity across MPC replanning steps. 
+
+d) Polynomial and spline parameterization: 
+
+STORM [19] and SCP-MPPI [20] represent control sequences through polynomial bases or spline interpolation of a reduced set of parameters. These formulations induce smoothness by restricting representational bandwidth. However, the level of smoothness is controlled only indirectly through the parameterization, and strict derivative bounds are generally not enforced. 
+
+e) Projection-based methods: Andrejev et al. [21] in-troduced π-MPPI, which incorporates a QP-based projection step into the MPPI pipeline to minimally correct sampled controls so that they satisfy bounds on control magnitudes and derivatives. This projection decouples the exploration distribution from feasibility: the sampling covariance may be chosen aggressively, while the projection maps each sample to the closest admissible trajectory. Rastgar et al. [22] also ex-plored projection-guided sampling for autonomous navigation, although without the derivative-bounded formulation used in 
+
+π-MPPI.         
+
+> Our Improvement: We adapt the projection-based principle of [21] to the bimanual joint-velocity setting, extend the deriva-tive constraints to include jerk bounds up to r= 3 , and derive a custom ADMM solver that exploits the joint-wise separability of the resulting QP for efficient GPU parallelization. As shown in Section III-C, this projection-augmented sampling strategy en-ables substantially larger effective exploration covariances than vanilla sampling and frequency-domain alternatives, leading to improved success rates across the considered bimanual tasks.
+
+C. Automatic Cost Function Tuning 
+
+The performance of sampling-based planners is highly sensi-tive to the relative weighting of competing objectives, includ-ing collision avoidance, task progress, bimanual coordination, and trajectory regularization. Manual tuning of these weights is labor-intensive, difficult to reproduce, and often specific to a particular task instance. Bayesian optimization (BO) has emerged as a principled tool for automated hyperparameter and reward tuning in robotics. Prior works have applied BO to tune MPC parameters [23] and to calibrate controller gains under safety constraints [24]. However, automatic tuning of task-specific cost weights for multi-phase, multi-objective sampling-based MPC in bimanual manipulation has received comparatively limited attention. 
+
+> Our Improvement: We use Bayesian optimization to tune the cost weights of our sampling-based planner offline, evaluating each candidate weight configuration over full task episodes with randomized initial conditions. This procedure improves success rates across all four evaluated tasks, as shown in Section III-E, while introducing no additional computational overhead during online MPC execution.
+
+D. End-to-End Learning for Bimanual Manipulation 
+
+End-to-end learning methods, including imitation learning and reinforcement learning, have demonstrated impressive perfor-mance on bimanual manipulation tasks by learning complex, high-dimensional policies directly from data [1]–[4]. Recent imitation-learning systems often rely on expressive policy parameterizations based on diffusion models [25] or flow matching [26], which can represent multimodal action distribu-tions and capture diverse manipulation strategies. Despite these advances, several challenges remain. First, collecting suffi-ciently diverse expert demonstrations is particularly difficult in cluttered manipulation settings. Second, neural policies do not naturally satisfy hard physical or kinematic constraints [27]. Third, the strongest diffusion- and flow-based policies may in-cur substantial inference cost [2]. Reinforcement learning can, in principle, reduce dependence on expert demonstrations, but existing approaches for bimanual manipulation are often task-specific [28] or rely on simplified manipulator models [29].   
+
+> Our Improvement: PRISM offers a complementary model-based alternative. Rather than learning a fixed task policy, it adapts online to the current scene geometry through physics-based roll-out evaluation. It explicitly reasons over obstacle configurations and contact-rich interactions, operates at 10 –16 Hz in the con-sidered settings, and can generate synthetic expert trajectories for future policy learning. More broadly, PRISM may serve as a useful planning component within model-based reinforcement-learning frameworks such as TD-MPC [30], combining online physical reasoning with learned long-horizon value information.
+
+III. METHODS Consider a bimanual setting where θ1,k and θ2,k represent the joint-position vectors of the individual arms at planning step k. Let 
+
+θk = ( θ1,k , θ2,k )4
+
+denote the combined joint-position vector of the bimanual system. Let xk represent the environment state at step k. For example, xk can contain the Euclidean position of specific points on the manipulator bodies, as well as the position and velocity of movable objects in the environment. With these notations in place, we define bimanual planning over a horizon 
+
+H through the following optimization problem: 
+
+arg min 
+
+> ˙θ1: H
+> H
+
+X
+
+> k=1
+
+c
+
+
+
+θk, ˙θk, xk
+
+
+
+(1a) s.t. (θk+1 , xk+1 ) = f
+
+
+
+θk, ˙θk, xk
+
+
+
+, (1b) 
+
+θ(r)min ≤ θ(r) 
+
+> k
+
+≤ θ(r)max , r ∈ { 0, 1, 2, 3}, (1c) 
+
+θ0 = θinit , ˙θ0 = ˙θinit . (1d) Here, ˙θ1: H denotes the horizon-length sequence of joint-velocity vectors, and θ(r) 
+
+> k
+
+denotes the r-th time derivative of the joint trajectory at step k, with θ(0)  
+
+> k
+
+= θk, θ(1)  
+
+> k
+
+= ˙θk,
+
+θ(2)  
+
+> k
+
+= ¨θk, and θ(3)  
+
+> k
+
+= ... 
+
+θ k.The stage cost is expressed as a weighted sum of task-specific components: 
+
+c
+
+
+
+θk, ˙θk, xk
+
+
+
+= X
+
+> i
+
+wi ci
+
+
+
+θk, ˙θk, xk
+
+
+
+. (2) The objective in (1a) consists of several task-dependent cost components that model manipulation goals, coordination re-quirements, and collision avoidance. These components are weighted by coefficients wi, which are later tuned through Bayesian optimization. We discuss their task-specific algebraic forms in Section IV. The coupled joint-space and environment evolution is dictated by the function f , which serves as our world model and is realized through the MuJoCo physics engine in (1b). To ensure smooth joint motions and aid sim-to-real transfer, we enforce bounds on derivatives of the joint trajectory up to jerk level, as shown in (1c). The boundary conditions in (1d) initialize the planning problem at the current joint configuration and enforce continuity with the current joint velocity at the MPC replanning boundary. It is worth emphasizing that the optimization solves for the motions of both arms jointly. Thus, an appropriate coordination strategy is discovered online for each task instance. 
+
+A. Sampling-Based Optimization 
+
+Alg. 1 presents our sampling-based optimizer for solving (1a)– (1c). The optimizer combines an MPPI [16]-style importance-weighted mean update with a weighted diagonal covariance adaptation inspired by the Cross Entropy Method (CEM) [7]. The process begins by initializing a Gaussian distribution over horizon-length joint-velocity sequences ˙θ1: H , defined by a mean νm and covariance Σm at iteration m = 1 . This distribution represents the initial search space of candidate control sequences. Within a main loop of M iterations, the optimizer systematically refines this distribution to concentrate around high-quality solutions. In each iteration, a batch of n candidate velocity sequences 
+
+n˜˙θ1: H,j 
+
+onj=1 
+
+Algorithm 1: Sampling-Based Optimizer for Solving (1a)–(1c)  
+
+> 1
+
+Input: MuJoCo world model f ; maximum iterations M . 
+
+> 2
+
+Initialize mean ν1 and covariance Σ1 of the Gaussian over joint-velocity sequences ˙θ1: H . 
+
+> 3
+
+for m = 1 to M do  
+
+> 4
+
+Initialize CostList ← [ ] . 
+
+> 5
+
+Draw a batch of n velocity-sequence samples n˜˙θ1: H,j 
+
+onj=1 
+
+∼ N (νm, Σm). 
+
+> 6
+
+∀j: project via QP, ˙θ∗ 
+
+> 1: H,j
+
+= QP 
+
+˜˙θ1: H,j 
+
+
+
+.
+
+// Projection onto the feasible set enforcing position, velocity, acceleration, and jerk constraints.  
+
+> 7
+
+Simulate n rollouts in parallel: 
+
+(θk+1 ,j , xk+1 ,j ) = f
+
+
+
+θk,j , ˙θ∗ 
+
+> k,j
+
+, xk,j 
+
+
+
+.
+
+// Parallel forward simulation yielding joint trajectories and arm--environment state trajectories.  
+
+> 8
+
+Evaluate cost components ci
+
+
+
+θk,j , ˙θ∗ 
+
+> k,j
+
+, xk,j 
+
+
+
+for 
+
+k = 1 , . . . , H . 
+
+> 9
+
+Aggregate total rollout cost 
+
+cj =
+
+> H
+
+X
+
+> k=1
+
+X
+
+> i
+
+wi ci
+
+
+
+θk,j , ˙θ∗ 
+
+> k,j
+
+, xk,j 
+
+
+
+,
+
+and append to CostList . 
+
+> 10
+
+Compute importance weights ωj = exp( −cj /τ )
+
+Pni=1 exp( −ci/τ ) .
+
+// Soft weighting of samples: lower cost ⇒ higher weight.  
+
+> 11
+
+Update mean: νm+1 = Pnj=1 ωj ˙θ∗ 
+
+> 1: H,j
+
+.
+
+// Importance-weighted average in place of elite selection.  
+
+> 12
+
+Update covariance: 
+
+Σm+1 = diag 
+
+> n
+
+X
+
+> j=1
+
+ωj
+
+ ˙θ∗ 
+
+> 1: H,j
+
+− νm+1 
+
+⊙2
+
+!
+
++ ϵ I.
+
+// Adaptive, regularized covariance update from weighted samples.  
+
+> 13
+
+end  
+
+> 14
+
+return Joint-velocity sequence ˙θ∗ 
+
+> 1: H
+
+corresponding to the lowest-cost sample, together with (νM , ΣM ).
+
+is drawn from the current distribution. Since these raw samples are typically noisy and may violate the kinematic limits in (1c)–(1d), we project each sample onto the feasible set by solving the following quadratic program: 
+
+˙θ∗ 
+
+> 1: H
+
+= arg min 
+
+> ˙θ1: H
+
+12 ˙θ1: H − ˜˙θ1: H
+
+> 22
+
+, (3a) s.t. θ(r)min ≤ θ(r) 
+
+> k
+
+≤ θ(r)max , r ∈ { 0, 1, 2, 3}, k = 1 , . . . , H, 
+
+(3b) 
+
+θ0 = θinit , ˙θ0 = ˙θinit . (3c) Positions, accelerations, and jerks are obtained from ˙θ1: H
+
+through discrete-time integration and finite differencing, so 5
+
+that the bounds in (3b) jointly enforce position, velocity, acceleration, and jerk limits. The boundary conditions in (3c) initialize the projected trajectory at the current robot configuration and ensure consistency with the current joint velocity at the MPC replanning boundary. The QP is solved in parallel across all n samples on the GPU. With the projected velocity sequences 
+
+n ˙θ∗
+
+> 1: H,j
+
+onj=1 
+
+in hand, the algorithm leverages the MuJoCo physics simulator to perform parallel rollouts, predicting the resulting manipula-tor and environment trajectories (θk,j , xk,j ) over the planning horizon. Each rollout is evaluated using the total trajectory cost 
+
+cj =
+
+> H
+
+X
+
+> k=1
+
+c
+
+
+
+θk,j , ˙θ∗ 
+
+> k,j
+
+, xk,j 
+
+
+
+=
+
+> H
+
+X
+
+> k=1
+
+X
+
+> i
+
+wi ci
+
+
+
+θk,j , ˙θ∗ 
+
+> k,j
+
+, xk,j 
+
+
+
+.
+
+(4) Following a soft weighting scheme, each sample is assigned an importance weight ωj through a temperature-scaled exponen-tial of its total cost. These weights drive a moment-matching update of the Gaussian over velocity sequences, in which the mean and covariance are computed as weighted statistics of the projected samples: 
+
+ωj = exp( −cj /τ )
+
+Pni=1 exp( −ci/τ ) , (5a) 
+
+νm+1 =
+
+> n
+
+X
+
+> j=1
+
+ωj ˙θ∗ 
+
+> 1: H,j
+
+, (5b) 
+
+Σm+1 = diag 
+
+
+
+> n
+
+X
+
+> j=1
+
+ωj
+
+ ˙θ∗ 
+
+> 1: H,j
+
+− νm+1 
+
+⊙2
+
+ + ϵ I. (5c) Here, (·)⊙2 denotes element-wise squaring, and ϵ I is a small regularization term that prevents distribution collapse. The mean update in (5b) follows the classical MPPI formula-tion [16], while the covariance update in (5c) is a weighted diagonal approximation inspired by the CEM literature [7]. This cycle of sampling, projection, simulation, evaluation, and distribution update is repeated iteratively, progressively concentrating the search distribution around high-quality so-lutions. Upon termination, the algorithm returns the joint-velocity sequence ˙θ∗ 
+
+> 1: H
+
+corresponding to the lowest-cost sam-ple, together with the final distribution parameters (νM , ΣM ).In practice, we execute the first few actions of this velocity sequence and re-plan in a receding-horizon manner, warm-starting the next optimization cycle with (νM , ΣM ).
+
+B. MPC Planner 
+
+Our MPC planner framework is shown in Fig. 2. In the pro-posed architecture, the sampling-based optimizer of Alg. 1 is embedded within a receding-horizon Model Predictive Control (MPC) loop. At each planning step, the optimizer produces a feasible joint-velocity sequence over a finite horizon H.Executing this entire sequence open-loop would be sensitive to simulator-to-reality mismatch, unmodeled contact effects, and changes in the environment, such as object motion or obstacle displacement. To obtain robust and reactive bimanual behavior, we re-plan at every discrete control step t. The planner first observes the current robot and environment state, given by (θt, ˙θt, xt), and uses this information to initialize the optimization problem. Alg. 1 is then invoked to compute an optimized joint-velocity sequence over the predictive horizon. Rather than executing the full sequence, only the first few controls are applied to the physical or simulated system, after which a new observation is acquired and the optimization is repeated. After execution, the prediction horizon is shifted forward. To improve sample efficiency and reduce the number of iterations needed at the next MPC step, we warm-start the optimizer using the distribution obtained from the previous planning cycle. Specifically, the final distribution parameters 
+
+(νM , ΣM ) returned at control step t are time-shifted and recycled to initialize (ν1, Σ1) at step t + 1 . This warm-starting mechanism preserves useful trajectory information across consecutive MPC updates while retaining the ability to adapt online to new state feedback. 
+
+C. Role of QP 
+
+The Quadratic Program (QP) in (3a)–(3c) is central to the per-formance of our sampling-based optimizer. Beyond enforcing kinematic feasibility, it provides two structural advantages that fundamentally improve the behavior of the MPC pipeline: it 
+
+decouples exploration from motion smoothness , and it stabi-lizes warm-starting across MPC iterations . We elaborate on each of these below, followed by an empirical comparison against alternative smoothing strategies. 
+
+1) Decoupling Exploration and Smoothness: In standard sampling-based optimizers such as MPPI [16] and CEM [7], the covariance of the sampling distribution simultaneously governs two competing objectives: exploration of the ac-tion space and smoothness of the resulting trajectories. A large covariance promotes wider exploration but produces noisy, jerky samples whose finite-difference derivatives can violate acceleration and jerk limits by orders of magnitude. Conversely, a small covariance yields smooth samples but restricts exploration to a narrow neighborhood of the current mean, risking convergence to poor local optima—a particularly acute problem in contact-rich bimanual tasks where the cost landscape is highly non-convex. The QP projection eliminates this tension. By allowing the user to specify an arbitrarily large sampling covariance and then projecting each sample onto the feasible set defined by (3b)–(3c), the optimizer can explore aggressively while guaranteeing that every evaluated trajectory satisfies strict bounds on position, velocity, acceleration, and jerk. Crucially, the projection is minimal in the ℓ2 sense: it finds the closest feasible trajectory to each raw sample, thereby preserving as much of the original exploratory perturbation as possible. The result is a set of samples that comprehensively span the reachable portion of the action space—fanning out to saturate at the kinematic limits—without any of them inducing oscillatory or dynamically inconsistent motions. 6Sampling-based optimizer      
+
+> Planning: receding-horizon MPC Execution
+> Observed state
+> (θt,˙θt,xt)
+> Warm start
+> (ν1,Σ1)
+> Sample candidate velocity sequences QP projection to feasible trajectories GPU-parallel MuJoCo rollouts and cost evaluation Importance weighting and distribution update Best planned sequence
+> ˙θ∗
+> 1: H
+> Execute first control step(s) Bimanual robot and environment iterate recycle (ν,Σ)
+> new observation
+
+Fig. 2: System architecture of our proposed framework. The outer Model Predictive Control (MPC) loop handles real-time state feedback ( θ, ˙θ, x) and warm-starts the distribution parameters. The inner sampling-based optimizer (Alg. 1) enforces constraints via QP projection and leverages highly parallelized MJX rollouts to evaluate task-specific costs. 
+
+2) Stabilizing Warm-Start Across MPC Iterations: The receding-horizon MPC loop (Section III-B) relies on warm-starting successive planning calls with the distribution pa-rameters (νM , ΣM ) from the previous step. The effective-ness of this warm-start depends critically on how much the optimal trajectory changes between two consecutive MPC iterations. If the commanded control profile can oscillate sharply from one step to the next—as commonly occurs in unconstrained MPPI—the warm-start distribution becomes a poor prior, degrading sample efficiency and destabilizing the overall pipeline. The derivative bounds enforced by the QP directly miti-gate this problem. Because every projected sample satisfies bounded velocity, acceleration, and jerk, the planned trajec-tories are inherently smooth and cannot exhibit the sharp temporal variations that cause consecutive MPC solutions to diverge. In particular, the jerk bound limits how rapidly the acceleration profile can change, which in turn limits how rapidly the velocity profile can evolve. This cascading effect ensures that trajectories optimized at successive MPC steps remain close to each other, keeping the warm-start distribu-tion well-aligned with the new optimum and yielding faster convergence of Alg. 1. This observation is consistent with the findings of [21], where bounded control derivatives were shown to prevent the inter-iteration oscillations that degrade MPPI warm-starting. 
+
+3) Comparison With Frequency-Domain Smoothing: Re-cent works such as LP-MPPI [5] address the smoothness problem from the frequency domain by applying a low-pass filter (LPF) to the sampled perturbations before rollout. While this attenuates high-frequency energy and introduces temporal correlation between successive controls, it has two fundamental limitations compared to the QP projection. First, a low-pass filter cannot enforce strict bounds on control magnitudes or their derivatives. It shapes the power spectral density of the perturbations but provides no guarantee that any individual sample satisfies θ(r)min ≤ θ(r) 
+
+> k
+
+≤ θ(r)max .A filtered sample with only low-frequency content can still violate derivative bounds if its amplitude is sufficiently large. In contrast, the QP produces certificates of feasibility for every sample. Second, low-pass filtering provides no mechanism to pin the initial velocity to the current robot state. The QP enforces 
+
+˙θ∗ 
+
+> 1
+
+= ˙θinit as an equality constraint (3c), ensuring that every projected sample starts from the current commanded velocity. A stateless filter applied to perturbations has no analogue for this: even if filtered samples are individually smooth, the first commanded velocity can differ arbitrarily from the previous MPC step’s output, introducing discontinuities at the replanning boundary. 
+
+4) Empirical Validation: The arguments of the preced-ing subsections make two testable predictions. First, the QP projection should permit substantially larger sampling co-variances than either unconstrained (baseline) or frequency-domain (LPF) sampling, without violating any kinematic bound. Second, this enlarged covariance should translate into qualitatively different sampling behavior: QP-projected trajec-tories should span the full kinematically reachable set, whereas baseline and LPF trajectories—constrained to use conservative covariances to avoid violations—should remain clustered in 7
+
+a narrow region around the mean. We design the following experiment to test both predictions on a single-joint trajectory planning problem with representative kinematic limits: veloc-ity ˙θmax = ±1 rad /s, acceleration ¨θmax = ±2 rad /s2, and jerk ... 
+
+θ max = ±4 rad /s3, and an initial velocity condition 
+
+˙θ1 = ˙θinit . We emphasize that the following single-joint experiment is a simplified diagnostic study, not a manipulation benchmark. Its purpose is to isolate the sampling behavior of the compared methods under identical kinematic bounds, independent of task costs, contact dynamics, or bimanual co-ordination. This toy example therefore serves only to illustrate how QP projection changes the distribution of feasible samples relative to unfiltered and low-pass-filtered alternatives. 
+
+a) Objective 
+
+For each sampling strategy—baseline (uncorrelated Gaus-sian), LPF (second-order Butterworth filtered Gaussian), and QP projection (ours)—we seek to determine the maximum effective standard deviation σeff of the sampling distribution under which the method can still guarantee strict satisfaction of all kinematic bounds across the entire planning horizon. This quantity directly measures the exploration budget available to the optimizer: a larger σeff means the method can search over a wider region of the action space while remaining dynamically feasible. 
+
+b) Methodology 
+
+For the baseline and LPF methods, we employ a Monte Carlo binary search to identify σeff . At each iteration of the binary search, we fix a candidate standard deviation σ
+
+and draw N = 200 ,000 independent trajectory samples from 
+
+N (0 , σ 2I) over the planning horizon. For the baseline, these samples are used directly as joint velocity sequences; for LPF, each sample is passed through a second-order Butterworth filter with a cutoff frequency tuned to the system bandwidth before use. From each velocity sequence, we compute the corresponding position (via cumulative integration), accel-eration (via first-order finite differencing of velocity), and jerk (via second-order finite differencing) profiles, and check whether prescribed bounds are satisfied at every time step. The violation rate is defined as the fraction of trajectories in which any bound is violated at any time step. We declare a candidate σ admissible if the violation rate falls below 0.3% ,corresponding to a 99 .7% confidence level—the three-sigma threshold. The binary search terminates when the interval width falls below a tolerance of 10 −4, at which point the largest admissible σ is reported as σeff .For the QP method, the concept of σeff takes on a different meaning. Since the projection maps every sample onto the feasible set by construction, there is no covariance at which violations occur. Instead, we characterize its effective covari-ance as follows: we draw 200 ,000 samples from N (0 , σ 2I)
+
+with a large σ, project each through the QP (3a)–(3c) (en-forcing velocity, acceleration, and jerk bounds along with the initial velocity condition), and then compute the empirical standard deviation of the projected velocity sequences. This post-projection standard deviation, denoted σQP eff , reflects the actual spread of the feasible samples that enter the rollout and cost evaluation stages of Alg. 1. It represents the effective exploration radius in the space of feasible trajectories. 
+
+c) Results 
+
+The results are summarized in Fig. 3 and reveal stark differences in the exploration capacity of the three methods. 
+
+Baseline (uncorrelated white noise): The baseline yields the most restrictive effective covariance, σeff = 0.0045 . This extreme conservatism arises because independent samples at successive time steps produce velocity sequences that are essentially discrete white noise. Finite differencing of white noise amplifies spectral energy quadratically with the deriva-tive order: if ˙θk has variance σ2, then ¨θk ≈ ( ˙θk+1 − ˙θk)/∆t
+
+has variance 2σ2/∆t2, and ... 
+
+θ k has variance 6σ2/∆t4. Conse-quently, the jerk bound is violated long before the velocity or acceleration bounds become active, and the entire covariance budget is consumed by the highest-order constraint. The resulting trajectories, shown in the left panel of Fig. 3, are tightly clustered around zero with negligible spatial coverage. 
+
+Low-pass filter (LPF): Applying a second-order Butterworth filter introduces temporal correlation between successive ve-locity samples, attenuating the high-frequency energy that drives jerk violations. This yields a modest improvement to 
+
+σeff = 0 .0106 —a factor of 2.4× over the baseline. The im-provement is limited for two reasons. First, the filter attenuates 
+
+high frequencies but does not eliminate them; residual energy above the cutoff still contributes to derivative magnitudes, and with 200 ,000 samples, even rare large excursions trigger the 0.3% violation threshold. Second, the filter is amplitude-agnostic: it scales all frequency components of a sample by fixed gain factors, so doubling σ doubles the amplitude of the filtered output and consequently doubles all derivative mag-nitudes. There is therefore no decoupling between sampling variance and derivative compliance. The middle panel of Fig. 3 confirms that LPF trajectories, while slightly more spread than the baseline, remain confined to a small fraction of the feasible region. 
+
+QP projection (ours): The QP-projected samples exhibit a qualitatively different behavior. With σQP eff = 0.4716 , the effective exploration radius is approximately 100 × that of the baseline and 45 × that of LPF. The right panel of Fig. 3 illustrates this: projected velocity trajectories fan out to fill the entire feasible envelope, with individual trajectories reaching and saturating at the velocity bounds ( ±1 rad /s), acceler-ation bounds ( ±2 rad /s2), and jerk bounds ( ±4 rad /s3)without exceeding them. This saturation behavior is a direct consequence of the minimal ℓ2 projection: samples drawn far outside the feasible set are mapped to the nearest boundary point, naturally populating the extremes of the reachable space. Importantly, all projected samples share the same initial velocity ˙θ1 = ˙θinit (visible as the common starting point in the right panel of Fig. 3), after which they diverge to cover the full kinematically admissible region—precisely the property needed for effective exploration in high-dimensional, non-convex optimization landscapes. 
+
+d) Implications for Task Performance 
+
+The two-orders-of-magnitude gap in effective covariance has direct consequences for the downstream manipulation tasks. In the contact-rich bimanual setting, the optimizer must discover coordinated arm trajectories that navigate narrow passages between obstacles, establish and maintain frictional 8
+
+Fig. 3: Comparison of sampling behaviors for a single joint. The QP-projected samples (right) share a common initial velocity ˙θ1 = ˙θinit and fan out to cover the full feasible en-velope defined by velocity, acceleration, and jerk bounds. The baseline (left) and LPF (middle) are restricted to conservative covariances, yielding negligible coverage of the reachable set. contact with objects, and transport payloads along collision-free paths. These behaviors correspond to small, isolated regions in the joint-velocity space, and finding them requires dense coverage of the feasible set. The baseline and LPF methods, restricted to σeff ≤ 0.011 , sample almost exclusively near the current mean and are unlikely to discover such solutions without many MPC iterations. On the other hand, if we disregard the velocity, acceleration and jerk bounds for the baseline and LPF, then the trajectory oscillations between subsequent MPC steps degrade the effectiveness of warm-starting and consequently performance. The QP projection, by contrast, generates samples that span the full reachable set at every call to Alg. 1, substantially increasing the probability of discovering high-quality trajectories within a fixed sample budget. This advantage is borne out quantitatively in the task-level comparisons of Section V-E, where the QP-based method achieves consistently higher success rates than LPF and baseline across all four bimanual tasks. 
+
+D. Custom QP Solver 
+
+In this section, we derive a computationally efficient, GPU-parallelizable solver for the projection QP (3a)–(3c), adapting the ADMM/Bregman-splitting scheme of [21], [31] to the bimanual joint-velocity setting. Throughout the derivation, 
+
+θk ∈ RNdof denotes the combined joint configuration of both manipulators at planning step k, where Ndof is the total number of joints. Although the derivation below is written in stacked vector form over all joints and horizon steps, the resulting QP remains 
+
+separable across joints . This follows from the fact that both the projection objective and the derivative constraints act component-wise on each joint coordinate. In implementation, we exploit this structure by solving Ndof independent horizon-wise QPs in parallel on the GPU. 
+
+1) From Joint-Velocity Sequences to Derivative Bounds: 
+
+Let 
+
+˜˙Θ = col 
+
+˜˙θ1, ˜˙θ2, . . . , ˜˙θH
+
+
+
+∈ RHN dof (6) denote a sampled joint-velocity trajectory over the planning horizon, where ˜˙θk ∈ RNdof is the sampled joint-velocity vector at step k. Similarly, let 
+
+˙Θ∗ = col 
+
+ ˙θ∗
+
+> 1
+
+, ˙θ∗
+
+> 2
+
+, . . . , ˙θ∗
+
+> H
+
+
+
+∈ RHN dof (7) denote its projected feasible counterpart. The projection QP seeks the closest feasible joint-velocity sequence: 
+
+min 
+
+> ˙Θ∗
+
+12 ˙Θ∗ − ˜˙Θ 22
+
+. (8) The projected trajectory must satisfy bounds on joint position, velocity, acceleration, and jerk. These quantities can all be expressed as affine functions of ˙Θ∗.
+
+a) Velocity bounds ( r = 1 ): The velocity constraints act directly on the decision variable: 
+
+1H ⊗ ˙θmin ≤ ˙Θ∗ ≤ 1H ⊗ ˙θmax , (9) where ˙θmin , ˙θmax ∈ RNdof are the joint-wise velocity limits, 
+
+1H is a vector of ones, and ⊗ denotes the Kronecker product. Throughout, 1H ∈ RH denotes the all-ones vector, so 1H ⊗
+
+v ∈ RHN dof denotes the H-fold vertical tiling of any vector 
+
+v ∈ RNdof .
+
+b) Position bounds ( r = 0 ): Joint positions are obtained by forward Euler integration from the current robot configu-ration θinit :
+
+θ∗ 
+
+> k
+
+= θinit + ∆ t
+
+> k
+
+X
+
+> i=1
+
+˙θ∗ 
+
+> i
+
+, k = 1 , . . . , H. (10) Define the stacked joint-position trajectory 
+
+Θ∗ = col ( θ∗
+
+> 1
+
+, θ∗
+
+> 2
+
+, . . . , θ∗ 
+
+> H
+
+) ∈ RHN dof . (11) Then, 
+
+Θ∗ = 1H ⊗ θinit + ∆ t Ldof ˙Θ∗, (12) where 
+
+Ldof = L ⊗ INdof , (13) 
+
+INdof ∈ RNdof ×Ndof is the identity matrix in joint space, and 
+
+L ∈ RH×H is the lower-triangular cumulative-sum matrix 
+
+L =
+
+
+
+1 0 · · · 01 1 . . . ...... . . . . . . 01 · · · 1 1
+
+ . (14) The position bounds therefore become 
+
+1H ⊗ θmin ≤ 1H ⊗ θinit + ∆ t Ldof ˙Θ∗ ≤ 1H ⊗ θmax . (15) The initial position condition θ0 = θinit is thus incorporated directly through the integration model. 9
+
+c) Acceleration bounds (r = 2): Accelerations are approximated through first-order backward differencing of consecutive joint-velocity vectors. The velocity preceding the first planning step is taken as the current MPC boundary value 
+
+˙θinit :
+
+¨θ∗ 
+
+> k
+
+= ˙θ∗ 
+
+> k
+
+− ˙θ∗
+
+> k−1
+
+∆t , k = 1 , . . . , H, (16) with 
+
+˙θ∗ 
+
+> 0
+
+≜ ˙θinit . (17) Define the stacked acceleration trajectory 
+
+¨Θ∗ = col 
+
+¨θ∗
+
+> 1
+
+, ¨θ∗
+
+> 2
+
+, . . . , ¨θ∗
+
+> H
+
+
+
+∈ RHN dof . (18) Then, 
+
+¨Θ∗ = 1∆t D1,dof ˙Θ∗ + bacc , (19) where 
+
+D1,dof = D1 ⊗ INdof , (20) with 
+
+D1 =
+
+
+
+1 0 · · · 0
+
+−1 1 . . . ...
+
+0 . . . . . . 00 · · · −1 1
+
+ , (21) and 
+
+bacc = 1∆t col 
+
+
+
+− ˙θinit , 0, . . . , 0
+
+
+
+∈ RHN dof . (22) The acceleration bounds are therefore 
+
+1H ⊗ ¨θmin ≤ 1∆t D1,dof ˙Θ∗ + bacc ≤ 1H ⊗ ¨θmax . (23) 
+
+d) Jerk bounds ( r = 3 ): Jerks are computed by differ-encing consecutive acceleration vectors. : ... 
+
+θ ∗ 
+
+> k
+
+= ¨θ∗ 
+
+> k
+
+− ¨θ∗
+
+> k−1
+
+∆t , k = 2 , . . . , H. (24) Substituting the velocity-difference expression for acceleration gives ... 
+
+θ ∗ 
+
+> k
+
+= ˙θ∗ 
+
+> k
+
+− 2 ˙θ∗ 
+
+> k−1
+
++ ˙θ∗
+
+> k−2
+
+∆t2 , k = 2 , . . . , H, (25) where the first valid jerk term uses ˙θ∗ 
+
+> 0
+
+= ˙θinit .Define the stacked jerk trajectory ... 
+
+Θ∗ = col 
+
+ ... 
+
+θ ∗
+
+> 2
+
+, ... 
+
+θ ∗
+
+> 3
+
+, . . . , ... 
+
+θ ∗
+
+> H
+
+
+
+∈ R(H−1) Ndof . (26) Then, ... 
+
+Θ∗ = 1∆t2 D2,dof ˙Θ∗ + bjerk , (27) where 
+
+D2,dof = D2 ⊗ INdof , (28) with 
+
+D2 =
+
+
+
+−2 1 0 · · · 01 −2 1 . . . ...
+
+0 . . . . . . . . . 00 · · · 1 −2 1
+
+ ∈ R(H−1) ×H , (29) and 
+
+bjerk = 1∆t2 col 
+
+ ˙θinit , 0, . . . , 0
+
+
+
+∈ R(H−1) Ndof . (30) The jerk bounds become 
+
+1H−1 ⊗ ... 
+
+θ min ≤ 1∆t2 D2,dof ˙Θ∗ + bjerk ≤ 1H−1 ⊗ ... 
+
+θ max .
+
+(31) 
+
+2) Compact QP Formulation: Stacking the inequality con-straints (9), (15), (23), and (31) into a single system yields 
+
+min  
+
+> ˙Θ∗,ζ
+
+12 ˙Θ∗ − ˜˙Θ 22 , (32a) s.t. A ˙Θ∗ = b, (32b) 
+
+G ˙Θ∗ − h + ζ = 0, (32c) 
+
+ζ ≥ 0. (32d) The inequality matrix 
+
+G ∈ R(8 H−2) Ndof ×HN dof 
+
+and the corresponding bound vector 
+
+h ∈ R(8 H−2) Ndof 
+
+are defined as 
+
+G =
+
+
+
+IHN dof 
+
+−IHN dof 
+
+∆t Ldof 
+
+−∆t Ldof 1∆t D1,dof 
+
+− 1∆t D1,dof 1∆t2 D2,dof 
+
+− 1∆t2 D2,dof 
+
+
+
+, (33) where IHN dof ∈ RHN dof ×HN dof is the identity matrix in the stacked trajectory space. The corresponding bound vector is 
+
+h =
+
+
+
+1H ⊗ ˙θmax 
+
+−1H ⊗ ˙θmin 
+
+1H ⊗ (θmax − θinit )
+
+−1H ⊗ (θmin − θinit )
+
+1H ⊗ ¨θmax − bacc 
+
+−1H ⊗ ¨θmin + bacc 
+
+1H−1 ⊗ ... 
+
+θ max − bjerk 
+
+−1H−1 ⊗ ... 
+
+θ min + bjerk 
+
+
+
+. (34) The inequality 
+
+G ˙Θ∗ ≤ h (35) is therefore equivalent to enforcing all position, velocity, ac-celeration, and jerk bounds simultaneously. The slack variable 10 
+
+ζ ≥ 0 converts these inequalities into the equality form in (32c). The equality constraint 
+
+A ˙Θ∗ = b
+
+encodes the initial-velocity boundary condition 
+
+˙θ∗ 
+
+> 1
+
+= ˙θinit . (36) Specifically, 
+
+A = INdof 0 · · · 0 ∈ RNdof ×HN dof , b = ˙θinit ∈ RNdof .
+
+(37) Thus, the projected velocity trajectory remains continuous with the command applied at the MPC replanning boundary. Acceleration and jerk are constrained through the inequality system, but no separate equality boundary conditions are imposed on them. 
+
+3) ADMM Solver: Following [21], [31], we solve (32) using an ADMM-inspired Bregman-splitting scheme. The method alternates between a projection onto the nonnegative slack space, a constrained quadratic minimization in the primal trajectory space, and a residual-driven update of a primal-space Bregman multiplier. Let 
+
+λ ∈ RHN dof 
+
+be a Bregman multiplier that resides in the same space as the primal variable. The augmented objective is 
+
+L
+
+ ˙Θ∗, λ, ζ
+
+
+
+= 12 ˙Θ∗ − ˜˙Θ 22
+
+−
+
+D
+
+λ, ˙Θ∗E
+
++ δ
+
+2 G ˙Θ∗ − h + ζ 22
+
+, (38) where δ > 0 is the penalty parameter. The iterations proceed as follows. 
+
+a) Step 1: Slack update: At iteration l + 1 , the slack variable is updated through projection onto the nonnegative orthant: 
+
+> l+1
+
+ζ = max 
+
+n
+
+0, −G l ˙Θ∗ + h
+
+o
+
+. (39) This is an element-wise clipping operation and requires no matrix factorization. 
+
+b) Step 2: Primal update: The projected velocity trajec-tory is obtained by minimizing (38) with respect to ˙Θ∗ subject to 
+
+A ˙Θ∗ = b.
+
+This yields  
+
+> l+1
+
+˙Θ∗ = M−1r
+
+ ˜˙Θ, lλ, l+1 ζ
+
+
+
+, (40) where 
+
+M =
+
+IHN dof + δG⊤G A⊤
+
+A 0
+
+
+
+, (41) and 
+
+r =
+
+"
+
+δG⊤  h − l+1 ζ + lλ + ˜˙Θb
+
+#
+
+. (42) 
+
+c) Step 3: Bregman update: Finally, the primal-space multiplier is updated by mapping the constraint residual back through G⊤:
+
+> l+1
+
+λ = lλ − δ
+
+2 G⊤ 
+
+Gl+1 ˙Θ∗ − h + l+1 ζ
+
+
+
+. (43) Unlike a conventional constraint-space ADMM multiplier, λ
+
+is maintained in the primal trajectory space. The residual cor-rection therefore enters the next primal minimization directly through the right-hand side of (42). 
+
+4) Computational Properties: Several properties make this solver well suited for GPU-accelerated bimanual planning. 
+
+a) Pre-computable factorization: The KKT matrix M
+
+in (40) depends only on the constant matrices G and A,together with the penalty parameter δ—not on the sampled trajectory ˜˙Θ or the projected variable ˙Θ∗. Therefore, a fac-torization of M can be computed once before the MPC loop begins and reused for every sample, every joint, and every MPC iteration. This is the dominant cost of the solver and can be amortized entirely. 
+
+b) Joint-wise separability: Although the derivation above is written in stacked trajectory form, the QP remains sep-arable across joints because the objective and all derivative constraints act independently on each joint coordinate. In implementation, we exploit this structure by decomposing the full projection into Ndof independent horizon-wise QPs with identical algebraic structure. For the bimanual setting with two UR5e arms ( Ndof = 12 ), each Bregman iteration reduces to 
+
+12 × n independent joint-wise projection problems, where n
+
+is the sampling batch size. 
+
+c) Batch parallelism: The updates in (39)–(43) consist entirely of matrix-vector products, element-wise operations, and solves with the pre-factorized KKT matrix. All n sampled trajectories in Alg. 1 are processed in parallel through batched GPU operations. The only quantities that vary across samples are the raw trajectory ˜˙Θ and the associated right-hand side in (42); the matrices M, G, and A remain fixed. 
+
+d) Boundary value update: The vector b and portions of 
+
+h depend on the boundary values (θinit , ˙θinit ), which change at each MPC step as new state feedback is received. However, these quantities affect only the right-hand side vectors h and b,not the KKT matrix M. Thus, updating the boundary values requires only recomputing h and b—a negligible operation compared with the precomputed factorization. 
+
+e) Convergence: The projection problem in (32) is a convex quadratic program with affine constraints. The ADMM/Bregman-splitting iterations in (39)–(43) follow the structure used in [21], [31] and converge to the global optimum of the projection problem under standard assumptions. In practice, we observe that 10 –20 iterations are sufficient to obtain solutions with low constraint residuals for the bimanual tasks considered in Section IV. 
+
+E. Bayesian Optimization 
+
+The performance of the sampling-based MPC planner depends critically on the choice of cost weights, denoted collectively as the vector w, which govern the relative importance of 11 
+
+various safety, tracking, and coordination objectives. As we will detail in the subsequent Section IV, different cooperative tasks require highly specialized cost formulations. Manually tuning the corresponding weights for each task is labor-intensive, non-systematic, and often fails to generalize across varying initial conditions. To address this, we employ Bayesian Optimization (BO) to automatically search for optimal weight configurations, as summarized in Algorithm 2. We utilize the BO implementation provided in [32]. The procedure maintains a Gaussian Process (GP) surrogate model that approximates the mapping from cost weights to task performance (line 1). At each BO iteration b, a candidate weight vector wb is sampled using the Expected Improve-ment (EI) acquisition function (line 3) and assigned to the planner’s cost function (line 4). To promote generalization across varying task configurations, the simulation environment is randomized at the start of each episode by sampling the initial robot configuration, object pose, and target pose from predefined distributions (line 5). The candidate weights are then evaluated by executing a full episode of up to T MPC steps (lines 7–14). At each step, the MPC planner (Fig. 2) computes and applies an action (line 8), after which the simulation state is advanced (line 9). A dense cost is accumulated at every step (line 10): 
+
+ℓdense  
+
+> t
+
+= ℓcollision  
+
+> t
+
++ ℓcoord  
+
+> t
+
+,
+
+where ℓcollision  
+
+> t
+
+penalizes undesired contacts that occur or are anticipated over the planning horizon, and ℓcoord  
+
+> t
+
+penalizes lack of coordination between the end-effectors and the object during the move phase. The episode terminates early if the goal is reached (lines 11–13), recording the actual termination step Tend ≤ T .Upon episode completion, a sparse terminal cost is com-puted (line 15) to encode task success: 
+
+ℓsparse =
+
+(
+
+ℓfail + ℓpose , if the goal is not reached within T, ℓpose , otherwise ,
+
+where ℓpose penalizes the final position and orientation error between the object and its target configuration. For the han-dover task, during the home phase, ℓpose is instead defined as the joint-space deviation between the final and initial manipulator configurations. Since ℓpose ≪ ℓfail , unsuccessful executions incur a significantly larger penalty than success-ful ones. The total episode cost combines both components (line 15): 
+
+Jb(wb) = ℓsparse +
+
+> Tend
+
+X
+
+> t=1
+
+ℓdense  
+
+> t
+
+.
+
+This scalar objective captures both task success and execution quality. The observation pair (wb, J b) is used to update the GP surrogate model (line 16), which refines the acquisition function and guides the selection of subsequent candidates. After B iterations, the weight vector with the lowest observed cost is returned (line 17): 
+
+w∗ = arg min 
+
+> wb
+
+Jb(wb).
+
+Algorithm 2: Bayesian Optimization for Cost Weight Tuning 
+
+Input: Task specification, Sampling-based MPC planner (Alg. 1), BO budget B, max episode timesteps T
+
+Output: Optimal cost weights w∗ 
+
+> 1
+
+Initialize GP surrogate model and EI acquisition function  
+
+> 2
+
+for b = 1 to B do  
+
+> 3
+
+Sample candidate weights wb via EI acquisition function  
+
+> 4
+
+Assign wb to planner cost function  
+
+> 5
+
+Reset environment: randomize robot configuration, object pose, and target pose  
+
+> 6
+
+Tend ← T 
+
+> 7
+
+for t = 1 to T do  
+
+> 8
+
+Run MPC planner (Fig. 2), apply resulting action  
+
+> 9
+
+Advance simulation state  
+
+> 10
+
+Accumulate ℓdense  
+
+> t
+
+= ℓcollision  
+
+> t
+
++ ℓcoord  
+
+> t
+> 11
+
+if goal reached then  
+
+> 12
+
+Tend ← t 
+
+> 13
+
+break  
+
+> 14
+
+end  
+
+> 15
+
+end  
+
+> 16
+
+Compute ℓsparse and episode cost 
+
+Jb(wb) = ℓsparse + PTend  
+
+> t=1
+
+ℓdense  
+
+> t
+> 17
+
+Update GP surrogate with (wb, J b(wb))  
+
+> 18
+
+end  
+
+> 19
+
+return w∗ = arg min wb Jb(wb)
+
+This procedure enables systematic and data-efficient tuning of cost weights, yielding consistent improvements in perfor-mance, robustness, and generalization compared to manual tuning. IV. C OST FUNCTION DESIGN 
+
+Fig. 4: The bimanual setup and global reference frame. The coordinate system ( x, y, z ) is explicitly modeled in the task-specific cost functions to enforce constraints, such as planar alignment in the yz -plane during the ball transport and handover tasks. 
+
+This section presents one of the main contributions of our paper. We consider more challenging variants of tasks from the PerAct 2 benchmark and design task-specific cost functions that guide the sampling-based optimizer of Alg. 1 toward successful task completion. The tasks considered in our evaluation are Moving Tray , Lifting and Transporting Ball , Hand-Over Cubes , and Lifting and Transporting 12 
+
+Box . Each named cost component below defines a horizon-aggregated quantity ci = PHk=1 ci,k , where ci,k is the per-step contribution appearing in (2). The total cost for each task is the weighted combination that enters the rollout evaluation in (4). Let the end-effector pose of the i-th manipulator at horizon step k be denoted as ei,k = ( pi,k , qi,k ), where pi,k ∈ R3
+
+and qi,k ∈ S3 are the position and orientation (as a unit quaternion), respectively, with i ∈ { 1, 2}. Note that ei,k is part of the augmented environment state xk obtained by rolling out the velocity sequence in the MuJoCo simulator. 
+
+A. Shared Cost Components 
+
+Before detailing the task-specific objectives, we define three foundational cost components utilized across multiple tasks to ensure collision avoidance, joint regularization, and basic kinematic coordination. 
+
+a) Collision Cost: Let dk ∈ RB denote the concatena-tion of distances at horizon step k between the two manipu-lators and B contact points. Collision avoidance is ensured if 
+
+dk ≥ 0, ∀k. Define gk = −dk+1 + (1 − γ) dk for γ ∈ (0 , 1) .The collision cost is: 
+
+cc =
+
+> H−1
+
+X
+
+> k=1
+
+max( gk, 0) + 
+
+> H
+
+X
+
+> k=1
+
+1{dk <0}, (44) where 1 is an indicator function. The second term is the conventional collision cost that penalizes penetration. The first term, inspired by barrier functions [33], prevents dk from reaching the boundary of the infeasible region by repelling the arms from contacting bodies along the planned trajectory. 
+
+b) Joint Deviation Cost: Let θhome denote the home joint configuration of both manipulators. We penalize deviation from this configuration: 
+
+cθ =
+
+> H
+
+X
+
+> k=1
+
+∥θk − θhome ∥2 . (45) 
+
+c) Relative Velocity Cost: When both manipulators are coupled to a rigid body, they must move in a coordinated fashion. We model this requirement as: 
+
+cv =
+
+vuut HX
+
+> k=1
+
+(( p1,k − p2,k ) · ( ˙ p1,k − ˙p2,k )) 2. (46) This cost forces the relative velocity between the end-effectors to be perpendicular to their relative position, preventing stretching or compression during transport. 
+
+B. Moving Tray 
+
+This is a more challenging version of the tray-lifting task in the PerAct 2 benchmark [3]. The tray must be lifted and transported to a given goal pose, while avoiding collisions. We divide the task into two phases: pick and move . The former guides the manipulators toward the pick location, while the latter handles transportation to the target. 
+
+a) End-Effector Vertical Alignment Cost: This cost pe-nalizes deviations in the z-coordinates (see Fig. 4) of the two end-effectors, ensuring they remain at the same height: 
+
+cz = ∥pz, 1 − pz, 2∥2 . (47) 
+
+b) Pick Position & Orientation Costs: Let ppick ,i and 
+
+qpick ,i denote the desired position and orientation (as a unit quaternion) for grasping the tray by the i-th arm. We define: 
+
+cpick  
+
+> p
+
+= 12
+
+> H
+
+X
+
+> k=1
+
+
+
+∥p1,k − ppick ,1∥2+∥p2,k − ppick ,2∥2
+
+
+
+. (48) 
+
+cpick  
+
+> r
+
+= 12
+
+> H
+
+X
+
+> k=1
+
+ 2 cos −1 |⟨ q1,k , qpick ,1⟩| + 2 cos −1 |⟨ q2,k , qpick ,2⟩|  .
+
+(49) 
+
+c) End-Effector Distance Cost: Let ltray be the dimension of the tray along which it is held by the manipulators. The following cost ensures that both arms maintain this separation during transport: 
+
+cl =
+
+> H
+
+X
+
+> k=1
+
+(∥p1,k − p2,k ∥2−ltray )2 . (50) 
+
+d) Tray Position & Orientation Costs: Let ptray ,k and 
+
+qtray ,k be the position and orientation of the tray at horizon step k. We penalize deviation from the target pose: 
+
+cp, tray =
+
+> H
+
+X
+
+> k=1
+
+∥ptray ,k − ptarget ∥2 . (51) 
+
+cr, tray =
+
+> H
+
+X
+
+> k=1
+
+2 cos −1 |⟨ qtray ,k , qtarget ⟩| . (52) 
+
+Note that the tray is not an actuated body. Its position and orientation can only be indirectly controlled through the manip-ulators. 
+
+e) Move Position & Orientation Costs: During the move 
+
+phase, we define desired end-effector positions pmove ,i,k and orientations qmove ,i,k such that both end-effectors remain tightly coupled with the tray. 
+
+cmove  
+
+> p
+
+= 12
+
+> H
+
+X
+
+> k=1
+
+
+
+∥p1,k − pmove ,1,k ∥2+∥p2,k − pmove ,2,k ∥2
+
+
+
+. (53) 
+
+cmove  
+
+> r
+
+= 12
+
+> H
+
+X
+
+> k=1
+
+
+
+2 cos −1|⟨ q1,k , qmove ,1,k ⟩| + 2 cos −1|⟨ q2,k , qmove ,2,k ⟩| 
+
+
+
+.
+
+(54) 
+
+f) Total Cost: The total cost integrates the shared com-ponents ( cc, c θ , c v ) and phase-specific weights: 
+
+c = wc cc + wθ cθ + wz cz + wv cv
+
++ wpick (wpick  
+
+> p
+
+cpick  
+
+> p
+
++ wpick  
+
+> r
+
+cpick  
+
+> r
+
+)+ wmove (wl cl + wp, tray cp, tray + wr, tray cr, tray 
+
++ wmove  
+
+> p
+
+cmove  
+
+> p
+
++ wmove  
+
+> r
+
+cmove  
+
+> r
+
+). (55) The binary phase weights are set as wpick = 1 , w move = 0 
+
+during the pick phase and wpick = 0 , w move = 1 during the 
+
+move phase. The remaining weights can be either manually tuned or optimized via Bayesian optimization, as described in Section III-E. 13 
+
+C. Lifting and Transporting Ball 
+
+This task is a more challenging variant of the ball-lifting task in the PerAct 2 benchmark [3]. Both manipulators must cooperatively lift a ball by applying contact forces through their end-effectors and subsequently transport it to a specified location while avoiding obstacles. We divide this into two phases: pick and move .
+
+a) Phase-Split Collision Cost: The collision cost follows the shared formulation (44) but is computed separately for the 
+
+pick and move phases as cpick  
+
+> c
+
+and cmove  
+
+> c
+
+. During the move 
+
+phase, collisions between the ball and the manipulators are excluded from the cost so the end-effectors can press against its surface. 
+
+b) End-Effector Planar Alignment Cost: We enforce that both manipulators apply contact forces at the same location in the yz -plane (see Fig. 4). Let Pi,yz ∈ RH×2 denote the stacked yz -components of the end-effector positions for manipulator i. The alignment cost is: 
+
+cyz = ∥P1,yz − P2,yz ∥F . (56) 
+
+c) End-Effector Orientation & Distance Costs: Target orientations and maintaining a fixed offset lball follow the identical structural formulations defined in (49), (54), and (50). 
+
+d) End-Effector to Object Alignment Cost: Define the midpoint of the two end-effectors as ck = 12 (p1,k + p2,k ).During the pick phase, we penalize deviation from the ball position pball (with a small vertical offset ϵ): 
+
+ceef-obj =
+
+> H
+
+X
+
+> k=1
+
+∥{ ck + (0 , 0, ϵ )} − pball ∥2 . (57) 
+
+e) Object-to-Target Cost: Let ptarget be the desired ball position. The transportation cost is: 
+
+cobj-targ =
+
+> H
+
+X
+
+> k=1
+
+∥{ ck + (0 , 0, ϵ )} − ptarget ∥2 . (58) 
+
+f) Total Cost: 
+
+c = wpick (wc cpick  
+
+> c
+
++ weef-obj ceef-obj )+ wmove (wc cmove  
+
+> c
+
++ wobj-targ cobj-targ )+ wθ cθ + wyz cyz + wv cv + wr cr + wl cl. (59) 
+
+D. Hand-Over Task 
+
+This task is taken from the PerAct 2 benchmark [3] but made more challenging by the addition of static obstacles. We divide it into four phases: pick , pass , place , and home . In the pick phase, the assigned manipulator approaches and grasps the object. The pass phase facilitates a coordinated handover, transferring the object between manipulators under geometric and alignment constraints. During the place phase, the receiving manipulator transports the object to the desired target location. Finally, in the home phase, both manipulators return to their initial joint configurations. 
+
+a) End-Effector Planar Alignment Cost: During the pass 
+
+phase, we require both manipulators to be aligned in the yz -plane using the shared alignment cost defined in (56). 
+
+b) Phase-Specific Position Costs: Let pobj , ppass ,i , and 
+
+ptarget denote the desired positions for the pick , pass , and place 
+
+phases of the i-th manipulator. Pick: cpick  
+
+> p,i
+
+=
+
+> H
+
+X
+
+> k=1
+
+∥pi,k − (pobj + [0 , 0, ϵ ]) ∥2, (60) Pass: cpass  
+
+> p,i
+
+=
+
+> H
+
+X
+
+> k=1
+
+X
+
+> d∈D
+
+|p(d)i,k − p(d)pass ,i |, (61) Place: cplace  
+
+> p,i
+
+=
+
+> H
+
+X
+
+> k=1
+
+∥pi,k − ptarget ∥2, (62) where D ⊆ { x, z } denotes the set of active dimensions that define the handover position. The combined position cost is 
+
+cp = P2
+
+> i=1
+
+
+
+wpick  
+
+> i
+
+cpick  
+
+> p,i
+
++ wpass  
+
+> i
+
+cpass  
+
+> p,i
+
++ wplace  
+
+> i
+
+cplace 
+
+> p,i
+
+
+
+.
+
+c) Phase-Specific Orientation Costs: For each manipula-tor and phase, we define a target unit quaternion qphase target ,i . The combined orientation cost is: 
+
+cphase  
+
+> r,i
+
+=
+
+> H
+
+X
+
+> k=1
+
+2 cos −1 
+
+|⟨ qi,k , qphase target ,i ⟩| 
+
+
+
+. (63) 
+
+cr =
+
+> 2
+
+X
+
+> i=1
+
+
+
+wpick  
+
+> i
+
+cpick  
+
+> r,i
+
++ wpass  
+
+> i
+
+cpass  
+
+> r,i
+
++ wplace  
+
+> i
+
+cplace 
+
+> r,i
+
+
+
+. (64) 
+
+d) Home Return Cost: During the home phase, an ad-ditional cost drives each manipulator back to its initial joint configuration: 
+
+chome ,i =
+
+> H
+
+X
+
+> k=1
+
+∥θi,k − θhome ,i ∥2, (65) 
+
+e) Total Cost: The overall cost is: 
+
+c = wc cc + wθ cθ + wpass wyz cyz 
+
++ wp cp + wr cr +
+
+> 2
+
+X
+
+> i=1
+
+whome  
+
+> i
+
+chome ,i . (66) 
+
+E. Lifting and Transporting Box 
+
+This task is a geometric variant of the ball-lifting task described in Section IV-C, where the spherical payload is replaced with a rigid box. The inherent asymmetry of the box makes this task significantly more challenging, as the object is susceptible to rotational slipping and misalignment. Both manipulators must apply continuous, precisely coordinated contact forces to maintain a stable hold. 
+
+a) Box-Specific Alignment: The cost components extend the formulation established for the ball, heavily modified for flat-sided geometry. First, the box requires individual alignment of each end-effector to designated contact locations 
+
+pbox ,i on the object’s opposing faces. 
+
+ceef-obj =
+
+> H
+
+X
+
+> k=1
+
+12
+
+
+
+∥p1,k − pbox ,1∥2+∥p2,k − pbox ,2∥2
+
+
+
+. (67) 14 
+
+Fig. 5: Experimental Setup wherein real-world and simulation are tightly coupled with OptiTrack motion capture. 
+
+b) Box orientation: Second, an additional orientation cost is introduced during the move phase to regulate the box orientation and prevent undesired rotations of the non-symmetric payload. Due to the increased complexity of this task, we do not introduce additional obstacles in this setting.  
+
+> Runtime Phase Transitions: Phase transitions during execution are determined dynamically at runtime rather than relying on fixed time steps. At each control step, the system continuously evaluates the state-dependent cost functions, specifically the positional distances and rotational quaternion distances be-tween the robotic end-effectors and the target objects. A phase transition (for example, switching from a pick phase to a move phase) is triggered strictly when all relevant positional and rotational costs fall below predefined acceptable thresholds. This ensures that the robot only progresses to the next stage of the task once a stable, successful grasp or manipulation is confirmed by the system state.
+
+V. V ALIDATION AND BENCHMARKING 
+
+The objective of this section is two-fold:  
+
+> •
+
+To validate every component of our pipeline: sampling-based optimizer, MPC and Bayesian cost tuning.  
+
+> •
+
+To demonstrate how our approach improves upon existing sampling-based optimizers in bimanual tasks. 
+
+A. Implementation Details 
+
+Alg. 1 was implemented in JAX with the GPU-accelerated MJX physics engine for receding horizon control. The simula-tion, featuring two UR5e manipulators with Robotiq grippers, uses a 0.1s time-step that was experimentally chosen to balance accuracy and planning time. High-fidelity sim-to-real transfer was achieved by meticulously aligning the physical and simulated environments and continuously updating the simulation to reflect the real world. The implementation in-volved the following hardware and data pipeline (Fig. 5). A unified network was established by connecting both manip-ulators and a control laptop (PC2) to a single Wi-Fi router using Ethernet, ensuring reliable, low-latency command and feedback. The control laptop was responsible for running the MuJoCo simulation and our proposed planner. In addition, the control laptop was wirelessly connected to the same Wi-Fi network as the PC1 that controlled the OptiTrack system, which broadcast the reception of the pose data of dynamic objects (obstacles, ball, tray, etc.) through ROS2 topics. The control laptop subscribed to these topics, integrating the in-coming OptiTrack data directly into the simulation by updating the Mocap body features within MuJoCo. This mechanism synchronized the simulation with the physical workspace in real-time. 
+
+B. Qualitative Results 
+
+In this subsection, we describe the simulation and hardware runs achieved with our approach. Figure 1 illustrates a time-lapse sequence of the Moving Tray task executed in both the physics simulation and on the physical hardware. The dual-arm system successfully transitions from the pick phase to the move phase. During transport, the manipulators maintain a stable, rigid grasp on the tray, keeping it level without dropping it. This demonstrates the effectiveness of the aforementioned cost components in successfully guiding the arms and the tray safely around and between the wall-like obstacles to reach the final target pose. Figure 6 captures the execution of the ball-lifting task across both simulation and real-world environments. This task demands continuous, carefully controlled contact during the 
+
+move phase. The snapshots confirm that the manipulators dynamically adjust to maintain this hold while navigating a complex workspace, effectively clearing the central obstacle structures. The sequential execution of the handover task is demon-strated in Figure 7. Unlike continuous transport, this maneuver relies on independent but highly synchronized manipulator roles. The sequence illustrates the first arm successfully navi-gating through a dense field of suspended obstacles to retrieve the green cube. The planner seamlessly transitions from pick 
+
+to pass phase, driving both end-effectors to a precise mid-air point for the exchange, then proceeds to the place and home 
+
+phases. Figure 8 demonstrates the simulated execution of the box-lifting task. Guided by the cost components, the manipulators successfully target the opposing flat faces of the green box during the pick phase to establish a secure frictional grasp. The visual sequence confirms that the newly introduced orientation costs effectively prevent any unwanted rotation or tilting during move phase. 
+
+C. Statistical Validation 
+
+In this subsection, we present the statistical validation of our approach. To this end, we run Alg.1 by randomizing the goal pose in each task. The evaluation is conducted over varying batch sizes (i.e., number of samples in Alg. 1), with statistics computed over 20 runs per setting (Fig. 9). We ground our analysis in the following metrics. 
+
+Success Metric 
+
+Success Rate (%) = Nsuccess 
+
+Ntotal 
+
+× 100 (68) where Nsuccess is the number of successful runs and Ntotal is the total number of experiments of a task. Failure occurs when there is significant collision cost in the planning horizon, the 15 
+
+Fig. 6: Execution of the ball lifting and transport task. The manipulators must apply continuous, opposing contact forces in the yz -plane to maintain the unattached ball while dynamically adjusting their joint configurations to clear the central obstacle. 
+
+Fig. 7: Execution of the handover task. The sequence demonstrates the transition from the pick phase to the pass phase, requiring precise mid-air synchronization and collision avoidance amidst a dense cluster of static spherical obstacles. 
+
+Fig. 8: Execution of the box lifting task. Unlike the spherical payload, the asymmetric flat-sided box requires the optimizer to enforce strict orientation costs during the move phase to prevent rotational slipping while sustaining frictional contact. 
+
+task is not completed within pre-defined threshold time, or the object falls during ‘move’ phase. 
+
+Mean and Standard Deviation of Task Time 
+
+¯ttask = 1
+
+Nruns 
+
+> Nruns
+
+X
+
+> i=1
+
+t(i)task ,σtask =
+
+vuut 1
+
+Nruns 
+
+> Nruns
+
+X
+
+> i=1
+
+
+
+t(i)task − ¯ttask 
+
+2
+
+(69) where t(i)task is the total time to complete the task in run i and 
+
+Nruns = 20 .
+
+Mean and Standard Deviation of Computation Time 
+
+¯tcomp = 1
+
+Nsteps 
+
+> Nsteps
+
+X
+
+> m=1
+
+t(m)comp ,σcomp =
+
+vuut 1
+
+Nsteps 
+
+> Nsteps
+
+X
+
+> m=1
+
+
+
+t(m)comp − ¯tcomp 
+
+2
+
+(70) where t(m)comp is the computation time for the mth planning step and Nsteps is the total number of re-planning needed for the task completion. The results are summarized in Fig.9. Ball lifting shows a strong dependence on batch size, improving from 65% at 500 to nearly 100% for batch sizes ≥ 1250 . Tray moving maintains consistently high performance ( ∼ 85 –95% ) across all batch sizes. The hand-over task exhibits similar robustness, reaching up to 95% success at larger batch sizes. In contrast, box lifting remains comparatively challenging, with success rates saturating around 55 –60% , highlighting the increased difficulty due to asymmetric object geometry. Computation time increases with batch size for all tasks. Ball lifting, tray moving, and hand-over tasks remain below 
+
+∼ 80 ms even at the largest batch sizes, enabling real-time execution. Box lifting incurs a higher computational cost (up to 130 ms) because its increased task complexity necessitates more optimization iterations to reliably obtain feasible trajectories, resulting in higher overall computation time The reported task completion times correspond only to successful episodes. Task completion time generally decreases with increasing batch size for ball lifting and tray mov-ing, indicating improved solution quality with more sam-ples. The hand-over task shows relatively stable execution times ( ∼ 85 –95 s), suggesting that coordination dominates performance over sampling density. Box lifting achieves the lowest execution times ( ∼ 8–15 s) among successful episodes, indicating that successful executions are efficient. However, the comparatively lower success rate highlights the difficulty in consistently achieving such successful outcomes. 
+
+Summary : Larger batch sizes generally improve success rates and task completion efficiency while maintaining real-time com-putation speeds for most tasks. However, manipulating asym-16 
+
+Fig. 9: Statistics of all tasks. (a) Success rate, (b) computation time, and (c) task time with respect to different batch sizes used in Alg.1. Note that success rates generally plateau after a batch size of 1250, while the computation time for the asymmetric box lifting task scales significantly higher than other tasks. 
+
+> metric objects like boxes remains a notable challenge, yielding lower success rates and higher computational costs despite fast execution times when successful.
+
+D. Effect of Bayesian Optimization 
+
+Bayesian Optimization (BO) was conducted over 1,000 episodes per task. To ensure that the obtained weights gen-eralizes to diverse task configurations, we randomized robot joint configurations, object poses, and target locations at the start of each episode. On our setup (RTX 4090), the total wall-clock time for a full 1,000-episode BO run is between 3 to 9 hours, depending significantly on task complexity and the required episode length. Specifically, the duration is proportional to the number of MPC timesteps defined for each task; for instance, the Tray Move task requires only 90 steps per episode, resulting in faster optimization, whereas the 
+
+Handover task requires up to 500 steps to accommodate the sequence of sub-tasks, leading to longer tuning times. This offline tuning cost is a one-time overhead that yields significant online reliability. Figure 10 presents a quantitative comparison between man-ually tuned and Bayesian Optimization (BO)-optimized cost weights across multiple bimanual manipulation tasks. The evaluation considers three key metrics: success rate, computa-tion time, and task completion time. The BO-optimized weights improve success rates across all four tasks. Specifically, success increases from 75% to 
+
+100% for ball lifting, from 60% to 95% for handover, from 
+
+45% to 90% for tray moving, and from 45% to 80% for box lifting. These results indicate that the planner is sensitive to the relative weighting of task, coordination, and safety objectives, and that Bayesian optimization provides an effective offline mechanism for identifying more reliable cost configurations across randomized task instances. Importantly, these improvements are achieved without in-troducing additional computational overhead. The average computation time remains comparable between the two ap-proaches across all tasks, demonstrating that the optimization of cost weights does not compromise real-time feasibility. The difference in computation time across tasks is due to different number of cem iterations and planning horizon length. Furthermore, the task completion time for successful episodes is either reduced or remains similar when using optimized weights. Notably, in the handover task, the com-pletion time decreases significantly, indicating more efficient execution under BO-tuned parameters. For other tasks, the differences are marginal, suggesting that improved success rates are not achieved at the expense of significantly slower execution. It is important to note that task completion time was not explicitly included as an optimization objective during Bayesian Optimization; therefore, no consistent improvement in execution time is expected. The observed variations are a byproduct of improved task feasibility rather than direct optimization for speed.            
+
+> Summary: Overall, these results demonstrate that Bayesian Optimization provides a systematic, data-efficient approach to tuning cost weights, achieving significantly higher success rates while maintaining comparable computational efficiency and execution speed. This highlights the practical advantage of BO in enhancing the robustness and generalization of sampling-based planners.
+
+E. Comparison with Existing Approaches 
+
+In this section, we evaluate our sampling-based optimizer with QP-based projection against three representative alternatives. We first summarize the comparison methods, then present the task-level results and connect the observed performance gaps to the structural analysis of Section III-C. 
+
+1) Comparison Methods: We consider the following ap-proaches, each representing a distinct strategy for handling the smoothness–exploration trade-off: 
+
+Baseline-CEM [7]: The standard CEM formulation in which raw Gaussian samples are used directly as joint velocity sequences without any smoothing or projection. This serves as the lower bound on smoothness: trajectories are uncorre-lated across time steps, and their finite-difference derivatives exhibit rapidly increasing variance with derivative order (cf. Section III-C). 
+
+Low-Pass Filter (LPF) [5]: A second-order Butterworth filter is applied to the sampled perturbations before rollout, at-tenuating high-frequency components. The cutoff frequency 17 
+
+Fig. 10: Comparison across all tasks between manually tuned and Bayesian-optimized cost weights for (a) Success rate, (b) computation time, and (c) task completion time. Bayesian optimization systematically improves success rates across all tasks—most notably a 45% increase in the tray moving task—without introducing additional computational overhead during online execution. 
+
+is a tunable hyperparameter that controls the smoothness– responsiveness trade-off. As established in Section III-C, this method cannot enforce strict derivative bounds or boundary conditions. 
+
+Savitzky–Golay Filter (SGF) [6]: A polynomial smoothing filter is applied post-hoc to the sampled control sequences. The polynomial order governs the degree of smoothing. Like LPF, SGF cannot guarantee satisfaction of kinematic bounds and does not enforce boundary continuity across MPC iterations. 
+
+QP Projection (ours): The projection defined in (3a)–(3c), which minimally corrects each sample to satisfy strict bounds on position, velocity, acceleration, and jerk while enforcing boundary conditions. As shown in Section III-C, this permits effective covariances more than 1.5 orders of magnitude larger than the alternatives. All methods are evaluated on the four bimanual tasks described in Section IV—ball lifting, tray moving, hand-over, and box lifting—using the three metrics defined in Section V-C: success rate, task completion time (for successful episodes), and computation time per MPC step. Statistics are collected over 20 runs per task with randomized goal poses. 
+
+2) Practical Considerations: An important observation is that baseline-CEM, LPF, and SGF cannot be deployed with the same minimal setup as the QP-based approach. Because these methods do not enforce strict kinematic feasibility, their sampled trajectories often exhibit jerky and dynamically inconsistent behavior, particularly under the high covariance settings needed for adequate exploration. In practice, we found that two additional modifications were necessary for these methods to reliably complete the tasks in Section IV: (i) collision-free inverse kinematics [34] with pre-pick offsets to stabilize the manipulators prior to interaction, and (ii) an explicit smoothness cost penalizing joint accelerations, appended to the task-specific cost functions. Without these modifications, the manipulators frequently failed to converge to stable grasping configurations. The QP-based approach requires neither of these additions, as kinematic feasibility and boundary continuity are guaranteed by construction. Furthermore, LPF and SGF each introduce an additional hyperparameter—the cutoff frequency and polynomial or-der, respectively—that critically influences task performance. Lower values produce smoother trajectories but attenuate ve-locities, leading to sluggish motion. Higher values preserve re-sponsiveness but reintroduce oscillations. The optimal setting is task-dependent and lacks a principled selection procedure, unlike our QP formulation where the user directly specifies physically meaningful actuator bounds. 
+
+> We conducted an extensive search to determine the maximum control sampling covariance for the baseline-CEM, SGF, and LPF methods that still resulted in robust task execution. To ensure a fair comparison, we did not enforce strict derivative bounds on these baselines, as their original formulations were not designed to support them
+
+3) Results and Analysis: The quantitative comparison is presented in Fig. 11. We organize the analysis by metric. 
+
+a) Success Rate: The QP-based method achieves the highest or joint-highest success rate in three of the four tasks. For ball lifting, QP and LPF both attain 95% , followed by SGF ( 90% ) and vanilla CEM ( 70% ). In the handover task, QP reaches 90% , outperforming LPF ( 80% ), SGF ( 75% ), and significantly surpassing vanilla CEM ( 15% ). The most pronounced improvement appears in tray moving, where QP achieves 95% compared to SGF ( 70% ), LPF ( 50% ), and baseline-CEM ( 30% ). The poor performance of baseline-CEM in the handover and tray tasks, which require precise, sustained coordination between both arms, is a direct consequence of the exploration–smoothness coupling identified in Section III-C1: the unfiltered sampler cannot explore broadly enough to discover coordinated trajectories within the available sample budget, while increasing the covariance leads to oscillatory rollouts that destabilize the MPC warm-start. In the box lifting task, LPF slightly outperforms QP ( 90% 
+
+vs. 80% ), with both methods maintaining a clear advantage over SGF ( 70% ) and baseline-CEM ( 40% ). We attribute LPF’s advantage here to the fact that the box task does not include obstacles, reducing the need for the aggressive exploration that the QP uniquely enables. In this simpler geometric setting, the frequency-domain smoothing of LPF provides sufficient trajectory quality. 18 
+
+b) Computation Time: The QP-based method incurs computation times comparable to all alternatives. The per-iteration overhead of the QP projection is negligible (due to the use of a specialized solver described in Section III-D) relative to the cost of MuJoCo rollouts, which dominate the computational budget. The observed differences across methods are primarily attributable to variations in the number of optimization iterations required for convergence and the planning horizon length, rather than to the smoothing mecha-nism itself. This confirms that the performance gains of the QP projection are achieved without sacrificing real-time feasibility. 
+
+c) Task Completion Time: Task completion times or task times are reported only for successful episodes. The QP-based method achieves faster or comparable execution across all tasks. This is a natural consequence of the decoupling property: because the QP projects onto the full feasible en-velope (Section III-C), the resulting trajectories can exploit the maximum permissible velocities and accelerations, rather than being artificially attenuated by conservative covariance settings or frequency-domain filtering. The box lifting task highlights a clear trade-off: LPF achieves a higher success rate, but with substantially longer task completion times. This trade-off is characteristic of filtering-based approaches: the attenuation required to suppress derivative violations also reduces the peak velocities achiev-able by the manipulators, leading to slower execution. The QP avoids this trade-off entirely—it bounds derivatives without attenuating the signal within the feasible region. 
+
+4) Connection to Section III-C: The task-level results cor-roborate the qualitative predictions of the effective-covariance analysis in Section III-C. While the exact numerical values of 
+
+σeff reported there correspond to a single-joint test setting, the underlying mechanism transfers directly: baseline-CEM and LPF must operate with highly conservative covariances to avoid highly jerky motions, sampling almost exclusively near the current distribution mean. We reiterate that non-smooth controls destabilize the sampling-based optimization and MPC itself. In tasks requiring precise bimanual coordination through cluttered environments—where feasible trajectories occupy small, isolated regions of the high-dimensional joint-velocity space—this restricted coverage translates directly into lower success rates. The QP projection, by contrast, permits orders-of-magnitude larger effective covariances by construction, spanning a substantially larger portion of the kinematically reachable set at every planning step. This enables the opti-mizer to discover high-quality coordinated trajectories within a fixed sample budget. Furthermore, the boundary condition enforcement in (3c) stabilizes the MPC warm-start across iterations, preventing the inter-step oscillations that degrade vanilla CEM’s performance in multi-phase tasks such as handover and tray transport. 
+
+F. Comparison with Learning-Based Approaches 
+
+Our framework is not intended as a direct replacement for end-to-end learning methods such as [2]; rather, the two paradigms operate under different assumptions regarding data availability, task specification, and online computation. A rigorous quan-titative comparison is further complicated by differences in simulator backends, manipulator models, and training distri-butions. We therefore present a preliminary qualitative study whose purpose is narrower: to illustrate a setting in which online model-based planning can adapt to a geometric change that lies outside the conditions used to train a learned policy. We consider a ball-lifting task similar to that studied in [2], but introduce a static obstacle that requires a modified lift-ing strategy. The scenario is recreated in MuJoCo using a Franka-Panda manipulator to obtain a consistent evaluation environment for our planner and the comparison setup. In this obstacle-shift setting, the learned policy partially adapts during the approach phase by moving around the obstacle, but often fails during the lift itself, where the required avoidance maneuver differs from the demonstrated training distribution. In contrast, PRISM evaluates candidate motions against the current obstacle configuration through online physics rollouts and can discover a feasible lifting strategy without retraining. Over 20 trials with slightly perturbed obstacle placements, PRISM succeeds in 60% of the cases, compared with 20% 
+
+for [2]. These numbers should not be interpreted as a defini-tive benchmark between model-based planning and imitation learning, since the comparison is limited in scope and involves different experimental assumptions. Instead, the study high-lights a complementary strength of online planning: the ability to adapt its motion generation to previously unseen geometric constraints by reasoning directly over the current scene. As a secondary observation, the same optimization pipeline used for dual UR5e experiments can be applied to a Franka-Panda platform without altering the underlying planning formulation. VI. C ONCLUSIONS AND FUTURE WORK 
+
+We presented a sampling-based optimization framework for complex bimanual manipulation, leveraging a GPU-accelerated physics simulator as a high-fidelity world model. At the core of our approach is a customized sampling-based optimization that embeds a Quadratic Program within the sam-pling loop to enforce strict bounds on joint position, velocity, acceleration, and jerk. This projection decouples exploration from motion smoothness—two objectives that are funda-mentally conflated in standard sampling-based optimizers— enabling the optimizer to search over the full kinematically reachable set while guaranteeing dynamically feasible trajec-tories. We derived a custom ADMM-based solver for this QP that exploits joint-wise separability and pre-computable matrix factorizations, making the projection negligibly cheap relative to the MuJoCo rollouts that dominate computation. We believe this decoupling principle extends beyond bimanual manipulation: any sampling-based MPC pipeline operating under kinematic or dynamic constraints can benefit from projecting samples onto the feasible set rather than restricting the sampling distribution to avoid violations. We demonstrated the efficacy of our framework on four challenging bimanual tasks—tray moving, ball lifting and transport, cube handover, and box lifting—all involving contact-rich interactions in cluttered environments. Bayesian optimization of cost weights yielded substantial improvements in success rates across all tasks without additional compu-19 
+
+Fig. 11: Comparison across all tasks with existing approaches for (a) Success rate, (b) computation time, and (c) task completion time. Baseline-CEM refers to the standard unfiltered formulation of CEM [7]. The proposed QP-projection method consistently outperforms vanilla CEM, LPF, and SGF baselines in success rate, particularly in multi-phase tasks requiring sustained bimanual coordination 
+
+Fig. 12: Illustrative comparison of our approach (top) with [2] (bottom) on a ball-lifting task with an added obstacle. In the obstacle-free setting, both approaches succeed. When an obstacle is introduced—a configuration outside the training distribution of [2]—the learned policy struggles to adapt its lifting strategy, while our online planner discovers a feasible solution by reasoning over the current scene. 
+
+tational overhead. Quantitative comparisons against baseline-CEM, low-pass filtering, and Savitzky–Golay smoothing con-firmed that the QP-based projection achieves the most consis-tent performance, particularly in tasks requiring sustained bi-manual coordination through obstacle-constrained workspaces. The framework operates at 10 –16 Hz on a commodity laptop GPU and supports successful sim-to-real transfer on UR5e manipulators. We also presented a preliminary qualitative com-parison with the learning-based approach of [2], illustrating that online model-based planning and data-driven methods offer complementary strengths: our planner adapts to novel geometric configurations without retraining, while learning-based methods excel at mapping rich perceptual inputs to actions and amortizing computation across episodes. Some limitations of the current framework are worth noting. First, while Bayesian optimization systematically tunes cost 
+
+weights , the structure of the cost function—which terms to include, how to decompose the task into phases, and what geometric quantities to penalize—remains a manual design choice. Extending to significantly more complex tasks may require richer cost formulations or learned cost weights. Sec-ond, our framework relies on MuJoCo as a high-fidelity world model; tasks involving deformable objects, fluid interactions, or highly dynamic contacts may expose sim-to-real gaps that receding-horizon re-planning alone cannot compensate. These limitations point to several concrete directions for future work. The trajectories generated by our planner can serve as expert demonstrations for distilling a reactive policy network, which could in turn warm-start the optimizer in novel scenarios—reducing the number of samples and iterations required for convergence. Integrating a learned value function within a TD-MPC framework [30] would allow our optimizer to reason over longer effective horizons without increasing the planning horizon H. The neural warm-starting strategy introduced in [21] for the projection QP could further reduce computation time, potentially enabling higher control frequen-cies or larger batch sizes within the same time budget. Finally, extending the framework to tasks with dynamic obstacles, deformable objects, or tool use would test the generality of the modular cost design and the robustness of the sim-to-real transfer pipeline. ACKNOWLEDGMENTS 
+
+The authors gratefully acknowledge the use of AI-assisted writing tools during the preparation of this manuscript. AI tools were used to assist with grammar correction, sentence restructuring, and clarity improvements in the writing. The AI system was used at the level of language refinement and copy-editing; all technical content, mathematical derivations, experimental design, results, and scientific conclusions were 20 
+
+produced exclusively by the authors. No AI system was used to generate figures or data reported in this work. REFERENCES [1] G. Lu, T. Yu, H. Deng, S. S. Chen, Y. Tang, and Z. Wang, “Anybimanual: Transferring unimanual policy for general bimanual manipulation,” 
+
+arXiv preprint arXiv:2412.06779 , 2024. [2] N. Gkanatsios, J. Xu, M. Bronars, A. Mousavian, T.-W. Ke, and K. Fragkiadaki, “3d flowmatch actor: Unified 3d policy for single-and dual-arm manipulation,” arXiv preprint arXiv:2508.11002 , 2025. [3] M. Grotz, M. Shridhar, Y.-W. Chao, T. Asfour, and D. Fox, “Peract2: Benchmarking and learning for robotic bimanual manipulation tasks,” in CoRL 2024 Workshop on Whole-body Control and Bimanual Manip-ulation: Applications in Humanoids and Beyond , 2024. [4] K. Black, N. Brown, D. Driess, A. Esmail, M. Equi, C. Finn, N. Fusai, L. Groom, K. Hausman, B. Ichter et al. , “ π0: A vision-language-action flow model for general robot control,” arXiv preprint arXiv:2410.24164 ,2024. [5] P. Kicki, “Low-pass sampling in model predictive path integral control,” 
+
+arXiv preprint arXiv:2503.11717 , 2025. [6] G. Williams, P. Drews, B. Goldfain, J. M. Rehg, and E. A. Theodorou, “Information-theoretic model predictive control: Theory and applications to autonomous driving,” IEEE Transactions on Robotics , vol. 34, no. 6, pp. 1603–1622, 2018. [7] Z. I. Botev, D. P. Kroese, R. Y. Rubinstein, and P. L’ecuyer, “The cross-entropy method for optimization,” in Handbook of statistics . Elsevier, 2013, vol. 31, pp. 35–59. [8] F. J. Mart´ ınez-Peral, J. B. M´ endez, D. Mronga, J. V. Segura-Heras, and C. Perez-Vidal, “Trajectory planning system for bimanual robots: Achieving efficient collision-free manipulation,” Robotics and Au-tonomous Systems , p. 105118, 2025. [9] M. F. Karim, S. Bollimuntha, M. S. Hashmi, A. Das, G. Singh, S. Sridhar, A. K. Singh, N. Govindan, and K. M. Krishna, “Da-vil: Adaptive dual-arm manipulation with reinforcement learning and variable impedance control,” in 2025 IEEE International Conference on Robotics and Automation (ICRA) . IEEE, 2025, pp. 11 896–11 903. [10] H. Hu and J. Cao, “Adaptive variable impedance control of dual-arm robots for slabstone installation,” ISA transactions , vol. 128, pp. 397– 408, 2022. [11] T. Howell, N. Gileadi, S. Tunyasuvunakool, K. Zakka, T. Erez, and Y. Tassa, “Predictive sampling: Real-time behaviour synthesis with mujoco,” arXiv preprint arXiv:2212.00541 , 2022. [12] C. Pezzato, C. Salmi, E. Trevisan, M. Spahn, J. Alonso-Mora, and C. H. Corbato, “Sampling-based model predictive control leveraging parallelizable physics simulations,” IEEE Robotics and Automation Letters , 2025. [13] C. Acar and K. P. Tee, “Approximating constraint manifolds using generative models for sampling-based constrained motion planning,” in 2021 IEEE International Conference on Robotics and Automation (ICRA) . IEEE, 2021, pp. 8451–8457. [14] M. Bonilla, L. Pallottino, and A. Bicchi, “Noninteracting constrained motion planning and control for robot manipulators,” in 2017 IEEE International Conference on Robotics and Automation (ICRA) . IEEE, 2017, pp. 4038–4043. [15] H. Tong, Y. Zhang, S. Lueth, and G. Chalvatzaki, “Adaptive diffusion constrained sampling for bimanual robot manipulation,” arXiv preprint arXiv:2505.13667 , 2025. [16] G. Williams, A. Aldrich, and E. A. Theodorou, “Model predictive path integral control: From theory to parallel computation,” Journal of Guidance, Control, and Dynamics , vol. 40, no. 2, pp. 344–357, 2017. [17] T. Kim, G. Park, K. Kwak, J. Bae, and W. Lee, “Smooth model predictive path integral control without smoothing,” IEEE Robotics and Automation Letters , vol. 7, no. 4, pp. 10 406–10 413, 2022. [18] B. Vlahov, J. Gibson, D. D. Fan, P. Spieler, A.-a. Agha-mohammadi, and E. A. Theodorou, “Low frequency sampling in model predictive path integral control,” IEEE Robotics and Automation Letters , vol. 9, no. 5, pp. 4543–4550, 2024. [19] M. Bhardwaj, B. Sundaralingam, A. Mousavian, N. D. Ratliff, D. Fox, F. Ramos, and B. Boots, “Storm: An integrated framework for fast joint-space model-predictive control for reactive manipulation,” in Conference on Robot Learning . PMLR, 2022, pp. 750–759. [20] T. Miura, N. Akai, K. Honda, and S. Hara, “Spline-interpolated model predictive path integral control with stein variational inference for reactive navigation,” in 2024 IEEE International Conference on Robotics and Automation (ICRA) . IEEE, 2024, pp. 13 171–13 177. [21] E. M. Andrejev, A. Manoharan, K.-E. Unt, and A. K. Singh, “ π-mppi: A projection-based model predictive path integral scheme for smooth optimal control of fixed-wing aerial vehicles,” IEEE Robotics and Automation Letters , 2025. [22] F. Rastgar, H. Masnavi, B. Sharma, A. Aabloo, J. Swevers, and A. K. Singh, “Priest: Projection guided sampling-based optimization for au-tonomous navigation,” IEEE Robotics and Automation Letters , vol. 9, no. 3, pp. 2630–2637, 2024. [23] A. Marco, P. Hennig, J. Bohg, S. Schaal, and S. Trimpe, “Automatic lqr tuning based on gaussian process global optimization,” in 2016 IEEE international conference on robotics and automation (ICRA) . IEEE, 2016, pp. 270–277. [24] F. Berkenkamp, A. Krause, and A. P. Schoellig, “Bayesian optimization with safety constraints: safe and automatic parameter tuning in robotics,” 
+
+Machine learning , vol. 112, no. 10, pp. 3713–3747, 2023. [25] M. Janner, Y. Du, J. B. Tenenbaum, and S. Levine, “Planning with diffu-sion for flexible behavior synthesis,” arXiv preprint arXiv:2205.09991 ,2022. [26] Y. Lipman, R. T. Chen, H. Ben-Hamu, M. Nickel, and M. Le, “Flow matching for generative modeling,” arXiv preprint arXiv:2210.02747 ,2022. [27] P. L. Donti, D. Rolnick, and J. Z. Kolter, “Dc3: A learning method for optimization with hard constraints,” in International Conference on Learning Representations .[28] Y. Cui, Z. Xu, L. Zhong, P. Xu, Y. Shen, and Q. Tang, “A task-adaptive deep reinforcement learning framework for dual-arm robot ma-nipulation,” IEEE Transactions on Automation Science and Engineering ,vol. 22, pp. 466–479, 2024. [29] Y. Chen, Y. Geng, F. Zhong, J. Ji, J. Jiang, Z. Lu, H. Dong, and Y. Yang, “Bi-dexhands: Towards human-level bimanual dexterous manipulation,” 
+
+IEEE Transactions on Pattern Analysis and Machine Intelligence ,vol. 46, no. 5, pp. 2804–2818, 2023. [30] N. Hansen, X. Wang, and H. Su, “Temporal difference learning for model predictive control,” in International Conference on Machine Learning, PMLR , 2022. [31] E. Ghadimi, A. Teixeira, I. Shames, and M. Johansson, “Optimal parameter selection for the alternating direction method of multipliers (admm): Quadratic problems,” IEEE Transactions on Automatic Control ,vol. 60, no. 3, pp. 644–658, 2014. [32] A. Alonso, “Bayex: Minimal implementation of bayesian optimization in jax,” https://github.com/alonfnt/bayex, 2024, accessed: 2026-03-24. [33] J. Zeng, B. Zhang, and K. Sreenath, “Safety-critical model predictive control with discrete-time control barrier function,” in 2021 American Control Conference (ACC) . IEEE, 2021, pp. 3882–3889. [34] K. Zakka, “Mink: Python inverse kinematics based on MuJoCo,” Feb. 2026. [Online]. Available: https://github.com/kevinzakka/mink
