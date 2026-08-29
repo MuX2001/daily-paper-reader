@@ -1,0 +1,624 @@
+Title: Memory Anchors for Continual Robot Learning
+
+URL Source: https://arxiv.org/pdf/2608.26545v1
+
+Published Time: Fri, 28 Aug 2026 00:25:56 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+# Memory Anchors for Continual Robot Learning 
+
+Maximilian Du 
+
+Stanford University 
+
+maxjdu@stanford.edu 
+
+Zhanyi Sun 
+
+Stanford University 
+
+zhanyis@stanford.edu 
+
+Chen Xu 
+
+Toyota Research Institute 
+
+chen.xu@tri.global 
+
+Paarth Shah 
+
+Toyota Research Institute 
+
+paarth.shah@tri.global 
+
+Masha Itkina 
+
+Toyota Research Institute 
+
+masha.itkina@tri.global 
+
+Shuran Song 
+
+Stanford University 
+
+shuran@stanford.edu 
+
+Abstract: Robot policies deployed in the wild should have the capability to con-tinually learn new tasks without forgetting existing behaviors. A common ap-proach to combat such catastrophic forgetting is to train on new task data with a replay buffer of previously learned task data. Although this buffer is commonly sampled randomly from all prior experiences, we show that a small set of these experiences contributes greatly in anchoring past performance. We call these ex-periences Memory Anchors . We identify Memory Anchors in regions where rep-resentations of new-task observations collapse onto those of old-task observations even though the tasks require conflicting actions, like when a familiar object must be manipulated in a new way. Rehearsing old data in this region plays a key role in preventing destructive overwriting of past task knowledge, serving as this critical Memory Anchor role. Excluding only 10% Memory Anchors before sampling the buffer leads to more than a 4.5x increase in catastrophic forgetting on the LIBERO benchmark suites. Conversely, enriching the replay buffer with Memory Anchors can decrease high-conflict task forgetting by 63 % and enables successful continual learning of two task sequences on a real robot. 
+
+Keywords: continual learning, robot imitation learning, catastrophic forgetting 
+
+## 1 Introduction 
+
+As learned robot policies become increasingly capable, their continuous deployment raises the chal-lenge of acquiring new capabilities without losing existing behaviors. New tasks are rarely indepen-dent of those already present in the policy: they may share observational similarities while requiring conflicting behaviors. For example, a robot opening a jar clockwise must both draw on and distin-guish this new behavior from its experience opening jars counter-clockwise. Capturing these task relationships by balancing commonalities and contradictions is therefore essential for successful continual learning (CL). Failing to do so can lead to catastrophic forgetting: large drops in past task performance after learning the new task [1, 2]. Existing continual learning approaches tackle catastrophic forgetting by regularizing new task learn-ing with past knowledge [3, 4]. A popular approach is Experience Replay (ER) [5], which maintains a replay buffer of past data that is trained jointly with new task data, encouraging the policy to find solutions that keep both old and new task losses low. ER is appealing due to its simplicity and agnosticism to architectures and training techniques [6, 5]. The benefits of ER generally carry over to robotic continual learning [6], but in this work, we claim that their underlying mechanism is more nuanced. We discover that a randomly-sampled ER buffer preserves some tasks easily during new task training, while other tasks degrade drastically. The affected tasks have conflict regions with the new task: high observation representation overlap (input) with very different required actions (output). Therefore, the small set of memories that arXiv:2608.26545v1 [cs.RO] 27 Aug 2026 Task 1 Task 2 Task N Sequential Continual Learning Task Performance on Task k New Task N+1 Training Data for N+1  
+
+> Success Rate
+> Conflicting Task k
+> Fewer Memory Anchors Learn Original Task More Memory Anchors Non-Conflicting Tasks Memory Bank with Enhanced Memory Anchors
+> Memory Anchors Randomly-Selected Memories
+
+... ...       
+
+> Tk
+> Learn New Task
+> Catastrophic Forgetting
+> Tn+1
+> T1Tn
+> Turn Jar Right Turn Jar Left
+
+Figure 1: Memory Anchors . New tasks may be visually similar to old tasks while requiring different, some-times even opposite actions, causing catastrophic forgetting (Right). We claim that a small proportion of old data plays a large role in anchoring past task performance. While these Memory Anchors may appear naturally in randomly selected memories, their concentration is especially important with conflicting tasks. We propose a method for finding Memory Anchors and supplementing the ER buffer with them to reduce catastrophic for-getting for these worst-case scenarios (Left). 
+
+regularize these conflicts play a disproportionately large role in anchoring past task performance. We call this set: Memory Anchors .To test our hypothesis, we propose a three-step Memory Anchor extraction process. First, we find the region of new task data that overlaps with old task data in the policy’s latent space. Second, from this overlap, we extract the new data with the highest action disagreement : the difference between the policy’s predicted actions and ground truth actions. Third, we use the policy’s latent space to retrieve Memory Anchors: the old task data most similar to this conflict set. Using this method, we study how Memory Anchors influence catastrophic forgetting and also propose enriching their presence to improve past task retention. Concretely, our contributions are as follows: • Memory Anchors Analysis for Past Task Retention: We posit that some data in the ER buffer contributes disproportionately to past task retention for robot continual learning. We extract these critical task-anchoring experiences (Memory Anchors) using the policy’s predictions and repre-sentation space (§4). We demonstrate the impact of these Memory Anchors by both reducing and enriching their presence in the ER buffer (§5). • ANCHOR ER Algorithm for Reducing Catastrophic Forgetting: We propose A NCHOR ER, a method that enriches ER buffers with additional Memory Anchors to reduce catastrophic forget-ting, especially for tasks that conflict when trained in sequence (§5.2). • Challenging Real-Robot Study: Continual learning in robotics has mostly been studied in sim-ulation benchmarks [6, 7]. From our Memory Anchor findings, we claim that homogeneous tasks 
+
+(tasks that are observationally similar but conflict in action) are the most difficult to learn sequen-tially. We design real robot task suites around this finding and validate A NCHOR ER on it (§5.4). On the LIBERO benchmark [6], we find that reducing access to just 10% of the best Memory Anchors leads to a 4.5x increase in catastrophic forgetting on the same ER buffer size (§5.1). Fur-thermore, reserving 10% of an ER buffer for Memory Anchors (A NCHOR ER) leads to a 63 % drop in catastrophic forgetting for the most conflicting task pairings (§5.2). The benefits of A NCHOR ER transfer to a real robot continual learning task (§5.4), where it improved the total task success by 
+
+1.7x over a random ER buffer. Videos and additional visualizations can be found on our website: robot-adaptation.github.io/MemoryAnchors. 
+
+## 2 Related Works 
+
+Continual Learning Methods: Learning tasks in sequence yields two challenges that would not appear if the same tasks were trained all at once: catastrophic forgetting , where adapting to new data overwrites knowledge of earlier tasks [1, 2] and loss of plasticity , where the model gradually loses its ability to learn new tasks [8]. Effective continual learning methods balance backwards transfer 2NBT (Lower Better) Success Rates   
+
+> Lower variance in forgetting
+> FixedER RandER (+diversity, +resampling) Training Epochs (Single Task) A) Distribution of Task Forgetting
+> Different buffer samples yield different forgetting rates
+> B) Performance Variance Across Different ER Samples
+
+Figure 2: Sensitivity of Experience Replay (ER) to Data Selection. The standard ER practice ( FixedER )samples at the trajectory level and does not resample DER after a new task. If we sample uniformly at the 
+
+transition level and resample DER for every new task ( RandER ), we get more consistent performance across tasks (A). However, remaining variance exists between samples of DER (B), indicating sensitivity to the exact data present in DER .
+
+(stability) with forward transfer (plasticity) [9, 10]. Approaches to this challenge fall in three general families: regularization, architectures, and replay buffers [3]. Regularization approaches penalize changes to parameters deemed important for prior tasks [11, 12, 13, 14]. Architectural approaches dedicate separate parameters or subnetworks to each task [15, 16]. Replay approaches maintain a small buffer of past examples and sample them during new-task training [10, 17, 18, 19, 20, 5], including the ER algorithm [5, 21]. Our work expands on replay buffer approaches and adapts claims of ER effectiveness [5] to the robot task setting. 
+
+Continual Learning in Robotics: In the robotics setting, continual learning must contend with fur-ther complications due to continuous action spaces, as well as diverse scenes and tasks [22, 23, 6]. These complications also provide unique opportunities, including reusing skills through evolving non-parametric knowledge spaces [24, 25], unsupervised skill segmentation [26], and expandable skill codebooks [27]. A second family of methods finetunes pretrained policies through task-specific adapters [28, 29], autonomous adapter expansion [30], progressive expert libraries [31], optimized finetuning recipes [32], weight-space averaging [33], on-policy RL [34], or iterative self-improvement [35]. However, despite these diverse approaches, ER [5] is still widely adopted for continual robot learning [36, 6], with recent work showing that even simple replay suffices to largely eliminate forgetting in pretrained VLAs [7, 37]. Yet in these works, replay buffers are populated uniformly. Our work explores how inter-task relationships provide opportunities for a better ER sampling algorithm through Memory Anchors. We also construct a real-world example of continual learning that challenges a uniformly-sampled buffer (§5.4). 
+
+Data Retrieval for Continual Learning: Iterative task learning and refinement is sensitive to the training data. On-policy data has been shown to inherently resist forgetting compared to supervised finetuning on a fixed dataset [38, 34]. If on-policy data is not available, ER is another way of reduc-ing the data gap between existing and new tasks [21, 39]. Initial works stored small random subset of past data [5, 10, 18, 20], but subsequent works improved the buffer and its sampling strategies. Some store samples that maximize gradient diversity or approximate the full-data gradient [40, 41], while others retrieve the samples whose loss would spike under the incoming update [42]. HAL synthesizes per-class anchors that maximize a hindsight estimate of forgetting, then regularizes pre-dictions on them [43]. Our Memory Anchors operate on a similar principle, adapted for continuous visuomotor policies. Instead of generating anchors, we take inspiration from policy learning data retrieval approaches [44, 45, 46] and select real data at the start of every task using state similarity and action disagreement (§4). 
+
+## 3 Continual Learning under Experience Replay (ER) 
+
+We consider the continual learning (CL) setting where a series of tasks {T 1, T 2, ..., T N } and their associated datasets {D 1, D2, ..., DN } are given to a robot policy in sequence. The continual learning objective is to keep acquiring new tasks without forgetting past ones [23]. The magnitude of for-getting is measured through Negative Backward Transfer (NBT), a measure of stability computed as the success drop of task T k as the policy learns T k+1 ...T N [6]. NBT is a direct measurement of forgetting. To reduce NBT, the ER method [5] approaches this catastrophic forgetting problem 3by keeping an additional buffer DER of past task data, usually a fixed size or a small proportion of the past task data. While training task T k, data is sampled from both DER and the current task set 
+
+Dk. In the following experiments, we investigate properties of ER in continual robot learning that motivate Memory Anchors. For other metrics used in continual learning, refer to Appendix C. 
+
+3.1 Study: Different Sampling Approaches for ER Buffer Question: Is continual learning performance sensitive to the choice of data in the ER buffer? Many sampling approaches exist for ER in continual learning applications, both for creating DER 
+
+and sampling from DER [47, 5]. In the robotic setting, prior works have populated DER in different ways, including episode sampling [6, 37] and transition sampling [7], but only simple statistics like buffer size and sampling frequency have been compared [6, 7, 37]. To motivate the presence of individually important data in DER , we compare some of these design choices and look at how 
+
+DER diversity impacts continual learning performance. We consider two random DER selection strategies: FixedER [6], which contains correlated episode-level samples, and RandER , which adds diversity by sampling at the transition level and resampling DER after every task. 
+
+Experiment Suites. For our simulation experiments below and in later sections, we evaluate on the LIBERO setup, a set of four sequential task suites (LIBERO-Long, LIBERO-Goal, LIBERO-Object, LIBERO-Spatial) on a tabletop manipulation environment, each consisting of ten tasks trained in sequence [6]. We train a diffusion policy [48] through behavior cloning on the provided datasets, using ER regularization [5]. For more details, refer to Appendix B. 
+
+Diverse DER reduces variance in task forgetting. We plot the forgetting (NBT) of each task across three training permutations (30 total NBT values per suite) in Fig. 2A. The average NBT values of 
+
+RandER and FixedER are comparable, but RandER exhibits 36 % lower variance across tasks and training permutations. This lower variance also gives RandER better worst-case performance, with 25% lower worst-case forgetting compared to FixedER .
+
+Past task retention varies by DER sample. The reduced variance and worst-case forgetting of 
+
+RandER could be explained by sensitivities of some tasks to DER quality. We take a closer look at data sensitivity by isolating one task T j that encounters significant catastrophic forgetting after training on task T k. Starting from the same checkpoint, we train T k multiple times with RandER ,varying only the sample of DER (Fig. 2B). With task ordering constant, the level of forgetting still varies up to 20 % between DER samples. These two results provide evidence that robot continual learning is sensitive to the types of mem-ories sampled in DER . Appearing through random selection in RandER , these memories appear to have a strong (20%) impact on task retention. Finding these memories requires understanding the mechanism behind forgetting, which we explore in the next section. 
+
+Takeaway: Continual learning performance is sensitive to the selected ER buffer, especially for the worst-case tasks for catastrophic forgetting. 
+
+3.2 Task Relationships in Catastrophic Forgetting Question: What makes a trained task encounter significant catastrophic forgetting? Using an ER buffer normally enables most tasks to maintain their performance, degrade slightly, or even improve over time (Fig. 2A). However, there are some tasks like in Fig. 2B ( Cream Cheese to Bowl ), which drop performance significantly during new task training. In this section, we consider why this might happen. Instead of sampling different DER for one new task, we look at performance across a ten-task training run for three different training orders. 
+
+Certain task-task interactions contribute to the majority of forgetting. Plotting the performance of Cream Cheese to Bowl , we see that forgetting happens abruptly at task borders, particularly 4Start training original task Training on conflicting task reduces original task performance Success Rate (Task 6) Bowl to Plate (Task 8) Cream Cheese to Bowl (Task 6) Training Order 1 Training Order 2 Training Order 3 Catastrophic forgetting Bowl Cream Cheese Figure 3: Task Conflicts Persist Across Permutations. With an ER regularization ( RandER ), task performance stays steady for some new tasks and drops significantly for others. Shown above, Cream Cheese to Bowl 
+
+drops in performance when the policy learns an additional task involving picking the Bowl instead. 
+
+when Bowl to Plate is learned, an impact persisting across training orders (Fig. 3). This interac-tion pair yields an average performance loss of 24 %, amounting to more than 5x the average NBT for the LIBERO-Goal task suite. This example reflects a general trend: across three training orders of LIBERO-Goal, the total forgetting of only 2 tasks (out of 10) accounted for more than 50% of all negative backward transfer. Furthermore, across the 80 task interaction pairs present in the train-ing orders for LIBERO-Goal, the worst 5 task interaction pairs caused an average of 20% success drop, while the other 75 pairs caused an average 0.1% success rise , indicating the disproportionate contributions of certain task-task conflicts to overall forgetting. For more analyses, see Appendix C.2. 
+
+Conflicting task pairs share observation representation overlap. Qualitatively, when the policy forgets Cream Cheese to Bowl upon training Bowl to Plate , it starts to grab the bowl instead of the cream cheese (Fig. 3). We hypothesize that these two tasks overlap in the visual-language embedding space due to their physical closeness and the presence of “ bowl ” in both task instructions, leading to confusion over the actions for each task. Indeed, we see this in a PCA analysis (Fig. 4). 
+
+Figure 4: New Data Overlaps Past Tasks. 
+
+When new and old tasks share visual or se-mantic similarities, a policy can collapse a new task (red) into an existing task’s repre-sentation space (orange), causing conflict. 
+
+Although the two tasks share similar trajectories while reaching towards the objects, they also have opposing action labels in other subtrajectories. This combina-tion, overlapping representations (input) and different actions (output) , can lead to interference in the shared model resources and cause catastrophic forgetting. Old task data sampled in this overlap during new task train-ing can counteract this effect by acting as a regularizer. We hypothesize that the chance appearance of this spe-cial subset through RandER ’s random selection is a driv-ing factor in the performance variations seen in Fig. 2B. We identify this data as our Memory Anchors . To test our hypothesis, we now propose a method of finding these anchors during the training process. 
+
+Takeaway: A new task likely interferes with an old task if they share similar observation spaces but require different action strategies. 
+
+## 4 Memory Anchors 
+
+Using our previous findings, we propose a three-step method for finding Memory Anchors DAnchor 
+
+from past task data {D 1, ..., Dn−1} using the new dataset Dn and the current policy πn−1 
+
+> θ
+
+trained on past task data. 
+
+Step 1: Find State Representation Overlap. Before new task training, the existing policy may already represent new task data in the same latent region as a conflicting old task, collapsing the features that distinguish them, as demonstrated in Fig. 4. To find this subset of new data Dn, we place Dn into the observation latent space of the policy πn−1 
+
+> θ
+
+. Then, we use the latent distance of 5Disagree: Select Anchors Agree: Leave Alone Predicted Label Feed New Data through Old Policy        
+
+> πn−1
+> πn−1
+> (s, a )∈ D nSID
+> Existing Tasks
+> 2) Isolate Action Disagreements 1) Find State Representation Overlap 3) Extract Memory Anchors
+> New Task
+> Observation Latent Space of
+> πn−1Observation Latent Space of
+> T1
+> Tn−1Tn
+> T2
+> Old Data: Selected Memory Anchors New Data: Conflict with Old Policy New Data: Agree with Old Policy
+> Wine to Rack
+> Bowl to Drawer
+> Bowl to Stove
+> Bowl to Plate
+
+ˆa aFigure 5: Finding Memory Anchors . From the overlapping latent state spaces of old and new task policy (1), we isolate new task points yielding the highest action disagreement with the old data (2). To do this, we predict new task actions using the current policy (2 Upper) and compare to the action labels to measure disagreement (2 Lower). Using these points, we extract old task data that exhibits the most similarity (3). These Memory Anchor candidates have state representation similarities and action disagreement with the new task data (§4). 
+
+Dn to {D 1, ..., Dn−1} to locate all s ∈ D n within the manifold of past task data. We populate a set 
+
+DnSID with these data points. 
+
+Step 2: Isolate Action Disagreements through Generative Policy. From our state-similar data 
+
+DnSID , we want to find a smaller subset DnOD ⊂ D nSID that requires different action outputs than the old data. The old data will not contain an exact match for states in DnSID , making retrieval-based action comparisons difficult. Instead, we propose querying the current policy πn−1 
+
+> θ
+
+directly. From (s, a ) ∈ D nSID , we first add gaussian noise to a to make ˜a. Then, we denoise with the policy 
+
+ˆa ∼ πn−1 
+
+> θ
+
+(·| s, ˜a). This noise-denoise approach prevents false positives with action multimodality. If 
+
+∥ˆa−a∥ ≫ 0, then this (s, a ) sample of new data will require a significant change in the policy during training, likely causing conflict with existing knowledge. We populate DnOD with these action-disagreeing data points (Fig. 5 Middle). For more implementation details, refer to Appendix B.1 
+
+Step 3: Extract Memory Anchors from Old Data. As hypothesized (§3.2), the old data most similar to DnOD serves an important regularization role during new task training with ER. Thus, we find the data from {D 1, ..., Dn−1} that is most similar to DnOD in the representation space of πn−1
+
+> θ
+
+(Fig. 5 Right). This extracted data is DAnchor : the Memory Anchors. For qualitative examples of Memory Anchors, refer to Appendix A.2. For a visual overview of this approach, refer to Fig. 5. 
+
+## 5 Impact of Memory Anchors on Forgetting 
+
+5.1 Reducing Access to Memory Anchors 
+
+We hypothesized that Memory Anchors play a key role in maintaining past task performance. There-fore, reducing the concentration of these anchors should increase forgetting. In the following exper-iment (Fig. 6 Left), we remove 1%, 5%, and 10 % best memory anchors (lowest latent distance to 
+
+DnOD ) from past task data and sample an ER buffer of 1000 memories from the reduced dataset. With a randomly selected ER buffer, all task suites except for LIBERO-Long were able to get a low NBT with the 1000 memory budget. However, without the ability to sample the top 10% of Memory Anchors, forgetting increased more than 4.5x . Most surprisingly, forgetting still increased in some cases when only 1% of the past task dataset was excluded. These results show that our Memory Anchor candidates are behaving like we hypothesized: a small subset of data plays a critical role in maintaining past performance. For more analysis, refer to Appendix C.5. 
+
+Takeaway: Removing even a small proportion of Memory Anchors from the ER selection process causes large increases in task forgetting. 6RandER RandER -1% / -5% / -10% Anchors AnchorER with 10% / 20% Extracted Anchors  
+
+> Adding additional Memory Anchors reduces task-task conflict Removing Memory Anchors worsens forgetting
+> Removing Memory Anchors Adding Memory Anchors
+> NBT Average (Lower Better) NBT High Conflict (Lower Better)
+
+Figure 6: Impact of Memory Anchors on Forgetting . Reducing access to a small proportion of the best Mem-ory Anchors (§5.1) during the ER sampling process leads to large increases in catastrophic forgetting (Left). Symmetrically, increasing the concentration of Memory Anchors in an ER buffer reduces forgetting on high-conflict task pairs (Right). 
+
+5.2 Adding More Memory Anchors 
+
+Memory Anchors naturally exist in ER buffers, and the experiment in the last section demonstrated their large role in task retention. But will adding more Memory Anchors boost retention? We test this idea through A NCHOR ER: an ER approach that fills n% of the buffer with Memory Anchors ex-tracted using our method. We conducted experiments on small ER buffers (1% of past task datasets) to expose more catastrophic forgetting and task-task conflicts, which we measure by isolating the six most conflicting task pairs for each suite and computing their forgetting on RandER and A N-
+
+> CHOR
+
+ER. By adding more Memory Anchors, the average forgetting on these high-conflict tasks was reduced by more than 63 % (Fig. 6 Right). Although all suites are sensitive to Memory Anchors (§5.1) and adding more Memory Anchors improves performance on high task conflicts, A NCHOR ER also provides a measurable ( > 1 SEM) boost in overall task retention on LIBERO-Goal by reducing the average NBT by 37% (Appendix C.6). Unlike the other suites that have different environments and/or objects between tasks, Goal is 
+
+homogeneous with the same scenes and objects. It reflects a more realistic continual learning setup with many skills learned in the same environment with similar objects. Homogeneous tasks also have the most observational overlap and conflict, making them difficult to learn and more affected by Memory Anchor presence. 
+
+Takeaway: Including more Memory Anchors mitigates high-conflict task interactions. For task sequences with similar objects and environments, it also improves overall task retention. 
+
+5.3 VLA Sensitivity to Memory Anchors Table 1: Impact of Memory Anchors on VLA. The availability of Memory Anchors influences the contin-ual learning performance of the π0.5 VLA. (a) Reducing Memory Anchors (NBT Average). RandER RandER -5% RandER -10% 
+
+0.12 ± 0.02 0.20 ± 0.04 0.35 ± 0.04 (b) Adding More Memory Anchors (NBT Average). RandER AnchorER 10% AnchorER 20% 0.45 ± 0.05 0.35 ± 0.04 0.36 ± 0.04 
+
+The results of the previous experiments demon-strate the influence of Memory Anchors on dif-fusion policies trained from scratch. Past works have discovered that Vision Language Action (VLA) models have better continual learning abilities, reaching near-zero forgetting with a large ER buffer size (Appendix C.7) [7]. We extend these investigations by looking at VLA sensitivity to Memory Anchors on our experi-ment setup, where the ER buffer is small rel-ative to the past dataset size. Proportionally-small buffers represent a practical setup with large pretraining sets or long task sequences. We conduct the same subtraction (§5.1) and addition (§5.2) experiments on the π0.5 VLA in LIBERO-Goal. The results are shown in Table 1. On the subtraction experiment with 1000 total memories, we find that π0.5 exhibits worse forget-ting than from-scratch diffusion policy on a randomly-selected ER buffer (0.12 compared to 0.05). Taking away Memory Anchor access further increased forgetting by 2.9x, consistent with results in 7Loss of Plasticity Catastrophic Forgetting        
+
+> Task Training Order Task Training Order
+> Task Training Order
+> Task 1 Task 2 Task 3 Evaluated Task  Evaluated Task
+> Reduced Forgetting Maintain Plasticity
+> AnchorER Sequential Training (Baseline) Success Modes Failure Modes Multitask Policy (Oracle) RandER (Baseline)
+> Rotate Counterclockwise & Lift
+> After Training Task 1
+> After Training Task 2
+> After Training Task 3
+> Rotate Clockwise & Lift
+> Directly Lift Lid Task 1 Strategy Task 2 Strategy Forget: Task 2 on Task 1 Plasticity: Task 1 on Task 2 Forget: Task 3 on Task 1 Forget: Task 3 on Task 2 Task 3 Strategy No major failure modes after single task train
+
+Figure 7: OpenJar Real Robot Task Suite . We propose a set of three tasks with visually similar jars that require opposing strategies to open (Left), leading to many instances of catastrophic forgetting and plasticity loss when trained improperly (Middle). Using A NCHOR ER, the robot achieves less forgetting and 1.7x higher overall success rate compared to a randomly-sampled ER buffer, RandER (Right). 
+
+§5.1. On the addition experiment with the 1% memory buffer, we also find worse forgetting than from-scratch diffusion (0.45 compared to 0.18). Enriching the buffer with Memory Anchors reduces forgetting by 22%, which is consistent with the results in §5.2. Experimental details are in B.6. 
+
+Takeaway: On proportionally smaller ER buffers, VLAs still exhibit catastrophic forgetting. Under these conditions, Memory Anchors impact their continual learning performance. 
+
+5.4 Memory Anchors on a Real Robot 
+
+The homogeneous tasks in LIBERO-Goal represent a realistic setup: multiple tasks involving similar objects in the same deployment environment. We bring these challenges to a real robot through the OpenJar task suite (Fig. 7). OpenJar consists of perceptually similar jars that require very different strategies to open (counterclockwise, clockwise, direct lift). Because the robot might touch the jars multiple times to unscrew their lids, these tasks require many decision points per trajectory (Fig. 7). Their distinguishing visual features are separate from the jar opening affordances, making the jars likely to be initially overlapping in their representations. We use the Universal Manipulation Interface (UMI) [49, 50] for data collection and deployment on an ARX robot arm [51]. On a sequential baseline, the robot overgeneralizes on the current jar and exhibits nearly complete forgetting (Fig. 7 Right). Adding uniform ER ( RandER ) reduces forgetting, but introduces sensitivity to the buffer size. At a buffer size large enough to preserve the first task, the policy loses plasticity for the second task (Fig. 7 Right). Applying A NCHOR ER not only prevents forgetting of the second task while learning the third, but it also enables the second task to learn properly by focusing on the critical decision points within the trajectory. These trends continue in a second task suite, SweaterFold (Fig. 8). This suite consists of three bimanual, language-conditioned sweater folding behaviors (fold left, fold right, fold up) learned in sequence. It represents a realistic example of continual learning in the real world. Like before, adding uniform ER improves past task retention, but catastrophic forgetting still happens after the third task, and the second task is challenging to learn. In comparison, A NCHOR ER is able to balance plasticity and task retention, achieving 1.7x higher final success rates than RandER on the same ER budget. For details and qualitative visuals of the Memory Anchors, refer to Appendix A.1. 
+
+Takeaway: On two suites of highly conflicting real-robot tasks, adding Memory Anchors (A NCHOR ER) improves both backward and forward transfer. 
+
+5.5 Baselines and Ablations 
+
+We have presented A NCHOR ER as an improved ER selection method and shown its benefits on simulated and real environments. To quantify A NCHOR ER against other selection and buffer-based 8Task Training Order Task Training Order Evaluated Task  Evaluated Task        
+
+> Catastrophic Forgetting Reduced Forgetting
+> Sequential Training (Baseline) Multitask Policy (Oracle) Task Training Order
+> Task 1 Task 2 Task 3 Plasticity: Mixed Behavior Plasticity: Low Precision Forget: Task 3 on Task 1 Forget: Task 3 on Task 2 Task 1 Strategy Task 2 Strategy Task 3 Strategy
+> AnchorER RandER (Baseline)
+> No major failure modes after single task train
+> Fold Left Sleeve
+> Fold Right Sleeve
+> Fold Up After Training Task 3
+> After Training Task 2
+> After Training Task 1
+
+Figure 8: SweaterFold Real Robot Task Suite . We further test continual learning strategies on a realistic set of language-conditioned garment-folding tasks. Consistent with the results in OpenJar , we find that A NCHOR ER achieves a better balance of plasticity and task retention. 
+
+training methods, we compare with two baselines: Maximal Interference Retrieval (MIR) [42] and Gradient-Based Sample Selection (GSS) [40]. We also add an ablation: removing the action disagreement (Step 2) from the AnchorER pipeline to test a simpler, nearest-neighbor retrieval process. We present average NBT results on LIBERO-Goal in Table 2. 
+
+Table 2: Baselines. ANCHOR ER selection outperforms relevant baselines and ablations. A correlation also exists between the number of Memory Anchors in a method’s buffer and its task retention ability.                 
+
+> Ours MIR GSS Ours-ActionDis RandER
+> Avg. NBT ↓.11 ±.01 .14 ±.01 .17 ±.03 .13 ±.01 .18 ±.02 Anchor Conc. ↑.27 .13 .08 .25 .10
+
+The Memory Anchor enrichment method (A NCHOR ER) still yields the lowest average NBT. GSS only relies on gradient diversity to curate the buffer, not the relationship to the new task like A NCHOR ER. MIR does consider this relationship, but it only influences the sampling 
+
+from a random buffer instead of the curation process. The ablation demonstrates that action disagreement does contribute to A NCHOR ER. With-out it, nearest-neighbor selection also pulls in shared subtrajectories (e.g. reaching for the bowl in GOAL), which are already rehearsed by the new data. To unify these findings under our Memory Anchor hypothesis, we measured a Memory Anchor Concentration as the proportion of top (10%) Memory Anchors found in the most sampled frac-tion (40%) of each buffer. Policy performance and Memory Anchor concentration are positively correlated, further supporting our claim that Memory Anchors are driving past task retention. 
+
+Takeaway: ANCHOR ER outperforms other buffer enrichment methods, and even across these other methods, the presence of Memory Anchors is still correlated with task retention. 
+
+## 6 Conclusion and Discussion 
+
+In this paper, we introduced the idea of Memory Anchors , a small subset of past task data critical for maintaining performance during sequential training with Experience Replay (ER). We proposed a method for identifying Memory Anchors and enriching the ER buffer with them. Through a series of studies in simulation and on a real robot, we demonstrated the importance of Memory Anchors in continual learning for overall task performance, high-conflict tasks, and small buffer sizes. 
+
+Limitations: Our Memory Anchor extraction process requires access to the current policy’s latent space and its past training data, which may not be available for proprietary models. It also requires computing representations of these past datasets at the start of every task, which is computationally intensive for larger sets. It is possible to use alternative latent spaces and open-source data outside of the policy’s past training set for Memory Anchors, which we leave to future work. We also test continual learning on a relatively short sequence of 3-10 tasks, which may not represent the nature of continuous policy deployment in the real world. 9Acknowledgments 
+
+Maximilian Du is supported by the Knight-Hennessy Fellowship and the NSF Graduate Research Fellowship Program (GRFP). This work was supported in part by Toyota Research Institute, NSF Award #2143601, #2037101, and #2132519. We would like to thank Austin Patel and Yihuai Gao for assisting with the policy deployment on the ARX arm. We appreciate all members of the REAL lab at Stanford for their detailed feedback on paper drafts and experiment directions. The views and conclusions contained herein are those of the authors and should not be interpreted as necessarily representing the official policies, either expressed or implied, of the sponsors. 
+
+## References 
+
+[1] M. McCloskey and N. J. Cohen. Catastrophic interference in connectionist networks: The sequential learning problem. In Psychology of learning and motivation , volume 24, pages 109–165. Elsevier, 1989. [2] R. M. French. Catastrophic forgetting in connectionist networks. Trends in cognitive sciences ,3(4):128–135, 1999. [3] Q. Yang, L. Wang, J. Wicker, and G. Dobbie. Continual learning: A systematic literature review. 195:108226. ISSN 08936080. doi:10.1016/j.neunet.2025.108226. URL https: //linkinghub.elsevier.com/retrieve/pii/S0893608025011074 .[4] E. Verwimp, R. Aljundi, S. Ben-David, M. Bethge, A. Cossu, A. Gepperth, T. L. Hayes, E. H¨ ullermeier, C. Kanan, D. Kudithipudi, C. H. Lampert, M. Mundt, R. Pascanu, A. Popescu, A. S. Tolias, J. v. d. Weijer, B. Liu, V. Lomonaco, T. Tuytelaars, and G. M. v. d. Ven. Continual learning: Applications and the road forward. URL http://arxiv.org/abs/2311.11908 .[5] A. Chaudhry, M. Rohrbach, M. Elhoseiny, T. Ajanthan, P. K. Dokania, P. H. S. Torr, and M. Ranzato. On tiny episodic memories in continual learning. URL http://arxiv.org/ abs/1902.10486 .[6] B. Liu, Y. Zhu, C. Gao, Y. Feng, Q. Liu, Y. Zhu, and P. Stone. LIBERO: Benchmarking knowledge transfer for lifelong robot learning. URL http://arxiv.org/abs/2306.03310 .[7] H. Liu, C. Kim, B. Liu, M. Liu, and Y. Zhu. Pretrained vision-language-action models are surprisingly resistant to forgetting in continual learning. arXiv preprint arXiv:2603.03818 ,2026. [8] S. Dohare, J. F. Hernandez-Garcia, Q. Lan, P. Rahman, A. R. Mahmood, and R. S. Sutton. Loss of plasticity in deep continual learning. Nature , 632(8026):768–774, 2024. [9] M. De Lange, R. Aljundi, M. Masana, S. Parisot, X. Jia, A. Leonardis, G. Slabaugh, and T. Tuytelaars. A continual learning survey: Defying forgetting in classification tasks. IEEE transactions on pattern analysis and machine intelligence , 44(7):3366–3385, 2021. [10] D. Lopez-Paz and M. Ranzato. Gradient episodic memory for continual learning. Advances in neural information processing systems , 30, 2017. [11] J. Kirkpatrick, R. Pascanu, N. Rabinowitz, J. Veness, G. Desjardins, A. A. Rusu, K. Milan, J. Quan, T. Ramalho, A. Grabska-Barwinska, et al. Overcoming catastrophic forgetting in neural networks. Proceedings of the national academy of sciences , 114(13):3521–3526, 2017. [12] F. Zenke, B. Poole, and S. Ganguli. Continual learning through synaptic intelligence. In 
+
+International conference on machine learning , pages 3987–3995. Pmlr, 2017. [13] R. Aljundi, F. Babiloni, M. Elhoseiny, M. Rohrbach, and T. Tuytelaars. Memory aware synapses: Learning what (not) to forget. In Proceedings of the European conference on com-puter vision (ECCV) , pages 139–154, 2018. 10 [14] T. Yu, S. Kumar, A. Gupta, S. Levine, K. Hausman, and C. Finn. Gradient surgery for multi-task learning. Advances in neural information processing systems , 33:5824–5836, 2020. [15] A. A. Rusu, N. C. Rabinowitz, G. Desjardins, H. Soyer, J. Kirkpatrick, K. Kavukcuoglu, R. Pascanu, and R. Hadsell. Progressive neural networks. arXiv preprint arXiv:1606.04671 ,2016. [16] A. Mallya and S. Lazebnik. Packnet: Adding multiple tasks to a single network by iterative pruning. In Proceedings of the IEEE conference on Computer Vision and Pattern Recognition ,pages 7765–7773, 2018. [17] A. Chaudhry, M. Ranzato, M. Rohrbach, and M. Elhoseiny. Efficient lifelong learning with a-gem. arXiv preprint arXiv:1812.00420 , 2018. [18] S.-A. Rebuffi, A. Kolesnikov, G. Sperl, and C. H. Lampert. icarl: Incremental classifier and representation learning. In Proceedings of the IEEE conference on Computer Vision and Pat-tern Recognition , pages 2001–2010, 2017. [19] M. Riemer, I. Cases, R. Ajemian, M. Liu, I. Rish, Y. Tu, and G. Tesauro. Learning to learn without forgetting by maximizing transfer and minimizing interference. arXiv preprint arXiv:1810.11910 , 2018. [20] P. Buzzega, M. Boschini, A. Porrello, D. Abati, and S. Calderara. Dark experience for gen-eral continual learning: a strong, simple baseline. Advances in neural information processing systems , 33:15920–15930, 2020. [21] A. Robins. Catastrophic forgetting, rehearsal and pseudorehearsal. Connection Science , 7(2): 123–146, 1995. [22] S. Thrun and T. M. Mitchell. Lifelong robot learning. Robotics and autonomous systems , 15 (1-2):25–46, 1995. [23] T. Lesort, V. Lomonaco, A. Stoian, D. Maltoni, D. Filliat, and N. D´ ıaz-Rodr´ ıguez. Continual learning for robotics: Definition, framework, learning strategies, opportunities and challenges. 
+
+Information fusion , 58:52–68, 2020. [24] Y. Meng, Z. Bing, X. Yao, K. Chen, K. Huang, Y. Gao, F. Sun, and A. Knoll. Preserving and combining knowledge in robotic lifelong reinforcement learning. Nature Machine Intelligence ,7(2):256–269, 2025. [25] Y. Wu, G. Wang, Z. Yang, M. Yao, B. Sheil, and H. Wang. Continually evolving skill knowl-edge in vision language action model. arXiv preprint arXiv:2511.18085 , 2025. [26] W. Wan, Y. Zhu, R. Shah, and Y. Zhu. Lotus: Continual imitation learning for robot manipula-tion through unsupervised skill discovery. In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pages 537–544. IEEE, 2024. [27] J. Xu and X. Nie. Speci: Skill prompts based hierarchical continual imitation learning for robot manipulation. IEEE Transactions on Cognitive and Developmental Systems , 2025. [28] Z. Liu, J. Zhang, K. Asadi, Y. Liu, D. Zhao, S. Sabach, and R. Fakoor. Tail: Task-specific adapters for imitation learning with large pretrained models. In International Conference on Learning Representations , volume 2024, pages 16330–16353, 2024. [29] R. Zhu, E. Sun, G. Huang, and O. Celiktutan. Efficient continual adaptation of pretrained robotic policy with online meta-learned adapters. arXiv preprint arXiv:2503.18684 , 2025. [30] R. R¨ omer, Y. Zhang, Y. Li, and A. P. Schoellig. Clare: Continual learning for vision-language-action models via autonomous adapter routing and expansion. IEEE Robotics and Automation Letters , 2026. 11 [31] Y. Lei, S. Mao, S. Zhou, H. Zhang, X. Li, and P. Luo. Dynamic mixture of progressive parameter-efficient expert library for lifelong robot learning. arXiv preprint arXiv:2506.05985 ,2025. [32] M. J. Kim, C. Finn, and P. Liang. Fine-tuning vision-language-action models: Optimizing speed and success. arXiv preprint arXiv:2502.19645 , 2025. [33] Y. Yadav, Z. Zhou, A. Wagenmaker, K. Pertsch, and S. Levine. Robust finetuning of vision-language-action robot policies via parameter merging. arXiv preprint arXiv:2512.08333 , 2025. [34] J. Hu, J. Shim, C. Tang, Y. Sung, B. Liu, P. Stone, and R. Martin-Martin. Simple recipe works: Vision-language-action models are natural continual learners with reinforcement learn-ing. arXiv preprint arXiv:2603.11653 , 2026. [35] K. Bousmalis, G. Vezzani, D. Rao, C. Devin, A. X. Lee, M. Bauz´ a, T. Davchev, Y. Zhou, A. Gupta, A. Raju, et al. Robocat: A self-improving generalist agent for robotic manipulation. 
+
+arXiv preprint arXiv:2306.11706 , 2023. [36] A. Xie and C. Finn. Lifelong robotic reinforcement learning by retaining experiences. In 
+
+Conference on Lifelong Learning Agents , pages 838–855. PMLR, 2022. [37] J. Zhu, Y. Hong, X. Sun, Z. Xu, M. Yuan, Z. Wang, W. Zeng, and J. Chen. Can VLA models learn from real-world data continually without forgetting? URL http://arxiv.org/abs/ 2605.26820 .[38] I. Shenfeld, J. Pari, and P. Agrawal. Rl’s razor: Why online reinforcement learning forgets less. arXiv preprint arXiv:2509.04259 , 2025. [39] A. Prabhu, P. H. Torr, and P. K. Dokania. Gdumb: A simple approach that questions our progress in continual learning. In European conference on computer vision , pages 524–540. Springer, 2020. [40] R. Aljundi, M. Lin, B. Goujaud, and Y. Bengio. Gradient based sample selection for online continual learning. Advances in neural information processing systems , 32, 2019. [41] R. Tiwari, K. Killamsetty, R. Iyer, and P. Shenoy. Gcr: Gradient coreset based replay buffer selection for continual learning. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 99–108, 2022. [42] R. Aljundi, E. Belilovsky, T. Tuytelaars, L. Charlin, M. Caccia, M. Lin, and L. Page-Caccia. Online continual learning with maximal interfered retrieval. Advances in neural information processing systems , 32, 2019. [43] A. Chaudhry, A. Gordo, P. Dokania, P. Torr, and D. Lopez-Paz. Using hindsight to anchor past knowledge in continual learning. In Proceedings of the AAAI conference on artificial intelligence , volume 35, pages 6993–7001, 2021. [44] M. Memmel, J. Berg, B. Chen, A. Gupta, and J. Francis. Strap: Robot sub-trajectory retrieval for augmented policy learning. In International Conference on Learning Representations ,volume 2025, pages 63813–63832, 2025. [45] L.-H. Lin, Y. Cui, A. Xie, T. Hua, and D. Sadigh. Flowretrieval: Flow-guided data retrieval for few-shot imitation learning. arXiv preprint arXiv:2408.16944 , 2024. [46] S. Kumar, S. Dass, G. Pavlakos, and R. Mart´ ın-Mart´ ın. Collage: Adaptive fusion-based re-trieval for augmented policy learning. arXiv preprint arXiv:2508.01131 , 2025. [47] A. Prabhu, H. A. A. K. Hammoud, P. Dokania, P. H. S. Torr, S.-N. Lim, B. Ghanem, and A. Bibi. Computationally budgeted continual learning: What does matter?, 2023. URL https: //arxiv.org/abs/2303.11165 .12 [48] C. Chi, S. Feng, Y. Du, Z. Xu, E. Cousineau, B. Burchfiel, and S. Song. Diffusion policy: Vi-suomotor policy learning via action diffusion. In Robotics: Science and Systems XIX . Robotics: Science and Systems Foundation. ISBN 978-0-9923747-9-2. doi:10.15607/RSS.2023.XIX. 026. URL http://www.roboticsproceedings.org/rss19/p026.pdf .[49] C. Chi, Z. Xu, C. Pan, E. Cousineau, B. Burchfiel, S. Feng, R. Tedrake, and S. Song. Universal manipulation interface: In-the-wild robot teaching without in-the-wild robots, 2024. URL 
+
+https://arxiv.org/abs/2402.10329 .[50] A. Patel, B. Pekarek, J. E. C. Hernandez, and S. Song. Behavior prompting policy: Demon-strations as prompts for manipulation, 2026. URL https://arxiv.org/abs/2606.30457 .[51] Y. Gao, J. Liu, S. Li, and S. Song. Gated memory policy: In-context memorization and adap-tation, 2026. URL https://arxiv.org/abs/2604.18933 .13 A Real Robot Experiments: Additional Results and Analysis 
+
+A.1 Real Robot Details: OpenJar 
+
+We consider a set of three identically-shaped jars that take distinctive strategies to open. The first jar lid (Task 1, Counterclockwise ) requires a 90 degree counterclockwise rotation before the lid can be lifted. The second jar lid (Task 2, Clockwise ) requires a 90 degree clockwise rotation before the lid can be lifted. The third jar lid (Task 3, Lift ) does not allow any rotation and requires a direct lift to remove. The jars are distinguished by their label text and icon, as well as the texture present on the lid. At least one of these features are visible from the eye-in-hand camera at all times, allowing the task to be determined purely from visual observation without history or task conditioning.     
+
+> Figure 9: Robot Setup. We use the UMI setup to collect data and then de-ploy a trained policy on an ARX robot arm for OpenJar tasks.
+
+We use the UMI setup on an ARX arm [49, 51]. We collect de-mos using an UMI-style data collection device with an iPhone [50] as a camera. We start the gripper above and behind the jar, moving down and forward until the gripper is aligned with the jar lid (neutral position). For Counterclockwise , we move the left gripper until it makes contact with the left edge of the jar and we move the gripper back, causing the jar to rotate. We pull back to the neutral position and repeat until the jar is sufficiently rotated. Then, we move forward and grasp the lid, lifting it. The Clockwise task employs the same strategy but using the right gripper contact to rotate the lid clockwise. Finally, the Lift task goes directly to lid grasping and lifting without a rotation. We designed this demo behavior with task homogeneity in mind: the overall observations between the tasks are very similar but the requested actions are different. We collect 124 demos for Counter-clockwise , 120 demos for Clockwise , and 148 for Lift .We train a u-net diffusion policy [48], using a TIMM VIT encoder (vit_base_patch16_clip_224 ) on narrow-view RGB and wide-view RGB camera streams. For both A NCHOR ER and RandER , we used an ER buffer size of 5000 transitions. We trained the first two tasks for 100 epochs and the last task for 40 epochs due to its simplicity compared to the first two. Across all conditions, we chose the last epoch for each task in our evaluations. For evaluation, we randomized the position of the jars in the workspace. 
+
+A.2 Memory Anchors Visualized for OpenJar 
+
+The memory anchor extraction process for OpenJar is intuitive. As seen in Fig. 10, the points in the new data with high action disagreement (Step 2, §4) are near the jar lid contact. The resulting Memory Anchors are also focused around this contact region (Fig. 10 Right). When the robot learns Task 2 ( Clockwise , Fig. 10 Upper Row), the action disagreement (Fig. 10 Upper Left) happens on the final approach to the lid. This is because the old policy on Task 1 (Counterclockwise ) would move right to contact the left gripper on the jar lid for the counterclock-wise rotation. However, the new data on Task 2 ( Clockwise ) requires the robot to move left to contact the right gripper on the jar lid. When the robot gripper is near the center, the visual repre-sentations are overlapped between Clockwise and Counterclockwise but the actions are different, leading to action disagreement. The retrieved data (Fig. 10 Upper Right) focuses on this exact re-gion on Counterclockwise . The presence of this matching old task data in the region of action disagreement makes A NCHOR ER more successful on this task suite. The same effect can be seen when the robot learns Task 3 ( Lift , Fig. 10 Lower Row). Here, the action disagreements happen slightly later, when the gripper closes and the robot lifts (Fig. 10 Lower Left), and the retrieved Memory Anchors also focus on similar lifting behavior as well as some early reaching behavior (Fig. 10 Lower Right). 14 Figure 10: Examples of Action Disagreement and Selected Memory Anchors in Real-World Task . High action disagreement in the OpenJar task happens near the jar lid contact (Left column), and the corresponding Memory Anchors also focus on the jar lid contact of the old tasks (Right column). The images are sampled from the top 100 action disagreement and memory anchors, respectively. 
+
+A.3 Additional Qualitative Results: OpenJar 
+
+Fig. 7 reports the overall successes of each policy on each behavior. We can further break down the performance of A NCHOR ER and RandER into failures of execution and failures of overall strategy 
+
+in Fig. 11. The training order is Counterclockwise , Clockwise , Lift .Evaluated Task Evaluated Task Training Order Training Order  
+
+> Overall Success Correct Behavior AnchorER RandER (Baseline)
+
+Figure 11: Real World Results by Correct Behavior. Some failures for both A NCHOR ER and RandER are due to lack of precision errors, not errors of behavior. 
+
+Successes. Success with the trained diffusion policy would make contact with the correct gripper(s) to move the lid in the desired direction. In some cases, because we only employed RGB camera feeds, the robot would miss contact initially, but because we demonstrated a neutral pose recovery in the train-ing data, the policy would always retry until correct. After learning Clockwise (Task 2), the policy for both A NCHOR ER and RandER on the Counterclockwise task occasionally ex-hibited Clockwise behavior briefly before executing the cor-rect Counterclockwise behavior. This happened at the high conflict initial jar state, before any rotation occurs. After the initial correct rotation direction, the policy across all methods appear more confident and generally finish executing the task. Therefore, the performance differences between A NCHOR ER and RandER represent the ability to distinguish these high action conflict states, a data region that Memory Anchor selection process concentrates (Fig. 10). 
+
+Loss of Plasticity. When the policy lost plasticity in RandER while learning Clockwise (Task 2), it exhibited the behavior for Counterclockwise (Task 1) on the Clockwise (Task 2) jar consistently, leading to 15/20 failures (Fig. 11). We did discover that by rotating the Clockwise jar 15-20 degrees in the right direction, the robot was able to finish the task correctly. This indicates that the behavior is learned but in competition around the high action conflict area (the neutral position), leading to failure. In contrast, using A NCHOR ER was able to learn Clockwise with only 3/20 rollouts showing the incorrect Counterclockwise behavior (Fig. 11). 15 Catastrophic Forgetting. When the policy with RandER forgot Counterclockwise while learning 
+
+Lift , it grabbed the jar lid on the Counterclockwise jar and attempted to lift directly (reflecting the strategy used for Lift ), which caused a failure as the lid was still locked onto the jar. The same problem occurred with the Clockwise jar. Similar catastrophic forgetting behavior occurred with ANCHOR ER, but at lower frequencies. 
+
+Other Failures. A small proportion of failures in A NCHOR ER and RandER are failures of execution caused by lack of precision. The main failure mode is the robot “unrotating” the lid when the wrong gripper makes contact while it moves in for the final lid grab. 
+
+A.4 Practical Lessons and Failure Analysis: OpenJar 
+
+To set up our robot tasks, we began by training specialist single task policies and tuning the setup and data mixture until the specialist policies got nearly 100% success rates, ensuring that performance reduction during continual learning was due to the sequential training and not factors that made the individual tasks difficult to learn. We list our findings below. • Encoder strength and pretraining: On our U-Net diffusion policy, we initially used a ResNet-50 encoder. We discovered that the ResNet-50 was much more sensitive to the exact lighting conditions (including shadows) than a pretrained VIT encoder. Training the VIT from scratch with the policy yielded full failures. • Needing better lighting conditions: initial rounds of training and deployment used normal room lighting, but the dark grip tape on the gripper and the dark jar lid made it difficult to perceive contact between the gripper and lid. Adding additional light made this contact visible. • Incidental unrotation: when the robot finishes rotating the lid, it needs to grab the lid to remove. Initial data collection strategy did not focus on high precision during this segment and the trained policy ended up incidentally making gripper contact with the lid and reversed the rotation progress. To fix this, we deliberately biased the gripper towards the correct rotation during the final grasp, meaning that any incidental contact would not unrotate the lid. 
+
+Buffer size sensitivity In RandER , we were able to discover a boundary between stability and plas-ticity according to the buffer size, supporting some concurrent work [37]. At 1000 memories, Clock-wise could be learned at the cost of Counterclockwise , and at 5000 memories (selected), Clockwise 
+
+could no longer be learned. 1000 memories also led to forgetting on A NCHOR ER, but at 5000 mem-ories, A NCHOR ER exhibited both stability and plasticity by learning Clockwise while retaining 
+
+Counterclockwise .
+
+Incidental Result: Difficulty of Task Homogeneity. During our initial data collection attempt, a small lighting difference was observed between tasks. This led to very successful continual learn-ing, even for RandER . When we made the lighting constant between tasks, the continual learning challenges were revealed and the benefits for A NCHOR ER appeared. The lighting differences made our task suite more heterogeneous, with high-level observational differences reducing the represen-tational overlap. These results, although anecdotal, further support our mechanism for catastrophic forgetting as observational overlap with action disagreement. The difference between homogeneous and heterogeneous tasks is interesting and deserves exploration in future work. 
+
+A.5 Real Robot Details: SweaterFold 
+
+The second task suite presented in §5.4 consists of three behaviors involving the same sweater on a bimanual robot setup. In Fold Left , the left arm grabs the left sleeve and folds it across the chest. In Fold Right , the right arm grabs the right sleeve and folds it across the chest. In Fold Up , both arms grab the lower part of the sweater and folds it towards the collar. The starting environment is identical across tasks, so language specifies the behavior. We use the same UMI setup on an ARX arm, using bimanual data collected using two UMI devices [50]. The policy architecture is similar to OpenJar , with an additional CLIP-style language embedding to encode the task description. For 16 Algorithm 1 Finding Memory Anchors 
+
+Require: Past data D<n = Sn−1 
+
+> i=1
+
+Di, new data Dn, old policy πn−1 
+
+> θ
+
+, latent encoder ϕn−1 
+
+> θ
+
+, number of memory anchors to extract MA
+
+Ensure: Selected Memory Anchors DAnchor for use in A NCHOR ER. 
+
+Step 1: Find observationally overlapping new data.  
+
+> 1:
+
+for (s, a ) ∈ D n do  
+
+> 2:
+
+Compute distances from ϕn−1 
+
+> θ
+
+(s) to all old-task latents {ϕn−1 
+
+> θ
+
+(s′) : ( s′, a ′) ∈ D <n } 
+
+> 3:
+
+Represent (s, a ) by the lower-tail distance statistics q(s) = [NN , 1% , 5% , 10%]  
+
+> 4:
+
+end for  
+
+> 5:
+
+Dn 
+
+> SID
+
+← the KMeans cluster of {q(s) : ( s, a ) ∈ D n} with smaller mean distance 
+
+Step 2: Find new data with high action disagreement.  
+
+> 6:
+
+Define dπ (s, a ) = ∥ˆa − a∥2, where ˜a = a + αϵ , ϵ ∼ N (0 , I ), and ˆa ∼ πn−1 
+
+> θ
+
+(· | s, ˜a) 
+
+> 7:
+
+Compute the mean μ and standard deviation σ of dπ (s, a ) on held-out old-task data  
+
+> 8:
+
+Dn 
+
+> OD
+
+← { (s, a ) ∈ D n 
+
+> SID
+
+: dπ (s, a ) > μ + 2 σ}
+
+Step 3: Retrieve old data closest to the disagreeing new data.  
+
+> 9:
+
+for (s′, a ′) ∈ D <n do  
+
+> 10:
+
+Score (s′, a ′) by its median kNN distance to Dn 
+
+> OD
+
+in the latent space of πn−1 
+
+> θ
+> 11:
+
+end for  
+
+> 12:
+
+return DAnchor ← the MA old samples with the smallest scores all ER experiments, we used a buffer size of 125 transitions. This is a lower number than OpenJar 
+
+because there is only one decision point at the start of the trajectory. 
+
+## B Implementation Details 
+
+B.1 Memory Anchor Implementation 
+
+We detail the process of finding Memory Anchors in Algorithm 1 and describe each step below. 
+
+Step 1: Observation Overlap. We use the observation-level latent space for the retrieval of new task data that overlapped with old task data. This latent space included proprioception, language embedding, and visual embeddings concatenated together. For each new task data point, we com-puted distances to the old data points in the latent spaces (line 3). We used percentile-level statistics on these distances (nearest neighbor, 1%, 5%, 10%) to represent each new data point as a feature vector. We then used k-means to group the new data points into two clusters. We pick the cluster with the smallest mean distance as the observational overlap cluster (the output of step 1, line 5). We chose clustering instead of thresholding because different tasks could have very different levels of overlapping representations. 
+
+Step 2: Action Disagreement. From the observational overlap data, we compute the action dis-agreement. Because we are using a diffusion policy, we frame action disagreement as a denoising 
+
+approach. From the action label a, we sample noise ϵ and compute ˜a = a + αϵ using an action scheduler. Then, using the action scheduler, we denoise ˆa ∼ π(·| s, ˜a). This denoising paradigm is better than sampling another a ∼ π(·| s) from pure noise in the case of action multimodality (line 6). The αϵ at small magnitudes will preserve the overall direction, allowing π to respect the modality and prevent false positives in action disagreement. In contrast, if the policy fully disagrees with the action, it will pull the noised action in a different direction, leading to high disagreement. The magnitude of α is determined by the scheduler step, which is a hyperparameter. We set it to 20 
+
+on a DDIM step schedule of 100 . We select the action disagreement data by computing a baseline disagreement mean μ and standard deviation σ using the validation set of the old task data. Then, we select new task data that exceeds μ + 2 σ action disagreement (line 8), which represents a significant deviation from baseline action disagreement. We have no quota for this selection; for task suites that are highly heterogeneous (§C.4), the entire observation overlapping set may be selected. For more homogeneous suites like LIBERO-Goal, this selection yields the critical decision points and excludes shared subtrajectories. 17 Step 3: Memory Anchor Retrieval. We compute the k nearest neighbors in the observation latent space from the old task data to the high action disagreement set from the new task data (line 10). The median of the k nearest neighbors gives a score for each old data point. We can select Memory Anchors in increasing order of this score. 
+
+B.2 LIBERO Learning Policy Details 
+
+The diffusion policy has a u-net backbone with 4 encoding and 4 decoding layers and a ResNet-18 image encoder based on a reference diffusion policy implementation from [48]. It takes a 2-step history stack of observations and predicts a chunk of 16 actions. It is trained with the standard diffusion policy objective and during inference, we use the noise predictor with the DDIM noise scheduler to craft the action chunk prediction. We use the Adam optimizer with a learning rate of 1e-4 and a cosine scheduler with 5% warmup, reset per task. With LIBERO, we train each task for 50 epochs with batch size of 32. 
+
+B.3 LIBERO Experiment Details 
+
+For all reported LIBERO results in the paper, we evaluate success rates using the 50 environment reset configurations supplied by the benchmark [6]. For the continual learning results, we further report performances across three task permutations, also provided by the benchmarks [6]. The error bars in Fig. 6 Left are therefore the NBTs for each task across all permutations, yielding 10 ×3 = 30 
+
+individual data points. For more details on the metrics, refer to §B.4. For results reported in Fig. 2 and Fig. 6 Left, we used a total ER buffer of 1000 consistent with the method in the reference ER implementation in the benchmark [6]. For the Anchor Addition experiment in Fig. 6, we chose an alternative ER allocation of 1% past task data shown in other ER experiments on robots [7, 37], which allowed an expanding buffer with increasing past tasks and increasing space to accommodate both Memory Anchors and a diverse representation of past task states. 
+
+B.4 Continual Learning Metrics Details 
+
+From the Libero benchmark [6], there are two other continual learning metrics that reflect overall performance and new policy learning ability. Because the Negative Backward Transfer (NBT) fully covered the metric for forgetting, we chose to focus on NBT in the main paper. In this supplementary section, we show all three metrics for our experiments. To describe the three metrics, we define ci,k 
+
+as the success rate on task i after the model is trained up to task k.The main metric used in the paper, Negative Backward Transfer (NBT), measures the forgetting of a task as later tasks are trained. Each task i < N has an NBT measurement defined as 
+
+N BT i = 1
+
+N − i
+
+> N
+
+X
+
+> j=i+1
+
+ci,i − ci,j 
+
+The reported metric is the average across all task N BT i. The higher the metric, the worse the forgetting. The Area Under Learning Curve (AUC) [6] is the normalized area under the success curve [6], ranging from 0 to 1. Each task i has a computed AUC defined as follows: 
+
+AU C i = 1
+
+N − i
+
+> N
+
+X
+
+> j=i
+
+ci,j 
+
+the reported metric is the average across all task AU C i. Because it includes both the initial learning process and the later task retention, the AUC is a holistic measurement. 18 Finally, the Forward Transfer (FWT) [6] is the performance of task i after the initial training 
+
+F W T i = ci,i , and the reported metric is the average of F W T i. It measures the plasticity of the policy to new information. 
+
+NBT On Task Conflict . In our results, we discovered that a small proportion of task-task interac-tions contributed the majority of forgetting. To surface this effect, we propose a modified NBT that we use for Fig. 6 Right (adding Anchor Memories) and Fig. 12. We define a task-task interaction 
+
+between task i and task j as the segment (ci,j −1, c i,j ). The delta ∆i,j = ci,j −1 − ci,j is how the performance on i changes after being trained on task j. If ∆i,j > 0, then task j causes task i to decrease performance. The N BT i is the integration of ∆i,j and reflects an aggregate metric of for-getting, while the ∆i,j is a precise metric that measures task-task relationships. Each sequence of 
+
+n tasks has n(n − 1) /2 such ∆i,j . To create our NBT Task Conflict metric, we use base ER runs to compute these ∆i,j across three task training orders. Then, we pick the top n tuples of (i, j ) and compute ∆i,j across A NCHOR ER and RandER performances, which are graphed in Fig. 6 Right. For our analysis, we use n = 6 . For adherence to standard metrics, we also show the average NBT in Table 4. 
+
+B.5 Memory Anchor Concentration Metric Details RandER AnchorER Size of ER Buffer (Proportion)   
+
+> Buffer Size and Memory Anchors
+> NBT High Conflict
+> Figure 12: Forgetting with Smaller Buffer Sizes. As the available buffer size decreases, data retrieval through ANCHOR ER becomes more important.
+
+The Memory Anchor Concentration metric presented in §5.5 measures the presence of Memory Anchors in the buffer se-lected by each of the methods. It is computed retroactively and needs only the selected ER buffer and checkpoint for each task. First, the Memory Anchors are computed from the model checkpoints of each respective method. Then, we look at the buffer curated by the method and find the top 40% sampled during training. The isolation of the top 40% does not matter for non-MIR methods, as the other buffer curation approaches (including A NCHOR ER) will sample from the ER buffer ran-domly after curating them. We include the top 40% condi-tion because MIR selects counterexamples from an ER buffer based on the new task sample. The Anchor Concentration metric is the proportion of top 10% Memory Anchors within this top 40% buffer sample. The higher the proportion, the more Memory Anchors are being included. As seen in Table 2, a randomly selected buffer already has concentration 0.1. Not shown, but in our subtraction experiment (§5.1), the Concentration metric would show 0.0 at the 10% removal condition, as the 10% removal would exclude all of the top 10% Memory Anchors from the entire buffer. 
+
+B.6 VLA Experiment Details 
+
+We use the OpenPi implementation of π0.5 and all default full-model finetuning hyperparameters except for the number of steps per task, which we set to 5000 . We verified that 5000 steps was enough to reach full convergence (§C.7). For the latent space, we used the prefix embedding before the LLM backbone. We still used the action denoising step to compute action disagreement, but we applied the appropriate modifications for a flow-based model. Finally, to respect the original π0.5
+
+setup that does not keep a validation set, we used thresholding (top 10% action disagreement) instead of the μ + 2 σ selection for the action disagreement set, which would have required a validation set to compute μ and σ.
+
+## C Additional Simulation Results & Interpretations 
+
+C.1 Additional Result: Memory Anchors on Smaller Buffer Sizes 
+
+If Memory Anchors were indeed responsible for the varied forgetting across ER buffer samples (§3.1), then smaller buffer sizes will decrease the likelihood of selecting them, making the effects of 19 Access to Memory Anchors FWT( ↑) NBT( ↓) AUC( ↑) FWT( ↑) NBT( ↓) AUC( ↑)                                                                                                                                                  
+
+> LIBERO-L ONG LIBERO-S PATIAL
+> 100% ( RandER )0.87 ±0.02 0.20 ±0.02 0.73 ±0.03 0.90 ±0.02 0.05 ±0.01 0.87 ±0.01 99% ( RandER -1%) 0.86 ±0.02 0.17 ±0.02 0.74 ±0.02 0.90 ±0.02 0.07 ±0.02 0.85 ±0.02 95% ( RandER -5%) 0.87 ±0.02 0.28 ±0.03 0.67 ±0.03 0.88 ±0.02 0.14 ±0.03 0.78 ±0.03 90% ( RandER -10%) 0.86 ±0.02 0.34 ±0.04 0.63 ±0.04 0.90 ±0.01 0.33 ±0.04 0.66 ±0.04 LIBERO-O BJECT LIBERO-G OAL
+> 100% ( RandER )0.95 ±0.01 -0.01 ±0.01 0.96 ±0.00 0.93 ±0.01 0.05 ±0.01 0.90 ±0.01 99% ( RandER -1%) 0.95 ±0.01 0.00 ±0.01 0.95 ±0.01 0.93 ±0.01 0.07 ±0.01 0.87 ±0.02 95% ( RandER -5%) 0.96 ±0.01 0.09 ±0.03 0.89 ±0.02 0.93 ±0.01 0.20 ±0.03 0.79 ±0.02 90% ( RandER -10%) 0.95 ±0.01 0.22 ±0.05 0.79 ±0.03 0.92 ±0.01 0.40 ±0.05 0.64 ±0.04
+
+Table 3: Additional Metrics for Reducing Memory Anchor Access (§5.1) . Reducing access to Memory Anchors reduces the ability to preserve past tasks but not the ability to learn new tasks. All numbers are from an ER buffer size of 1000 sampled without replacement from the reduced past task dataset. 
+
+Method FWT( ↑) NBT( ↓) AUC( ↑) FWT( ↑) NBT( ↓) AUC( ↑)
+
+LIBERO-L ONG LIBERO-S PATIAL 
+
+RandER 0.85 ± 0.02 0.25 ± 0.02 0.67 ± 0.03 0.88 ± 0.01 0.18 ± 0.02 0.75 ± 0.01 ANCHOR ER (10%) 0.86 ± 0.02 0.26 ± 0.03 0.67 ± 0.03 0.90 ± 0.01 0.14 ± 0.01 0.79 ± 0.02 
+
+ANCHOR ER (20%) 0.87 ± 0.02 0.27 ± 0.03 0.68 ± 0.03 0.88 ± 0.02 0.16 ± 0.02 0.76 ± 0.02 LIBERO-O BJECT LIBERO-G OAL 
+
+RandER 0.96 ± 0.01 0.05 ± 0.01 0.92 ± 0.01 0.92 ± 0.01 0.18 ± 0.03 0.79 ± 0.03 ANCHOR ER (10%) 0.96 ± 0.01 0.03 ± 0.02 0.93 ± 0.01 0.93 ± 0.01 0.11 ± 0.02 0.85 ± 0.02 
+
+ANCHOR ER (20%) 0.96 ± 0.01 0.05 ± 0.01 0.92 ± 0.01 0.94 ± 0.01 0.14 ± 0.02 0.84 ± 0.02 Table 4: Additional Metrics for Adding Memory Anchors (§5.2) . This table shows the average CL metrics with a 1% ER buffer (notice different buffer selection size than Table 3). Best results bolded , best results 1 SEM over baseline in green. The homogeneous (Goal) task suite is affected more by additional Memory Anchors. 
+
+ANCHOR ER more visible. To test this, we sweep the ER buffer size from 0.5% to 100 % (Fig. 12). At higher buffer sizes, RandER and A NCHOR ER are indistinguishable because Memory Anchors are naturally present during uniform sampling. As buffer sizes become restricted, A NCHOR ER ensures adequate representation of Memory Anchors, while RandER ’s forgetting increases sharply. 
+
+C.2 Additional Result: Task-Task Relationships (§3.2) Task-Task Interactions (Past Performance Loss) Value  
+
+> Recovery Conflicting Pairs
+> Counts
+> ∆i,j
+
+Figure 13: Histogram of Task-Task Inter-actions ( ∆i,j ) Most task-task interactions yield little forgetting, and a small propor-tion conflict heavily, leading to high forget-ting. Many negative ∆i,j instances exist even with an overall positive NBT because tasks will rebound after interacting with a conflicting task. 
+
+As established in Section 3.2, it is important to look at in-dividual task-task interactions, defined as how some task 
+
+T i reacts when task T j is trained. We advocate for this perspective because the NBT metric collapses all of the interactions into a single number, while the task-task in-teractions have a high diversity of outcomes. NBT also unfairly penalizes high conflict task interactions earlier on in task training, because it uses the original task per-formance as the reference. Plotting all of the interactions shows that some yield strong forgetting, while others only weakly, and still oth-ers even improve past task behavior (Fig. 13). Most full task N BT i is positive, meaning that the negative indi-vidual ∆i,j (positive backward transfer) is the result of 
+
+recovery after a forgetting event. As established in past works [7], forgetting past task behavior doesn’t result in full destruction; rather, the past task is merely hidden and easily recoverable. Hence, after finishing training on the 20 Task Interaction Mean ∆
+
+put the cream cheese in the bowl → put the bowl on the plate 0.240 put the bowl on top of the cabinet → put the wine bottle on top of the cabinet 0.240 put the wine bottle on the rack → turn on the stove 0.180 open the top drawer and put the bowl inside → put the wine bottle on top of the cabinet 0.180 turn on the stove → open the middle drawer of the cabinet 0.120   
+
+> Table 5: Top five task-task conflicts in LIBERO-Goal. This table shows the task-task interactions that have the highest forgetting (§B.4).
+
+conflicting task, the affected task will rebound. All three examples in Fig. 3 show performance rebounding after the conflicting task stops training. The task-task interactions are not only varied, they also contain notable outliers. As discussed in §3.2, a small proportion of interactions yield the most forgetting. Table 5 shows the top 5 highest conflict interactions in LIBERO-Goal. We can partition all of the ∆i,j into the top 5 (shown above) and the bottom 75 1. The average bottom 75 ∆i,j was −0.0016 , and the average top 5 was 0.207 .These numbers support our main paper claim: a small number of task-task conflicts drive much of the NBT score. The rest of the interactions are much smaller performance degradations and/or 
+
+recovering from previous conflicts. 
+
+C.3 Additional Result: On FixedER and RandER (Section 3.1) 
+
+Fig. 14 shows the other metrics of the experiment in §3.1. Consistent with the observation of the NBT, the overall performance AUC also reflects a reduced variance in AU C i performance. The forward transfer shows less of an impact with the ER sampling choice, reflecting that the sampling impacts more task retention (stability) than task acquisition (plasticity). 
+
+C.4 Interpretation: Memory Anchors on Heterogeneous Tasks 
+
+Our method of finding Memory Anchors through representation overlap and action disagreement is intuitive for homogeneous tasks, where tasks share common observations but differ in critical de-cision areas. Homogeneous tasks represent many common continual learning scenarios in the real world, including our real world task suite (§5.4). However, three of the LIBERO suites employed 
+
+heterogeneous tasks, which are suites with changed environments and/or object arrangements and identities between tasks, leading to distinctive observation spaces for each task. In highly heteroge-neous task suites, removing Memory Anchors still increases forgetting and adding Memory Anchors still affects high conflict task-task interactions (§5.1, 5.2). On heterogeneous tasks, the observation latent overlap will extract the closest possible points in the new data to the old task data. Often, these are at the very start of the trajectory because the robot has the same reset in the LIBERO suites. In highly heterogeneous suites, the action disagreement selection may include all of the new data points isolated by the representation overlap, as the policy fails to generalize to the new environment. Therefore, in highly heterogeneous suites, finding Mem-ory Anchors becomes a filtered nearest-neighbor retrieval, which is a valid heuristic for selecting the most important past data to keep, as reflected by the impact of these extracted Memory Anchors on task performance. 
+
+C.5 Additional Result: All Metrics for Memory Anchor Removal (Section 5.1) 
+
+The results in Fig. 6 Left showed the average NBT for each task suite. In Table 3, we include the other two metrics in the experiment discussed in §5.1. Although the ER buffer size remains constant,     
+
+> 1Computed across three training orders. Does not add up to 3×45 because some task-task interactions are repeated across training orders
+
+21 FixedER RandER (+diversity, +resampling)  
+
+> Lower variance in knowledge retention AUC FWT
+> Total Knowledge Retention (AUC) Plasticity
+
+Figure 14: Other metrics for comparing FixedER and RandER . In addition to NBT shown in Fig. 2, we show the AUC and FWT here. 
+
+NBT rises and AUC drops significantly as the memory anchors become less available. Forward transfer (FWT) remains unaffected, which supports once again that the ER buffer mostly determines the stability of past policies, not the plasticity to future policies. However, this observation is not fully consistent between LIBERO and the real robot tasks. For a counterexample, refer to the real robot results in §5.4. 
+
+C.6 Additional Result: All Metrics for Memory Anchor Enrichment (Section 5.2) 
+
+The results in Fig. 6 Right showed the NBT on the six most conflicting task-task pairs between 
+
+RandER and A NCHOR ER (§5.2). We defined Task Conflict NBT (§B.4) using our findings from §3.2 that a small number of task interactions contributed to most of the forgetting in a training sequence. However, to maintain consistency, we also report the three established metrics from this experiment in Table 4. As mentioned in §5.2, the impact of an enriched ER buffer in A NCHOR ER is overall positive, with overall higher AUC and overall lower NBT between tasks. These raw metrics also expose a critical difference in task suites discussed in §5.2. LIBERO-Goal is a homogeneous set of tasks with the same environment setup and objects between tasks. In this setup, A NCHOR ER is able to provide measured ( > 1 SEM) improvement across all three metrics. For the heterogeneous task suites (Long, Spatial, Object), the exact choice of ER matters less than the diversity present that covers all the prior task states, but removing the computed Memory Anchors will still consistently reduce performance (§5.1), an indication that the Memory Anchors are still serving a purpose. In these cases, the anchors present through random selection are sufficient (but necessary, as seen through the removal experiments), and heterogeneous tasks require more diversity in the ER buffer for wider state coverage. Adding more Memory Anchors trades this diversity for specificity. Homogeneous tasks benefit from this tradeoff, while heterogeneous tasks only benefit on the high-conflict task interactions. 
+
+C.7 Additional Result: VLA Continual Learning Works at Large Buffers 
+
+Figure 15: π0.5 on 1000 memories (20%) buffer. We verify that with a large ER buffer, π0.5 achieves high task retention (NBT = 0.02 on LIBERO-Goal). 
+
+Previous work that demonstrated continual learning per-formance on VLAs showed results with π0. We con-duct one of their experimental setups using the newer 
+
+π0.5: 1000 memories per task (20% of total past data) on LIBERO-Goal. We verify that this newer VLA also achieves high continual learning performance with aver-age NBT 0.02 . We show a training order performance in Fig. 15. It is worth noting that the full finetuning with 
+
+π0.5 is able to achieve very low NBT while achieving higher average success rates ( 0.93 vs. 0.73 reported in Table 1 of [34]). The reported results in §5.3 focus on us-ing π0.5 on small buffer sizes (1% and 1000 total memo-ries), and we discover that it exhibits more forgetting than from-scratch diffusion policy. We also show that, like dif-fusion policies, this VLA is also sensitive to Memory An-chors. 22
