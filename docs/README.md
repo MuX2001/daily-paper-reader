@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-01</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-02</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 40 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 29 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>27</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>16</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-01 23:16:51 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-02 23:33:23 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读27篇、速读13篇，重点覆盖视觉-语言-动作模型与机器人操控方向。最值得关注的是《Pointing-VLA》与《Hierarchical Skill Retrieval》两篇9.0分论文，分别提出空间接地接口与技能检索以提升操控泛化能力。建议优先阅读这两篇，并结合速读中的受限LLM安全操控论文，理解语义约束与物理安全的结合思路。</p>
+<p>今日精读16篇、速读13篇，共处理29篇论文；最高分聚焦鲁棒最优控制与视觉-语言-行动模型的高效适应。</p>
+<p>最值得看：10分的《广义半无限规划用于决策相关不确定性的鲁棒最优控制》与9分的《层次化技能检索实现VLA模型数据高效适配》。</p>
+<p>建议优先精读这两篇，重点关注控制理论中不确定性建模与机器人技能迁移的交叉启示。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +73,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">27 篇</strong>
+    <strong class="dpr-home-dashboard-count">16 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Pointing-VLA: Typed Spatial Grounding Interfaces for Vision-Language-Action Manipulation">Pointing-VLA: Typed Spatial Grounding Interfaces for Vision-Language-Action Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Hierarchical Skill Retrieval for Data-Efficient Adaptation of Vision-Language-Action Models">Hierarchical Skill Retrieval for Data-Efficient Adaptation of Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="StreamPI: Streaming Multimodal Temporal Modeling for Vision-Language-Action Models">StreamPI: Streaming Multimodal Temporal Modeling for Vision-Language-Action Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Generalized Semi-Infinite Programming for Robust Optimal Control with Decision-Dependent Uncertainty">Generalized Semi-Infinite Programming for Robust Optimal Control with Decision-Dependent Uncertainty</span></li><li><span class="dpr-home-dashboard-paper-title" title="Hierarchical Skill Retrieval for Data-Efficient Adaptation of Vision-Language-Action Models">Hierarchical Skill Retrieval for Data-Efficient Adaptation of Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="RA-VLA: Retrieval-Augmented VLA for Test-Time Adaptation">RA-VLA: Retrieval-Augmented VLA for Test-Time Adaptation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>11</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>6</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>6</strong></span><span class="dpr-home-dashboard-tag">control <strong>4</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>9</strong></span><span class="dpr-home-dashboard-tag">control <strong>4</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>3</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -87,9 +89,9 @@
     <strong class="dpr-home-dashboard-count">13 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Cognitively-Grounded On-Device Runtime Learning for Ground Robots in Unknown Physical Environments">Cognitively-Grounded On-Device Runtime Learning for Ground Robots in Unknown Physical Environments</span></li><li><span class="dpr-home-dashboard-paper-title" title="Learning neural controllers for nonlinear systems from data">Learning neural controllers for nonlinear systems from data</span></li><li><span class="dpr-home-dashboard-paper-title" title="Bridging Semantics and Physics with Constrained LLMs for Safe and Trustworthy Robotic Manipulation">Bridging Semantics and Physics with Constrained LLMs for Safe and Trustworthy Robotic Manipulation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Analysis of Dynamic-Key LWE-Based Encrypted Control Systems for Asymptotic Stability and Numerical Safety">Analysis of Dynamic-Key LWE-Based Encrypted Control Systems for Asymptotic Stability and Numerical Safety</span></li><li><span class="dpr-home-dashboard-paper-title" title="Self-Aware Active Learning Enables Continual Improvement in Autonomous Driving">Self-Aware Active Learning Enables Continual Improvement in Autonomous Driving</span></li><li><span class="dpr-home-dashboard-paper-title" title="Matrix-Game 3.5: Enhancing Real-Time Streaming Interactive World Models with Patch Memory">Matrix-Game 3.5: Enhancing Real-Time Streaming Interactive World Models with Patch Memory</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">control <strong>6</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>5</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">control <strong>5</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>4</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>3</strong></span><span class="dpr-home-dashboard-tag">vla <strong>1</strong></span></div>
 </section>
 </div>
 
