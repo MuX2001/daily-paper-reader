@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-02</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-03</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 29 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 28 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>16</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>18</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>10</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-02 23:33:23 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-03 23:36:19 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读16篇、速读13篇，共处理29篇论文；最高分聚焦鲁棒最优控制与视觉-语言-行动模型的高效适应。</p>
-<p>最值得看：10分的《广义半无限规划用于决策相关不确定性的鲁棒最优控制》与9分的《层次化技能检索实现VLA模型数据高效适配》。</p>
-<p>建议优先精读这两篇，重点关注控制理论中不确定性建模与机器人技能迁移的交叉启示。</p>
+<p>今日精读18篇、速读10篇，聚焦VLA机器人与具身智能前沿；最值关注两篇满分工作：FLARE的故障感知自主纠错框架与EmbodiedSkills的统一编排训练部署系统。建议优先精读这两篇，并顺带浏览速读中关于VLM空间导航的LightNav-0，以把握具身智能下一阶段的关键突破口。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">16 篇</strong>
+    <strong class="dpr-home-dashboard-count">18 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Generalized Semi-Infinite Programming for Robust Optimal Control with Decision-Dependent Uncertainty">Generalized Semi-Infinite Programming for Robust Optimal Control with Decision-Dependent Uncertainty</span></li><li><span class="dpr-home-dashboard-paper-title" title="Hierarchical Skill Retrieval for Data-Efficient Adaptation of Vision-Language-Action Models">Hierarchical Skill Retrieval for Data-Efficient Adaptation of Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="RA-VLA: Retrieval-Augmented VLA for Test-Time Adaptation">RA-VLA: Retrieval-Augmented VLA for Test-Time Adaptation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="FLARE: A Failure-Aware Framework for Autonomous Correction and Recovery in Visual-Language Robotic Manipulation">FLARE: A Failure-Aware Framework for Autonomous Correction and Recovery in Visual-Language Robotic Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="EmbodiedSkills: A Unified Framework for Orchestrating, Training, and Deploying VLA Agents">EmbodiedSkills: A Unified Framework for Orchestrating, Training, and Deploying VLA Agents</span></li><li><span class="dpr-home-dashboard-paper-title" title="RA-VLA: Retrieval-Augmented VLA for Test-Time Adaptation">RA-VLA: Retrieval-Augmented VLA for Test-Time Adaptation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>9</strong></span><span class="dpr-home-dashboard-tag">control <strong>4</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>3</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>8</strong></span><span class="dpr-home-dashboard-tag">control <strong>4</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>3</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>3</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -86,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">13 篇</strong>
+    <strong class="dpr-home-dashboard-count">10 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Analysis of Dynamic-Key LWE-Based Encrypted Control Systems for Asymptotic Stability and Numerical Safety">Analysis of Dynamic-Key LWE-Based Encrypted Control Systems for Asymptotic Stability and Numerical Safety</span></li><li><span class="dpr-home-dashboard-paper-title" title="Self-Aware Active Learning Enables Continual Improvement in Autonomous Driving">Self-Aware Active Learning Enables Continual Improvement in Autonomous Driving</span></li><li><span class="dpr-home-dashboard-paper-title" title="Matrix-Game 3.5: Enhancing Real-Time Streaming Interactive World Models with Patch Memory">Matrix-Game 3.5: Enhancing Real-Time Streaming Interactive World Models with Patch Memory</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Beyond Data Scaling: Representation-Centric Continued Pre-training for Vision-Language-Action Models">Beyond Data Scaling: Representation-Centric Continued Pre-training for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="On the Number of Observation Nodes in Recurrent Neural Networks with Linear Threshold and ReLU Functions">On the Number of Observation Nodes in Recurrent Neural Networks with Linear Threshold and ReLU Functions</span></li><li><span class="dpr-home-dashboard-paper-title" title="LightNav-0: Eliciting VLM Spatial Intelligence for Generalist Embodied Navigation">LightNav-0: Eliciting VLM Spatial Intelligence for Generalist Embodied Navigation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">control <strong>5</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>4</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>3</strong></span><span class="dpr-home-dashboard-tag">vla <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>5</strong></span><span class="dpr-home-dashboard-tag">control <strong>3</strong></span><span class="dpr-home-dashboard-tag">vla <strong>1</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>1</strong></span></div>
 </section>
 </div>
 

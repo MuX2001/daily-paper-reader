@@ -1,0 +1,1275 @@
+Title: Accelerating Reinforcement Learning via MPC Solver-Gradient Guidance for Weights-varying MPC
+
+URL Source: https://arxiv.org/pdf/2609.01061v1
+
+Published Time: Wed, 02 Sep 2026 01:35:14 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# Accelerating Reinforcement Learning via MPC Solver-Gradient Guidance for Weights-varying MPC 
+
+Baha Zarrouki, Arslan Thobani, Jasper Hoffmann, Mattia Piccinini, Rudolf Reiter, Felix Jahncke, S´ ebastien Gros, Davide Scaramuzza, and Johannes Betz 
+
+Abstract —In Model Predictive Control (MPC), cost-function weights shape closed-loop behavior, yet changing conditions often make fixed parametrizations suboptimal and motivate context-dependent online adaptation. Learning such policies is difficult because behavior depends implicitly on numerical MPC solu-tions, producing nonlinear, potentially nonsmooth, long-horizon dependencies on policy parameters. This creates a bias–variance tradeoff: Reinforcement Learning (RL) optimizes realized closed-loop return from environment samples but is sample-inefficient, whereas Gradient-Based Policy Learning (GB-PL) uses low-variance solver gradients from differentiable MPC to optimize surrogate losses on predicted trajectories but can be biased under model mismatch. We propose Solver-Gradient Guided Re-inforcement Learning (SG-RL), a solver-sensitivity augmentation for RL-based online MPC cost-weight adaptation. SG-RL keeps sampled closed-loop return as the objective and uses bounded solver-derived gradients as auxiliary guidance to improve sta-bility and sample efficiency. We instantiate SG-RL in Proximal Policy Optimization (PPO) with four modular algorithms that inject solver-gradient guidance into actor-update scaling, policy loss, advantage estimation, and value-function learning. On two full-scale autonomous racing platforms with intentional model mismatch, SG-RL reaches PPO’s best closed-loop return with up to 70.6% fewer samples, outperforms GB-PL baselines by at least 54% in closed-loop return, and generalizes zero-shot to unseen environments. 
+
+Index Terms —Learning and Adaptive Systems; Robust/ Adap-tive Control of Robotic Systems; Optimization and Optimal Control; Reinforcement Learning for MPC 
+
+I. INTRODUCTION Model Predictive Control (MPC) is a powerful framework for constrained optimal control of complex dynamical sys-tems [1]. Its closed-loop performance depends heavily on the formulation of the optimization problem, including the system model, constraints, and cost function. In many applications, the model and constraints are fixed to preserve safety guarantees. The cost function remains a primary mechanism for shaping controller closed-loop behavior and trading off competing objectives [2]. However, a single fixed set of cost-function weights is often insufficient when operating conditions change. Different scenarios may require different trade-offs between objectives, making the relationship between cost weights and closed-loop performance highly context dependent. This ob-servation has motivated the development of Weights-varying MPC approaches [3], [4], [5], which adapt the cost-function weights online while keeping the underlying model and con-straints unchanged. Such adaptation is particularly relevant in safety-critical and highly dynamic applications. A prominent example is the combined nonlinear longitudinal-lateral control problem in autonomous vehicle racing [6], where operating Observations 
+
+> Environment
+> Update
+> MPC
+> System
+> Cost Weights
+> Rewards
+
+SG-RL (Ours) 
+
+> Guided RL update
+> RL gradient MPC Solver Gradient
+> Guidance
+
+Actor 
+
+Fig. 1: Solver-Gradient Guided Reinforcement Learning (SG-RL) learns an online MPC weight-adaptation policy πϕ
+
+by combining environment-based policy-gradient learning 
+
+∇ϕJRL with model-based solver-gradient guidance ∇ϕJSG .The update preserves closed-loop return optimization while using solver sensitivities as bounded, model-informed guid-ance for improved sample efficiency and performance. near the handling limits requires different performance trade-offs across racetrack segments. Learning such policies is challenging because it induces a bilevel optimization structure [7]. Specifically, the return depends on the policy parameters only indirectly, through the numerical solution of a constrained MPC; decisions at one time step affect future states and therefore future MPC so-lutions, resulting in long-horizon credit-assignment problems; the MPC solver introduces implicit, nonlinear, and potentially non-smooth mappings that complicate gradient computation; and the policy must be learned in closed-loop interaction with the controlled system. Existing approaches for MPC cost-weight optimization can broadly be divided into two categories. The first computes a single fixed parameter vector offline, whereas the second learns a state-dependent weight-adaptation policy online. Clas-sical offline tuning methods, such as genetic algorithms and Bayesian optimization [8], [9], [10], [11], can identify useful fixed weights but do not address online adaptation to changing conditions. Since this work addresses online adaptation, we focus on the latter category. In the taxonomy of [12], this corresponds to a hierarchical Reinforcement Learning (RL)– MPC architecture in which the MPC is part of the actor and a neural policy supplies the MPC parameters. Within arXiv:2609.01061v1 [cs.RO] 1 Sep 2026 this setting, recent work distinguishes two complementary sources of learning signal: methods that build environment-based gradients from sampled closed-loop interactions (black-box learning), and methods that compute model-based solver gradients by differentiating through the MPC solver (white-box learning). The first family learns online cost-weight adaptation policies using environment-based gradients . The environment-based baselines considered here construct policy updates from sam-pled closed-loop returns, treating the MPC controller as part of the environment [3], [4], [13], [14]. RL has also been applied more broadly to learning fixed MPC parameters, such as terminal costs or prediction horizons [15], [14], while the concept of Weights-varying MPC introduced learning state-dependent cost-weight adaptation policies [3], [4]. More generally, MPC has been incorporated as a structured policy or value-function approximator within actor-critic architec-tures, deterministic and stochastic policy-gradient methods, economic MPC, learning-based MPC formulations, and joint system-identification and control frameworks [16], [17], [18], [19], [20], [21], [22], [23], [24]. These baselines benefit from long-horizon credit assignment and can use reward signals defined by broad classes of closed-loop objectives, including non-smooth or sparse terms. However, their updates still rely on sampled closed-loop interactions and inherit the usual approximation, finite-horizon, and estimator-bias issues of practical policy-gradient methods. The second family learns MPC parameters using model-based solver gradients obtained from differentiable optimiza-tion. Building on task-based learning through optimization problems [25], differentiable optimization layers [26], [27], and differentiable MPC [28], recent advances enable efficient backpropagation through increasingly general MPC formula-tions, including constrained nonlinear MPC [29], [30]. Until recently, such approaches focused almost exclusively on opti-mizing fixed MPC parameters through solver sensitivities, in-cluding DiffTune-MPC [31], differentiable actor learning [32], cost-matching approaches [33], and ZipMPC [34]. Only very recently, gradient-based policy learning (Gradient-Based Pol-icy Learning (GB-PL)) for nonlinear MPC [5] extended the differentiable nonlinear MPC to learn online cost-weight adap-tation policies. Our GB-PL baseline is built upon [5] and uses a recent backpropagation software feature in acados [29] to efficiently compute solver gradients for nonlinear constrained MPC. In this view, GB-PL plays a cost-matching role: it aligns a differentiable MPC surrogate loss with task-level performance terms on trajectories generated by the predictive model. Unlike environment-based RL updates, these methods exploit local first-order gradients of the differentiable surrogate under solver-regularity assumptions, resulting in substantially higher sample efficiency when the surrogate is informative. Despite their sample efficiency, differentiable-solver meth-ods optimize model-based surrogate objectives whose gradi-ents are only as accurate as the predictive model and therefore may become misleading under model mismatch. Furthermore, they generally lack the exploration mechanisms and long-horizon value estimation that make RL effective for optimizing the performance of the realized closed-loop. Conversely, our environment-based PPO baseline does not use the rich first-order information available from differentiable MPC solvers. The methods compared in this work therefore emphasize one of two complementary information sources: either sampled closed-loop returns or solver sensitivities. Environment-based gradients more directly reflect the realized closed-loop objec-tive but can suffer from high variance, whereas solver gradients provide lower-variance local guidance but inherit bias from the predictive model. Their complementary properties motivate the combination of both within a single learning framework. This gap motivates the central question of this paper: how can environment-based and model-based solver gradients be combined effectively for learning online MPC cost-weight adaptation policies? This question is related to a broader family of guided, struc-tured, and hybrid reinforcement-learning methods that com-bine model-free policy updates with model-based gradients, planning modules, auxiliary losses, or teacher signals [35], [36], [37], [38], [39], [40], [41], [42], [43]. These methods demonstrate that combining complementary gradient estima-tors can substantially improve learning efficiency. However, these works do not use differentiable constrained nonlinear MPC solver sensitivities as structured auxiliary gradients for policy optimization over online MPC cost weights. Within the differentiable MPC literature, solver sensitivities have also been used beyond direct parameter optimization. Adhau et al. [44] employ nonlinear-program sensitivities to ap-proximate action-value quantities in a Q-learning framework, thereby reducing the number of MPC evaluations required dur-ing learning. This approach, however, neither learns an online cost-weight adaptation policy nor uses solver sensitivities to guide policy optimization itself. Romero et al. [32] propagate solver gradients through a differentiable linear MPC layer embedded in a PPO actor for quadrotor control, while related hybrid schemes study differentiable simulation gradients [45] or use RL to provide NMPC reference guidance [46]. In con-trast, our differentiable nonlinear MPC-based work does not replace environment-based policy gradients with model-based solver gradients, nor does it guide the controller only through references. Instead of viewing solver gradients as an alternative optimization objective, we use them as auxiliary signals inside PPO. Consequently, the optimization objective remains the sampled closed-loop return, while solver sensitivities provide local model-informed search directions for online cost-weight adaptation with constrained nonlinear MPC. The contributions of this work are threefold: 1. Solver-gradient Guide for online MPC weight adap-tation. We introduce Solver-Gradient Guided Reinforcement Learning (SG-RL), a framework for online cost-weight adap-tation in constrained nonlinear MPC. Compared to RL, which learns from environment-based policy gradients estimated from sampled closed-loop returns, and differentiable-solver approaches that optimize model-based surrogate objectives using solver sensitivities, SG-RL uses solver-gradient guidance as an auxiliary signal for RL while still optimizing the realized closed-loop return (Sec. VI). 2. Four methods for guiding Proximal Policy Optimization (PPO) through solver sensitivities, We instantiate this mech-anism through four modular SG-RL algorithms that integrate the same solver-gradient guidance into distinct PPO compo-nents: actor-update scaling, performance-gated auxiliary policy learning, solver-guided advantage estimation, and solver-aware critic learning. These methods provide four complementary instantiations of the SG-RL framework and are evaluated separately to understand which forms of solver guidance are most effective in practice (Sec. VI). 3. Full-scale validation under model mismatch. We demon-strate our SG-RL on a closed-loop high-dimensional, highly nonlinear control task: nonlinear MPC for combined longi-tudinal and lateral vehicle control on two full-scale, high-fidelity autonomous racing simulation platforms, following racelines near the vehicle handling limits under intentional model mismatch. In this setting, all SG-RL variants outper-form the PPO baseline in peak closed-loop performance, reach PPO’s best return with up to 70.6 % fewer training samples, and outperform the GB-PL baselines by at least 54 % in return, while also demonstrating zero-shot generalization and interpretable weight-adaptation strategies (Sec. VIII-IX-B). 
+
+Notation and Background. We denote by πϕ(· | ot) astochastic actor that maps the observation ot to a distribu-tion over MPC weights, with mean μϕ(ot), while Vψ (ot)
+
+denotes the critic and provides the value function. We use the generalized-advantage estimate ˆAt [47] to quantify whether the sampled weight vector performed better or worse than expected. With TD residual δt := rt + γV ψ (ot+1 ) − Vψ (ot),we write ˆAt = δt + γλ (1 − dt+1 ) ˆAt+1 , (1) where γ is the discount factor and λ is the GAE parame-ter [47]. PPO updates the actor through the clipped surrogate objective 
+
+JPPO (ϕ) = ˆEt
+
+h
+
+min  ρt(ϕ) ˆAt,
+
+clip  ρt(ϕ), 1 − ϵ, 1 + ϵ ˆAt
+
+i
+
+,
+
+(2) with sampled action at ≡ θt, ratio ρt(ϕ) = πϕ(at |
+
+ot)/π ϕold (at | ot), and clipping range ϵ. For the critic, we use the standard value-regression term based on the fixed target 
+
+ˆRλt := ˆAt + Vψold (ot).Actor and critic are then optimized through the standard combined PPO loss 
+
+LPPO (ϕ, ψ) = − J PPO (ϕ) + cV LV (ψ)
+
+− cent ˆEt
+
+H(πϕ(· | ot)) , (3) where cV and cent weight the value and entropy terms, respectively. The standard RL update used as baseline later with learning rate η is 
+
+URL : ( ϕk+1 , ψk+1 ) = ( ϕk, ψk) − η ∇ϕ,ψ LPPO (ϕ, ψ) (4) II. P ROBLEM FORMULATION 
+
+We formalize weights-varying Nonlinear Model Predictive Control (NMPC) as a hierarchical decision-making problem (Fig. 1). During deployment, a low-level NMPC controller solves a constrained finite-horizon optimal control problem at each sampling instant, while a high-level learning policy adapts the NMPC cost weights online along the task do-main, thereby providing a mechanism to shape long-horizon behavior. During learning, the same closed-loop architecture is rolled out to collect trajectories, and an outer optimization loop updates the policy parameters across training iterations. 
+
+A. Weights-varying Nonlinear MPC 1) Motivation: Why Adapt Cost Weights?: Standard NMPC typically relies on fixed cost weights tuned offline to balance competing objectives such as tracking accuracy and control effort. In practice, the best trade-off is context-dependent: op-erating regime, disturbance level, uncertainty, and anticipated task difficulty change over time, so a single static tuning is inevitably conservative in some conditions and too aggressive in others. We therefore adapt the cost weights online, which reshapes the optimization landscape and the relative emphasis placed on these objectives without modifying the underlying model or constraints. 
+
+2) Weights-varying NMPC OCP Formulation: The OCP solved at time t with a receding prediction horizon N is: 
+
+min 
+
+x, u J(x, u, θt) =  
+
+> N−1
+
+X
+
+> k=0
+
+l(xk, uk, θt) + lN (xN , θt) (5a) 
+
+s.t. x0 = st, (5b) 
+
+xk+1 = f (xk, uk), k = 0 , . . . , N − 1, (5c) 
+
+0 ≤ h(xk, uk), k = 0 , . . . , N − 1, (5d) 
+
+0 ≤ hN (xN ) (5e) where x = [ x0, . . . , xN ] and u = [ u0, . . . , uN −1] are the state and control trajectories, while st denotes the current state estimate available to the controller at time t. The stage cost 
+
+l(·) and the terminal cost lN (·) are parameterized by a weight vector θt ∈ Rnθ , which is fixed on the prediction horizon at time t but may change between sampling instants. The function f (·) in (5c) is the internal prediction model of the controller. In this work, we keep f (·) fixed and adapt only the cost parameters. The functions (5d)-(5e) provide inequality constraints on the states and controls. 
+
+3) Learning-based Cost-Weight Adaptation Policies: We introduce a high-level policy πϕ (parameterized by ϕ) that maps an observation ot to a distribution over NMPC weight vectors (Fig. 1). The applied weight vector is denoted θt
+
+and is equivalent to the RL action at, while μϕ(ot) denotes the policy mean used for deterministic evaluation and solver-guided policy updates. The policy is evaluated online both during training rollouts and during deployment; the difference between the two phases is only whether ϕ is updated. At each time t, the lower-level NMPC solves (5) with the current state st and the set of parameters θt, then applies the first input ut := u∗
+
+> 0
+
+(st, θt) to the system in a receding-horizon fashion. 
+
+B. Problem Statement: Learning Policies for Weights-varying NMPC 
+
+Our objective is to learn the parameters ϕ of the high-level weight-selection policy to optimize long-horizon closed-loop performance. Let Lperf (st, ut) denote a user-defined instantaneous performance loss evaluated on the realized closed-loop state and the control actually applied at time 
+
+t (Fig. 3). This high-level loss can differ from the NMPC internal cost J and may include objectives that are difficult to encode directly in the NMPC, including non-smooth, sparse, or history-dependent terms such as collisions, failure-to-finish, or penalties on rapid weight variation. The objective is to find the optimal policy parameters ϕ∗
+
+that minimize the expected cumulative loss over a closed-loop episode of length T , where the expectation is taken over the trajectories induced by the policy, the NMPC controller, the true rollout environment, and exogenous stochasticity: 
+
+ϕ∗ = arg min 
+
+> ϕ
+
+Eτ ∼pcl 
+
+> ϕ
+
+" TX
+
+> t=0
+
+Lperf (st, ut)
+
+#
+
+, (6) Learning the high-level weight-selection policy is challeng-ing because the return depends on ϕ only indirectly through the closed-loop interaction of the policy πϕ, the numerical solution of a constrained NMPC problem at each time step, and the true plant or rollout-environment dynamics. Decisions at time t therefore affect future states, observations, and solver calls, which induces long-horizon credit assignment during training. The following sections develop three approaches for solving the upper-level optimization problem in (6). We first intro-duce the neural policy architecture used throughout the paper (Sec. III), then present two baseline optimization paradigms based on differentiable optimization (Sec. IV) and reinforce-ment learning (Sec. V), before introducing our proposed Solver-Gradient Guided Reinforcement Learning framework (Sec. VI), which combines the strengths of both. III. D ESIGNING A NEURAL POLICY FOR 
+
+WEIGHTS -VARYING NMPC Weights-varying NMPC depends on a policy πϕ that maps high-dimensional observations to effective cost configurations. This mapping is implicit, nonlinear, and shaped by NMPC constraints, so fixed offline weights are insufficient when task requirements and disturbances change quickly. We design a neural meta-controller in the NMPC hyper-parameter space. At each step, it maps ot to weights θt
+
+(Figs. 1, 2) for the next planning horizon. This hierarchical decomposition allows the NMPC to handle system constraints and low-level dynamics, while the neural policy focuses on shaping the broader behavioral objectives. 
+
+A. Policy Architecture: History-Aware MLP 
+
+The main design choices are the policy input ot and output 
+
+θt: the input must support reaction, anticipation, and mismatch adaptation, while the output is restricted to valid NMPC weight ranges. This reduces the learning search space and improves robustness. We parameterize our policy πϕ as a feed-forward neural network. The policy and NMPC share the online sens-ing/estimation pipeline: NMPC initializes the OCP with st,and the policy receives features ot from measured/estimated quantities, reference previews, and recent performance. To capture temporal context without the complexity of Recurrent Observation  Stack  
+
+> Performance History
+> (Adaptive)
+> Current State
+> (Reactive)
+> Task Anticipation
+> (Proactive)
+> Observation
+> MLP
+> Smooth
+> Saturation Γ
+> Actor: NN Policy
+> Cost Weights
+
+Fig. 2: Architecture of the online cost-weight policy. Neural Networks (RNNs), we explicitly structure ot into three functional groups (Fig. 2): 1. Current measurable context (Reactive): task-relevant lo-cal state information in a task-relative frame, enabling reactive decisions. 2. Reference preview / task context (Proactive): a short-horizon lookahead rt:t+Hant of the reference quantities used by the NMPC, such as target speed and path geometry, so weights change before braking, curvature, or acceleration events. 3. Performance history (Adaptive): recent closed-loop tracking terms, e.g., squared lateral and velocity errors, sum-marizing whether the current schedule works and helping infer persistent disturbances, model mismatch, or actuator transients. 
+
+B. Action Space: Constrained Cost Parameterization 
+
+Our policy outputs cost weights θt, which must remain pos-itive and well scaled. Arbitrary weights can destroy objective conditioning or strict convexity for diagonal quadratic terms, yield unbounded solutions, or drive training into numerically unstable magnitudes. Instead of a matrix-level projection onto the positive-definite cone, we use a Constrained Cost Parameterization :each weight is bounded within strictly positive limits. These conservative box constraints are simple, robust, and enforce positive-definiteness for diagonal costs. Domain knowledge sets [θmin , θmax ], and unconstrained logits qt ∈ Rnθ are mapped to this range by a scaled tanh :
+
+θt = Γ(qt) = θmax − θmin 
+
+2 tanh( qt) + θmax + θmin 
+
+2 . (7) This mechanism serves two purposes: 1. Search-space regularization: confines optimization to a bounded hyper-rectangle, preventing divergence and removing irrelevant parameter regions. 2. Smooth bounded mapping: keeps the parameterization differentiable and avoids hard clipping, at the cost of attenu-ated gradients near boundaries. IV. GB-PL FOR WEIGHTS -VARYING DIFFERENTIABLE 
+
+NMPC This section presents the GB-PL baseline for weights-varying differentiable NMPC. Here, GB-PL refers to the set-ting in which a differentiable surrogate loss is backpropagated through the NMPC layer and the neural policy. We use both the TABLE I: Comparison of Policy Architectures for Weights-varying NMPC. Our proposed policy uniquely combines re-activity, adaptability, and proactive anticipation within a con-strained action space.                     
+
+> Method Reactive Adaptive Proactive Action Space
+> [3] ✓✓×Bounded (Sigmoid) [4] ✓✓✓Bounded, discrete [5] ××✓Unbounded (Softplus)
+> Ours ✓✓✓Bounded (Tanh)
+
+prior reduced GB-PL formulation [5] and our new extended implementation as baselines for evaluating the SG-RL methods introduced later in Section VI. 
+
+A. Differentiating the NMPC Solution 
+
+To propagate gradients through the NMPC solver, we follow the sensitivity analysis of nonlinear programs in [29]. Let 
+
+w∗(θt) = [ z∗, λ∗, μ∗] denote the optimal primal-dual solution vector of the OCP (5) given weights θt, where z∗ contains the optimal states and controls, and λ∗, μ∗ are the Lagrange multipliers associated with the equality and inequality con-straints. The optimality of w∗ is defined by the Karush-Kuhn-Tucker (KKT) conditions, which can be expressed as a system of nonlinear equations R(w∗, θt) = 0 . Assuming the standard regularity conditions (Linear Independence Con-straint Qualification, Second-Order Sufficiency Condition, and Strict Complementarity) hold locally, the Implicit Function Theorem (IFT) yields a locally unique solution map whose derivative exists piecewise, i.e., within regions where the active set remains unchanged. The sensitivity matrix St, representing the Jacobian of the solution with respect to the parameters, then follows from differentiating the KKT residual equations with respect to θt:
+
+St = ∂w∗
+
+∂θt
+
+= −
+
+ ∂R
+
+∂w∗
+
+−1 ∂R
+
+∂θt
+
+. (8) In this work, we employ the recent differentiable-solver sensitivity functionality implemented in acados [48], [29]. Concretely, the solver returns forward sensitivities of the NLP solution with respect to the cost weights by solving the linearized KKT system associated with the current SQP iterate. This yields the Jacobian ∇θt z∗, quantifying how the optimal trajectory changes with infinitesimal perturbations in the cost weights. 
+
+B. Gradient Propagation and Policy Learning 
+
+The goal of GB-PL is to update the policy-parameter collection ϕ, comprising all trainable weights and biases of the neural policy, by differentiating through the NMPC solver. Since this requires end-to-end differentiability, GB-PL optimizes a differentiable surrogate loss ˜Lperf (z∗) defined on the NMPC solution z∗ (predicted state/control trajectory) returned by the solver. This surrogate is a differentiable proxy for the task-level loss Lperf (·) introduced in Section II-B. In our setting, it is built by reusing the same smooth tracking, velocity, and control-regularization terms as the task-level loss, but evaluating them on the NMPC-predicted open-loop trajectory z∗ rather than the realized closed-loop trajectory. Consequently, GB-PL is restricted to objectives for which such a smooth surrogate can be written; genuinely non-smooth or sparse task terms must either be approximated by smooth surrogates or omitted from the GB-PL update, which is itself a limitation of the approach rather than something resolved here. We compute the corresponding model-based end-to-end gradient of ˜Lperf with respect to the policy parameters ϕ at time t using the chain rule: 
+
+∇ϕ ˜Lperf =
+
+
+
+∂ ˜Lperf 
+
+∂z∗
+
+| {z } 
+
+> Loss Gradient
+
+· ∂z∗
+
+∂θt
+
+|{z} 
+
+> Solver Sensitivity
+
+| {z } 
+
+> := gθ
+> SG ,t
+
+· ∂θt
+
+∂ϕ
+
+|{z} 
+
+> Policy Jacobian
+
+(9) 1. Loss Gradient: ∂ ˜Lperf  
+
+> ∂z∗
+
+is computed using automatic dif-ferentiation (e.g., PyTorch). It represents the sensitivity of the differentiable surrogate loss with respect to the optimal trajectory produced by the NMPC. 2. Solver Sensitivity: ∂z∗ 
+
+> ∂θt
+
+is extracted from the sensitivity matrix St in (8), computed by acados . This step bridges the optimization landscape with the control parameters. 3. Weight-Space Solver Gradient: The product gθ 
+
+> SG ,t
+
+is the local gradient of the surrogate loss in NMPC-weight space. The corresponding solver-informed descent step is −gθ
+
+> SG ,t
+
+.We reuse this notation in Section VI, where the same solver-derived loss-gradient direction is normalized and injected into PPO. 4. Policy Jacobian: ∂θt 
+
+> ∂ϕ
+
+maps the weight-space solver loss gradient back to the trainable parameters of the neural policy. Thus, GB-PL computes an exact model-based gradient of the surrogate loss ˜Lperf (z∗) by differentiating through the solver and the policy. Formally, the update rule of GB-PL at iteration k, over a data batch B with learning rate η, is: 
+
+UGB : ϕk+1 = ϕk − η 1
+
+|B| 
+
+X
+
+> i∈B
+
+∇ϕ ˜L(i)
+
+> perf
+
+. (10) 
+
+Key Novelties: Although pure GB-PL is not our main focus, we introduce three structural improvements to the existing reduced GB-PL formulation in [5]. First, instead of updating the policy after each rollout in the order it is generated, we collect a batch of rollouts, shuffle them into mini-batches, and perform multiple optimization passes (epochs) over this batch before collecting new data. This improves performance and sample efficiency. Second, we constrain the policy out-put using a differentiable tanh projection (Section III-B), ensuring all weights remain within a safe, bounded region and avoiding the poorly scaled objectives that can arise with unbounded parameterizations. Third, our observation space is history-aware, combining temporal stacks of current states and tracking errors with future references, which enables the policy to adapt reactively to disturbances and persistent errors, rather than relying solely on feedforward prediction. These changes collectively yield a more stable, adaptive, and scalable GB-PL framework for weights-varying differentiable NMPC. 
+
+C. GB-PL Algorithm Limitations 
+
+While GB-PL provides a direct path for optimizing adifferentiable, model-based surrogate loss ˜Lperf (·), it suffers from specific structural limitations when the goal is closed-loop performance optimization: 1. Local descent without exploration: Like other local gra-dient methods, GB-PL follows the immediate descent direction of its surrogate objective and does not include an explicit exploration mechanism. Its training outcome is therefore sensi-tive to initialization and to the local geometry of the surrogate landscape. 2. Need for differentiable loss: GB-PL requires the surrogate loss ˜Lperf (z∗) to be differentiable with respect to the NMPC trajectory z∗. This precludes optimizing sparse event-based objectives (e.g., ”Lap completed”, ”Collision”) or using non-smooth penalties. 3. Open-loop, model-dependent tuning: The sensitivities in (9) are derived from the NMPC’s internal open-loop predic-tions rather than from realized closed-loop trajectories. As a result, GB-PL primarily tunes the MPC cost to match the task loss under the predictive model used by the solver, rather than directly optimizing the true closed-loop behavior of the plant. This cost-matching view is closely related to recent model-based MPC cost-matching formulations [33]. When the predictive model is inaccurate, the resulting gradient can systematically deviate from the true closed-loop improvement direction. V. R EINFORCEMENT LEARNING BASELINE FOR 
+
+WEIGHTS -VARYING NMPC To address the limitations of GB-PL—specifically the my-opic nature of local gradient descent and the requirement of differentiable surrogate losses—we formulate NMPC weight adaptation within a RL framework and use it as the second benchmark for solver-guided RL (Sec. VI). Our baseline is PPO, an on-policy actor–critic method that updates the stochastic weight policy πϕ from sampled closed-loop returns without solver differentiation. Building on RL-WMPC [3], [4], the plant plus NMPC controller defines the environment, and the agent adapts NMPC weights through interaction. We choose PPO over SAC because its on-policy structure uses MPC real-time iterations more efficiently than random off-policy sampling. We model the problem as a Partially Observable Markov Decision Process (POMDP) M = ( S, A, P, r, γ ) with latent state space S, action space A, transition kernel P, reward 
+
+r, and discount γ. The action is the NMPC weight vector, 
+
+at ≡ θt, and P captures plant–controller closed-loop evo-lution under those weights. The policy πϕ(· | ot) condi-tions on observations built from measurements and references (Sec. III-A). To ensure a rigorous comparison against GB-PL, we define the reward rt as the negative of the same instantaneous high-level performance loss introduced in Section II-B. Thus, the reward is evaluated on the realized closed-loop state and applied input at time t, rather than on the internal NMPC cost J or on the NMPC-predicted trajectory used inside the differentiable surrogate of GB-PL: 
+
+rt = −L perf (st, u∗
+
+> 0
+
+). (11) Here u∗ 
+
+> 0
+
+denotes the first control input of the NMPC solution applied to the system at time t. We denote the corresponding expected closed-loop return by 
+
+R(πϕ) := Eπϕ
+
+" TX
+
+> t=0
+
+γtrt
+
+#
+
+. (12) This reward alignment ensures that any performance difference between RL and GB-PL is attributable to the learning signal and update mechanism rather than to a different task objective. In particular, PPO estimates its policy update from closed-loop returns collected through environment interactions, so the resulting policy gradient is an environment-based signal that implicitly reflects exploration, stochasticity, and model mismatch. By contrast, GB-PL’s update is a model-based gradient built from the same underlying performance terms. The preceding sections reveal a trade-off between differ-entiable solver-based learning and RL for Weights-varying NMPC. GB-PL incorporates solver sensitivities, enabling sample-efficient gradient-based policy updates through the NMPC layer. However, these updates optimize a differentiable surrogate defined on predicted trajectories and can therefore deviate from the true closed-loop objective under model mismatch or non-smooth task objectives. Conversely, PPO directly optimizes the expected closed-loop return through environment interaction and can capture model mismatch and long-horizon effects, but can require more interaction data and does not exploit the sensitivity information available from the NMPC solver. This motivates the central question addressed in the remainder of this paper: how can solver-gradient in-formation from differentiable NMPC be incorporated into RL to accelerate policy optimization while preserving the closed-loop return as the learning objective? 
+
+VI. S OLVER -G RADIENT GUIDED REINFORCEMENT 
+
+LEARNING 
+
+In this section, we introduce our Solver-Gradient Guided Reinforcement Learning (SG-RL) , whose core idea is to inject the model-based NMPC solver loss gradient gSG ,t into selected components of the PPO algorithm. 
+
+a) Solver gradients as normalized loss gradients: Let 
+
+θt ∈ Rnθ denote the NMPC cost-weight vector used by the solver at time t. During stochastic rollouts this is the sampled RL action, i.e., at ≡ θt, whereas deterministic evaluation and the differentiable solver-guidance terms use the policy mean 
+
+μϕ(ot) unless stated otherwise. On regular regions of the piecewise-differentiable NMPC solution map, we can compute the local sensitivity of the instantaneous performance loss with respect to these weights: Following Section IV-B, we define the corresponding weight-space solver gradient as the gradient of the differentiable surrogate loss: 
+
+gθ 
+
+> SG ,t
+
+:= ∇θ ˜Lperf 
+
+ z∗(θ)
+
+> θ=θt
+
+. (13) PROBLEM: how to learn  ? AFTER: OURS BEFORE: SOTA     
+
+> 3 Learning Paradigms
+> Observations
+> Environment
+> Update
+> MPC
+> System plant
+> (real/sim)
+> Cost Weights
+> Reinforcement Learning (RL)
+> builds environment-based gradients
+> closed-loop | 0-order black-box
+> Gradient-based
+> Policy Learning (GB-PL)
+> builds MPC model-based gradients
+> open-loop | 1-order white-box
+> : Performance Loss / Rewards
+> MPC Solver Sensitivities
+> Solver-Gradient Guided RL (SG-RL) family
+> 0-order (environment gradients) + 1-order (solver gradients) = grey-box
+> vanilla PPO components
+> Actor Update
+> Step Loss Advantage
+> Function
+> Method 1
+> SG-SCA (ours)
+> Adaptive PPO
+> Update Scaling
+> Method 2
+> SG-LOS (ours)
+> Performance-Gated
+> Loss
+> Method 3
+> SG-ADV (ours)
+> Advantage
+> Shaping
+> Method 4
+> SG-CRT (ours)
+> Augmented
+> Critic
+> inject inject inject inject
+> Actor
+> Critic
+
+Fig. 3: Bi-level Weights-varying NMPC architecture. The policy selects cost weights for the NMPC, while the upper-level learner updates the policy from closed-loop rollouts using sampled performance feedback and solver-gradient guidance. Throughout this section, we use a direction-only solver loss-gradient signal by normalizing the sensitivity vector, 
+
+gSG ,t := gθ
+
+> SG ,t
+
+∥gθ
+
+> SG ,t
+
+∥2 + ϵ , (14) so that ∥gSG ,t ∥2 ≤ 1. This removes scale variability across operating contexts and makes the solver-derived signal com-parable across time, while leaving update magnitude to the method-specific coefficients that determine how strongly the solver loss-gradient direction is used. A local descent step in weight space is therefore taken along −gSG ,t . When sensitivi-ties are unavailable (e.g., infeasible solves), we set gSG ,t = 0,recovering standard PPO behavior. 
+
+b) RL gradient convention: We train PPO by minimizing the compound loss introduced in Eq. (3), which combines the clipped policy objective with auxiliary terms such as value regression and entropy regularization. Throughout this section, we denote the objective-level PPO policy gradient by 
+
+gRL := ∇ϕLPPO (ϕ, ψ). (15) In implementation, PPO evaluates this gradient through stochastic minibatch estimates, which we denote by gRL ,B := 
+
+∇ϕLPPO ,B(ϕ, ψ) for a minibatch B. At training iteration k,we denote by gRL ,k the realized stochastic PPO gradient used in that update, e.g., a minibatch estimate of the form gRL ,Bk .
+
+c) Overview: We define the ”Standard GB-PL Update” (UGB , Eq. 10) and ”Standard RL Update” ( URL , Eq. 4) as the baselines. We propose four novel hybrid methods that inject the solver gradient gSG into different components of the PPO architecture (Fig. 3). We use one SG-RL variant per injection point so that the comparison isolates where solver guidance is most useful: 1. Adaptive PPO Update Scaling (SG-SCA): Modulates the magnitude of the PPO policy update based on its alignment with a solver-consistent loss-gradient direction, acting as a dynamic learning rate. 2. Performance-Gated Loss (SG-LOS): Adds an auxiliary supervised loss that pulls the policy toward a solver-suggested target only when the RL agent performs poorly. 3. Advantage Shaping (SG-ADV): Modifies the advantage function to reward action displacements that align with the negative solver loss gradient, biasing exploration. 4. Augmented Critic (SG-CRT): Conditions the critic on the solver sensitivity vector, providing an additional landscape descriptor for value estimation. As shown in Fig. 3 and in Algorithms 1–4, each method represents a different strategy for fusing model-based NMPC solver gradients with PPO. 
+
+A. Method 1: Adaptive PPO Update Scaling (SG-SCA) 
+
+Standard PPO already provides a loss-gradient update di-rection, but it still relies on a heuristic step size. We want the solver signal to tell us when PPO should trust that direction more strongly and when it should act more conservatively. We therefore use the NMPC solver loss gradient to scale the magnitude of the PPO update while preserving the PPO update direction. Because gSG ,t lives in the NMPC weight space, we first define for each transition a solver-consistent scalar whose gradient we can backpropagate through the policy: 
+
+ℓSG ,t (ϕ) := μϕ(ot)⊤gSG ,t , (16) During the PPO update, we treat gSG ,t as a fixed stored solver signal and differentiate only through the policy output μϕ(ot).This induces the lifted parameter-space loss-gradient signal 
+
+egSG ,t := ∇ϕ ℓSG ,t (ϕ). (17) At the PPO-objective level, we aggregate these per-transition quantities as 
+
+ℓSG (ϕ) := ˆEt [ℓSG ,t (ϕ)] = ˆEt
+
+μϕ(ot)⊤gSG ,t 
+
+ , (18) which induces the lifted loss-gradient signal 
+
+egSG := ∇ϕ ℓSG (ϕ). (19) Algorithm 1 SG-SCA  
+
+> 1:
+
+for each PPO minibatch do  
+
+> 2:
+
+compute PPO minibatch gradient gRL ,B = ∇ϕLP P O, B 
+
+> 3:
+
+form ℓSG ,B = P 
+
+> i∈B
+
+μϕ(oi)⊤gSG,i and egSG ,B = ∇ϕℓSG ,B 
+
+> 4:
+
+compute ρ = ( eg⊤ 
+
+> SG ,B
+
+gRL ,B )/(∥gRL ,B ∥2 + ϵ) 
+
+> 5:
+
+compute α = clip(1 + λρ, 0, α max ) 
+
+> 6:
+
+update policy params ϕ with scaled PPO gradient α gRL ,B 
+
+> 7:
+
+end for 
+
+We then compute the alignment ρ between the lifted solver-consistent loss-gradient signal and the PPO policy gradient 
+
+gRL defined above: 
+
+ρ = eg⊤
+
+> SG
+
+gRL 
+
+∥gRL ∥2 + ϵ . (20) This coefficient measures how strongly the solver-derived loss gradient projects onto the PPO loss gradient. We then construct an adaptive scaling factor α:
+
+α = clip (1 + λ · ρ, 0, α max ) , (21) where λ ≥ 0 is a strength hyperparameter and αmax is a saturation limit preventing excessive update steps that could destabilize the policy. The lower bound of 0 acts as a safeguard by preventing the adaptive mechanism from reversing the PPO update direction. Finally, we scale the effective PPO update step and formally define the SG-SCA operator USG −SCA as 
+
+USG −SCA : ϕk+1 = ϕk − η · ( α· gRL ) , (22) By scaling the magnitude of gRL in this way, we take larger descent steps −gRL when the solver loss gradient confirms the PPO loss gradient and smaller steps when it conflicts. In implementation, PPO evaluates both gradients through stochastic minibatch estimates on each minibatch B,as summarized in Algorithm 1 via ℓSG ,B, egSG ,B, and gRL ,B.
+
+B. Method 2: Performance-Gated Loss (SG-LOS) 
+
+SG-LOS addresses the case in which PPO explores a poor weight configuration while the solver gradient suggests model-consistent local correction. At the same time, we do not want the solver signal to override trajectories that already achieve high return. We therefore add a performance-gated target-following loss to the minimized PPO training loss. Unlike SG-SCA, which rescales the PPO descent step, SG-LOS introduces an explicit target-following loss Lguide added to the PPO training loss: 
+
+LSG −LOS (ϕ, ψ) = LPPO (ϕ, ψ) + λguide Lguide (ϕ) . (23) The surrogate loss ˜Lperf directly is not added to PPO as a globally active regularizer. Because that surrogate is local, open-loop, and model-based, applying it uniformly would treat the solver signal as equally reliable on all samples, including trajectories that already achieve high return. Instead, SG-LOS uses the solver gradient only to construct a local correction target and activates that correction selectively on underperforming transitions. Let ¯θt denote the behavior-policy weight vector associated with transition t. We form a local 
+
+Algorithm 2 SG-LOS  
+
+> 1:
+
+for each collected transition do  
+
+> 2:
+
+form θtarget  
+
+> t
+
+= ¯θt − ηguide gSG ,t with the normalized solver gradient  
+
+> 3:
+
+compute the gate wt = clip (− ˆAt, 0, w max ) 
+
+> 4:
+
+ignore transitions with negligible solver-gradient norm  
+
+> 5:
+
+end for  
+
+> 6:
+
+for each PPO minibatch do  
+
+> 7:
+
+minibatch estimate of Lguide using the valid transitions  
+
+> 8:
+
+add λguide Lguide to the PPO training loss  
+
+> 9:
+
+minimize the combined loss  
+
+> 10:
+
+end for 
+
+target weight configuration by taking a fixed step ηguide along the surrogate descent step −gSG ,t :
+
+θtarget  
+
+> t
+
+= ¯θt − ηguide gSG ,t . (24) We penalize the distance between the current policy mean 
+
+μϕ(ot) and this target with the gated loss 
+
+Lguide (ϕ) = ˆEt
+
+wt ∥μϕ(ot) − θtarget  
+
+> t
+
+∥22
+
+ . (25) To implement this selective rectification, we derive the weight 
+
+wt from the advantage function ˆAt:
+
+wt = clip (− ˆAt, 0, w max ), (26) where wmax is the upper bound on the gating factor. In imple-mentation, we normalize the stored raw solver gradient, use the saved rollout mean as ¯θt when it is available, and mask out transitions with negligible solver-gradient norm before form-ing the minibatch estimate of Lguide . With this gate, negative-advantage samples receive a corrective pull toward the solver-suggested target, whereas positive-advantage samples reduce to standard PPO. Early in training, when underperforming transitions are more common, the gate naturally activates more often; the overall aggressiveness is then controlled by λguide ,
+
+ηguide , and the cap wmax .
+
+C. Method 3: Advantage Shaping (SG-ADV) 
+
+SG-ADV targets exploration rather than the optimizer step. PPO learns through the advantage estimate ˆAt, but ˆAt alone does not tell us whether the proposed policy-mean displace-ment points along a locally favorable solver descent step. We therefore inject the solver signal directly into the advantage estimate while keeping PPO on-policy. As reflected in the PPO surrogate objective in Eq. (2), PPO optimizes the policy based on an estimate ˆAt of the advantage function. We augment this estimate with a gradient-based correction term derived from the alignment between the policy’s mean weight displacement and the local loss landscape in weight space. We define the shaped advantage 
+
+ˆASG  
+
+> t
+
+as: 
+
+ˆASG  
+
+> t
+
+= ˆAt +β∆SG  
+
+> t
+
+, (27) where β ≥ 0 is a scaling coefficient. The correction term ∆SG 
+
+> t
+
+encodes the consistency between the policy’s deterministic displacement from the rollout reference ¯θt and the descent step −gSG ,t :
+
+∆SG  
+
+> t
+
+= −  μϕ(ot) − ¯θt
+
+⊤ gSG ,t . (28) Algorithm 3 SG-ADV  
+
+> 1:
+
+for each collected transition do  
+
+> 2:
+
+compute ∆SG  
+
+> t
+
+= −  μϕ(ot) − ¯θt
+
+⊤ gSG ,t  
+
+> 3:
+
+set ˆASG  
+
+> t
+
+= ˆAt + β ∆SG  
+
+> t
+> 4:
+
+end for  
+
+> 5:
+
+for each PPO minibatch do  
+
+> 6:
+
+replace ˆAt by ˆASG  
+
+> t
+
+in the clipped PPO surrogate  
+
+> 7:
+
+run the standard PPO actor–critic update with ˆASG  
+
+> t
+> 8:
+
+end for + gSG,t   
+
+> MPC Solver Gradient
+> Observation
+
+Fig. 4: Residual SG-CRT critic: an observation-based value estimate plus a scalar correction from a solver-gradient en-coder. Here, ¯θt is the behavior-policy mean for the rollout transition. The term ∆SG  
+
+> t
+
+represents the projection of the proposed displacement onto the descent step −gSG ,t . Thus, ∆SG  
+
+> t
+
+> 0
+
+implies that the policy mean moves locally toward lower sur-rogate performance loss, providing a solver-informed heuristic for action quality. We then substitute the shaped advantage into the standard PPO surrogate optimization problem (2): 
+
+J CLIP SG (ϕ) = ˆEt
+
+h
+
+min  ρt(ϕ) ˆASG  
+
+> t
+
+,
+
+clip (ρt(ϕ), 1 − ϵ, 1 + ϵ) ˆASG 
+
+> t
+
+i
+
+.
+
+(29) With this shaping, we reward solver-consistent action dis-placements and penalize solver-inconsistent ones through the advantage signal itself. 
+
+D. Method 4: Augmented Critic (SG-CRT) 
+
+SG-CRT targets the critic rather than the actor. The same observation can correspond to very different local controlla-bility and tuning difficulty depending on how sensitive the NMPC solution is to the cost weights, so an observation-only critic misses useful information about the local landscape. We therefore augment the critic with a solver-derived landscape descriptor based on the weight-space loss gradient gSG and inject it through a residual correction branch: 
+
+Vψ
+
+ ot, gSG ,t −
+
+ = Vψ,base (ot) + cψ
+
+ gSG ,t −
+
+ , (30) where Vψ,base is the conventional critic (MLP neural network), and cψ is a lightweight gradient encoder, e.g., a small fully connected network with bounded scalar output, that maps the normalized solver gradient to a residual correction. We use the index t− to emphasize that, in an online loop, the critic uses the most recently available solver sensitivity (e.g., from the previous NMPC solve) when evaluating the current observation. For the policy-gradient update, gSG ,t − is treated as a detached, action-independent critic feature, and no actor gradient is propagated through the value target or residual branch. With this residual branch, we calibrate value predic-tions in high-sensitivity regions and can reduce the advantage variance without modifying PPO’s actor update rule. 
+
+Algorithm 4 SG-CRT  
+
+> 1:
+
+for each environment step do  
+
+> 2:
+
+cache the latest available solver gradient gSG ,t − 
+
+> 3:
+
+evaluate Vψ (ot, gSG ,t − ) = Vψ,base (ot) + cψ (gSG ,t − ) 
+
+> 4:
+
+end for  
+
+> 5:
+
+for each PPO minibatch do  
+
+> 6:
+
+compute returns and advantages with the augmented critic  
+
+> 7:
+
+actor update with standard PPO and augmented critic fitting  
+
+> 8:
+
+end for 
+
+Weight-space vs. parameter-space usage: The solver sig-nal gSG ,t is an NMPC weight-space loss gradient. SG-LOS, SG-ADV, and SG-CRT use it directly in weight space (to shape advantages, construct targets, or condition the critic). SG-SCA, in contrast, needs a policy parameter-space quantity to modulate the PPO update step: it therefore lifts the weight-space signal through the policy using the construction already introduced in Eq. (16). VII. O PTIMIZATION INTERPRETATION OF SG-RL We formalize the SG-RL update in the same descent-direction convention used above and analyze its relationship to the expected closed-loop return R(πϕ). Since the reward in Section V is defined as rt = −L perf (st, u⋆
+
+> 0
+
+), maximizing 
+
+R(πϕ) is equivalent to minimizing the expected cumulative loss in Eq. (6). We interpret gRL ,k as the iteration-k stochastic realization of the PPO loss gradient in Eq. (15) and treat it as a stochastic descent proxy for −∇ ϕR(πϕk ).This section provides a first-order optimization interpreta-tion of SG-RL rather than formal convergence guarantees. For analytical tractability, we discuss SG-RL through descent directions, while the implementation optimizes PPO’s clipped surrogate as a trust-region approximation. The generic update model below provides a common interpretive lens for the SG-RL family; the individual methods differ only in how solver-gradient information is incorporated into the PPO optimiza-tion. 
+
+A. Solver Guidance Signal and SG-RL Update 
+
+Using the same lifting construction as in Eqs. (16) and (17), we denote the model-based NMPC solver gradient in weight space at a generic observation o by 
+
+gθ
+
+> SG
+
+(o) := ∇θ ˜Lperf 
+
+ z∗(μϕ(o)) . (31) We denote by gϕ
+
+> SG
+
+(o) the corresponding lifted normalized loss-gradient in policy-parameter space. The descent direction is therefore −gϕ
+
+> SG
+
+, which should be interpreted as a local model-based guidance signal induced by the surrogate ˜Lperf 
+
+rather than as the true policy gradient of R(πϕ).We define the SG-RL update as ϕk+1 = ϕk − αkdk, where the composite loss-gradient update vector dk is given by: 
+
+dk = Fk(gRL ,k , gϕ
+
+> SG ,k
+
+). (32) The operator Fk combines the PPO and solver-guidance signals into a single update direction (Fig. 1). The iteration index permits dynamic blending strategies, such as annealing solver influence through Fk(x, y) = x+λw ky, wk ∈ [0 , 1] .𝜙 1 
+
+> 𝜙 2
+> suboptimal attractors
+
+𝜙 ★
+
+> RL-induced field ( E[𝑔 RL ])
+> 𝜙 1
+> 𝜙 2
+
+𝜙 ★
+
+> SG
+
+𝜙 ★
+
+> SG-induced field ( 𝑔 𝜙
+> SG )
+> 𝜙 1
+> 𝜙 2
+
+𝜙 ★
+
+> SG
+
+𝜙 ★    
+
+> SG-RL-composite field: ( E[d𝑘 ])
+> Vector field (expected updates) RL trajectory SG trajectory SG-RL composite trajectory
+
+Fig. 5: Idealized policy-parameter dynamics. RL gradients optimize closed-loop return but may get trapped in poor basins; solver gradients provide biased local guidance; SG-RL combines both to guide early learning before RL refinements dominate. 
+
+B. Early-Training Guidance 
+
+The solver-guidance signal gϕ 
+
+> SG ,k
+
+is obtained by differen-tiating the surrogate ˜Lperf rather than the expected return, and therefore introduces model bias. Conversely, gRL ,k is estimated from sampled closed-loop trajectories and typically exhibits much higher trajectory-level variance early in training. SG-RL exploits this complementary bias–variance trade-off by using solver gradients only as guidance toward promising regions of the policy landscape (Fig. 5). To make this intuition explicit, let 
+
+ϕ⋆ 
+
+> SG
+
+∈ arg min 
+
+> ϕ
+
+ˆEo∼D 
+
+h ˜Lperf 
+
+ z∗(μϕ(o)) i
+
+(33) be surrogate-optimal policy parameters under a generic dataset 
+
+D of observations collected during training. The surrogate is useful whenever optimizing it yields policies that outperform random initialization under the true return, i.e., 
+
+R(πϕ⋆ 
+
+> SG
+
+) > Eϕ0∼P 0
+
+R(πϕ0 ) . (34) Here, ϕ0 ∼ P 0 denotes a randomly initialized policy pa-rameter set. The surrogate need not share the true optimum. It only needs to provide informative guidance during early learning. Our SG-SCA, SG-LOS, and SG-ADV methods use this surrogate bias in actor-side training signals. In contrast, SG-CRT uses solver sensitivities only as additional critic fea-tures. When detached from actor-gradient paths, the additional critic features leave the expected policy-gradient estimator unchanged while potentially reducing variance through a more accurate value baseline. Because the actor-side methods intentionally bias optimiza-tion toward the surrogate objective, their influence is gradually annealed by scheduling (λ, λ guide , β ) in Eq. (21), Eq. (23), and Eq. (27). This heuristic progressively transfers control back to PPO as learning progresses. 
+
+C. Non-aligned Updates 
+
+During this transition, the composite update dk generally differs from the pure PPO direction. It therefore need not maximize immediate return improvement, but it can accelerate optimization by steering learning toward more promising re-gions before PPO dominates (Fig. 5). To make it concrete, con-sider SG-SCA in a near-plateau regime where E[gRL ,k ] ≈ 0.Because the scaling factor αk in (21) depends directly on the minibatch gradient gRL ,k , the expectation of their product does not factorize: 
+
+E[αk gRL ,k ] = E[αk] E[gRL ,k ] + Cov( αk, gRL ,k ). (35) Near such a plateau, the covariance term can induce anonzero expected drift by amplifying solver-aligned minibatch directions and suppressing conflicting ones. Still, the closed-loop return objective R(πϕ) remains the primary optimization signal. VIII. A PPLICATION EXAMPLE : H IGH -S PEED 
+
+AUTONOMOUS RACING 
+
+We validate SG-RL in high-speed autonomous racing on two full-scale, high-fidelity simulation platforms representative of contemporary competitions: the Dallara AV-24 used in the Indy Autonomous Challenge (IAC) and the Super Formula EAV-24 from the Abu Dhabi Autonomous Racing League (A2RL). Both platforms are based on simulation and NMPC models identified from real-world vehicle data, while their underlying NMPC controllers have already been validated on the physical race cars. 
+
+A. Why Autonomous Racing Stresses Weights Tuning 
+
+Autonomous racing is a demanding benchmark for weights-varying NMPC because it combines tight feasibility constraints at the actuation and tire limits, pronounced modeling uncer-tainty and nonlinearity, and strong regime shifts within a single lap. Indeed, racing combines qualitatively different regimes: straights demand accurate velocity tracking, braking zones require deceleration stability, corners require lateral accuracy under combined-acceleration limits, and corner exits prioritize traction-limited acceleration. A single static weight tuning must compromise across these regimes, motivating online adaptation of the weight vector θt.500 m 
+
+Monza Yas Marina 
+
+30 80 velocity [m/s] 
+
+Dallara AV-24  
+
+> IAC: Indy Autonomous Challenge
+
+Super Formula EAV-24 
+
+> A2RL: AbuDhabi
+> Autonomous Racing League
+> EAV-24 photos Source: Morio (Wikimedia Commons), licensed under CC BY-SA 4.0. AV-24 photos Source: First Author
+
+Fig. 6: Autonomous-racing validation platforms: Dallara AV-24 on Monza (left) and Super Formula EAV-24 on Yas Marina (right), both reaching peak velocities above 80 m s −1.
+
+B. Vehicle Dynamic Model for NMPC 
+
+In our NMPC problem (5), we employ a nonlinear single-track vehicle model ˙x = f (x, u) based on [49], [50]. The states x = [ x, y, ψ, v x, v y , ˙ψ, δ, a x]⊤ model the vehicle pose, velocities, steering angle, and longitudinal acceleration, while the inputs u = [ jx, ˙δ]⊤ are the longitudinal jerk and steering rate. Lateral tire forces are modeled by the nonlinear Pacejka Magic Formula [51], and aerodynamic drag and downforce are included explicitly, affecting both longitudinal acceleration limits and available tire grip. 
+
+C. NMPC Formulation 
+
+The NMPC tracks a time-optimal trajectory (path and velocity profile) generated by an optimal control planner [52]. At each control step, the planner provides an N -step reference segment containing desired position, heading, ve-locity, longitudinal acceleration, and lateral acceleration. The NMPC problem follows the structure in Section II. The cost function consists of a stage cost l(·) and a terminal cost lN (·),formulated as quadratic forms: 
+
+l(xk, uk, θt) = 12 r(xk, uk)⊤W(θt) r(xk, uk), (36) 
+
+lN (xN , θt) = 12 rN (xN )⊤WN (θt) rN (xN ). (37) Here, r(·) denotes the vector of tracking errors and regular-ization terms. The weighting matrix W(θt) = diag (θt) is directly parameterized by the policy action vector θt, allowing our cost-weight policy to reshape the quadratic cost landscape online. The weights are fixed along the prediction horizon but updated between NMPC solves. The feature vector for the stage cost is defined as: 
+
+r(x, u) = elat , eψ , ev , ea, ealat , uj , u ˙δ
+
+⊤ . (38) Here, elat , eψ , ev , ea, and ealat denote the tracking errors for lateral position, heading, velocity, longitudinal acceleration, and lateral acceleration, while uj and u ˙δ penalize high-frequency actuation. The terminal feature vector rN (xN ) con-tains the same state-dependent terms but excludes the control inputs. The learnable weight vector (policy action) is 
+
+θt := qℓ,t qψ,t qv,t qa,t qay ,t rj,t r ˙δ,t 
+
+⊤ ∈ R7
+
+> >0
+
+,
+
+(39) representing the weights on the corresponding error terms in the cost function. We enforce strict feasibility bounds on actuators and physical envelopes on the states: 
+
+a) Actuation Limits: The control inputs are bounded to respect the physical steering rate and jerk limits: 
+
+U = {u | ˙δmin ≤ ˙δ ≤ ˙δmax , jmin ≤ jx ≤ jmax }. (40) 
+
+b) State Constraints: The steering angle δ is limited by the mechanical steering range. The longitudinal acceleration 
+
+ax is restricted by the velocity-dependent powertrain envelope, capturing the engine power curve and braking capacity: 
+
+δmin ≤ δk ≤ δmax and ax, min (vx,k ) ≤ ax,k ≤ ax, max (vx,k ).
+
+c) Combined Friction Ellipse (GG-Diagram): We im-pose a coupling constraint between longitudinal acceleration 
+
+ax and lateral acceleration ay ≈ vx ˙ψ. We approximate the friction utilization using a generalized ellipsoid [53]:  |ax,k |/a comb 
+
+> x, max
+
+(vx,k )η +  |ay,k |/a comb 
+
+> y, max
+
+(vx,k )η ≤ 1. Here, η
+
+shapes the envelope and acomb 
+
+> x/y, max
+
+(vx,k ) are velocity-dependent acceleration capacities. 
+
+D. Observations for Racing 
+
+The policy input ot must support reliable weight selection while staying low-dimensional and transferable. We use three information sources: 
+
+a) Current motion state (stacked measurements): We include a stack of the most recent longitudinal velocities vx(t−i) nh−1 
+
+> i=0
+
+and yaw rates r(t−i) nh−1 
+
+> i=0
+
+. Here, r denotes yaw rate and nh is the stack length. This captures the current dynamic regime and short transients. 
+
+b) Performance history (tracking deviations): We in-clude a stack of recent magnitudes of path-tracking devi-ations |elat (t − i)| nh−1 
+
+> i=0
+
+and velocity-tracking deviations 
+
+|ev (t − i)| nh−1 
+
+> i=0
+
+.c) Task anticipation (look-ahead): We include samples of the reference velocity vref (t + τj ) Kj=1 and path curvature 
+
+κref (t + τj ) Kj=1 , with K anticipation points over the NMPC horizon, where τj are uniformly spaced look-ahead times in 
+
+[0 , T p].
+
+E. Learning Cost-Weight Policies 
+
+We treat the NMPC closed loop as the environment and bounded weights θt as actions. At each decision time, the actor outputs θt ∈ [θmin , θmax ], parameterizing W(θt) and 
+
+WN (θt). The differentiable NMPC solver provides primal-solution sensitivities with respect to the weights, enabling the closed-loop solver-derived gradient gSG,t used by the SG-RL mechanisms. We evaluate each closed-loop transition using a fixed per-step performance loss Lperf (st, u∗
+
+> 0
+
+):
+
+Lperf (st, u∗
+
+> 0
+
+) = wv e2 
+
+> v,t
+
++ wlat e2lat ,t 
+
++ wj Pexp (jt, ¯j) + w ˙δ Pexp ( ˙δt, ¯˙δ). (41) Here, ev,t and elat ,t are realized velocity/lateral errors, and 
+
+jt, ˙δt are realized jerk and steering rate. The function 
+
+Pexp (u, ¯u) = exp( λexp (|u| − ¯u)) − 1 if |u| > ¯u and u2
+
+otherwise, with λexp > 0, strongly penalizes violations of ¯j
+
+and ¯˙δ. The weights Gperf = {wv , w lat , w j , w ˙δ } are fixed, and 
+
+rt = −L perf (st, u∗
+
+> 0
+
+) aligns the RL reward with the solver-gradient signal. IX. R ESULTS 
+
+A. Experimental Setup 
+
+We train and evaluate cost-weight policies in closed-loop simulation on the AV-24 Indy Dallara and EAV-24 Super Formula platforms. Both high-fidelity simulation and NMPC prediction models were identified from real vehicle-dynamics data and validated against racing-event measurements [54], [55]. The exact NMPC implementations used in this work were transferred to the real cars and validated during full-scale racing at Yas Marina and Modena in April/June 2025 with the same Weights-varying architecture and a rule-based policy 1.Since only the weight-selection policy changes, learned poli-cies are directly transferable to the validated controller stack. Learning remains in simulation because near-limit exploration on full-scale race cars is unsafe and costly. A higher-level planner provides the local raceline, and the differentiable NMPC computes inputs for the high-fidelity plant simulator. Plant and prediction models are nonlinear single-track models with nonlinear tires but intentionally differ in fidelity (Table II), creating a deployment-relevant model-mismatch setting . Platform-specific parameters and actuator bounds are listed in Table III. The platforms differ in aerodynamics, load transfer, actuation envelopes, tires, and mass/inertia, making the weight-to-behavior map platform-dependent and requiring distinct bounds and policies. We obtained the bounds for the 7-dimensional weight vector θt
+
+in (39) empirically from platform-specific fixed-weight NMPC tuning. 
+
+> 1Supplementary real-world evidence: anonymous.4open.science/r/WMPC
+
+TABLE II: Key differences between the nonlinear single-track simulation and NMPC prediction models.                      
+
+> Sim. Model NMPC Pred. Model
+> Inputs ax,δjx,˙δ
+> Actuator Explicit with simplified dynamics rate saturation Tire Wheel-level, Axle-level, model Pacejka MF96 [51] reduced Pacejka MF [51] combined slip no combined-slip Load Full, with Simplified, mainly transfer roll, lateral and longitudinal longitudinal effects Aerodyn. Full drag, Simplified drag, front/rear downforce, lumped downforce, velocity-dependent no vel. dependency
+
+TABLE III: Single-track vehicle parameters and actuation bounds for the Dallara AV-24 and EAV-24 Super Formula.                                       
+
+> Parameter AV-24 EAV-24
+> Wheelbase l[m] 2.971 3.115 CG–front axle lf[m] 1.724 1.802 Mass m[kg] 800 782 Yaw inertia Iz[kg m 2]1000 700 Front track bf[m] 1.639 1.606 Rear track br[m] 1.524 1.510 Steering δ[rad] [−0.276 ,0.276] [−0.342 ,0.342]
+> Steering rate ˙δ[rad/s] [−0.429 ,0.429] [−1.050 ,1.050]
+
+a) Benchmarks: We benchmark our four proposed SG-RL methods against four reference baselines: the RL PPO baseline, a fixed-weight human-expert NMPC controller, the reduced GB-PL baseline from [5], and our GB-PL baseline. 
+
+b) NMPC solver configuration: We solve the NMPC problem with acados [48] using a real-time SQP-RTI scheme and full-condensing HPIPM as the QP backend. QP iterations were limited to 25 and equality and stationarity tolerances were set to 10 −3.
+
+c) Timing, horizons, and rollout length: The plant sim-ulator runs at Ts,sim = 0 .02 s . The NMPC optimal control problem is discretized with Ts = 0 .075 s over a prediction horizon of Tp = 2 .6 s , yielding N = ⌊Tp/T s⌋ = 34 shooting intervals. At each simulator step ( Ts,sim = 0 .02 s ), the policy outputs weights, NMPC solves, and the first input is applied. Each Troll = 135 s rollout therefore has 6750 simulator steps/policy decisions/control updates/solves, while prediction discretization remains Ts = 0 .075 s . Episodes terminate after repeated solver failures or track departures, with a training-only truncation penalty. 
+
+d) Learning algorithm and hyperparameters: For fair-ness, PPO and all SG-RL methods share the same RL setup. Only GB-PL differs. RL-based methods use Stable-Baselines3 PPO [56] with a Gaussian MLP actor–critic, bounded nor-malized outputs de-normalized to platform-specific weight bounds, generalized state-dependent exploration, 12 parallel environments, and deterministic evaluation every rollout. PPO trains for 2M steps, whereas SG-RL trains for 1M to test whether solver guidance halves the sample budget. Because GB-PL becomes unstable with large rollouts/batches, we fol-low [5] and use 10-transition fragments/minibatches with one training environment. The RL reward is −L perf (Eq. (41)). 0.00 0.25 0.50 0.75 1.00 1.25 1.50 1.75 2.00 Costs: Training steps ×10 6         
+
+> −120
+> −100
+> −80
+> −60
+> −40 Performance: Evaluation mean reward
+> Application 1: IndyCar Dallara AV-24 on Monza track
+> Seed range [min, max] First benchmark exceedance Peak performance
+> 0.00 0.25 0.50 0.75 1.00 1.25 1.50 1.75 2.00
+> ×10 6
+> −130
+> −120
+> −110
+> −100
+> −90
+> −80 Application 2: Super Formula EAV24 on Yas Marina track
+> RL PPO (baseline) SG-SCA: Adaptive PPO Update Scaling (ours) SG-LOS: Performance-Gated Loss (ours) SG-ADV: Advantage Shaping (ours) SG-CRT: Augmented Critic (ours)
+
+Fig. 7: Deterministic evaluation return during training over 10 seeds. Lines show seed means, shaded bands show seed ranges, stars mark best mean returns, and circles mark when SG-RL first surpasses PPO’s best mean return. 0.00 0.25 0.50 0.75 1.00 1.25 1.50 1.75 2.00  
+
+> Costs: Training Samples 1e6 120 100 80 60 40
+> Performance: Rewards
+> Reduced GB-PL Baseline (SOTA) GB-PL Baseline (ours) RL PPO (baseline) SG-SCA: Adaptive PPO Update Scaling (ours) SG-LOS: Performance-Gated Loss (ours) SG-ADV: Advantage Shaping (ours) SG-CRT: Augmented Critic (ours)
+> Solver-Gradient Guided RL methods (ours)
+> RL only Learning with solver gradients only
+
+Fig. 8: Best deterministic evaluation return versus training samples for the AV-24/Monza budget comparison. 
+
+e) Policy initialization: We initialize policy linear layers with orthogonal weights and zero biases, a standard PPO choice that balances initial signal scales. Unlike [5], which uses a pre-optimized output bias, we set this bias to zero so the initial normalized mean action lies near the admissible hyper-rectangle center. 
+
+f) Hardware: Experiments ran on a 2022 MacBook Air (Apple M2, 16 GB RAM): PPO took 45 min for 2M training samples and SG-RL 20 min for 1M; on Apple M4, the times dropped to 28 min and 14 min .
+
+B. Key Highlights: Performance and Sample Efficiency 
+
+Figs. 7 and 8 summarize closed-loop performance versus sample efficiency. On AV-24/Monza, PPO reaches its highest mean return ( −62 .29 ) after 1.215 · 10 6 samples, whereas all four SG-RL methods surpass it earlier: SG-SCA after 4.86 ·
+
+10 5 samples ( 60 .0% fewer), SG-LOS/SG-ADV after 5.67 ·10 5
+
+(53 .3% fewer), and SG-CRT after 6.48 · 10 5 (46 .7% fewer). SG-SCA also improves PPO’s peak mean reward by 33 .2% ,while SG-LOS, SG-CRT, and SG-ADV gain 20 .4% , 18 .5% ,and 14 .1% .The same picture holds on EAV-24/Yas Marina, with even larger relative sample-efficiency gains for the strongest meth-ods. SG-SCA and SG-LOS both surpass PPO’s highest mean return after only 4.05 ·10 5 samples, i.e., 70 .6% earlier, whereas SG-ADV and SG-CRT still retain 47 .1% and 35 .3% sample savings. The min–max bands also suggest improved training stability under solver-gradient guidance: PPO shows the widest persistent scatter in reward evolution, whereas SG-SCA and SG-LOS concentrate earlier around high-return regimes. Taken together, the mean training curves show that solver-gradient guidance consistently improves PPO sample efficiency, with SG-SCA and SG-LOS providing the strongest cross-platform trade-off. Fig. 8 complements this cross-seed view with a single-seed AV-24/Monza budget comparison. All SG-RL methods remain far above our GB-PL baseline, with best-return gains of 54 .3% –59 .5% over our GB-PL and 68 .5% –72 .0% over the reduced GB-PL baseline. At the same time, they require only 
+
+8.10 · 10 5 to 9.72 · 10 5 samples, i.e., 50 .0% –58 .3% fewer than PPO’s 1.94 · 10 6 budget. SG-SCA and SG-LOS provide the clearest trade-off, combining the lowest SG-RL sample counts with the strongest returns relative to GB-PL. These results support the grey-box thesis: solver sensitivities improve exploration efficiency without sacrificing PPO stability. Within the GB-PL family, Table IV shows that our GB-PL baseline also substantially outperforms the reduced GB-PL baseline from [5]: total return improves from −118 .62 
+
+to −81 .87 , i.e., by 31.0%, while the required training data drop from 94K to 6K samples, i.e., by 92.9%. These gains are consistent with the architectural and training-loop changes introduced in Tab. I and Sec. IV. 
+
+C. Closed-Loop Performance Metrics 
+
+Table IV isolates total return and sample budget for the single-seed AV-24/Monza comparison. All SG-RL methods outperform our GB-PL baseline, with SG-SCA best overall; SG-SCA and SG-LOS need only 810K samples, 58.3% fewer than PPO’s 1.94M budget. Lap time is not the primary metric; TABLE IV: Closed-loop performance and training-sample budget on Monza over 120 s . Best, second-best, and third-best entries are highlighted in green, bold, and underline. 
+
+Method Total return ↑ Training samples ↓
+
+Human Expert -993.53 -Reduced GB-PL [5] -118.62 94K 
+
+GB-PL (ours) -81.87 (+31.0% vs red. GB-PL (SOTA)) 
+
+6K 
+
+(-92.9% vs red. GB-PL (SOTA)) RL PPO (SOTA) -38.31 (+53.2% vs GB-PL) 1.94M SG-SCA (ours) -33.17 
+
+(+59.5% vs GB-PL) 810K (-58.3% vs PPO) SG-LOS (ours) -34.69 
+
+(+57.6% vs GB-PL) 810K (-58.3% vs PPO) SG-ADV (ours) -37.41 (+54.3% vs GB-PL) 972K (-50.0% vs PPO) SG-CRT (ours) -35.55 (+56.6% vs GB-PL) 972K (-50.0% vs PPO) 
+
+TABLE V: Closed-loop metrics on Monza over 120 s : lateral-/velocity deviation elat /ev , jerk j, and steering rate ˙δ.
+
+Method |elat |
+
+[m] 
+
+max |elat |
+
+[m] 
+
+|ev |
+
+[m/s] 
+
+max |j|
+
+[m/s 3]
+
+max | ˙δ|
+
+[rad/s] Human Expert 0.167 1.50 0.40 16.16 0.41 Reduced GB-PL [5] 0.049 0.83 0.25 127.62 0.41 GB-PL (ours) 0.044 0.66 0.22 83.44 0.39 RL PPO (SOTA) 0.035 0.38 0.14 26.60 0.35 
+
+SG-SCA (ours) 0.034 0.33 0.15 42.55 0.34 
+
+Fig. 9: Zero-shot evaluation on race tracks unseen during training. the optimized objective is Eq. (41), which balances path tracking, velocity tracking, and control smoothness. Table V reports physical closed-loop metrics. We show SG-SCA as representative because the SG-RL variants have similar Monza statistics. The fixed-weight expert is smooth in maximum jerk but tracks poorly, while both GB-PL methods are more aggressive, especially in peak jerk. PPO and SG-SCA achieve the tightest tracking and lowest maximum steering rates, so SG-RL’s sample-efficiency gains do not sacrifice closed-loop quality. 
+
+D. Generalization in Unseen Environments 
+
+Although training uses one circuit per platform, the policies are designed to be track-agnostic : they do not receive track coordinates and instead condition weight selection on local state and short-horizon reference information (Sec. III). We therefore evaluate each learned policy zero-shot on unseen racelines (Fig. 9). Table VI shows robust transfer and large gains over our white-box GB-PL baseline on Laguna Seca and Suzuka. On Laguna Seca, the PPO baseline already improves on our GB-PL baseline by 63.7%, and all four SG-RL methods TABLE VI: Zero-shot evaluation of trained policies on tracks unseen during training. Each cell reports total return and the relative improvement compared to the GB-PL baseline. 
+
+Method Laguna Seca Zero-shot Suzuka Zero-shot 
+
+GB-PL baseline -120.59 -194.15 RL PPO baseline -43.73 (+63.7% vs GB-PL) -85.81 (+55.8% vs GB-PL) SG-SCA (ours) -40.51 (+66.4% vs GB-PL) 
+
+-73.52 
+
+(+62.1% vs GB-PL) SG-LOS (ours) -39.77 
+
+(+67.0% vs GB-PL) -79.92 (+58.8% vs GB-PL) SG-ADV (ours) -41.48 (+65.6% vs GB-PL) -85.25 (+56.1% vs GB-PL) SG-CRT (ours) -37.89 
+
+(+68.6% vs GB-PL) 
+
+-78.37 
+
+(+59.6% vs GB-PL) reference velocity [0..9]               
+
+> qqqvqaqayrj
+> 0
+> 0.98
+> r
+> reference curvature [0..9] 0
+> 0.72
+> velocity 0
+> 0.97
+> yaw rate 0
+> 0.6
+> lateral deviation 0
+> 0.53
+> velocity deviation 0
+> 0.48
+> task anticipation system state performance history
+> Linear regression coefficient
+> features  actions RL SG-SCA SG-LOS GB-PL
+
+Fig. 10: Correlations between learned NMPC cost weights and grouped observation features on Monza. Bars compare which signals each policy uses to adapt each weight. improve further to 65.6%–68.6%; the strongest transfer result is obtained by SG-CRT at 68.6%, followed closely by SG-LOS at 67.0% and SG-SCA at 66.4%. On Suzuka, PPO improves on our GB-PL baseline by 55.8%, whereas SG-SCA reaches 62.1%, SG-CRT 59.6%, SG-LOS 58.8%, and SG-ADV 56.1%. Notably, these transfer gains use the single-seed AV-24/Monza policies trained with only 8.10 × 10 5 to 9.72 × 10 5 interaction samples, i.e., about 50%–58% fewer than PPO’s 1.94 × 10 6.These zero-shot results indicate that the policy learns a transferable map from local driving context to NMPC weight rebalancing rather than overfitting to a raceline. SG-RL main-tains, and often improves on, PPO’s unseen-track performance. 
+
+E. Explaining Cost-Weight Policies via Correlation Structure 
+
+Because policies output cost weights , not controls, we in-terpret adaptation via correlations between observation groups and weights, and via inter-weight correlations during rollout. Fig. 10 reports signed Pearson correlations with six grouped features, while Fig. 11 shows weight co-variation. These statistics indicate associations, not causality. Across methods, the dominant dependencies differ (Figs. 10–11). Overall, all q q qv qa qay rj                                                
+
+> qqvqaqayrjr
+> 0.17 -0.95 -0.99 0.57 -0.97 -0.82 -0.91 0.85 -0.20 0.91 0.90 0.81 0.85 0.82 0.17 -0.67 0.21 -0.70 -0.17 -0.59 -0.75 -0.41 0.05 -0.87 -0.91 -0.97 -0.98 -0.83 -0.49 0.96 0.96 -0.75 0.88 0.91 0.95 -0.79 -0.84 -0.71 -0.05 0.53 -0.92 -0.89 -0.91 -0.78 -0.31 0.94 0.92 -0.70 0.98 0.98 0.99 -0.66 -0.69 -0.53 0.07 0.30 0.89 0.96 0.94 0.92 -0.97 -0.65 -0.88 -0.73 -0.27 0.79 0.91 -0.85 0.98 0.93 0.96 -0.79 -0.76 -0.17 0.11 0.45 0.90 0.76 0.89 0.77 0.97 0.88 0.98 0.87
+> RL SG-SCA SG-LOS GB-PL
+> Cell Legend
+> 1.0 0.5 0.0 0.5 1.0
+> Pearson product-moment correlation coefficient
+
+Fig. 11: Pairwise correlations between learned NMPC cost weights along Monza rollouts. Each sub-cell compares one policy, with color indicating correlation strength. policies condition strongly on velocity signals, but solver-gradient guidance changes which weights are most strongly tied to anticipation versus instantaneous state. The GB-PL baseline exhibits a near-direct velocity-aware structure: qv is almost perfectly aligned with reference velocity ( ρ = 0 .98 ), while qa anti-correlates with it ( ρ = −0.86 ), yielding an optimization-like trade-off also visible as ρ(qa, q v ) = −0.87 .The RL baseline similarly shows strong velocity conditioning (e.g., ρ(qa, ref. velocity ) = 0 .79 and ρ(qay , ref. velocity ) = 
+
+−0.80 ), but its interdependencies reveal an almost rank-one “see-saw” between aggressiveness/smoothness and lateral cor-rection (e.g., ρ(rj , q v ) = 0 .98 and ρ(qv , q ℓ) = −0.97 ). Solver-gradient guided methods exhibit distinct, method-specific structure. SG-SCA assigns curvature-driven modula-tion primarily to steering smoothness: r ˙δ correlates more with reference curvature ( ρ = −0.72 ) than with reference velocity (ρ = −0.40 ), while lateral tracking weights anti-correlate (ρ(qψ , q ℓ) = −0.95 ), indicating a systematic lateral trade-off. SG-LOS concentrates its strongest velocity dependence on steering smoothness ( ρ(r ˙δ , ref. velocity ) = −0.81 ) and is the only method where longitudinal aggressiveness is pri-marily curvature-associated ( ρ(qa, ref. curvature ) = −0.47 ), suggesting geometry-aware tightening/relaxation of acceler-ation shaping. In both guided methods, positive couplings such as ρ(rj , q v ) ≈ 0.98 –0.99 indicate coordinated veloc-ity/smoothness scaling, while negative pairs (e.g., ρ(qψ , q ℓ) = 
+
+−0.99 for SG-LOS) reveal objective rebalancing rather than uniform tightening. 
+
+F. Closed-Loop Weight Adaptation Dynamics Along the Track 
+
+Correlations identify which signals associate with each weight; Fig. 12 adds the temporal view of how weights are scheduled along the lap, separating methods more clearly than static summaries. 80                   
+
+> context only
+> reference velocity [m/s]
+> 0.05 context only
+> curvature profile [1/m]
+> 112.5
+> 115.0
+> 117.5
+> cost weight for lateral deviation: q
+> 0.00
+> 0.25
+> 0.50
+> cost weight for yaw deviation: q
+> 2
+> 4cost weight for velocity deviation: qv
+> 0.5
+> 1.0 cost weight for long. acceleration: qa
+> 0.00
+> 0.05
+> cost weight for lat. acceleration: qay
+> 0.00
+> 0.25
+> 0.50
+> cost weight for long. jerk: rj
+> 020 40 60 80 100 Time [s]
+> 2425
+> 2450
+> 2475
+> cost weight for steering rate: r
+> 75
+> 80
+> 85
+> 18
+> 20
+> 22
+> 2580
+> 2600
+> 2620
+> RL PPO baseline SG-SCA (ours) SG-LOS(ours) GB-PL baseline (ours)
+
+Fig. 12: Time evolution of learned cost weights during a Monza lap rollout. Reference velocity and curvature are shown above the seven NMPC weights; GB-PL uses separate axes where its scale differs strongly. 
+
+RL PPO baseline: coarse but behavior-linked schedul-ing. PPO keeps qℓ and qa near upper ranges, varies qψ
+
+moderately, and mainly activates rj , r ˙δ , and short qv bursts around braking/turn-in. Thus, PPO adapts event-wise rather than tracing the reference-velocity template, but through a low-dimensional aggressiveness–smoothness mode. 
+
+SG-SCA: sparse, targeted reweighting. SG-SCA pre-serves PPO’s sparse character but shifts interventions: it adds sharper localized qψ , qv , and qay activations near dominant curvature/deceleration zones while keeping jerk and steering-rate regularization restrained. The schedule is selective, rein-forcing task-relevant penalties only in specific segments. 
+
+SG-LOS: coordinated smoothness gating. SG-LOS most clearly co-schedules smoothness-related objectives: qa, rj , and 
+
+r ˙δ rise and fall together, while qψ and qv stay small except for short corrections. This matches training diagnostics: the guidance loss synchronizes updates in performance-critical regions rather than simply increasing PPO aggressiveness. 
+
+GB-PL baseline: velocity-template overfitting. GB-PL shows the strongest continuous variation in qv and r ˙δ , plus the largest qay peaks at high-curvature events. Its qv trajectory 0.00 0.25 0.50 0.75 1.00 1.25 1.50 1.75 2.00      
+
+> Training steps 1e6 180 160 140 120 100 80 60 40
+> Evaluation mean reward RL PPO SG-SCA SG-LOS SG-ADV SG-CRT Full observation No anticipation No history
+
+Fig. 13: Observation-ablation study for PPO and SG-RL methods. Curves compare full observations against variants without task anticipation or performance history. TABLE VII: Effect of removing task-anticipation and performance-history features. Each cell reports ablated reward and degradation relative to the full-observation policy. 
+
+Method No anticipation No history 
+
+GB-PL baseline -123.79 (-51.2% vs full) -94.08 (-14.9% vs full) RL PPO baseline -74.07 (-93.4% vs full) -81.58 (-113.0% vs full) SG-SCA (ours) -65.95 
+
+(-98.8% vs full) 
+
+-73.61 
+
+(-121.9% vs full) SG-LOS (ours) -93.96 (-170.9% vs full) -82.36 (-137.4% vs full) SG-ADV (ours) -96.49 (-157.9% vs full) -94.08 (-151.5% vs full) SG-CRT (ours) -72.20 
+
+(-103.1% vs full) 
+
+-63.98 
+
+(-80.0% vs full) 
+
+nearly reproduces the reference-velocity profile, suggesting velocity-weight overfitting. By contrast, RL and SG-RL keep 
+
+qv smaller and activate it jointly with lateral/smoothness weights where closed-loop behavior demands it, matching their stronger returns. 
+
+G. Ablations: Removing Future and Past Context 
+
+Sec. III assumes that effective adaptation needs two chan-nels: task anticipation from reference lookahead and perfor-mance history for compensating persistent errors or unmodeled dynamics. We test this with two ablations that keep the NMPC formulation, constraints, and reference fixed while restricting policy information: no anticipation removes horizon-sampled reference velocity/curvature, and no history removes recent lateral/velocity deviations. Fig. 13 shows learning curves; Table VII reports peak-reward degradation. 
+
+1) Ablation 1 (No anticipation): The Necessity of Preview: 
+
+Removing preview information (dashed curves in Fig. 13) systematically degrades performance: the policy becomes feedback-only and cannot anticipate curvature or deceleration. It therefore modulates weights only after entering challeng-ing segments, confirming the anticipation-aware structure in Figs. 10–11. Among guided methods, SG-SCA is most robust to losing anticipation, while SG-CRT still outperforms RL, TABLE VIII: Core PPO signals in performance-relevant windows. Entries are window means for the winning SG-RL method and PPO baseline, reported as SG/PPO. KL and clip fraction indicate trust-region activity; value, policy-gradient, and entropy losses summarize critic fit, actor update magnitude, and exploration; weight/bias norms refer to the actor action head.                                          
+
+> Signal AV-24 Monza EAV-24 Yas Marina Acceleration window winner: SG-LOS Peak window winner: SG-SCA Acceleration window winner: SG-SCA Peak window winner: SG-LOS Eval return −67 .3/−81 .6−44 .0/−68 .4−93 .6/−111 −86 .4/−103
+> KL 0.0935 /0.161 0.0337 /0.0721 0.107 /0.164 0.0567 /0.0657
+> Clip frac. 0.309 /0.366 0.225 /0.314 0.337 /0.377 0.254 /0.284
+> Value loss 296 /135 1.51e3 /502 0.750 /0.774 2.55 /6.33
+> |PG loss |0.0328 /0.0629 9.48e −3/0.0307 0.0466 /0.0641 0.0165 /0.0247
+> |Entropy loss |8.31 /9.26 6.99 /8.37 8.79 /9.16 6.63 /7.57
+> Weight norm 2.67 /2.65 2.69 /2.66 2.67 /2.66 2.73 /2.69
+> Bias norm 7.23 /1.99e −27.23 /2.44e −21.63 /1.51 1.47 /1.51
+
+suggesting gradient-informed value estimation remains useful when feedforward context is reduced. 
+
+2) Ablation 2 (No history): The Role of Temporal Context: 
+
+Eliminating performance-history features (solid curves) also degrades reward, but more heterogeneously than removing anticipation. PPO and SG-SCA suffer larger losses without history than without preview, while SG-LOS, SG-ADV, and SG-CRT retain more of their full-observation performance than in the no-anticipation case. With only a memoryless state snapshot, the policy cannot distinguish transient execution er-rors from persistent performance deviations. As a result, it can-not reliably modulate the persistence or magnitude of weight adjustments, which impairs closed-loop consistency over ex-tended operation. This aligns with Sec. IX-E, where deviation-history terms strongly correlate with regulatory weights. Our GB-PL baseline degrades only modestly, consistent with its myopic update: it descends a local sensitivity gradient 
+
+∇θ L on the current trajectory and depends less on history. This robustness costs optimality, since GB-PL remains below the best SG-guided methods in absolute reward (Table VII). 
+
+Advantage of solver gradients under information scarcity. As Table VII shows, the strongest SG-guided meth-ods continue to outperform the pure PPO baseline in peak reward even after we remove temporal context. 
+
+H. Training-Dynamics Analysis a) Core PPO training dynamics in the windows where SG-RL leads.: To explain why certain SG-RL methods accel-erate PPO, we inspect PPO signals in an early acceleration window , where a method first pulls ahead, and a later peak window , where it reaches best performance. Table VIII com-pares the winning SG method with PPO in these windows. Table VIII shows that winning SG methods beat PPO through 
+
+more structured , not indiscriminately larger, updates: they reg-ularize PPO toward better-timed and lower-variance updates. In AV-24/Monza, SG-LOS wins the early phase, improving the windowed return from −81 .6 to −67 .3 compared to PPO, while reducing KL from 0.161 to 0.0935 and clip fraction from 0.366 to 0.309 . The peak window is then won by SG-SCA, which lifts the mean return from −68 .4 to −44 .0 with roughly half the PPO KL ( 0.0337 vs. 0.0721 ), a lower clip fraction, and a much smaller |PG loss |. On this platform, the TABLE IX: Method-specific SG-RL signals in performance-relevant windows. Entries are window means in the same windows as Table VIII. For SG-SCA, 
+
+¯c/ ¯s/ ¯fclamp denote alignment, projected scale, and clamp-hit fraction; for SG-LOS, ¯ℓguide is the guide loss; for SG-ADV, 
+
+¯ρAS /ρ 90 AS quantify advantage correction; for SG-CRT, ¯ρV is the critic correction ratio. 
+
+Method / signal AV-24 Monza EAV-24 Yas Marina Accel. Peak Accel. Peak SG-SCA: ¯c −1.42e −3 −0.0140 8.02e −3 0.0215 
+
+SG-SCA: ¯s 0.986 0.944 1.05 1.05 
+
+SG-SCA: ¯fclamp 0.527 0.168 0.541 0.452 
+
+SG-LOS: ¯ℓguide 2.69e −3 1.98e −3 3.61e −3 2 .89e −3
+
+SG-ADV: ¯ρAS 0.336 0.447 0.0116 0.0155 
+
+SG-ADV: ρ90 AS 0.356 0.499 0.0118 0.0159 
+
+SG-CRT: ¯ρV 1.99 1.34 0.0451 0.0478 
+
+action-head weight norm remains close to PPO, while the bias norm separates more strongly for the winning SG methods. In EAV-24/Yas Marina, the lead changes by phase: SG-SCA wins the acceleration window and SG-LOS wins the peak window. During training, SG-SCA improves mean return from −111 to −93 .6 while lowering KL, clip fraction, value loss, |PG loss |, and |entropy loss |. Near peak performance, SG-LOS improves from −103 to −86 .4 and again lowers KL, clip fraction, value loss, |PG loss |, and |entropy loss |.
+
+b) Method-specific guidance in performance-relevant windows.: Table IX resolves the window winners into their active guidance channels. On AV-24/Monza, SG-LOS keeps nonzero acceleration-window guidance ( ¯ℓguide = 2 .69 ×10 −3), so early gains reflect solver-biased shaping while PPO is noisy. For SG-SCA, peak-window ¯c becomes more negative, ¯s < 1,and ¯fclamp drops from 0.527 to 0.168 , indicating selective braking of PPO steps that drift from solver-informed directions rather than persistent acceleration or repeated clamp saturation. On EAV-24/Yas Marina, SG-SCA’s sign pattern flips: ¯c stays positive and grows from 8.02 ×10 −3 to 0.0215 , with ¯s ≈ 1.05 ,so it nudges PPO along solver-aligned directions and wins the acceleration window. SG-LOS remains strong at peak because its guidance term stays large ( 3.61 × 10 −3 early, 2.89 × 10 −3
+
+at peak), continuing to shape the actor objective. SG-ADV and SG-CRT mainly support platform-specific gains: large 
+
+¯ρAS or ¯ρV indicate strong advantage/critic reshaping, which is pronounced on Monza but weak on Yas Marina. X. CONCLUSIONS We introduced Solver-Gradient Guided Reinforcement Learning (SG-RL) , a framework for online MPC cost-weight adaptation that combines environment-based policy-gradient learning with model-based solver-gradient guidance while preserving the realized closed-loop return as the optimization objective. Our SG-RL uses solver sensitivities as auxiliary guidance signals for RL to improve policy learning. We instantiated this framework through four methods— SG-SCA, SG-LOS, SG-ADV, and SG-CRT—that incorporate solver guidance into different components of PPO. Across two full-scale autonomous racing platforms under intentional model mismatch, all four methods consistently improved sample efficiency and closed-loop performance over PPO, matched PPO’s best return with up to 70.6 % fewer training samples, outperformed GB-PL baselines by at least 54 % in return, and generalized zero-shot to unseen race tracks. Among the proposed methods, SG-SCA and SG-LOS achieved the strongest overall performance. Overall, our results indicate that environment-based policy gradients and model-based solver guidance are complemen-tary optimization signals for learning online MPC weight-adaptation policies. More broadly, they demonstrate the poten-tial of combining environment interaction with differentiable optimal-control structure for learning in constrained optimal-control problems. 
+
+Limitations: The effectiveness of SG-RL depends on the fidelity of the predictive MPC model. Under severe model mismatch, solver guidance may become less informative or even misleading for optimizing the true closed-loop objec-tive. Although our experiments include intentional model mismatch and demonstrate robust improvements, they do not systematically study different mismatch types or magnitudes. In addition, each SG-RL variant introduces method-specific hyperparameters, and this work considers only on-policy PPO. 
+
+Future work: Future work includes validating the learned weight-adaptation policies on a physical vehicle, extending solver-gradient guidance to off-policy algorithms such as SAC and TD3, and systematically studying robustness under con-trolled model-mismatch regimes. Another promising direction is to generalize SG-RL beyond NMPC cost-weight adap-tation to other differentiable parametric controllers. Finally, developing a stronger theoretical understanding of how solver guidance interacts with stochastic policy-gradient optimization remains an important open research direction. REFERENCES [1] J. B. Rawlings, D. Q. Mayne, and M. Diehl, Model predictive control: theory, computation, and design , 2nd ed. Madison, Wisconsin: Nob Hill Publishing, 2017. [2] A. Romero, Y. Song, and D. Scaramuzza, “Actor-Critic Model Predictive Control,” in 2024 IEEE International Conference on Robotics and Automation (ICRA) . Yokohama, Japan: IEEE, May 2024. [3] B. Zarrouki, V. Kl¨ os, N. Heppner, S. Schwan, R. Ritschel, and R. Voßwinkel, “Weights-varying mpc for autonomous vehicle guidance: a deep reinforcement learning approach,” in 2021 European Control Conference (ECC) , 2021. [4] B. Zarrouki, M. Spanakakis, and J. Betz, “A safe reinforcement learning driven weights-varying model predictive control for autonomous vehicle motion control,” in 2024 IEEE Intelligent Vehicles Symposium (IV) ,2024, pp. 1401–1408. [5] F. Jahncke, B. Zarrouki, M. Piccinini, J. D’sa, D. Isele et al. , “Dif-ferentiable weights-varying nonlinear mpc via gradient-based policy learning: An autonomous vehicle guidance example,” IEEE Robotics and Automation Letters , vol. 11, no. 3, pp. 3724–3731, 2026. [6] J. Betz, H. Zheng, A. Liniger, U. Rosolia, P. Karle et al. , “Autonomous vehicles on the edge: A survey on autonomous vehicle racing,” IEEE Open Journal of Intelligent Transportation Systems , vol. 3, pp. 458–488, 2022. [7] L. Franceschi, M. Donini, P. Frasconi, and M. Pontil, “Bilevel program-ming for hyperparameter optimization and meta-learning,” in Proceed-ings of the 35th International Conference on Machine Learning , ser. Proceedings of Machine Learning Research, vol. 80. PMLR, 2018, pp. 1568–1577. [8] V. Ramasamy, R. K. Sidharthan, R. Kannan, and G. Muralidharan, “Optimal tuning of model predictive controller weights using genetic algorithm with interactive decision tree for industrial cement kiln pro-cess,” Processes , vol. 7, no. 12, p. 938, 2019. [9] L. L. Rodrigues, A. S. Potts, O. A. Vilcanqui, and A. J. Sguarezi Filho, “Tuning a model predictive controller for doubly fed induction gener-ator employing a constrained genetic algorithm,” IET Electric Power Applications , vol. 13, no. 6, pp. 812–819, 2019. [10] F. Sorourifar, G. Makrygirgos, A. Mesbah, and J. A. Paulson, “A data-driven automatic tuning method for mpc under uncertainty using constrained bayesian optimization,” IFAC-PapersOnLine , vol. 54, no. 3, pp. 243–250, 2021. [11] A. Rupenyan, M. Khosravi, and J. Lygeros, “Performance-based trajec-tory optimization for path following control using bayesian optimiza-tion,” in 2021 60th IEEE Conference on Decision and Control (CDC) .IEEE, 2021, pp. 2116–2121. [12] R. Reiter, J. Hoffmann, D. Reinhardt, F. Messerer, K. Baumg¨ artner 
+
+et al. , “Synthesis of model predictive control and reinforcement learning: Survey and classification,” Annual Reviews in Control , vol. 61, p. 101045, 2026. [13] R. Reiter, J. Hoffmann, J. Boedecker, and M. Diehl, “A hierarchical approach for strategic motion planning in autonomous racing,” in 2023 European Control Conference (ECC) , 2023, pp. 1–8. [14] E. Bøhn, S. Gros, S. Moe, and T. A. Johansen, “Optimization of the model predictive control meta-parameters through reinforcement learning,” Engineering Applications of Artificial Intelligence , vol. 123, p. 106211, 2023. [15] E. Bøhn, S. Moe, S. Gros, and T. A. Johansen, “Reinforcement learning of the prediction horizon in model predictive control,” IFAC-PapersOnLine , vol. 54, no. 6, pp. 314–320, 2021. [16] M. Zanon, S. Gros, and A. Bemporad, “Practical reinforcement learning of stabilizing economic mpc,” in 2019 European Control Conference (ECC) , 2019. [17] S. Gros and M. Zanon, “Data-driven economic nmpc using reinforce-ment learning,” IEEE Transactions on Automatic Control , 2020. [18] ——, “Reinforcement learning for mixed-integer problems based on mpc,” in 21st IFAC World Congress , 2020. [19] ——, “Reinforcement learning based on mpc and the stochastic policy gradient method,” in 2021 American Control Conference (ACC) , 2021. [20] A. B. Kordabad, W. Cai, and S. Gros, “Mpc-based reinforcement learning for economic problems with application to battery storage,” 2021. [21] K. Seel, S. Gros, and J. T. Gravdahl, “Combining q-learning and deterministic policy gradient for learning-based mpc,” in 2023 IEEE Conference on Decision and Control (CDC) , 2023. [22] A. Martinsen, A. Lekkas, and S. Gros, “Combining system identification with reinforcement learning-based mpc,” 2020. [23] B. Zarrouki, C. Wang, and J. Betz, “Adaptive Stochastic Nonlin-ear Model Predictive Control with Look-ahead Deep Reinforcement Learning for Autonomous Vehicle Motion Control,” in 2024 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) .Abu Dhabi, United Arab Emirates: IEEE, Oct. 2024. [24] S. Sawant, A. Anand, D. Reinhardt, and S. Gros, “Learning-based mpc from big data using reinforcement learning,” 2023. [25] P. L. Donti, B. Amos, and J. Z. Kolter, “Task-based end-to-end model learning in stochastic optimization,” in Advances in Neural Information Processing Systems , vol. 30. Curran Associates, Inc., 2017. [26] B. Amos and J. Z. Kolter, “Optnet: Differentiable optimization as a layer in neural networks,” in International conference on machine learning .PMLR, 2017, pp. 136–145. [27] A. Agrawal, B. Amos, S. Barratt, S. Boyd, S. Diamond, and J. Z. Kolter, “Differentiable convex optimization layers,” in Advances in Neural Information Processing Systems , vol. 32. Curran Associates, Inc., 2019. [28] B. Amos, I. Jimenez, J. Sacks, B. Boots, and J. Z. Kolter, “Differen-tiable mpc for end-to-end planning and control,” Advances in neural information processing systems , vol. 31, 2018. [29] J. Frey, K. Baumg¨ artner, G. Frison, D. Reinhardt, J. Hoffmann et al. ,“Differentiable Nonlinear Model Predictive Control,” 2025. [30] L. Fichtner, D. Reinhardt, J. Hoffmann, F. Airaldi, J. Frey et al. , “leap-c/leap-c: v0.1.0-alpha,” 2025. [31] R. Tao, S. Cheng, X. Wang, S. Wang, and N. Hovakimyan, “DiffTune-MPC: Closed-Loop Learning for Model Predictive Control,” IEEE Robotics and Automation Letters , vol. 9, no. 8, Aug. 2024. [32] A. Romero, E. Aljalbout, Y. Song, and D. Scaramuzza, “Actor–critic model predictive control: Differentiable optimization meets reinforce-ment learning for agile flight,” IEEE Transactions on Robotics , 2025. [33] W. Cai, K. G. Vamvoudakis, S. Gros, and A. Tzes, “Cost-matching model predictive control for efficient reinforcement learning in hu-manoid locomotion,” arXiv preprint arXiv:2603.28243 , 2026. [34] R. Rickenbach, A. A. Lahoud, E. Schaffernicht, M. N. Zeilinger, and J. A. Stork, “ZipMPC: Compressed Context-Dependent MPC Cost via Imitation Learning,” 2025, version Number: 1. [35] S. Levine and P. Abbeel, “Learning neural network policies with guided policy search under unknown dynamics,” in Proceedings of the 31st International Conference on Machine Learning , ser. Proceedings of Machine Learning Research, vol. 32. PMLR, 2014, pp. 1292–1300. [36] N. Heess, G. Wayne, D. Silver, T. Lillicrap, T. Erez, and Y. Tassa, “Learning continuous control policies by stochastic value gradients,” in 
+
+Advances in Neural Information Processing Systems , vol. 28. Curran Associates, Inc., 2015. [37] A. Tamar, Y. Wu, G. Thomas, S. Levine, and P. Abbeel, “Value iteration networks,” in Advances in Neural Information Processing Systems ,vol. 29. Curran Associates, Inc., 2016. [38] P. Parmas, C. E. Rasmussen, J. Peters, and K. Doya, “PIPPS: Flexible model-based policy search robust to the curse of chaos,” in Proceedings of the 35th International Conference on Machine Learning , ser. ICML. PMLR, 2018, pp. 4065–4074. [39] I. Clavera, Y. Fu, and P. Abbeel, “Model-augmented actor-critic: Back-propagation through paths,” in International Conference on Learning Representations , 2020. [40] J. Xu, V. Makoviychuk, Y. Narang, F. Rber, W. Matusik et al. ,“Accelerated policy learning with parallel differentiable simulation,” in 
+
+International Conference on Learning Representations , 2022. [41] N. Hansen, H. Su, and X. Wang, “Temporal difference learning for model predictive control,” in Proceedings of the 39th International Conference on Machine Learning . PMLR, 2022, pp. 8387–8406. [42] ——, “TD-MPC2: Scalable, robust world models for continuous con-trol,” arXiv preprint arXiv:2310.16828 , 2024. [43] S. Schmitt, J. J. Hudson, A. Z´ ıdek, S. Osindero, C. Doersch et al. ,“Kickstarting deep reinforcement learning,” CoRR , 2018. [44] S. Adhau, D. Reinhardt, S. Skogestad, and S. Gros, “Fast reinforcement learning based mpc based on nlp sensitivities,” IFAC-PapersOnLine ,vol. 56, no. 2, pp. 11 841–11 846, 2023, 22nd IFAC World Congress. [45] H. J. T. Suh, M. Simchowitz, K. Zhang, and R. Tedrake, “Do differen-tiable simulators give better policy gradients?” in Proceedings of the 39th International Conference on Machine Learning , ser. ICML. PMLR, 2022, pp. 20 668–20 696. [46] R. Reiter, A. Ghezzi, K. Baumg¨ artner, J. Hoffmann, R. D. McAllister, and M. Diehl, “Ac4mpc: Actor-critic reinforcement learning for guid-ing model predictive control,” IEEE Transactions on Control Systems Technology , vol. 34, no. 1, pp. 395–410, Jan 2026. [47] J. Schulman, P. Moritz, S. Levine, M. Jordan, and P. Abbeel, “High-dimensional continuous control using generalized advantage estimation,” 
+
+arXiv preprint arXiv:1506.02438 , 2015. [48] R. Verschueren, G. Frison, D. Kouzoupis, J. Frey, N. V. Duijkeren et al. ,“acados—a modular open-source framework for fast embedded optimal control,” Mathematical Programming Computation , no. 1, Mar. 2022. [49] B. Zarrouki, C. Wang, and J. Betz, “A stochastic nonlinear model pre-dictive control with an uncertainty propagation horizon for autonomous vehicle motion control,” in American Control Conference (ACC) , 2024. [50] B. Zarrouki, J. Nunes, and J. Betz, “R²NMPC: A Real-Time Re-duced Robustified Nonlinear Model Predictive Control with Ellipsoidal Uncertainty Sets for Autonomous Vehicle Motion Control,” IFAC-PapersOnLine , vol. 58, no. 18, 2024. [51] H. Pacejka and I. Besselink, “Magic formula tyre model with transient properties,” Vehicle system dynamics , vol. 27, pp. 234–249, 1997. [52] M. Rowold, L. ¨Ogretmen, U. Kasolowsky, and B. Lohmann, “Online time-optimal trajectory planning on three-dimensional race tracks,” in 
+
+2023 IEEE Intelligent Vehicles Symposium (IV) , 2023, pp. 1–8. [53] M. Piccinini, S. Taddei, M. Piazza, and F. Biral, “Impacts of g-g-v constraints formulations on online minimum-time vehicle trajectory planning,” IFAC-PapersOnLine , vol. 58, no. 10, pp. 87–93, 2024, 17th IFAC Symposium on Control of Transportation Systems CTS 2024. [54] S. Sagmeister, P. Kounatidis, S. Goblirsch, and M. Lienkamp, “Analyz-ing the impact of simulation fidelity on the evaluation of autonomous driving motion control,” in 2024 IEEE Intelligent Vehicles Symposium (IV) , 2024, pp. 230–237. [55] N. Musiu, E. Mascaro, A. Raji, A. D. Felice, S. Sorrentino, and M. Bertogna, “A comprehensive benchmark of vehicle dynamics models for autonomous racing: a deep dive into mpc,” Vehicle System Dynamics ,pp. 1–33, 2026. [56] A. Raffin, A. Hill, A. Gleave, A. Kanervisto, M. Ernestus, and N. Dor-mann, “Stable-baselines3: Reliable reinforcement learning implementa-tions,” Journal of Machine Learning Research , vol. 22, no. 268, pp. 1–8, 2021.
