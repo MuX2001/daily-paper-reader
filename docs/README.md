@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-03</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-04</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 28 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 25 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>18</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>10</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>13</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>12</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-03 23:36:19 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-04 23:16:10 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读18篇、速读10篇，聚焦VLA机器人与具身智能前沿；最值关注两篇满分工作：FLARE的故障感知自主纠错框架与EmbodiedSkills的统一编排训练部署系统。建议优先精读这两篇，并顺带浏览速读中关于VLM空间导航的LightNav-0，以把握具身智能下一阶段的关键突破口。</p>
+<p>今日聚焦视觉-语言-动作模型，精读13篇、速读12篇，核心围绕机器人操作与自主决策。</p>
+<p>最值得关注的两大方向：PHR-VLA以规划视野推理提升VLA任务成功率，FLARE则针对操作失败实现自主纠正与恢复，均获满分或近满分评价。</p>
+<p>建议优先了解VLA模型在长程规划与故障恢复上的突破，这类能力正是机器人从“感知执行”走向“可靠作业”的关键。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +73,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">18 篇</strong>
+    <strong class="dpr-home-dashboard-count">13 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="FLARE: A Failure-Aware Framework for Autonomous Correction and Recovery in Visual-Language Robotic Manipulation">FLARE: A Failure-Aware Framework for Autonomous Correction and Recovery in Visual-Language Robotic Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="EmbodiedSkills: A Unified Framework for Orchestrating, Training, and Deploying VLA Agents">EmbodiedSkills: A Unified Framework for Orchestrating, Training, and Deploying VLA Agents</span></li><li><span class="dpr-home-dashboard-paper-title" title="RA-VLA: Retrieval-Augmented VLA for Test-Time Adaptation">RA-VLA: Retrieval-Augmented VLA for Test-Time Adaptation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="PHR-VLA: Planning Horizon Reasoning for Vision-Language-Action Models">PHR-VLA: Planning Horizon Reasoning for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="FLARE: A Failure-Aware Framework for Autonomous Correction and Recovery in Visual-Language Robotic Manipulation">FLARE: A Failure-Aware Framework for Autonomous Correction and Recovery in Visual-Language Robotic Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Training-free Suction Grasp Detection for Deformed Aseptic Cartons Using Vision-Language Models and Geometric Surface Scoring">Training-free Suction Grasp Detection for Deformed Aseptic Cartons Using Vision-Language Models and Geometric Surface Scoring</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>8</strong></span><span class="dpr-home-dashboard-tag">control <strong>4</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>3</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>3</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>5</strong></span><span class="dpr-home-dashboard-tag">vla <strong>5</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>2</strong></span><span class="dpr-home-dashboard-tag">control <strong>1</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +86,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">10 篇</strong>
+    <strong class="dpr-home-dashboard-count">12 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Beyond Data Scaling: Representation-Centric Continued Pre-training for Vision-Language-Action Models">Beyond Data Scaling: Representation-Centric Continued Pre-training for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="On the Number of Observation Nodes in Recurrent Neural Networks with Linear Threshold and ReLU Functions">On the Number of Observation Nodes in Recurrent Neural Networks with Linear Threshold and ReLU Functions</span></li><li><span class="dpr-home-dashboard-paper-title" title="LightNav-0: Eliciting VLM Spatial Intelligence for Generalist Embodied Navigation">LightNav-0: Eliciting VLM Spatial Intelligence for Generalist Embodied Navigation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="ChainSplat: A Physics-Inspired Screw-Theoretic Model for Learning Deformable Linear Object Dynamics from Multi-View RGB Videos">ChainSplat: A Physics-Inspired Screw-Theoretic Model for Learning Deformable Linear Object Dynamics from Multi-View RGB Videos</span></li><li><span class="dpr-home-dashboard-paper-title" title="EmbodiedSkills: A Unified Framework for Orchestrating, Training, and Deploying VLA Agents">EmbodiedSkills: A Unified Framework for Orchestrating, Training, and Deploying VLA Agents</span></li><li><span class="dpr-home-dashboard-paper-title" title="Selective Agent Guidance via Entropy: Learning Autonomous Policies from Imperfect VLM Teachers">Selective Agent Guidance via Entropy: Learning Autonomous Policies from Imperfect VLM Teachers</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>5</strong></span><span class="dpr-home-dashboard-tag">control <strong>3</strong></span><span class="dpr-home-dashboard-tag">vla <strong>1</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>4</strong></span><span class="dpr-home-dashboard-tag">control <strong>3</strong></span><span class="dpr-home-dashboard-tag">vla <strong>3</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>2</strong></span></div>
 </section>
 </div>
 
