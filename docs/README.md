@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-04</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-05</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 25 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 18 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>13</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>12</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>8</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>10</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-04 23:16:10 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-05 22:27:46 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日聚焦视觉-语言-动作模型，精读13篇、速读12篇，核心围绕机器人操作与自主决策。</p>
-<p>最值得关注的两大方向：PHR-VLA以规划视野推理提升VLA任务成功率，FLARE则针对操作失败实现自主纠正与恢复，均获满分或近满分评价。</p>
-<p>建议优先了解VLA模型在长程规划与故障恢复上的突破，这类能力正是机器人从“感知执行”走向“可靠作业”的关键。</p>
+<p>今日推荐18篇AI论文，其中8篇精读，重点聚焦VLA（视觉-语言-动作）模型新突破。最值得关注：《DriftingVLA》与《SymVD》均以9.0分并列最高，分别用逐维度时间漂移与对称蒸馏推动机器人操作的统一生成与高效学习，另可留意《LightNav-0》的空间智能导航新思路。建议普通读者从9.0高分论文入手，先看摘要与动图以快速把握具身智能的核心进展。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">13 篇</strong>
+    <strong class="dpr-home-dashboard-count">8 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="PHR-VLA: Planning Horizon Reasoning for Vision-Language-Action Models">PHR-VLA: Planning Horizon Reasoning for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="FLARE: A Failure-Aware Framework for Autonomous Correction and Recovery in Visual-Language Robotic Manipulation">FLARE: A Failure-Aware Framework for Autonomous Correction and Recovery in Visual-Language Robotic Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Training-free Suction Grasp Detection for Deformed Aseptic Cartons Using Vision-Language Models and Geometric Surface Scoring">Training-free Suction Grasp Detection for Deformed Aseptic Cartons Using Vision-Language Models and Geometric Surface Scoring</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="DriftingVLA: Native One-Step Vision-Language-Action Generation via Per-Dimension Temporal Drifting">DriftingVLA: Native One-Step Vision-Language-Action Generation via Per-Dimension Temporal Drifting</span></li><li><span class="dpr-home-dashboard-paper-title" title="SymVD: Symmetric Vision Language Action Distillation for Robot Manipulation">SymVD: Symmetric Vision Language Action Distillation for Robot Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="CometVLA: Co-Training on an Embodied Data Pyramid towards Physical Understanding">CometVLA: Co-Training on an Embodied Data Pyramid towards Physical Understanding</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>5</strong></span><span class="dpr-home-dashboard-tag">vla <strong>5</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>2</strong></span><span class="dpr-home-dashboard-tag">control <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>6</strong></span><span class="dpr-home-dashboard-tag">control <strong>2</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -86,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">12 篇</strong>
+    <strong class="dpr-home-dashboard-count">10 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="ChainSplat: A Physics-Inspired Screw-Theoretic Model for Learning Deformable Linear Object Dynamics from Multi-View RGB Videos">ChainSplat: A Physics-Inspired Screw-Theoretic Model for Learning Deformable Linear Object Dynamics from Multi-View RGB Videos</span></li><li><span class="dpr-home-dashboard-paper-title" title="EmbodiedSkills: A Unified Framework for Orchestrating, Training, and Deploying VLA Agents">EmbodiedSkills: A Unified Framework for Orchestrating, Training, and Deploying VLA Agents</span></li><li><span class="dpr-home-dashboard-paper-title" title="Selective Agent Guidance via Entropy: Learning Autonomous Policies from Imperfect VLM Teachers">Selective Agent Guidance via Entropy: Learning Autonomous Policies from Imperfect VLM Teachers</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="LightNav-0: Eliciting VLM Spatial Intelligence for Generalist Embodied Navigation">LightNav-0: Eliciting VLM Spatial Intelligence for Generalist Embodied Navigation</span></li><li><span class="dpr-home-dashboard-paper-title" title="World Model-Guided Reinforcement Learning via Counterfactual User Engagement Simulation">World Model-Guided Reinforcement Learning via Counterfactual User Engagement Simulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="MS-MEM: Multi-Skill Manipulation-Enhanced Mapping via Uncertainty- and Disturbance-Aware Action Selection">MS-MEM: Multi-Skill Manipulation-Enhanced Mapping via Uncertainty- and Disturbance-Aware Action Selection</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>4</strong></span><span class="dpr-home-dashboard-tag">control <strong>3</strong></span><span class="dpr-home-dashboard-tag">vla <strong>3</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>7</strong></span><span class="dpr-home-dashboard-tag">vla <strong>2</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>1</strong></span></div>
 </section>
 </div>
 
