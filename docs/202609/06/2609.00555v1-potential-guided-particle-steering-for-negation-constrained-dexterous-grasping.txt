@@ -1,0 +1,671 @@
+Title: Potential-Guided Particle Steering for Negation-Constrained Dexterous Grasping
+
+URL Source: https://arxiv.org/pdf/2609.00555v1
+
+Published Time: Wed, 02 Sep 2026 00:32:13 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# Potential-Guided Particle Steering for Negation-Constrained Dexterous Grasping 
+
+## Geonho Kim ∗, SooGon Kim ∗, Jongmin Lee †
+
+Department of Computer Science & Engineering, Chung-Ang University {joelkimgh, gon1397, jmlee}@cau.ac.kr Figure 1 
+
+Grasp the handle of the mug, but do not touch the body. 
+
+Hold the mug with all five fingers on the body. 
+
+Wrap your fingers around the mug handle for a secure grip. DexGYS GT DextER Ours 
+
+DexGYS GT DextER Ours 
+
+DexGYS GT DextER Ours 
+
+Figure 1: Grasping under negated instructions. Existing models handle positive instructions (top two rows) but drift into the forbidden part when the instruction also says what to avoid (bottom row). Our inference-time steering satisfies both the target and the avoidance constraint in all cases (rightmost column). 
+
+Abstract 
+
+Language-driven dexterous grasp models, such as DextER, perform well when instructions specify where to grasp, but we find they fail systematically when an instruction also spec-ifies where not to grasp (e.g., “grasp the handle but avoid the body”). Existing training corpora, DexGYSNet among them, contain virtually no avoidance instructions, and collecting ex-amples for every possible constraint is impractical. Moreover, because every part mentioned during training denotes a con-tact target, models may interpret a forbidden part as another region to grasp rather than one to avoid. We therefore introduce an inference-time framework for negation-constrained dexter-ous grasping that requires no negation-specific training exam-ples. Combining Sequential Monte Carlo with classifier-free guidance, our method guides sampling toward the instructed part while pruning candidates headed for the forbidden region, without any negation examples during training. A frozen 3D part-grounding model localizes the forbidden region from the 
+
+> ∗
+
+These authors contributed equally. 
+
+> †
+
+Corresponding author. language instruction. To evaluate this setting, we construct NegGrasp, a benchmark of paired positive/negative instruc-tions with constraint-aware metrics that credit a grasp only if it both accomplishes the task and respects the stated constraint. On NegGrasp, our method reduces the violation rate of the strongest baseline from 57.9% to 17.2% while improving both constraint-aware and physical success. 
+
+## 1 Introduction 
+
+Dexterous manipulation with multi-fingered hands is a long-standing goal in robotics, and recent work has shown that natural language can serve as a flexible interface for spec-ifying how a robot should grasp an object, such as which fingers to use or which part of the object to contact (Wei et al. 2024; Lee, Park, and Cho 2026). These models, how-ever, are trained and evaluated almost exclusively on positive 
+
+instructions that describe where a grasp should occur. In prac-tice, task and safety constraints are just as often expressed negatively. A user may ask a robot to grasp a knife by the handle and never the blade, or to lift a mug without touch-arXiv:2609.00555v1 [cs.RO] 1 Sep 2026 ing its hot body. Handling such constraints requires a model that can be steered away from disallowed regions while be-ing guided toward a target region. As we show in Figure 1, current language-driven dexterous grasping models lack this capability. A generator trained only on positive instructions never ob-serves the association between negation words and avoidance behavior, and so has no reason to acquire it, regardless of its architecture. DexGYSNet (Wei et al. 2024), the corpus on which both models above are trained, contains essentially no avoidance phrasing (Appendix C). Indeed, when we give DextER (Lee, Park, and Cho 2026), our strongest baseline, instructions that pair a positive target with an explicit negative 
+
+clause (e.g., “grasp the handle of the mug but do not touch the body”), it frequently ignores the clause and contacts the forbidden region (Figure 1). We further hypothesize that the failure runs deeper than ignoring negation. Because every part name in the DexGYSNet instructions marks somewhere 
+
+to contact, the model learns the shortcut that mentioning a part is itself an instruction to grasp it, so a clause like “do not touch the body” is not merely ignored but misread as telling the model where to grasp. This mirrors a broader pattern in vision-language models, which collapse negated and affir-mative statements into near-identical representations when never trained to tell them apart (Alhamoud et al. 2025). A natural fix would be to collect negative instructions and fine-tune on them, which is known to improve nega-tion understanding in vision-language models (Alhamoud et al. 2025). We instead ask whether negation can be han-dled without additional supervision, by steering generation at inference time. Avoidance constraints are user- and context-specific, with a different region forbidden for a different task or user, so enumerating and annotating every constraint in ad-vance is impractical. The natural machinery for such steering is Sequential Monte Carlo (SMC) (Wu et al. 2023; Singhal et al. 2025), which prunes and replicates candidates dur-ing sampling. What it needs is a mid-generation candidate that predicts the finished grasp yet can still be revised. The contact-token decoder of DextER freezes each token once emitted, and the decoded grasp follows the tokens only ap-proximately (Section 3.3). A diffusion model instead refines one complete, continuous candidate throughout sampling, so a spatially checkable estimate of the finished grasp is available at every step (Wu et al. 2023; Corso et al. 2024; Skreta et al. 2025). We therefore replace the autoregressive grasp decoder with a diffusion transformer (DiT) (Peebles and Xie 2023) trained with flow matching (Lipman et al. 2023), and steer its sampling with classifier-free guidance (CFG) (Ho and Salimans 2022), which nudges each candi-date away from the forbidden region, and SMC, which prunes candidates already predicted to violate it. To keep the comparison to DextER controlled, we retain its conditioning backbones, Qwen (Qwen Team 2024) and PartField (Liu et al. 2025), frozen, and train only the diffusion decoder (Section 3.1). To ground which region a negative instruction refers to, we use Find3D (Ma, Yue, and Gkioxari 2025), an open-vocabulary 3D part-grounding model, as a frozen plug-in during steering. Our main contributions are: 
+
+• We identify a systematic failure of state-of-the-art language-driven dexterous grasping under negative in-structions, and trace it to the extreme scarcity of negation in the training data rather than to a modeling deficiency. 
+
+• We propose an inference-time steering framework that combines CFG and SMC on a flow-matching grasp DiT, together with a marginal-preserving stochastic sampler that keeps resampled particles diverse, enabling avoid-ance behavior without any negative training examples. 
+
+• We construct NegGrasp, a benchmark of paired positive and negative instructions with constraint-aware metrics for this setting. 
+
+## 2 Related Work 
+
+2.1 Dexterous Grasp Generation 
+
+Data-driven generative models (Lu et al. 2024; Weng et al. 2024) trained on large-scale grasp datasets produce physi-cally stable grasps but are agnostic to task intent, which mo-tivates language-conditioned grasping. DexGYS (Wei et al. 2024) introduced DexGYSNet, the first large-scale dataset pairing free-form language guidance with dexterous grasp annotations. DextER (Lee, Park, and Cho 2026) builds on this dataset with an autoregressive, contact-token formula-tion, predicting which hand links contact where on the object surface before decoding the final grasp. Both lines of work, however, are trained and evaluated purely on instructions that describe a desired contact, and neither targets negative, avoidance-style instructions, which is precisely the gap our work addresses. 
+
+2.2 Negation Prompting 
+
+Negative prompting in text-to-image diffusion. 
+
+Classifier-free guidance (CFG) (Ho and Salimans 2022) is the standard mechanism by which text-to-image diffusion models realize negative prompts, subtracting the score of an undesired concept from that of the desired one to steer sampling away from it. Follow-up work refines this idea by using perpendicular rather than direct score subtraction, reducing interference between positive and negative guidance (Armandpour et al. 2023). We adopt this perpendicular formulation, transplanting it from image scores to the contact-coordinate velocities of a grasp generator (Section 3.3). 
+
+Negation in dexterous grasping. Two recent works also target avoidance semantics in grasping. OVAL-Grasp (Tong et al. 2025) uses an LLM and a VLM to identify object parts to grasp or avoid from a task description, produc-ing a 2D actionable-region heatmap for parallel-jaw, task-oriented grasping. Like our steering, it requires no training, but it operates on image heatmaps for a simple end-effector rather than generating full dexterous hand configurations. AffordDex (Zhao et al. 2026) learns a universal dexterous grasping policy whose reinforcement-learning stage penal-izes contact with functionally inappropriate regions via a negative-affordance segmentation module. This bakes in a dataset-level notion of regions that are usually wrong to touch, whereas our constraint is freely specified and changes per instruction at test time, which calls for an inference-time solution rather than a training-time one. 
+
+2.3 Steering Diffusion with SMC and CFG 
+
+Steering methods sample from a reward-tilted version of the model distribution without retraining, and SMC (Wu et al. 2023; Singhal et al. 2025) achieves this by resampling a pop-ulation of particles according to importance weights. Each piece of our steering stack (Section 3.4) instantiates a known result from this line. Our potential adopts the max-potential variant of Feynman-Kac steering (Singhal et al. 2025), which retains credit for earlier safe checkpoints and is thus ro-bust to noisy intermediate estimates. Feynman-Kac Correc-tors (Skreta et al. 2025) show that tilting the drift, as CFG does, and reweighting particles are interchangeable handles of the same framework, licensing our CFG-guided proposal with a corrector on top, while Feynman-Kac-Flow (Mark et al. 2025) extends the framework to conditional flow match-ing and derives the marginal-preserving sampler that our churn step reduces to. Other designs in this space make choices we deliberately avoid. The Twisted Diffusion Sampler (Wu et al. 2023) folds the potential into the proposal via twisted transitions, whereas we keep it as a separate corrector so that the proposal re-mains the unmodified CFG-guided velocity. Particle Guid-ance (Corso et al. 2024) promotes diversity by adding a particle-dependent repulsion term to a coupled reverse SDE with no resampling at all, whereas our churn addresses the same concern through marginal-preserving stochasticity that operates alongside resampling rather than in place of it. Fi-nally, SMC itself is not tied to continuous states, and has steered autoregressive language models with potentials over the partial token sequence (Lew et al. 2023). The contact to-kens of DextER make such potentials spatially meaningful, yet our constraint concerns the finished grasp, which the par-tial sequence neither commits nor can revise once its tokens are emitted, which is why we steer a DiT. 
+
+## 3 Method 
+
+Given an object point cloud and an instruction that pairs a positive target with an avoidance clause (e.g., “grasp the body but do not touch the handle”), our goal is to generate a grasp that reaches the target and never contacts the forbidden region. Because DexGYSNet (Wei et al. 2024) provides no avoidance supervision, we split this into two stages. Figure 2a illustrates the first stage, a diffusion transformer (DiT) (Peebles and Xie 2023) over grasp poses and contact coordinates, trained with flow matching (Lipman et al. 2023) on the positive instructions of DexGYSNet alone and there-fore never exposed to a negation. Figure 2b shows the second, which handles negation entirely at inference time, leaving the trained weights untouched and summarized in Algorithm 1. 
+
+3.1 Grasp Generator: Flow-Matching DiT 
+
+A frozen Qwen (Qwen Team 2024) encodes the positive-target text into a sequence of hidden states, and a frozen PartField (Liu et al. 2025) encodes the object point cloud into a set of patch tokens. We freeze both because fine-tuning erodes the very prior each encoder is there to provide. Qwen supplies the linguistic prior that lets our guidance (Sec-tion 3.3) distinguish a positive mention of a region from a negative one, and fine-tuning large language models on a narrow downstream task has been shown to erode precisely this competence (Luo et al. 2023). PartField supplies a ge-ometric prior whose part clustering visibly degraded when we fine-tuned it on grasp data (Figure 3). The only trained components are the DiT and a pair of linear layers that project the two conditioning streams into a shared 768-D memory, tagged with a modality embedding. The state our generator denoises is 
+
+x = ( xg , x c), xg ∈ R28 , xc ∈ R8×4, (1) where xg is the grasp pose (3D translation, 3D axis-angle rotation, and 22 ShadowHand joint angles) and xc holds 8 contact slots, each a 3D contact coordinate plus a slot-occupancy flag. A 12-block DiT embeds xg and the 8 slots as 
+
+1+8 tokens (Figure 2a), and each block applies self-attention among these tokens, then cross-attention to the conditioning memory. The DiT regresses a single velocity field vθ (x, t )
+
+along the rectified path xt = (1 − t)x0 + tx 1 between noise 
+
+x0 ∼ N (0 , I ) and data x1, so grasp pose and contact tokens are refined together across denoising steps and neither is decoded before the other. 
+
+3.2 Instruction Parsing and Region Grounding 
+
+Everything the steering needs is derived at inference time, with no access to ground-truth part labels. 
+
+Parsing (Figure 2b, ➀). An LLM parser (Gemma 4 (Gemma Team 2026)) converts a raw instruction into two outputs, a rewrite that describes only the positive target and a part vocabulary of the object in which any part named by a negative word is flagged as forbidden. From these we form the two prompts our guidance contrasts. Prompt A is the positive rewrite and is the only text the generator ever conditions on, while prompt B names the flagged part in the fixed template “Grasp the {category} by the {part}” (e.g., “Grasp the mug by the handle”). We frame B affirmatively on purpose, since a model trained without negation reads a sentence about what to avoid as one more instruction of where to grasp, the very failure we set out to fix. Appendix D details the parser. 
+
+Grounding (Figure 2b, ➁). Find3D (Ma, Yue, and Gkioxari 2025) labels every point of the object point cloud with one part name from the parsed vocabulary, and the for-bidden region F is the set of points that receive a flagged name. We hand over the full vocabulary rather than the for-bidden part alone because Find3D scores only the closed set of candidates given in a single call. The region never enters the generator and instead constrains sampling from outside the network. 
+
+3.3 Steering by Classifier-Free Guidance 
+
+Guidance fires only when a candidate is already headed for the forbidden region, and this asks two things of the gener-ator, both properties of how it samples rather than of how (a) Grasp Generator: Flow-Matching DiT  
+
+> “Grasp the handle…” Qwen2.5-0.5B PartField
+> FK
+
+x!~𝒩 0, 𝐼 
+
+> tQCross-Attention Self-Attention MLP
+
+x"
+
+> DiT
+
+x#
+
+# 🔥 
+
+> K, V
+> Positive instruction Input object
+
+# (b) Inference-time Steering: CFG and SMC   
+
+> “Grasp the body, but do not touch the handle” Mixed instruction LLM decompose Avoid part: “handle”
+> Qwen
+> Forbidden region ℱ
+> Positive prompt “grasp the body” ANegative prompt “grasp the {mug} by the {handle}” BQCross-Attention Self-Attention MLP
+
+x"= (x$, x%) 
+
+> DiT
+> K, V Qwen
+> Find3D
+> PartField Steering (
+
+③ ~ ⑥)Input object 
+
+①           
+
+> Steered sampling loop ( ×25)
+> Endpoint: "x&= x &+ (1 − t) v &'
+> CFG steering: vc ←vc A + w⋅𝟙 d(" x&, ℱ) < gate ⋅g⊥
+> Two forwards in DiT: v(, v &'() & v&)()
+
+⑤ SMC steering (at resample steps ℛ)resample resample t = 0 t = 1    
+
+> Terminated Survived / Duplicated Contact token Grasp token Concat Frozen 🔥 Train
+> vc Avc Bg⊥g=vc A − vc B
+
+⑥ Churn 
+
+⑦ Selection 
+
+③④ 
+
+> ···
+> Nparticles
+
+②Figure 2: Pipeline overview. (a) A trainable DiT denoises the grasp state x = ( xg , x c) by flow matching, conditioned on the positive instruction and object point cloud via frozen Qwen and PartField encoders. (b) An LLM decomposes the instruction into positive and negative prompts and an avoid part 1O, which Find3D grounds into the forbidden region F 2O. Each sampling step forms a look-ahead contact estimate 3O and steers it away from F by contact-gated CFG 4O, while SMC resamples particles by constraint compliance 5O and churn keeps duplicates from collapsing 6O. A final geometric check selects one grasp 7O.well it fits the data. The first is a mid-generation estimate of the finished grasp that the sampler can still revise. A flow model refines one complete, continuous candidate through-out sampling, whereas a contact-token decoder freezes each token once emitted and its grasp follows the tokens only approximately, so even a clean sequence does not certify a clean grasp. Classifier-free guidance itself transfers to au-toregressive models (Sanchez et al. 2024), but it contrasts the vocabulary of a single token at a time and carries no notion of spatial destination. The second is a handle that admits an immediate geometric check and still moves the grasp. Contact coordinates are points on the object surface, so measuring their distance to the forbidden region needs no extra machinery, while the grasp pose alone would require forward kinematics at every denoising step. Because pose and contacts are refined along the same trajectory, steering the contact velocity reshapes the pose that co-evolves with it. 
+
+Look-ahead estimate (Figure 2b, ➂). At each denoising step we form a one-step estimate of the finished contact coordinates, 
+
+ˆxc = xc + (1 − t) vAc , (2) where xc is the contact component of the generation state at flow time t and vAc that of the velocity predicted under prompt A, before any guidance is applied, so the estimate is read off a forward pass already taken. 
+
+Gated perpendicular guidance (Figure 2b, ➃). A second forward pass under prompt B yields vBc , and we steer the con-tact velocity by its difference from the positive-conditioned 
+
+vAc ,
+
+vc ← vAc + w · 1d(ˆ xc, F) < gate  · g⊥, (3) where g⊥ = orth( vAc − vBc , v Ac ) keeps only the compo-nent orthogonal to vAc , and w is the guidance weight. An unprojected difference risks cancelling the positive target it-self, whereas its orthogonal component pushes generation sideways without erasing the target, following perpendicular negative prompting in text-to-image diffusion (Armandpour et al. 2023). Steering the contact channels alone leaves the pose to conditional generation, and the indicator makes guid-ance self-limiting, since the term vanishes once a candidate clears the forbidden region and stops perturbing convergence. Algorithm 1 additionally exposes a step window [lo , hi] that limits guidance in time. Pretrained PartField Knife Camera Fine-tuned PartField Pretrained PartField GT segmentation Fine-tuned PartField knife camera  
+
+> Pretrained PartField GT segmentation Fine-tuned PartField knife camera
+
+GT segmentation Pretrained PartField GT segmentation Fine-tuned PartField knife camera Figure 3: Encoder erosion under fine-tuning. Spectral clus-tering of PartField features into the number of GT parts. Pre-trained clusters track GT part boundaries but collapse into fragmented regions after fine-tuning on grasp data. 
+
+3.4 Steering by Sequential Monte Carlo 
+
+A look-ahead potential. We score the same estimate ˆxc
+
+with a potential 
+
+Φ( xt) = 12 ψ(ˆ xc, F; τ ) + 12
+
+ 1 − ψ(ˆ xc, O; δ), (4) where ψ(·, S; s) = min   max( d(·, S)/s, 0) , 1 rises from 0 to 1 as the estimated contacts move away from a set S, d is the minimum Euclidean distance, and s is a fixed saturation distance, τ for the forbidden region F and δ for the object surface O. Φ ∈ [0 , 1] is therefore highest for a candidate that is simultaneously clear of forbidden region and already touching the object. We never use it as a hard constraint, only as a score that ranks and prunes candidates. 
+
+Particle steering (Figure 2b, ➄). We sample N trajecto-ries in parallel. A best-of-N baseline selects among them only at the end, spending its budget on trajectories the potential can already condemn long before the last step, since one drifting toward the forbidden region rarely recov-ers on its own. We therefore let the N trajectories interact as a particle population, resampling at a schedule of steps 
+
+R = {t1 < t 2 < · · · < t n} (n = 2 in our implementation). At each ti ∈ R we assign particle k an importance weight 
+
+ω(k) 
+
+> i
+
+∝ exp  λ Φ(k)max ,i 
+
+, Φ(k)max ,i = max  
+
+> j≤i
+
+Φ x(k)
+
+> tj
+
+, (5) where λ > 0 controls how sharply the weights favor high-potential particles. Taking the running maximum lets a par-ticle that looked safe at an earlier checkpoint keep credit for it, rather than be penalized for a single bad look-ahead later. We then resample with replacement in proportion to ω(k) 
+
+> i
+
+,pruning trajectories that the potential predicts will violate the constraint and replicating those it predicts will not. This re-sampling follows the max-potential design of Feynman-Kac steering (Singhal et al. 2025), applied as a corrector (Skreta et al. 2025) on top of the CFG-guided velocity as the pro-posal, with the running maximum used as a heuristic score rather than an exact Feynman-Kac potential. 
+
+Churn (Figure 2b, ➅). We define churning as replacing the deterministic Euler update with a marginal-preserving stochastic one at every denoising step rather than only after a resample. Without it, the deterministic ODE feeds a dupli-cated particle identical inputs at every later step, so resampled Algorithm 1: Inference-time sampling with CFG and SMC. 
+
+Require: DiT vθ , prompts A, B , forbidden region F (§3.2), CFG (w, gate , [lo , hi]) , SMC (λ, R), churn η, margin 
+
+m, S steps, dt =1 /S 
+
+1: x ∼ N (0 , I ), Φmax ← 0
+
+2: for i = 0 , . . . , S − 1 do 
+
+3: t ← i · dt 
+
+4: v ← vθ (x, t ; A)
+
+5: ˆxc ← xc + (1 − t) vc {Eq. (2)} 
+
+6: if i ∈ [lo , hi] then 
+
+7: vB ← vθ (x, t ; B)
+
+8: g⊥ ← orth  vc − vBc , v c
+
+
+
+9: vc ← vc + w 1d(ˆ xc, F) < gate  g⊥ {Eq. (3)} 
+
+10: end if 
+
+11: if i ∈ R then 
+
+12: Φmax ← max  Φmax , Φ(ˆ xc)
+
+13: x, v ← Resample  x, v ; exp( λ Φmax ) {Eq. (5)} 
+
+14: end if 
+
+15: x ← Churn  x, v, t, dt, η  {Eq. (6)} 
+
+16: end for 
+
+17: return SelectBest  x; F, O, m  {Final selection} twins never diverge. The churned update is 
+
+xt+dt = xt +  vθ − η ˆϵθ
+
+dt + p2η(1 − t) dt ϵ, (6) where ϵ ∼ N (0 , I ), dt is the step size, and ˆϵθ = xt − t v θ
+
+is the noise endpoint implied by the same rectified path as Eq. (2), here read off over the full state rather than the con-tact channels alone, with both vθ and ˆϵθ evaluated at (xt, t ).This is the score-corrected Euler-Maruyama scheme for con-ditional flow matching (Mark et al. 2025), with noise scale 
+
+σ(t) = p2η(1 − t) and a single churn-strength hyperpa-rameter η ≥ 0 that recovers the deterministic ODE exactly at 
+
+η = 0 . The drift correction −η ˆϵθ compensates the added dif-fusion, so the marginal pt each particle targets is unchanged and only the joint trajectory differs, which is what decides whether duplicates stay identical. 
+
+Final selection (Figure 2b, ➆). One grasp is still picked from the N survivors. We reconstruct each hand mesh by forward kinematics and keep the candidates that stay at least a fixed margin from the forbidden region F. Among these we return the one closest to the object surface, falling back to the least-violating candidate under a progressively relaxed mar-gin if none qualifies. This exact check is worth its one-time cost because Φ is a cheap proxy read off contact coordinates rather than the hand mesh, accurate enough to prune particles mid-generation but not to decide the final pass or fail. 
+
+## 4 Experiments 
+
+We first describe NegGrasp, the benchmark we construct for this setting (Section 4.1), and the experimental setup (Sec-tion 4.2). We then compare against language-driven grasp-ing baselines (Section 4.3), ablate each component of the inference-time stack (Section 4.4), and analyze the steering hyperparameters (Section 4.5). 4.1 NegGrasp dataset 
+
+As no existing benchmark evaluates negation-constrained grasping, we augment DexGYSNet (Wei et al. 2024) with prohibitive constraints. For each scene we mine contested 
+
+parts, namely parts that some ground-truth grasps contact while others clearly avoid, so that forbidding such a part rules out natural grasps yet leaves at least one compliant grasp available. Each avoiding grasp is paired with the con-tested part as its forbidden region, and Gemma 4 (Gemma Team 2026) converts each pair into a natural-language in-struction (e.g., “grasp the mug, but never touch the han-dle”). The generation prompts vary tone, clause order, and the choice among twelve avoidance expressions, so no single phrase covers more than a quarter of the split. The bench-mark comprises 6,928 instructions over 672 scenes and 20 categories, of which 2,793 form the test split, inheriting the object-level split of DexGYSNet so that all test instances are unseen during training. Evaluation uses ground-truth part la-bels from OakInk (Yang et al. 2022), while all methods must ground the forbidden part from language alone at inference. Appendix C details construction and statistics. 
+
+4.2 Experimental Setup 
+
+Implementation Details. Our generator is a 12-layer DiT with hidden dimension 768 and 130M trainable parameters, conditioned on frozen Qwen2.5-0.5B (Qwen Team 2024) and PartField (Liu et al. 2025) encoders. We train it by rectified-flow matching on the positive instructions of Dex-GYSNet alone, using AdamW with learning rate 2×10 −4,batch size 192, and 1K warmup steps followed by cosine decay. At inference we integrate 16 particles over 25 denois-ing steps, with guidance weight w=4 under a 50 mm contact gate and resampling at steps 10 and 20 with λ=20 . The churn strength is η=0 .1, and the saturation distances of the potential are τ =2 cm and δ=3 cm. All steering hyperparam-eters were fixed on a small validation split and held constant across all experiments. Sensitivity analyses for the remaining hyperparameters are in Appendix E. 
+
+Evaluation Metrics. Standard grasp metrics are negation-agnostic, since a grasp that firmly seizes the forbidden part still scores well on stability and intention alignment. We therefore evaluate along three complementary axes, using a single 4 mm threshold for every contact test. Constraint compliance is measured by the violation rate (Viol.), the frac-tion of cases where the hand reaches the forbidden part, by contamination (Cont.), the fraction of hand-object contacts that land on it, and by clearance (Clear.), the median hand-to-forbidden-part distance. Overall success is captured by our primary metric, the constraint-aware success rate (CSR), which credits a grasp only when it avoids the forbidden part, touches the instructed part, and contacts the object. Physical feasibility is the task success rate (TSR), which credits a grasp only when it is stable in Isaac Gym, following the protocol of DextER (Lee, Park, and Cho 2026), and free of violation, so that stability bought by seizing the forbidden part earns no credit. We report macro averages over 27 category-part cells to correct for object imbalance, with formal definitions and micro-averaged results in Appendix B. 
+
+4.3 Main Results 
+
+Table 1 compares our method against DexGYS and Dex-tER on NegGrasp. Every row marked decomp. shares the scaffolding of Section 3, where Gemma 4 decomposes the instruction, Find3D (Ma, Yue, and Gkioxari 2025) grounds the part to avoid, and the constraint-aware check selects one of 16 candidates. Applying it to each baseline (+ BoN) sepa-rates the generator from the scaffolding, and our full method adds steering on top. 
+
+Constraint compliance. Both baselines largely ignore the prohibition when given the raw mixed instruction, violating the forbidden part in more than half of all cases (55.3% and 57.9%). The scaffolding alone cuts this to 36.2% and 29.9%, confirming that decomposition and selection are model ag-nostic and rescue even negation blind generators. Our full method is the lowest on both violation (17.2%) and contami-nation, at 6.6% against 14.4% for the strongest baseline con-figuration, while its clearance of 21.1 mm is on par with the best at 22.3 mm. Our generator under the same scaffolding, Ours (BoN), already outperforms every baseline configura-tion on both, even though it never observes the negation, because the dual conditioning grounds the instructed part in the object geometry so that candidates rarely stray onto the forbidden region. 
+
+Overall success and physical feasibility. Our full method achieves the best CSR of 61.5%, a margin of 5.5 points over the strongest baseline configuration, of which steering contributes 2.9 points over our scaffolded generator alone. Because CSR jointly requires avoidance, instructed part con-tact, and object contact, these compliance gains are evidently not purchased by abandoning the task. TSR is best as well (38.7%), with our scaffolded generator second (38.3%), and the near identical pair shows that steering does not degrade the physical quality of the grasps it steers, a balance we ex-amine in Section 4.4. 
+
+4.4 Ablation Study 
+
+Table 2 holds the trained model, the particle budget N =16 ,and the certifier fixed, so every gap in the table is attributable to the sampling procedure alone. 
+
+CFG buys avoidance and pays in physics. Negative prompt CFG shifts the proposal distribution away from the forbidden region and improves every constraint metric, most visibly widening the median clearance from 19.8 mm to 22.2 mm. The cost appears on the physical axis, where TSR drops from 38.3 to 31.0, since guidance perturbs the veloc-ity field away from the learned distribution and the resulting particles avoid the forbidden part but grip the object less firmly. 
+
+Deterministic SMC trades particle collapse for physics. 
+
+Adding SMC resampling recovers the physical axis, raising TSR to 40.5, the best value in the table. As described in Section 3.4, however, clones duplicated under the determin-istic ODE never diverge again, and the particle set collapses from 16 to between 2 and 5 unique samples, the only row in the table that loses diversity. The few survivors are precisely Constraint Compliance Overall Physical Method Instruction N Viol. ↓ Cont. ↓ Clear. ↑ CSR ↑ TSR ↑                                              
+
+> (%) (%) (mm) (%) (%) DexGYS (Wei et al. 2024) mixed 155.3 28.2 10.5 43.6 27.6 DexGYS + BoN decomp. 16 36.2 14.9 14.0 56.0 36.0 DextER (Lee, Park, and Cho 2026) mixed 157.9 33.4 12.5 34.1 22.4 DextER + BoN decomp. 16 29.9 14.4 22.3 51.5 31.0
+> Ours (BoN) decomp. 16 19.6 8.5 19.8 58.6 38.3
+> Ours (BoN + Steering) decomp. 16 17.2 6.6 21.1 61.5 38.7
+
+Table 1: Main results on NegGrasp. Macro-averaged over 27 category–part cells. Mixed denotes the raw instruction and 
+
+decomp. the LLM-decomposed input, BoN the scaffolding of Section 3 over N candidates, and Steering our inference-time guidance combining CFG (Section 3.3) and SMC (Section 3.4). Bold marks the best and underline the second best.                               
+
+> Method Viol. ↓Cont. ↓Clear. ↑CSR ↑TSR ↑
+> BoN 19.6 8.5 19.8 58.6 38.3 + CFG 17.8 6.7 22.2 61.0 31.0 + SMC (deterministic) 28.3 12.9 20.0 61.8 40.5
+> + Churn ( Ours )17.2 6.6 21.1 61.5 38.7
+
+Table 2: Ablation of the inference-time stack. Each row adds one component to the row above, from best-of-16 se-lection with no intervention. Macro averages on NegGrasp. those favored by the object proximity term of the reward, so violations flow back in and the violation rate jumps to 28.3, worse than the no intervention baseline. 
+
+Churn blocks the collapse and keeps both gains. Re-placing the ODE step with the marginal preserving SDE of Section 3.4 separates clones within a single step without al-tering the distribution that each particle samples from. All 16 particles remain unique through the entire trajectory, and the full method attains the avoidance of CFG together with the constrained success of SMC. The components are comple-mentary, since CFG alone sacrifices physical quality, SMC alone reintroduces violations through collapse, and churn alone has nothing to steer. 
+
+4.5 Analysis 
+
+Resampling schedule. We treat the number of resampling events n = |R| as a free hyperparameter, placing multiple events at uniform intervals over the 25 denoising steps. Ta-ble 3 sweeps n from 0 to 4 together with the placement of single events. Churn keeps all 16 particles unique throughout, so the schedule can be varied freely without risking collapse. The constraint metrics respond only mildly, with violation staying near the CFG level up to n=2 and drifting upward once events accumulate, since every event applies the object proximity reward once more. The separation that matters appears on TSR. A single event trades the two success metrics against each other depending on placement, as the early {5}
+
+reaches a TSR of 36.2 at the lowest CSR of the sweep while the late {20 } reaches a strong CSR of 63.1 at the worst TSR of 28.5. Our schedule at n=2 is the only configuration near the top of both columns at once, and it leads TSR by a clear margin. Additional events do not pay, since the extra                                                                                  
+
+> Setting Viol. ↓Cont. ↓Clear. ↑CSR ↑TSR ↑
+> Schedule R(at w=4 )
+> ∅(n=0 )17.8 6.7 22.2 61.0 31.0
+> {5}(n=1 , early) 17.9 7.3 20.4 59.5 36.2
+> {20 }(n=1 , late) 16.9 6.6 21.2 63.1 28.5
+> {10 ,20 }(n=2 ,Ours )17.2 6.6 21.1 61.5 38.7
+> {6,12 ,18 }(n=3 )19.7 8.5 19.5 63.5 31.6
+> {5,10 ,15 ,20 }(n=4 )19.2 8.0 21.2 61.6 33.3
+> Guidance w(at R={10 ,20 })
+> w=2 20.0 6.5 18.7 57.2 31.3
+> w=4 (Ours )17.2 6.6 21.1 61.5 38.7
+> w=6 18.4 7.1 21.1 62.8 34.8
+> w=16 18.7 5.7 23.7 65.6 31.1
+
+Table 3: Steering hyperparameters. Each block sweeps one axis with every other setting frozen, and best and second best are marked within each block. Macro averages on NegGrasp. violations at n=3 and n=4 cancel their physical gains. 
+
+CFG strength. Table 3 sweeps the guidance weight with every other setting frozen, and the two axes peak at different points. Compliance is already strong at w=4 , which attains the lowest violation rate, and pushing further buys little, since clearance and CSR keep rising to w=16 while violation drifts back up. The physical axis instead reverses at once, with TSR peaking at w=4 and falling to 34.8 and 31.1 at w=6 and 
+
+w=16 as stronger guidance pushes samples further from the learned distribution, the same trade observed in Section 4.4. We therefore adopt w=4 , beyond which the physical axis degrades faster than compliance improves, and we attribute the robustness even at w=16 to the contact gate, which fires only near the forbidden region. 
+
+## 5 Conclusion 
+
+We showed that language-driven dexterous grasping fails sys-tematically once an instruction says what not to touch, and addressed this entirely at inference time, steering a flow-matching grasp DiT with contact-gated CFG and churn-diversified SMC resampling, without a single negative train-ing example. On NegGrasp, our benchmark for this setting, this cuts the violation rate of the strongest baseline to less than a third while improving both constraint-aware and physical success. References 
+
+Alhamoud, K.; Alshammari, S.; Tian, Y.; Li, G.; Torr, P. H.; Kim, Y.; and Ghassemi, M. 2025. Vision-Language Mod-els Do Not Understand Negation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) .Armandpour, M.; Sadeghian, A.; Zheng, H.; Sadeghian, A.; and Zhou, M. 2023. Re-imagine the Negative Prompt Al-gorithm: Transform 2D Diffusion into 3D, Alleviate Janus Problem and Beyond. arXiv preprint arXiv:2304.04968 .Corso, G.; Xu, Y.; de Bortoli, V.; Barzilay, R.; and Jaakkola, T. 2024. Particle Guidance: Non-I.I.D. Diverse Sampling with Diffusion Models. In The Twelfth International Confer-ence on Learning Representations .Gemma Team. 2026. Gemma 4 Technical Report. arXiv preprint arXiv:2607.02770 .Ho, J.; and Salimans, T. 2022. Classifier-Free Diffusion Guidance. arXiv preprint arXiv:2207.12598 .Lee, J.; Park, E.; and Cho, M. 2026. DextER: Language-driven Dexterous Grasp Generation with Embodied Reason-ing. In Proceedings of the IEEE/CVF Conference on Com-puter Vision and Pattern Recognition (CVPR) .Lew, A. K.; Zhi-Xuan, T.; Grand, G.; and Mansinghka, V. K. 2023. Sequential Monte Carlo steering of large lan-guage models using probabilistic programs. arXiv preprint arXiv:2306.03081 .Lipman, Y.; Chen, R. T. Q.; Ben-Hamu, H.; Nickel, M.; and Le, M. 2023. Flow Matching for Generative Modeling. In International Conference on Learning Representations (ICLR) .Liu, M.; Uy, M. A.; Xiang, D.; Su, H.; Fidler, S.; Sharp, N.; and Gao, J. 2025. PartField: Learning 3D Feature Fields for Part Segmentation and Beyond. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) .Lu, J.; Kang, H.; Li, H.; Liu, B.; Yang, Y.; Huang, Q.; and Hua, G. 2024. UGG: Unified Generative Grasping. In Com-puter Vision – ECCV 2024: 18th European Conference, Mi-lan, Italy, September 29–October 4, 2024, Proceedings, Part LXVII , 414–433. Berlin, Heidelberg: Springer-Verlag. Luo, Y.; Yang, Z.; Meng, F.; Li, Y.; Zhou, J.; and Zhang, Y. 2023. An Empirical Study of Catastrophic Forgetting in Large Language Models During Continual Fine-tuning. 
+
+arXiv preprint arXiv:2308.08747 .Ma, Z.; Yue, Y.; and Gkioxari, G. 2025. Find Any Part in 3D. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) .Mark, K.; Galustian, L.; Kovar, M. P.-P.; and Heid, E. 2025. Feynman-Kac-Flow: Inference Steering of Conditional Flow Matching to an Energy-Tilted Posterior. arXiv preprint arXiv:2509.01543 .Peebles, W.; and Xie, S. 2023. Scalable Diffusion Models with Transformers. In Proceedings of the IEEE/CVF Inter-national Conference on Computer Vision (ICCV) .Qwen Team. 2024. Qwen2.5 Technical Report. arXiv preprint arXiv:2412.15115 .Sanchez, G. V.; Spangher, A.; Fan, H.; Levi, E.; and Bider-man, S. 2024. Stay on Topic with Classifier-Free Guidance. In Proceedings of the International Conference on Machine Learning (ICML) .Singhal, R.; Horvitz, Z.; Teehan, R.; Ren, M.; Yu, Z.; McK-eown, K.; and Ranganath, R. 2025. A General Framework for Inference-time Scaling and Steering of Diffusion Mod-els. In Forty-second International Conference on Machine Learning .Skreta, M.; Akhound-Sadegh, T.; Ohanesian, V.; Bondesan, R.; Aspuru-Guzik, A.; Doucet, A.; Brekelmans, R.; Tong, A.; and Neklyudov, K. 2025. Feynman-Kac Correctors in Diffusion: Annealing, Guidance, and Product of Experts. In 
+
+Forty-second International Conference on Machine Learn-ing .Tong, E.; Balaji, A.; Opipari, A.; Lewis, S.; Zeng, Z.; and Jenkins, O. C. 2025. OVAL-Grasp: Open-Vocabulary Affor-dance Localization for Task Oriented Grasping. In Interna-tional Symposium on Experimental Robotics (ISER) .Wei, Y.-L.; Jiang, J.-J.; Xing, C.; Tan, X.-T.; Wu, X.-M.; Li, H.; Cutkosky, M.; and Zheng, W.-S. 2024. Grasp as You Say: Language-guided Dexterous Grasp Generation. In Advances in Neural Information Processing Systems (NeurIPS) .Weng, Z.; Lu, H.; Kragic, D.; and Lundell, J. 2024. DexDif-fuser: Generating Dexterous Grasps With Diffusion Models. 
+
+IEEE Robotics and Automation Letters , 9(12): 11834–11840. Wu, L.; Trippe, B. L.; Naesseth, C. A.; Blei, D. M.; and Cunningham, J. P. 2023. Practical and Asymptotically Exact Conditional Sampling in Diffusion Models. In Advances in Neural Information Processing Systems (NeurIPS) .Yang, L.; Li, K.; Zhan, X.; Wu, F.; Xu, A.; Liu, L.; and Lu, C. 2022. OakInk: A Large-Scale Knowledge Repository for Understanding Hand-Object Interaction. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) .Zhao, H.; Zhuang, L.; Zhao, X.; Zeng, C.; Xu, H.; Jiang, Y.; Cen, J.; Wang, K.; Guo, J.; Huang, S.; Li, X.; Zhao, D.; and Zou, H. 2026. Towards Affordance-Aware Robotic Dexterous Grasping with Human-like Priors. In Proceedings of the AAAI Conference on Artificial Intelligence .Supplementary Material 
+
+## Potential-Guided Particle Steering for Negation-Constrained Dexterous Grasping 
+
+Symbol Meaning 
+
+State and flow 
+
+x = ( xg , x c) generation state, Eq. (1) 
+
+xg ∈ R28 grasp pose, a 3D translation, a 3D axis-angle rotation, and 22 ShadowHand joint angles 
+
+xc ∈ R8×4 contact tokens, 8 slots of a 3D coordinate and an occupancy flag 
+
+t, dt, S flow time, step size dt = 1 /S , number of denoising steps 
+
+x0, x 1 noise endpoint x0 ∼ N (0 , I ) and data endpoint of the rectified path 
+
+vθ (x, t ) velocity field regressed by the DiT 
+
+ˆxc look-ahead contact estimate, Eq. (2) 
+
+ˆϵθ noise-endpoint estimate, xt − t v θ
+
+Grounding and potential 
+
+F, O forbidden region and object surface 
+
+d(·, ·) minimum Euclidean distance 
+
+ψ normalized proximity score, Eq. (4) 
+
+Φ ∈ [0 , 1] look-ahead potential, Eq. (4) 
+
+τ, δ saturation distances of ψ for F and O
+
+Guidance 
+
+A, B positive and negative prompts 
+
+vAc , v Bc contact velocities predicted under A and Bw, gate guidance weight and distance gate 
+
+[lo , hi] steps over which guidance is applied 
+
+orth( g, a ) component of g orthogonal to ag⊥ orthogonal guidance term, Eq. (3) 
+
+Particle steering and churn 
+
+N, k number of particles and particle index 
+
+ω(k), λ importance weight, Eq. (5), and weight sharpness 
+
+R resampling schedule {t1, . . . , t n}
+
+Φ(k)max running maximum of Φ for particle kη, σ (t) churn strength and noise scale 
+
+σ(t) = p2η(1 − t), Eq. (6) 
+
+m clearance margin of the final selection 
+
+Table 4: Notation used in Section 3. 
+
+## A Notation 
+
+Table 4 summarizes the notation used in Section 3 and Al-gorithm 1. 
+
+## B Metrics 
+
+This appendix formalizes the metrics of Section 4.2 and specifies how scores are aggregated across the imbalanced test split. 
+
+B.1 Formal Definitions 
+
+For test case i, let Hi denote the surface points of the pre-dicted hand mesh, posed by forward kinematics from the predicted grasp. Let Oi be the object point cloud, Fi ⊂ Oi
+
+the ground-truth forbidden part, and d(A, B ) the minimum pairwise Euclidean distance. All contact tests share a single threshold τv , and we use τv = 4 mm throughout. 
+
+Violation rate. A case counts as a violation if any hand point reaches the forbidden part: 
+
+Viol i = 1 d(Hi, Fi) < τ v
+
+. (7) 
+
+Contamination. Let Ci = { p ∈ Oi : d(Hi, {p}) < τ v }
+
+be the set of object points the hand contacts. Contamination is the fraction of those contacts that land on the forbidden part, 
+
+Cont i = | Ci ∩ F i ||Ci| , (8) defined as 0 when Ci is empty. 
+
+Clearance. Clear i = d(Hi, Fi), the safety margin of the hand from the forbidden part. It is reported as a median rather than a mean, since a single distant hand would otherwise dominate. 
+
+Constraint-aware success rate. Let Ti be the tar-get set: the parts that the ground-truth grasp of case 
+
+i contacts within τv , minus the forbidden part. With 
+
+Hit i = 1[the prediction contacts some part in Ti within τv ]
+
+and Contact i = 1[d(Hi, O i) < τ v ],
+
+CSR i = (1 − Viol i) · Hit i · Contact i. (9) 
+
+Ti realizes the instructed part geometrically: each instruc-tion is generated from a reference compliant grasp (Ap-pendix C.2), so the parts that grasp contacts are the parts the instruction directs the hand toward. 
+
+Task success rate. TSR i = Stable i · (1 − Viol i), where 
+
+Stable i is the Isaac Gym stability outcome under the simu-lation protocol of DextER (Lee, Park, and Cho 2026). 
+
+B.2 Aggregation: Macro and Micro 
+
+Evaluation covers the 2,793 of 2,843 test cases for which Find3D returns a grounding, and this case set S is shared by every method. A cell is a (category, forbidden part) pair; let C be the set of the 27 cells the evaluated cases span, and 
+
+Sc ⊆ S the cases falling in cell c. For any per-case score 
+
+mi (one of Viol i, Cont i, CSR i, TSR i), macro first averages within each cell and then averages the 27 resulting cell scores, while micro averages mi directly over all evaluated cases: 
+
+mmacro = 1
+
+|C| 
+
+X
+
+> c∈C
+
+1
+
+|Sc|
+
+X
+
+> i∈Sc
+
+mi, (10) 
+
+mmicro = 1
+
+|S|
+
+X
+
+> i∈S
+
+mi. (11) Clearance replaces the innermost case-average with a median (over Sc in macro’s inner sum, over S for micro), but macro’s outer average over cells is still a mean even for Clearance. Method Viol. ↓ Cont. ↓ Clear. ↑ CSR ↑ TSR ↑                                  
+
+> (%) (%) (mm) (%) (%) DexGYS (mixed) 56.1 18.3 2.3 43.1 28.8 DexGYS + BoN 26.0 7.5 8.8 68.1 47.5
+> DextER (mixed) 70.5 43.0 0.3 25.0 24.1 DextER + BoN 43.0 27.8 4.6 30.2 35.5 Ours (BoN) 7.7 2.8 19.2 66.6 41.5 Ours (BoN + Steering) 6.9 2.3 21.9 70.2 41.6
+
+Table 5: Micro-averaged results. All numbers are com-puted over the same 2,793 evaluated cases as the main tables (pooled means, with the pooled median for Clearance). Bold 
+
+marks the best and underline the second best. The distinction matters because the test split is heavily imbal-anced: the mug category alone contributes 1,794 cases (64% of the evaluated cases), and since every mug case shares the same forbidden part (mug_handle), all of them fall into a sin-gle one of the 27 cells. Micro scores therefore largely reflect one category, and the main paper reports macro scores. Un-less explicitly marked otherwise, every number in this paper is a macro score. Micro scores appear only in this appendix section and are labeled as such. 
+
+B.3 Micro-Averaged Results 
+
+Table 5 reports micro scores for every row of Table 1. The ranking of the two Ours variants is unchanged under micro averaging, and the margins over the baselines widen because mug cases dominate the pooled set. Relative to the strongest baseline configuration, DextER + BoN, the full method re-duces violation by 84% under micro averaging (43.0% to 6.9%) versus 42% under macro averaging (29.9% to 17.2%). 
+
+## C Datasets 
+
+This appendix quantifies the absence of negation in the train-ing corpus and details the construction of NegGrasp. 
+
+C.1 Negation is Essentially Absent from DexGYSNet 
+
+We scanned all 49,433 instructions of DexGYSNet (39,462 train, 9,971 test) for negation cues with the case-insensitive word list { avoid, not, never, without, do not, don’t, except, refrain, away from }. Only 23 instructions (0.047%) contain any cue. Manual inspection of all 23 shows that 18 negate an outcome rather than a contact region (“avoid dropping it,” “without spilling,” “to avoid injury”), and only 5 (0.010%) forbid touching a named object part (e.g., “gripping its han-dle with 5 fingers to avoid the blade”). At one part-directed avoidance instruction per ten thousand, the corpus is far too sparse to induce the association between negation words and avoidance behavior, which motivates both our benchmark and our inference-time treatment of negation. 
+
+C.2 NegGrasp Construction 
+
+NegGrasp augments DexGYSNet with prohibitive con-straints. Each benchmark case consists of a DexGYSNet scene, one object part that must not be touched, and a newly written instruction that asks for a grasp while forbidding that part. Only the language is new: every case is built around a ground-truth grasp that already satisfies its prohibition, so failure on the benchmark reflects a failure to honor the instruction rather than an inability to produce the required grasp. Construction proceeds in four steps. 1. Contested-part mining. DexGYSNet provides many ground-truth grasps per scene, and different grasps hold the same object by different parts, which is what makes a meaningful prohibition possible. Forbidding a part that no grasp touches (the bottom of a mug) is vacuous, since a model that ignores the instruction still complies. Forbid-ding a part that every grasp touches (the body of a bowl) leaves the case unsolvable. We therefore forbid only con-tested parts: parts that at least one grasp touches (hand-to-part distance below 4 mm) and at least one other grasp clearly avoids (above 10 mm), where the gap between the two thresholds keeps borderline grasps out of both groups. Forbidding a contested part rules out grasps that naturally occur, while a compliant grasp is proven to exist, with a comfortable margin (median 26.4 mm). 2. Pairing. Each avoiding grasp is paired with the contested part it avoids. The pair fixes everything about a case except its instruction: the part becomes the forbidden region, and the grasp serves as the reference compliant grasp, an existence proof that the instruction written in the next step can be satisfied. 3. Instruction generation. Gemma 4 (Gemma Team 2026) writes one command sentence per case. It is not asked to invent any fact about the grasp: its input is the reference grasp’s measured contact record, namely which finger links touch which part, the name of the forbidden part, and the clearance the grasp keeps from it, and its only task is to phrase these facts as a natural command. Variety comes from randomized writing directives covering five tones, three clause orders, and twelve avoidance expressions, with a brief reason for the prohibition (“it could spill”) requested in some cases. Every instruction forbids the part. Whether it also names where to grasp is left to the model, and roughly three quarters of the sentences do. The complete system prompt, the per-case user-message template, and its randomization directives are shown in Figure 6. 4. Filtering and deduplication. A generated sentence is discarded unless it names the forbidden part with an ex-plicit negative expression. To keep sentences from echo-ing one another, each new sentence is compared against the accepted sentences of its (category, part) group by 4-gram overlap and regenerated when the similarity exceeds 0.55. The released split contains no two identical sen-tences (median within-group similarity 0.292). Instruc-tions average 107 characters, and 15% state a reason for the prohibition. 
+
+Statistics. The benchmark comprises 6,928 instructions (4,085 train, 2,843 test) over 672 scenes, 787 unique (scene, part) pairs, and 20 object categories, inheriting the object-level split of DexGYSNet so that every test object instance is unseen during training. The test split spans 135 objects, 15 categories, and 27 (category, forbidden part) cells. The train split is not used by any experiment in this paper: our genera-tor is trained on DexGYSNet’s original positive instructions (Section 3.1), no baseline is fine-tuned on NegGrasp, and every number we report is computed on the test split alone. 
+
+## D LLM Instruction Parser 
+
+The parser receives the object category and the raw instruc-tion as the user message 
+
+Object category: {category} Instruction: "{instruction}" 
+
+and must return only a JSON object with two fields: 
+
+positive_instruction (the rewrite with any avoid-ance clause stripped) and parts , a list of {name ,
+
+forbidden } entries covering the complete part vocabu-lary of the object. Outputs are decoded under a constrained JSON schema and validated for lowercase snake_case names without repeated words. On validation failure, the query is reissued with the error message appended, for up to three at-tempts at decreasing temperature. On the test split, the parser flags more than one part as forbidden in 80 of 2,843 cases, where the first flagged part is used, and flags none in 6. The latter fall among the 50 cases excluded from evaluation because no forbidden part can be grounded (Appendix B.2). The system prompt specifies three groups of rules. 
+
+Naming : each part is a snake_case label of the form 
+
+{object_noun}_{part_name} with a shortened ob-ject noun and no duplicated words, and a genuinely bilateral component is split into left_ /right_ entries, since an avoidance clause may target one side. Granularity : the parser is instructed to prefer fewer, larger parts. Forbidden flagging :only a part introduced by an explicit negative word is flagged, and a part named as where to grasp is never flagged. A rep-resentative few-shot example:                               
+
+> category ="teapot", instruction ="Grasp the teapot by the handle but avoid the spout." -> {"positive_instruction": "Grasp the teapot by the handle.", "parts": [{"name": "teapot_handle", "forbidden": false}, {"name": "teapot_spout", "forbidden": true }, {"name": "teapot_body", "forbidden": false}, {"name": "teapot_lid", "forbidden": false} ]}
+
+The complete system prompt is shown in Figure 5 and in-cluded in the released inference code. We note that the parser, like the rest of the decomposition-and-grounding scaffolding, is shared by every compared method: any effect of prompt design on grounding quality applies to all rows marked de-comp. in Table 1 equally, and does not enter the comparison between methods.                                                                                                                                                                                           
+
+> Constraint Compliance Overall Physical Setting Viol. ↓Cont. ↓Clear. ↑CSR ↑TSR ↑
+> (%) (%) (mm) (%) (%)
+> Particles NN=2 32.8 15.5 17.5 56.3 29.9
+> N=4 28.8 12.5 16.6 59.3 31.6
+> N=8 23.2 10.6 19.6 61.8 31.2
+> N=16 (Ours )17.2 6.6 21.1 61.5 38.7
+> N=32 17.9 8.2 23.0 59.6 29.2
+> Weight sharpness λλ=5 15.8 7.3 21.9 60.3 31.7
+> λ=10 18.3 6.8 21.9 61.5 26.9
+> λ=20 (Ours )17.2 6.6 21.1 61.5 38.7
+> λ=50 19.5 9.1 20.2 62.9 29.9
+> Churn strength ηη=0 (deterministic ODE) 28.3 12.9 20.0 61.8 40.5
+> η=0 .05 19.3 7.8 21.7 65.9 37.5
+> η=0 .1(Ours )17.2 6.6 21.1 61.5 38.7
+> η=0 .217.3 6.0 23.6 62.6 29.2
+> η=0 .317.1 7.1 23.7 62.5 27.0
+> Contact gate (mm) gate = 20 19.7 7.5 19.6 60.2 35.4 gate = 50 (Ours )17.2 6.6 21.1 61.5 38.7
+> gate = 100 18.7 7.2 22.0 60.7 29.6
+> Guidance window [lo ,hi] [0 ,12] (early only) 18.9 8.1 20.6 61.6 28.9
+> [12 ,24] (late only) 17.7 6.2 20.7 60.9 30.7
+> [0 ,24] (Ours )17.2 6.6 21.1 61.5 38.7
+> Forbidden saturation τ(mm)
+> τ=8 21.8 9.2 20.6 59.3 31.7
+> τ=20 (Ours )17.2 6.6 21.1 61.5 38.7
+> τ=40 20.1 9.7 22.4 59.4 29.7
+> τ=80 19.2 9.6 20.0 59.9 37.1
+> Object saturation δ(mm)
+> δ=15 20.8 8.5 22.3 61.0 26.6
+> δ=30 (Ours )17.2 6.6 21.1 61.5 38.7
+> δ=60 22.7 8.9 21.0 59.9 29.1
+
+Table 6: Hyperparameter sensitivity of the steering stack. 
+
+Each block sweeps one axis with every other setting frozen at the final configuration, and best and second best are marked within each block. Macro averages on NegGrasp. 
+
+## E Hyperparameter Sensitivity Analysis 
+
+All steering hyperparameters were fixed once on a small val-idation split and held constant across every experiment in the main paper. This appendix probes the remaining axes of the inference-time stack around the final configuration ( N =16 ,
+
+λ=20 , η=0 .1, a 50 mm contact gate, guidance applied over the full step window [0 , 24] , and potential saturation distances 
+
+τ =20 mm and δ=30 mm), varying one axis at a time on the full NegGrasp test split with every other setting frozen. The resampling schedule R and the guidance weight w are ana-lyzed in the main paper (Table 3) and are not repeated here. Table 6 reports macro averages over the 27 category-part cells, computed with the identical evaluation code and case set as the main tables. 
+
+Number of particles N . Because N is the population size of the particle filter rather than a selection budget, an N -particle run cannot be approximated by subsampling a larger one, so every row is generated from scratch. Constraint com-pliance improves monotonically with N (violation 32.8% to 17.2%, contamination 15.5% to 6.6% from N =2 to 16 ), CSR saturates between N =8 and 16 , and increasing to N =32 
+
+doubles inference cost without improving any metric, plac-ing the default at the point where compliance has converged and further compute stops paying. 
+
+Weight sharpness λ. Raising λ sharpens resampling to-ward the potential of Equation 4, which rewards object prox-imity alongside avoidance, so violation drifts mildly upward as λ grows (15.8% at λ=5 to 19.5% at λ=50 ), the same mechanism by which deterministic SMC reintroduces viola-tions in Section 4.4. The drift stays small, with CSR confined to a 2.6-point band across the sweep, and the default is the only setting near the top of both the compliance and the physical columns. 
+
+Churn strength η. This is the axis the method is most sensitive to, and it quantifies the collapse mechanism of Sec-tion 4.4. At η=0 the sampler reduces exactly to the determin-istic ODE and violation rises to 28.3%, while every nonzero 
+
+η restores compliance to the 17-19% range, confirming that the fix requires stochasticity but not a particular noise level. Because the churned update preserves the per-step marginals only up to discretization error, we verify preservation directly on a pilot protocol with guidance and resampling disabled, comparing each η against its deterministic counterpart un-der pre-registered equivalence margins on compliance, suc-cess, and the particle dispersion of the grasp parameters. The check passes for η ∈ { 0.05 , 0.1} but fails from η=0 .3 up-ward, where the violation reduction exceeds the margin and is thus a distribution-distortion artifact rather than genuine avoidance. Within the admissible interval, η=0 .05 is slightly stronger on CSR (65.9%) while the default attains the lower violation rate (17.2% against 19.3%) at a nearly identical TSR, and beyond it the physical axis degrades steadily (TSR 38.7%, 29.2%, 27.0% at η=0 .1, 0.2, 0.3) with no compli-ance gain, as the injected noise pushes trajectories further from the learned flow. 
+
+Contact gate and guidance window. The two remaining CFG design choices are insensitive axes. Across a fivefold change of the gate distance (20 to 100 mm), violation and CSR move by at most 2.5 and 1.3 points, consistent with the gate being self-limiting, since the guidance term vanishes for candidates already clear of the forbidden region regardless of the threshold. Restricting guidance to only the early or only the late half of the trajectory likewise changes compliance and CSR by about one point. Neither axis offers a setting that improves on the default, and neither degrades the method substantially, evidence that the contact-gated CFG design is robust rather than delicately tuned. 
+
+Potential saturation distances τ and δ. The look-ahead potential of Equation 4 has two free parameters, the saturation distances of its avoidance and object-proximity terms, and both are low-sensitivity axes. Across a tenfold change of τ (8 to 80 mm) and a fourfold change of δ (15 to 60 mm), no setting improves on the default in either compliance or success, and CSR stays within 2.2 points of the default throughout, so the potential, like the contact gate and the guidance window, requires no per-task tuning. 
+
+## F Compute Cost and Reproducibility 
+
+This appendix reports the compute cost of the steering stack and validates the stability and statistical significance of the reported numbers. 
+
+Inference cost. All experiments run on 4 ×NVIDIA TI-TAN RTX (24 GB) with the DiT forward pass in bfloat16 autocast. Generating, scoring, and simulating all 2,843 test instances takes about 1.6 hours per configuration end-to-end on this hardware, and the cost scales linearly with the particle count N .
+
+Reproducibility. All experiments use a single fixed ran-dom seed (0), and every table is reproducible from the released per-case predictions and scoring code without re-running generation, as the scoring pipeline is determinis-tic. Generation itself is not bit-reproducible across processes (bfloat16 autocast and non-deterministic CUDA reductions), so we quantify stability rather than assume it: three inde-pendent runs of the final configuration give micro-averaged CSR of 70.2%, 70.1%, and 70.1% ( σ=0 .1 pp), while macro-averaged violation varies with σ=2 .3 pp, the same magni-tude as re-running with an identical seed. We therefore treat this as run-to-run rather than seed variance and refrain from interpreting differences below these floors. 
+
+Statistical validation. To verify that the headline com-parisons of Table 1 are not artifacts of the finite test set, we ran a stratified paired bootstrap ( B=10 ,000 , re-sampling cases within each of the 27 category-part cells and applying identical resample indices to all methods). Against the strongest baseline, DextER with best-of-N se-lection, the 95% intervals of the paired macro differences exclude zero on violation ( −12 .6 [ −17 .8, −7.4] ), contamina-tion ( −7.8 [ −11 .1, −4.3] ), and CSR ( +10 .0 [+4 .3, +15 .7] ). The ablation claim of Section 4.4 is likewise confirmed, as churn reduces violation against deterministic SMC by −11 .1[−16 .1, −6.0] .
+
+## G Model 
+
+This appendix gives implementation-level detail on the flow-matching DiT of Section 3.1, which is trained once on Dex-GYSNet’s positive instructions and left untouched by the inference-time steering of Sections 3.3–3.4. 
+
+Point cloud encoder. A single frozen encoder, Part-Field (Liu et al. 2025), supplies the geometric condition. PartField is a triplane-based encoder: a PVCNN backbone maps the point cloud into triplane features, and a triplane transformer refines these into 3×32 ×32=3 ,072 patch to-kens (three planes, each a 32 × 32 grid), which we average-pool 2×2 per plane down to 3×16 ×16=768 patch tokens of width 1024. Input point clouds are sampled to 10,000 points (XYZ only; PartField’s other three input channels are filled with a constant placeholder, matching its own pre-training pipeline). We load the released checkpoint (Hug-ging Face Hub, mikaelaangel/partfield-ckpt )and never fine-tune it, since fine-tuning measurably degrades its part-aware clustering (Figure 3). 
+
+Text encoder. A single frozen encoder, Qwen2.5-0.5B-Instruct (Qwen Team 2024), supplies the language condi-tion. The positive instruction is wrapped in a fixed template, 
+
+"Grasp instruction: {instruction}" , and en-coded by the base transformer (not the language-modeling head); we keep every token of its last hidden state, [1 , T, 896] ,rather than pooling to a single vector, so the DiT’s cross-attention can attend to individual words. 
+
+Conditioning. The two streams are independently pro-jected (LayerNorm + Linear) to a shared width of 768 and tagged with one of two learnable modality embeddings, then concatenated into a single memory of T +768 tokens that ev-ery DiT block cross-attends to; the two modalities are never summed or interleaved. Classifier-free guidance is realized architecturally: a single learnable null_text token can replace the entire text stream (the geometry stream is never dropped, since the object being grasped should never be am-biguous). At training time this replacement is stochastic (each example’s text condition is dropped with probability 0.15); at inference, Sections 3.3–3.4 instead replace it with the fixed second prompt B rather than the null token, so the contrast used for steering is between two real instructions rather than between an instruction and nothing. 
+
+State representation. The denoised state x = ( xg , x c)
+
+(Eq. 1) is realized as 9 tokens: one grasp token, xg ∈ R28 
+
+(3-D translation, 3-D axis-angle rotation, 22 ShadowHand joint angles) linearly projected to width 768 and given one learnable positional embedding, and 8 contact-slot tokens, 
+
+xc ∈ R8×4 (each slot a 3-D coordinate plus a scalar occu-pancy flag) linearly projected and given 8 further learnable positional embeddings, one per slot. 
+
+DiT architecture. 12 blocks of width 768 with 12 attention heads and an MLP ratio of 4 ( 3,072 -D hidden layer, GELU). Each block follows adaLN-zero: a sinusoidal timestep em-bedding (768-D, refined by a 2-layer SiLU MLP) is pro-jected to 9 chunks of shift/scale/gate, one triple for each of the block’s three sub-layers, self-attention, cross-attention, and MLP, and every gate is zero-initialized so each block starts as the identity. Self-attention is computed among the 9 state tokens alone; cross-attention queries those same 9 tokens against the concatenated text-and-geometry memory, masking only the padded positions of the (variable-length) text stream, since the 768 geometry tokens are never padded. 
+
+Attention mechanism. Every attention operation, both the self-attention among state tokens and the cross-attention into the conditioning memory, is fully bidirectional; no causal masking is used anywhere in the model. This is a conse-quence of the state being a small, fixed-size set of continuous tokens refined jointly by flow matching rather than a sequence emitted left to right, so there is no notion of "future" tokens to hide. 
+
+Output heads and objective. Three linear heads read out of the final block: a grasp velocity ˆvg ∈ R28 from the grasp token, a contact velocity ˆvc ∈ R8×4 from the 8 slot tokens, and 18-way link-classification logits (17 ShadowHand link names + one "none" class) from those same slot tokens. The two regression heads (grasp and contact velocity) are zero-initialized, so the model’s continuous outputs start at exactly zero; the link-classification head keeps its default ini-tialization, since a discrete classifier has no equivalent "start as identity" convention. Training regresses ˆvg against the rectified-flow target with an unweighted MSE, and regresses 
+
+ˆvc’s coordinate and occupancy channels against their own targets with two separate MSE terms (the coordinate term masked to slots the ground truth marks occupied), alongside a cross-entropy loss on the link logits; the four terms are combined with weights 1 : 1 : 1 : 0 .5 (grasp : coordinate : occupancy : link) in our released configuration. 
+
+## H Qualitative Results 
+
+Figure 4 compares grasps on ten NegGrasp test cases span-ning seven object categories, with the forbidden part rendered in red. The baselines frequently contact the forbidden part, and in several cases they seize it as if it were the instructed target, consistent with the shortcut hypothesis of Section 1 that a part mentioned in the instruction is read as a place to grasp. Our method stays clear of the forbidden part in every case shown while still contacting the instructed part, and its grasps often differ from the reference compliant grasp (GT), indicating that the steered sampler finds its own compliant mode rather than memorizing the reference. 
+
+## I Limitation and Future Direction 
+
+Our framework inherits the quality of its frozen grounding stack. When the parser or the 3D part-grounding model fails to localize the forbidden part, which occurs in 50 of the 2,843 generated test cases, steering has no region to act on, and since the parser keeps only the first flagged part, an in-struction that forbids several regions at once is only partially enforced. Finally, all evaluation is conducted in simulation, on single-object scenes with a ShadowHand, and physical success is judged by the Isaac Gym protocol rather than on real hardware. Each of these limitations points to a natural extension, supporting multiple simultaneous constraints, im-proving open-vocabulary part grounding, and validating the steering stack on a physical robot in cluttered scenes, and because our method operates purely at inference time, every such extension leaves the trained generator untouched. DexGYS GT DextER Ours 
+
+"Grasp the lotion pump with the thumb tip, index middle, index fingertip, middle-finger middle, ring middle, ring fingertip, and pinky fingertip, never touching the bottle handle." 
+
+"Keep your fingers away from the blade since it's sharp, and grip the knife handle with your fingertips." 
+
+"Grasp the headphones by touching the headband with all fingers, keeping your fingers away from the left ear cap." 
+
+"Grasp the mug body with the tips of your thumb and all four fingers, making sure to steer clear of the mug handle." 
+
+"Please grasp the camera using your fingertips and thumb while keeping clear of the camera grip and control panel." 
+
+"Grasp the bottle body with all five fingers, never touching the pump head because it must not be pressed by accident." 
+
+"Grasp the bottle with all fingers wrapped around the body, keeping hands off the handle." 
+
+"Grasp the lotion pump using all five fingers on the body while keeping the pump head untouched to prevent accidental activation." 
+
+"Please pick up the eyeglasses using your fingers on the lens and bridge, steering clear of the right template bar." 
+
+"Please grip the knife by contacting the middle fingertip with the knife blade, ensuring the knife handle is not contacted." Figure 4: Qualitative comparison on NegGrasp. The forbidden part is rendered in red. Baselines repeatedly contact or seize it, whereas our steering avoids it while reaching the instructed part. [System Prompt] 
+
+You are the instruction parser for a language-driven dexterous-grasp robot system. You are given the object’s category and one natural-language grasp instruction that may combine a positive target ("grasp the X") with a negative, avoidance clause ("but avoid the Y", "without touching Z", "never the W"). Produce exactly two things: 1. "positive_instruction": the instruction rewritten to describe ONLY where/how to grasp (strip out any negative/ avoidance clause; keep it a natural imperative sentence). 2. "parts": the COMPLETE list of this object’s real, physically distinct named parts -- every major part a real object of this category has, not just the ones mentioned in the instruction. GRANULARITY (important): most objects have only 1-2 such parts -- a plain object with no separate lid/handle/cap/blade is a SINGLE part (the whole body, e .g. a bowl or cup is just one part -- do not invent a split where the object is one continuous piece); a typical object with one distinguishing feature (a handle, a cap, a blade, a nozzle) is 2 parts; only a genuinely multi-component object (e.g. a teapot with body+spout+handle+lid, or a power drill with chuck+motor+grip+trigger+battery) has 3 or more. Do not pad the list with invented sub-features (screws, pads, hinges, seams, small buttons) that are not prominent, separately load-bearing regions -- when in doubt, prefer FEWER, LARGER parts over more, smaller ones. If (and only if) the object has a genuine LEFT/RIGHT symmetric pair of the same functional component (e.g. two temple arms on eyeglasses, two ear cups on headphones), give each side its own entry prefixed "left_"/ "right_" --an avoidance instruction may target only one specific side, so do not collapse a symmetric pair into one generic entry. Each entry has: - "name": a lowercase snake_case string in the form "{object_noun}_{part_name}", where object_noun is the object’s natural singular noun -- often a SHORTENED form of the category, not the literal category string (e.g. category=" hair_dryer" -> noun "dryer"; category="cylinder_bottle" -> noun "bottle"). NEVER duplicate a word (e.g. "hair_dryer_dryer_nozzle" is WRONG, it repeats "dryer"; the correct form is "dryer_nozzle"). If the object noun already starts the part’s natural name (e.g. category="lotion_pump", part="pump head"), do NOT prefix it again --just use "pump_head", not "pump_pump_head". A bare single word with no prefix is fine when the word is unambiguous on its own (e.g. "switch", "zipper", "trigger") -- don’t force a prefix that makes the name awkward. - "forbidden": true if the instruction has an explicit negative/avoidance word ("avoid", "never", "not", "without touching", "but not") targeting this exact part, false otherwise. Exactly one canonical entry per real part --never list the same physical part twice under two different name spellings. This part list is used to let a 3D part-grounding model tell the object’s parts apart from each other, so it must be the object’s actual anatomy (a closed, mutually-exclusive set), not a single vague catch-all -- but also not an over-segmented parts-catalog. These examples (for objects unrelated to whatever you’re being asked about) illustrate the expected granularity and NAMING PATTERN, not a lookup table -- work out the real parts and their names for whatever category you’re actually given, using this same style: - category=bowl: [’bowl_body’] - category=backpack: [’backpack_body’, ’shoulder_strap’, ’zipper’] - category=teapot: [’teapot_spout’, ’teapot_handle’, ’teapot_lid’, ’teapot_body’] - category=headphones: [’headband’, ’left_ear_cap’, ’right_ear_cap’] CRITICAL: a part mentioned as WHERE TO GRASP is a positive target ("forbidden": false), not a forbidden part. Only a part introduced by an explicit negative/avoidance word belongs with "forbidden": true. If you see no such negative word anywhere in the instruction, every entry’s "forbidden" must be false (but the full part list is still filled in ). Examples (again, illustrating the pattern on unrelated objects -- reason about the real parts of whatever object you ’re actually given): - category=teapot, instruction="Lift the teapot from its body." -> positive_instruction="Lift the teapot from its body.", parts=[{"name":"teapot_body","forbidden":false}, {"name":"teapot_spout","forbidden":false}, {"name":" teapot_handle","forbidden":false}, {"name":"teapot_lid","forbidden":false}] (the body is where to grasp, not avoid, but the spout/handle/lid are still part of the object’s anatomy and belong in the list) - category=teapot, instruction="Grasp the teapot by the handle but avoid the spout." -> positive_instruction="Grasp the teapot by the handle.", parts=[{"name":"teapot_handle","forbidden":false}, {"name":"teapot_spout","forbidden": true}, {"name":"teapot_body","forbidden":false}, {"name":"teapot_lid","forbidden":false}] - category=backpack, instruction="Pick up the backpack by the strap, never the zipper." -> positive_instruction=" Pick up the backpack by the strap.", parts=[{"name":"shoulder_strap","forbidden":false}, {"name":"zipper","forbidden ":true}, {"name":"backpack_body","forbidden":false}] - category=bowl, instruction="Pick up the bowl." -> positive_instruction="Pick up the bowl.", parts=[{"name":" bowl_body","forbidden":false}] (a plain bowl is one continuous piece -- do NOT invent a rim/base/interior split) Output ONLY the JSON object matching the required schema. No prose, no markdown fences. 
+
+[User Prompt] 
+
+Object category: {category} Instruction: "{instruction}" 
+
+Figure 5: System prompt of the LLM instruction parser. The figure shows the complete system prompt and the per-case user-message template (Appendix D), both reproduced verbatim from the released inference code. [System Prompt] 
+
+You write one-sentence natural-language commands for a robot with a five-fingered dexterous hand. Output ONLY the command sentence, no quotes, no explanations. 
+
+[User Prompt] 
+
+Object: {e[’class_name’]}. A reference command for this grasp was: "{e[’base_guidance’]}". The grasp actually used: {contacts}. The region that must NOT be touched: the {part} (stays {e[’avoid_dist_mm’]}mm away). Write ONE new command telling the robot to grasp the object while never touching the {part}. Style: {reg}. Sentence order: {order}. Prefer wording like one of: {vocab} (pick what fits, adapt freely). [if want_reason] Include a brief reason, e.g. because {reason}. [if base_guidance mentions part] NOTE: the reference command mentions the {part}, but this grasp does NOT touch it -- trust the actual contacts, not the reference. Do not copy the reference command; rephrase the intent in your own words. 
+
+Figure 6: Instruction-generation prompt for NegGrasp construction. The figure shows the complete prompt, reproduced verbatim from the dataset-construction code’s build_prompt() function. The placeholders reg , order , vocab , and 
+
+contacts are values already resolved before insertion; Appendix C.2 describes how they are sampled.
