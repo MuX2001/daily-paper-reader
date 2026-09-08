@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-07</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-08</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 25 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 16 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>12</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>9</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>7</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-07 23:31:31 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-08 23:04:22 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读12篇、速读13篇，共25篇论文，重点关注具身智能与视觉-语言-动作模型方向。</p>
-<p>最值得看的是《CometVLA》（10分）与《DriftingVLA》（9分），前者围绕物理理解的数据金字塔协同训练，后者提出一步式生成与时间漂移机制，建议优先精读。</p>
-<p>若想跟进前沿，可顺带浏览速读中8分的遥操作力控制、随机控制等方向，从传统控制视角反观VLA模型设计。</p>
+<p>今日16篇论文聚焦具身智能与视觉-语言-动作模型(VLA)，精读9篇中《CometVLA》《EmbodiedSkills》双双获9.0高分。</p>
+<p>最值得精读的是两大9分工作：CometVLA用“具身数据金字塔”联合训练冲物理理解，EmbodiedSkills则给出VLA智能体从编排到部署的统一框架。</p>
+<p>普通读者建议由这两篇入手，再顺藤摸瓜看速读里的世界模型反馈评估与四足机器人多模态策略，就能把握本次趋势主干。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +73,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">12 篇</strong>
+    <strong class="dpr-home-dashboard-count">9 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="CometVLA: Co-Training on an Embodied Data Pyramid towards Physical Understanding">CometVLA: Co-Training on an Embodied Data Pyramid towards Physical Understanding</span></li><li><span class="dpr-home-dashboard-paper-title" title="DriftingVLA: Native One-Step Vision-Language-Action Generation via Per-Dimension Temporal Drifting">DriftingVLA: Native One-Step Vision-Language-Action Generation via Per-Dimension Temporal Drifting</span></li><li><span class="dpr-home-dashboard-paper-title" title="SymVD: Symmetric Vision Language Action Distillation for Robot Manipulation">SymVD: Symmetric Vision Language Action Distillation for Robot Manipulation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="CometVLA: Co-Training on an Embodied Data Pyramid towards Physical Understanding">CometVLA: Co-Training on an Embodied Data Pyramid towards Physical Understanding</span></li><li><span class="dpr-home-dashboard-paper-title" title="EmbodiedSkills: A Unified Framework for Orchestrating, Training, and Deploying VLA Agents">EmbodiedSkills: A Unified Framework for Orchestrating, Training, and Deploying VLA Agents</span></li><li><span class="dpr-home-dashboard-paper-title" title="Stochastic Optimal Control Problem under Inside Information">Stochastic Optimal Control Problem under Inside Information</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>7</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>2</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>2</strong></span><span class="dpr-home-dashboard-tag">control <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>7</strong></span><span class="dpr-home-dashboard-tag">control <strong>2</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -86,12 +86,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">13 篇</strong>
+    <strong class="dpr-home-dashboard-count">7 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Adaptive Finite-Time Position-Force Control of Teleoperation Systems With Time-Varying Delays Using a Liquid State Machine Uncertainty Estimator">Adaptive Finite-Time Position-Force Control of Teleoperation Systems With Time-Varying Delays Using a Liquid State Machine Uncertainty Estimator</span></li><li><span class="dpr-home-dashboard-paper-title" title="Stochastic Maximum Principle for McKean-Vlasov Control with Discrete Path Dependence">Stochastic Maximum Principle for McKean-Vlasov Control with Discrete Path Dependence</span></li><li><span class="dpr-home-dashboard-paper-title" title="Policy Iteration for Domain Randomized Linear Quadratic Systems">Policy Iteration for Domain Randomized Linear Quadratic Systems</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Do Better Imagined Rollouts Mean Better Robot Control? A Controlled Study of World-Model Evaluation Under Feedback">Do Better Imagined Rollouts Mean Better Robot Control? A Controlled Study of World-Model Evaluation Under Feedback</span></li><li><span class="dpr-home-dashboard-paper-title" title="MulDP: Multimodal Diffusion Policy for Autonomous Quadruped Parkour Navigation across Complex Terrains">MulDP: Multimodal Diffusion Policy for Autonomous Quadruped Parkour Navigation across Complex Terrains</span></li><li><span class="dpr-home-dashboard-paper-title" title="Robust stabilization with spiking neuronal communication">Robust stabilization with spiking neuronal communication</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>8</strong></span><span class="dpr-home-dashboard-tag">control <strong>4</strong></span><span class="dpr-home-dashboard-tag">vla <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">control <strong>3</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>3</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>1</strong></span></div>
 </section>
 </div>
 
