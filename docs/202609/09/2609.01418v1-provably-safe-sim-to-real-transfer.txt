@@ -1,0 +1,5194 @@
+Title: Provably Safe Sim-to-Real Transfer
+
+URL Source: https://arxiv.org/pdf/2609.01418v1
+
+Published Time: Wed, 02 Sep 2026 01:35:59 GMT
+
+Number of Pages: 42
+
+Markdown Content:
+# Provably Safe Sim-to-Real Transfer 
+
+Tingting Ni 
+
+SYCAMORE, EPFL 
+
+tingting.ni@epfl.ch 
+
+Maryam Kamgarpour 
+
+SYCAMORE, EPFL maryam.kamgarpour@epfl.ch 
+
+## Abstract 
+
+To mitigate the sample complexity of real-world reinforcement learning (RL), a common practice is to first train a policy in a simulator, where samples are cheap, and then deploy the learned policy in the real world with the hope that it generalizes effectively. Such direct sim-to-real transfer is not guaranteed to succeed: simulator-trained policies can be suboptimal in the real world due to sim-to-real mismatch. Correcting this mismatch requires collecting data from the real system, but in many applications, such as robotics and healthcare, this data-collection process is itself subject to safety constraints. This gives rise to the problem of safe sim-to-real transfer: how can an agent exploit an imperfect simulator while ensuring safe real-world data collection and learning a near-optimal feasible policy for the target system? We address this problem by formulating safe sim-to-real transfer within the framework of reward-free safe RL. We design a computationally efficient algorithm that exploits simulator information to provably reduce real-world interaction while ensuring safe exploration and enabling the computation of a near-optimal feasible policy for any potential reward function. Our real-world sample complexity bound characterizes the benefit of using the simulator in terms of the sim-to-real mismatch. 
+
+## 1 Introduction 
+
+Over the last decade, reinforcement learning (RL) has achieved remarkable success in domains ranging from games and robotics to the natural sciences [Mnih et al., 2013, Silver et al., 2016, Ouyang et al., 2022, Lee et al., 2020, Degrave et al., 2022]. Despite this progress, deploying RL in real world remains challenging due to two central obstacles: sample complexity and safety. Learning directly on the target system can require many interactions, each of which may be costly and subject to safety requirements, such as collision avoidance in robotics [Haddadin et al., 2009] or compliance with operational constraints in healthcare [Kyrarini et al., 2021]. A common way to reduce costly real-world interaction is to use a simulator. In robotics and control, simulators are often constructed from physical models, system knowledge, or prior calibration, and can provide many cheap interactions. However, the real world is difficult to model perfectly, leading to sim-to-real mismatch [Tan et al., 2018, Peng et al., 2018]. Consequently, policies optimized in simulation may be suboptimal in the real world. In safety-critical applications, this mismatch is even more problematic: a policy that appears safe in simulation may violate safety constraints after deployment. This motivates safe sim-to-real transfer, where the goal is to exploit cheap simulator access while ensuring that the deployed policy is both near-optimal and feasible on the real system. To incorporate safety requirements, we model environments as constrained Markov decision processes (CMDPs), allowing the agent to learn policies that maximize reward while satisfying safety constraints. One approach to addressing sim-to-real mismatch is to enlarge the set of environments considered during simulation training. This is often done by assuming a distribution over simulated CMDPs and training policies that are robust across this distribution. For example, As et al. [2026] consider domain randomization for simulated CMDPs and optimize policies under worst-case constraints, 
+
+Preprint. arXiv:2609.01418v1 [cs.LG] 1 Sep 2026 while Zhang et al. [2024] study distributionally robust constrained RL. These methods can be viewed as one-shot transfer: the agent learns a policy in simulation that can be safely deployed on the real system. However, they may be conservative: the learned policies are designed to be safe in the real world, but their performance may be suboptimal because they optimize for worst-case or distributional performance rather than performance on the specific real system [Ye et al., 2023]. To reduce this conservatism, one can collect real-world data to fine tune the policy learned in simulation. This data-collection process must itself ensure constraint satisfaction, a requirement commonly referred to as safe exploration [Koller et al., 2018]. This gives rise to safe meta RL, which trains agents over a distribution of simulated CMDPs. When deployed on a real system assumed to be drawn from the same distribution, these agents can fine tune using relatively few real-world interactions while ensuring safe exploration [Ni and Kamgarpour, 2026, Xu and Zhu, 2026]. Among these works, Ni and Kamgarpour [2026] prove that learning a near-optimal policy while ensuring safe exploration requires only ˜O(ε−2C(D)) real-world samples, with a matching lower bound. Here, C(D) measures the complexity of the environment distribution D.This quantity can be small when D is concentrated on a low-dimensional family of environments, such as tasks described by a few latent parameters, but it can still suffer from the curse of dimensionality when D spreads broadly across the environment space, such as uniform distribution. Moreover, both one-shot transfer methods and safe meta RL rely on an important coverage assumption: the real system must be drawn from, or at least well covered by, the prescribed family or distribution of simulated CMDPs. This assumption may fail when the simulator is biased. For example, a robot may be trained with randomized friction or actuator parameters in simulation, while the real system exhibits unmodeled delays or contact effects. To handle settings without this coverage assumption, recent sim-to-real RL methods use the simulator to guide real-world data collection, either to correct simulator mismatch [Qu et al., 2025, Wu et al., 2026] or to learn an optimal policy in the real world [Wagenmaker et al., 2024]. However, they are developed for unconstrained settings. Directly applying them in safety-critical systems may lead to unsafe real-world interaction, which is unacceptable in applications such as autonomous driving, surgical robotics, and power-grid control. Online safe RL methods can ensure safe exploration in the real world. Prior model-based [Yu et al., 2025, Bura et al., 2022, Liu et al., 2021] and model-free [Ni and Kamgarpour, 2025b] methods provide high probability guarantees for learning a near-optimal policy under safe exploration, but they typically assume a single prespecified reward. In practice, reward functions are often iteratively engineered or vary across deployments [Jin et al., 2020, Ménard et al., 2021]; for example, in autonomous driving, different rewards may encode different target locations. Collecting new real-world data for each reward is therefore highly sample inefficient. This motivates reward-free safe RL [Miryoosefi and Jin, 2022, Huang et al., 2023], where the agent explores the environment without a prespecified reward, and later uses the learned information for planning under arbitrary reward functions. Specifically, after data collection, the agent should be able to compute a near-optimal feasible policy for any given reward without further real-world interaction. However, Miryoosefi and Jin [2022] do not ensure safe exploration during data collection, while Huang et al. [2023] ensure safe exploration but require solving a constrained nonconvex optimization problem to compute exploration policies, which is intractable in general. 1 Moreover, these works are fully online and do not leverage simulators, which can be sample inefficient especially when simulator information is available. This motivates safe sim-to-real transfer without a simulator coverage assumption: how can an agent leverage a simulator to reduce real-world interaction while ensuring safe exploration and reward-free planning in the real system? We summarize our contributions below: 1. We formulate safe sim-to-real transfer as a reward-free safe RL problem, where the agent uses a simulator and limited real-world interaction under safe exploration guarantees to support accurate reward-free planning. We propose a computationally efficient algorithm that identifies reliable simulator regions, uses certified simulator transitions to reduce real-world interaction, and corrects sim-to-real mismatch with collected real-world data. 2. For our algorithm, we provide high-probability guarantees for safe real-world exploration and accu-rate reward-free planning; see Theorem 4.1. The sample-complexity bound characterizes the benefit of simulator access through the size of the mismatch region and the separation gap. When the sim-to-real 
+
+> 1Their method maximizes a concave objective over a feasible set defined by a concave sublevel constraint over the policy space, which yields a nonconvex optimization problem.
+
+2mismatch is large, our framework recovers the fully online setting of Huang et al. [2023] and improves upon its sample-complexity bound. Additional comparisons with prior work are provided in Table 2. 3. We validate our theoretical results in a safety-critical gridworld environment. Our experiments show that the benefit of using the simulator is larger when the sim-to-real mismatch is smaller. 
+
+## 2 Problem setting 
+
+We first review background on constrained Markov decision processes (CMDPs), then formally state the safe sim-to-real transfer problem and its underlying assumptions. 
+
+Notation. Let N and R denote the sets of natural numbers and real numbers, respectively. For a set X ,
+
+∆( X ) denotes the probability measure over X , and |X | denotes its cardinality. For any p, q ∈ ∆( X ),their total variation distance is defined as ∥p − q∥TV := 12
+
+P 
+
+> x∈X
+
+|p(x) − q(x)|. For any integer m,we set [m] := {1, . . . , m }. For any scalar z ∈ R, we denote its positive part by [z]+ := max {z, 0}.Logical conjunction and disjunction are denoted by ∧ and ∨, respectively. 
+
+2.1 Constrained Markov Decision Processes 
+
+We consider a CMDP defined by a tuple M = ( S, A, H, P, s 1, F, c ) , where S and A are finite state and action spaces, and H is the horizon. The transition dynamics are given by P := {Ph}Hh=1 ,where Ph(s′|s, a ) denotes the probability of transitioning from state s to state s′ after taking action 
+
+a at timestep h ∈ [H]. Without loss of generality, each iteration starts from a fixed initial state 
+
+s1 ∈ S .2 In addition, the CMDP may be equipped with a class of deterministic utility functions 3
+
+F := f = {fh}Hh=1 fh : S × A → [0 , 1] , ∀h ∈ [H] . Each f ∈ F measures the performance of a policy, which we introduce next. Among these utility functions, the constraint function c ∈ F 
+
+encodes the safety requirement. A Markov policy π = {πh}Hh=1 is a collection of mappings πh : S → ∆( A), and we let Π denote the set of all such policies. Given a utility function f ∈ F , the agent interacts with M as follows. Starting from the initial state s1, at each timestep h, it selects an action ah ∼ πh(· | sh), receives utility fh(sh, a h), and transitions to the next state sh+1 ∼ Ph(· | sh, a h). To measure the cumulative utility collected by π under dynamics P , we define the state-action value function for each timestep 
+
+h and f ∈ F as QP,π f,h (s, a ) = EP,π [PHh′=h fh′ (sh′ , a h′ ) | (sh, a h) = ( s, a )] , and the corresponding state value function as V P,π f,h (s) = EP,π [PHh′=h fh′ (sh′ , a h′ ) | sh = s]. We call a policy π feasible 
+
+in M if its constraint value satisfies V P,π c, 1 (s1) ≥ ℓ, where ℓ ∈ [0 , H ] is a prescribed safety threshold. The set of feasible policies is defined as ΠP 
+
+> feas
+
+:= {π ∈ Π | V P,π c, 1 (s1) ≥ ℓ}. And we call π strictly feasible if V P,π c, 1 (s1) > ℓ .
+
+2.2 Safe sim-to-real transfer 
+
+In safe sim-to-real transfer, the agent has full access to a simulator during learning but is ultimately deployed in the real world. The goal is to exploit cheap simulator access so that the learned policies are feasible and near-optimal in the real world. However, two challenges remain. First, the simulator is only an approximation of the real world, and this mismatch may cause a policy that is feasible or optimal in simulation to become unsafe or suboptimal in the real world. Thus, simulator access alone is not sufficient: the agent must collect some real-world data to learn or correct for this mismatch. Second, the task objective may vary across deployments, such as when the agent must reach different target locations. We therefore allow the reward function to range over a family 
+
+F of possible reward functions. In contrast, we assume a common constraint function c, since the simulator is intended to model the same physical system in which the learned policy will ultimately operate. Consequently, safety specifications, such as collision avoidance in autonomous driving            
+
+> 2As explained by Fiechter [1994], if the initial state is instead drawn from a distribution s1∼ρ, one can equivalently introduce an artificial initial state s0such that P(· | s0, a ) := ρ(·)for every action a. This augments the state space and horizon each by one, and all bounds carry over with only this constant-size modification.
+> 3While we study deterministic utility functions for notational simplicity, our results generalize to randomized utility functions.
+
+3or joint limits in robotic manipulation, are determined by the underlying real system and remain unchanged across simulation and deployment. However, collecting new real-world data for every reward function would be highly sample inefficient. These considerations motivate a hybrid, reward-free safe RL formulation. In online RL, the agent learns only through interactions with the real world. By contrast, hybrid RL [Song et al., 2023, Xie et al., 2021] allows the agent to leverage both simulator information and real-world interactions, making it well suited for correcting sim-to-real mismatch with limited real-world data. To accom-modate varying reward functions under safety constraints, we further adopt the reward-free safe RL perspective [Miryoosefi and Jin, 2022, Huang et al., 2023]: the agent first learns a real-world dynamics model, which can then be used to compute near-optimal feasible policies for any reward function in F. Combining these two perspectives, we formulate the learning problem as follows. During learning, the agent can interact with the real world Mreal = ( S, A, H, P real , s 1, F, c ) by rolling out policies. A rollout of policy π generates a trajectory τ π = {sh, a h, s h+1 }Hh=1 , where 
+
+ah ∼ πh(· | sh) and sh+1 ∼ P real  
+
+> h
+
+(· | sh, a h). The agent also has full knowledge of the simulator 
+
+Msim = ( S, A, H, P sim , s 1, F, c ), which differs from Mreal only in its transition dynamics. Since data collection occurs in the real world, where constraint violations such as collisions in autonomous navigation are not permitted, every policy deployed in Mreal must satisfy the safety constraint. We formalize this requirement as safe exploration. 
+
+Definition 2.1 (Safe exploration) . An algorithm that produces a sequence of policies {πt}Tt=1 ensures safe exploration in Mreal if πt is feasible in Mreal for every t ∈ [T ].
+
+Objective. Design an algorithm that ensures safe exploration in Mreal during data collection and, for any reward function r ∈ F , computes without further real-world interaction a policy π satisfying 
+
+(Near-optimality) V P real ,π ⋆ 
+
+> r, 1
+
+(s1) − V P real ,π r, 1 (s1) ≤ ϵ and (Feasibility) π ∈ ΠP real  
+
+> feas
+
+, (1) 
+
+where π⋆ ∈ arg max π∈ΠP real feas 
+
+V P real ,π r, 1 (s1).
+
+We say that the algorithm achieves ϵ-planning accuracy if the above condition holds for all r ∈ F .The efficiency of the algorithm is measured by the number of state-action pairs sampled from real world, which we refer to as the sample complexity. 
+
+2.3 Assumptions 
+
+To achieve this objective, we make two assumptions, both of which we will discuss in our experimental setup (see Section 5). The first is a standard Slater-type condition in safe RL [Bura et al., 2022, Yu et al., 2025, Ni and Kamgarpour, 2025b]: safe exploration requires a baseline policy that is strictly feasible in Mreal .
+
+Assumption 2.2 (Slater’s condition) . There exist a known constant ξ > 0 and a known policy π0 ∈ Π
+
+such that V P real ,π 0 
+
+> c, 1
+
+(s1) ≥ ℓ + ξ.
+
+The strict margin serves two purposes. Algorithmically, it provides a safety buffer that allows the agent to introduce exploratory behavior while maintaining feasibility. Statistically, it is required for finite-sample safety certification: if the baseline policy were only exactly feasible, that is, if ξ = 0 ,then estimation error arising from estimating its constraint value using rollouts of π0 in Mreal could make it impossible to reliably distinguish the baseline policy from an infeasible one. Next, we adopt an assumption commonly used in hierarchical RL [Chua et al., 2023], meta RL [Chen et al., 2022, Mutti and Tamar, 2024, Brunskill and Li, 2013], and hybrid RL [Qu et al., 2025] to characterize the difference between two MDPs. In our setting, this difference corresponds to the mismatch between Mreal and Msim . The assumption requires this mismatch in transition dynamics to be statistically identifiable: for each time-state-action triple, the real-world and simulator transition kernels are either identical or well separated. We formalize this condition as follows. 
+
+Assumption 2.3 (σs-separable shift) . There exists a known constant σs ∈ (0 , 1] such that, for every 
+
+(h, s, a ) ∈ [H] × S × A ,
+
+P real  
+
+> h
+
+(· | s, a )̸ = P sim  
+
+> h
+
+(· | s, a ) = ⇒ P real  
+
+> h
+
+(· | s, a ) − P sim  
+
+> h
+
+(· | s, a ) TV ≥ σs.
+
+4This separation condition ensures that mismatch (h, s, a ) triples can be distinguished from non-mismatch ones using finitely many real-world samples, where σs quantifies the magnitude of the mismatch in total variation distance. Without prior knowledge of σs, simulator knowledge may not be reliably exploitable. Indeed, Cheung and Lyu [2024] show that, in multi-armed bandits with access to a mismatch simulator Msim , no hybrid method can be guaranteed to outperform an online method without prior knowledge of σs. Since multi-armed bandits are a special case of MDPs with horizon 
+
+H = 1 , this suggests that such prior shift information is also necessary in our setting. Under Assumption 2.3, we define the mismatch region as the set of (h, s, a ) triples at which the real-world and simulator transition kernels differ. 
+
+Definition 2.4 (Mismatch region) . The mismatch region B is defined as 
+
+B = (h, s, a ) ∈ [H] × S × A : P real  
+
+> h
+
+(· | s, a )̸ = P sim  
+
+> h
+
+(· | s, a ) .
+
+When the simulator accurately models the real world, the mismatch region B is small. 
+
+## 3 Algorithm Design 
+
+In this section, we present our algorithm for safe sim-to-real transfer. The algorithm exploits simulator knowledge to reduce real-world interactions while ensuring safe exploration and ϵ-accurate planning for any reward r ∈ F . Our approach is inspired by the algorithm of Huang et al. [2023], referred to as RF-RL, which achieves the guarantees in Objective in the online RL setting. Directly applying RF-RL in our setting presents two challenges. First, RF-RL learns solely through interactions with Mreal and therefore cannot exploit simulator knowledge to reduce real-world sample complexity. Second, inspired by the unconstrained reward-free RL approach of Ménard et al. [2021], they compute the exploration policy by solving a constrained non-convex optimization problem, which is generally intractable. Our algorithm, presented in Algorithm 1, addresses these challenges by three components. First, it maintains confidence bounds around the empirical transition model constructed from real-world data and uses them to shrink the estimated mismatch region, which is initialized as the entire time-state-action space. Second, it constructs a hybrid model that uses empirical real-world transitions on the estimated mismatch region and simulator transitions elsewhere. Compared with the online RL setting in Huang et al. [2023], it improves sample efficiency by avoiding the need to relearn transition dynamics in the non-mismatch region. Third, it efficiently computes a safe exploration policy that visits the parts of the estimated mismatch region where real-world transition uncertainty can affect reward-free planning. Our algorithm is summarized below. 
+
+Estimating the mismatch region. We start by initializing the estimated mismatch region as the entire time-state-action space, ˆB0 = [ H] × S × A , as in Line 1 of Algorithm 1. In Line 3, the algorithm iteratively shrinks this region by removing triples estimated to be non-mismatch. At the beginning of each iteration t, given the trajectories {τ i}t−1 
+
+> i=1
+
+collected from Mreal during previous iterations, we define the visitation counts for each (h, s, a ) ∈ [H] × S × A as 
+
+nth(s, a ) := 
+
+> t−1
+
+X
+
+> i=1
+
+1{(sih,a ih)=( s,a )}, nth(s, a, s ′) := 
+
+> t−1
+
+X
+
+> i=1
+
+1{(sih,a ih,s ih+1 )=( s,a,s ′)}.
+
+The empirical transition model estimated from real-world data is defined as 
+
+ˆP t, real  
+
+> h
+
+(s′ | s, a ) := 1{nth(s,a )>0}
+
+nth(s, a, s ′)
+
+nth(s, a ) + 1{nth(s,a )=0 }
+
+1
+
+|S| . (2) As shown in Lemma C.1, its statistical uncertainty is quantified by the confidence bound 
+
+ρth(s, a ) = min 
+
+
+
+1,
+
+q
+
+β(nth(s, a ), δ )/(2 nth(s, a ) ∨ 1) 
+
+
+
+,
+
+where β(n, δ ) := log(2 |S||A| H/δ ) + |S| log(8 e(n + 1)) .A triple (h, s, a ) is classified as a non-mismatch triple only when its empirical real-world transition model ˆP t, real  
+
+> h
+
+(· | s, a ) is sufficiently close to the simulator transition model P sim  
+
+> h
+
+(· | s, a ), after 5Algorithm 1 Sim-to-real safe RL 
+
+Require: A strictly feasible baseline policy π0 with margin ξ, safety threshold ℓ, mismatch parameter 
+
+σs, accuracy ε, simulator information Msim , and access to Mreal 
+
+1: Initialize n0
+
+> h
+
+(s, a ) ← 0 for all (h, s, a ) ∈ [H] × S × A , and initialize ˆB0 ← [H] × S × A 
+
+2: for t = 1 , 2, . . . do 
+
+3: Construct ˆBt as in Equations (3) and (4) // Estimating the mismatch region 
+
+4: Construct ˆP t as in Equations (2) and (5) // Constructing the hybrid model 
+
+5: if V ˆP t,π 0 
+
+> c, 1
+
+(s1) < ℓ + ξ/ 2 then 
+
+6: πt ← π0
+
+7: else 
+
+8: ¯πt ∈ arg max π∈Π ˆP t
+
+> feas
+
+V ˆP t,π b, 1 (s1).
+
+9: ∆t ← min 
+
+
+
+H, 3e
+
+q
+
+HV ˆP t,¯πt 
+
+> b, 1
+
+(s1) + HV ˆP t,¯πt 
+
+> b, 1
+
+(s1)
+
+
+
+10: if ∆t ≤ ε/ 2 then 
+
+11: break the for loop 
+
+12: end if 
+
+13: πt ← αt ¯πt + (1 − αt)π0, where αt is defined in Equation (9) Computing safe exploration policy 
+
+14: end if 
+
+15: Roll out πt in Mreal and observe τ t := {(sth, a th, s th+1 )}Hh=1 
+
+16: end for 
+
+17: return ˆP t and πout ∈ arg max π∈Π
+
+n
+
+V ˆP t,π r, 1 (s1) : V ˆP t,π c, 1 (s1) ≥ ℓ + ε/ 2
+
+o
+
+for any r ∈ F 
+
+accounting for confidence bound ρth(s, a ) of ˆP t, real  
+
+> h
+
+(· | s, a ). Specifically, define 
+
+Gt := 
+
+n
+
+(h, s, a ) ∈ ˆBt−1 : ˆP t, real  
+
+> h
+
+(· | s, a ), P sim  
+
+> h
+
+(· | s, a ) TV 
+
++ ρth(s, a ) ≤ σs/2
+
+o
+
+. (3) The threshold σs/2 is chosen using Assumption 2.3: every mismatch triple is at least σs away from the simulator in total variation distance and therefore cannot belong to Gt. We then update the estimated mismatch region as 
+
+ˆBt := ˆBt−1 \ G t. (4) Lemma C.3 shows that, with high probability, no mismatch triple is removed. In particular, ˆBt is monotonically decreasing in t and satisfies B ⊆ ˆBt for every iteration t.
+
+Constructing the hybrid model. Given the estimated mismatch region ˆBt, we construct the hybrid model, as in Line 4 of Algorithm 1, 
+
+ˆP th(· | s, a ) := 1{(h,s,a )∈ ˆBt} ˆP t, real  
+
+> h
+
+(· | s, a ) + 1{(h,s,a ) /∈ ˆBt}P sim  
+
+> h
+
+(· | s, a ). (5) Thus, the algorithm uses empirical real-world transition estimates on triples that may still be mismatch and reuses simulator transition dynamics elsewhere. 
+
+Computing safe exploration policy. Given the hybrid model ˆP t, we seek a safe policy that visits the parts of the estimated mismatch region where real-world transition uncertainty can affect reward-free planning. Since reward-free planning error is captured by the value estimation error et,π f, 1(s1) := 
+
+|V P real ,π f, 1 (s1)−V ˆP t,π f, 1 (s1)| for any policy π and utility function f ∈ F , the ideal exploration objective is 
+
+max   
+
+> f∈F , π ∈ΠPreal feas
+
+et,π f, 1(s1) (6) Solving this problem would yield a safe policy that collects real-world data in the regions most relevant to reducing the value estimation error. And the algorithm could then use these data to refine the hybrid model. However, this problem depends on the unknown real-world transition model and therefore cannot be optimized directly. Instead, we introduce the following lemma, which gives a computable certificate that upper-bounds this value estimation error et,π f, 1(s1).6Lemma 3.1. With probability at least 1 − δ, for every iteration t, policy π, and utility function f ∈ F ,
+
+et,π f, 1(s1) ≤ min 
+
+
+
+3e
+
+q
+
+HV ˆP t,π b, 1 (s1) + HV ˆP t,π b, 1 (s1), H 
+
+
+
+.
+
+Here, for every h ∈ [H], s ∈ S , and π ∈ Π,
+
+V ˆP t,π b,h (s) := E ˆP t,π 
+
+" HX
+
+> h′=h
+
+(1 + 1 /H )h′−hbth′ (sh′ , a h′ ) | sh = s
+
+#
+
+,
+
+and for every h ∈ [H], s ∈ S , and a ∈ A ,
+
+bth(s, a ) := 1{(h,s,a )∈ ˆBt} min 
+
+ 11 Hβ (nth(s, a ), δ )
+
+nth(s, a ) ∨ 1 , 1
+
+
+
+.
+
+The proof of Lemma 3.1 is provided in Appendix C.3. The bonus bth(s, a ) is inspired by Ménard et al. [2021]: it is large when the empirical model ˆP th(· | s, a ) has high uncertainty over (h, s, a ).Unlike Ménard et al. [2021], our bonus is restricted to the estimated mismatch region and is zero outside it, since triples outside this region have been certified as non-mismatch with high probability and therefore introduce no real-world transition-estimation error. Consequently, V ˆP t,π b, 1 (s1), which accumulates these bonuses along trajectories under π, upper bounds the value-estimation error. 4
+
+As more real-world data are collected, bth(s, a ) decreases, and so does V ˆP t,π b, 1 (s1).Lemma 3.1 shows that V ˆP t,π b, 1 (s1) is a computable upper bound on the unknown value-estimation error 
+
+et,π f, 1(s1), uniformly over all policies π ∈ Π and utility functions f ∈ F . Therefore, we approximate Problem (6) by replacing its objective et,π f, 1(s1) with V ˆP t,π b, 1 (s1), and its real-world feasible set ΠP real 
+
+> feas
+
+with the hybrid-model feasible set Π ˆP t
+
+> feas
+
+. This gives the following computable optimization problem: 
+
+¯πt ∈ arg max  
+
+> π∈ΠˆP t
+> feas
+
+V ˆP t,π b, 1 (s1). (7) This is a standard CMDP defined by the hybrid model ˆP t, with reward given by the bonus function 
+
+bt and constraint given by c. It can be solved efficiently using existing CMDP solvers, such as constrained policy optimization [Achiam et al., 2017], or exactly via linear programming in the occupancy-measure formulation [Altman, 2021]. Before solving (7), Algorithm 1 checks whether the feasible set Π ˆP t 
+
+> feas
+
+is empty. Line 5 verifies whether the hybrid model ˆP t gives sufficient safety margin for the strictly feasible baseline policy π0.If not, Line 6 uses π0 as the safe exploration policy. Otherwise, Line 8 solves (7) to obtain ¯πt, the empirically feasible policy with the largest value estimation error. Its estimation error is bounded by 
+
+∆t := min 
+
+
+
+H, 3e
+
+q
+
+HV ˆP t,¯πt 
+
+> b, 1
+
+(s1) + HV ˆP t,¯πt 
+
+> b, 1
+
+(s1)
+
+
+
+. (8) 
+
+∆t is used in two places. First, it serves as the stopping criterion: when ∆t ≤ ε/ 2, Algorithm 1 terminates at Line 11, since the hybrid model is accurate enough for reward-free planning under the tightened constraint in Line 17, as formalized by Lemma C.6. Second, it bounds the possible constraint violation of ¯πt in Mreal , since ¯πt is guaranteed to be feasible only under the hybrid model. Indeed, 
+
+V P real ,¯πt 
+
+> c, 1
+
+(s1) ≥ V ˆP t,¯πt 
+
+> c, 1
+
+(s1) − ∆t ≥ ℓ − ∆t.
+
+Thus, ¯πt violates the safety constraint in Mreal by at most ∆t.To offset this possible violation and ensure safe exploration, the algorithm mixes ¯πt with the strictly feasible baseline policy π0. We use the following notion of a mixture policy. 
+
+> 4
+
+The weights (1 + 1 /H )h′−h arise from the error recursion established in Appendix C.3: each Bellman backup propagates future error and adds a inflation factor 1 + 1 /H due to the empirical Bernstein variance term. 
+
+7Definition 3.2 (Mixture policy) . A mixture policy is defined as π := PKk=1 dkπk, where {πk}Kk=1 ⊂
+
+Π and {dk}Kk=1 ∈ ∆( K). It is implemented by sampling an index i ∼ { dk}Kk=1 once at the beginning and then executing the corresponding policy πi for all timesteps. 
+
+Specifically, Line 13 of Algorithm 1 defines the exploration policy as 
+
+πt := αt ¯πt + (1 − αt)π0, α t := ξ/ (ξ +  ℓ + ∆ t − V ˆP t,¯πt 
+
+> c, 1
+
+(s1)
+
+> +
+
+). (9) Here, αt is chosen so that the strict feasibility margin of π0 compensates for the possible real-world constraint violation of ¯πt.
+
+## 4 Theoretical Guarantees 
+
+In this section, we formalize the theoretical guarantees of our algorithm, including the real-world sam-ple complexity required for safe exploration and ϵ-accurate planning. The main result is stated below. 
+
+Theorem 4.1. Let Assumptions 2.2 and 2.3 hold. For ϵ ∈ (0 , H ] and δ ∈ (0 , 1) , set ε = ξϵ/ (2 H).Then, with probability at least 1 − δ, Algorithm 1 requires at most          
+
+> eO
+> 
+> max
+> nH6|S|
+> ξ2ϵmin {1, ϵ, ξ } |B|
+> |{z }
+> (i)
+> ,H6|S|
+> ξ2ϵmin {1, ϵ, ξ }
+>  H|S||A| − |B| log 2σs−1
+> |{z }
+> (ii )
+> o
+
+samples from Mreal and guarantees the following: 1. Safe exploration. Every executed policy is feasible in Mreal .2. Planning accuracy. For any r ∈ F , the output policy πout is feasible and ϵ-optimal for the true CMDP defined by max π∈ΠP real feas 
+
+V P real ,π r, 1 (s1).
+
+The sample complexity of Algorithm 1 reflects two statistically different tasks. Term (i) is the cost of learning the real dynamics on the mismatch region B, and it scales linearly with |B| . Term (ii) is the cost of certifying the remaining triples as non-mismatch triples; it scales linearly with H|S||A| − |B| 
+
+and polynomial with log σ−1 
+
+> s
+
+. Thus, larger separation makes non-mismatch triples easier to identify. Overall, the bound shows that Algorithm 1 adaptively balances using the simulator with learning the real dynamics, paying the real-dynamics learning cost primarily on the mismatch region. The RF-RL algorithm of Huang et al. [2023] uses eO |A||S| 2H8/(ϵ2ξ4) samples from Mreal to obtain same guarantees as in Theorem 4.1, but in the online setting. 5 By comparison, our algorithm improves on this benchmark in two ways. First, it is computationally efficient: whereas Huang et al. [2023] compute their exploration policy by solving a constrained non-convex program, we replace this step with a standard CMDP problem. Second, our algorithm recovers the online setting as a special case by taking B = [ H] × S × A , so that every triple is treated as a mismatch triple and the simulator is never used. In this worst-case regime, and when ϵ ≤ min {1, ξ }, our sample complexity improves over Huang et al. [2023] by a factor of H/ξ 2, showing that part of the gain comes from the algorithmic design itself. The improvement is even larger when the simulator is accurate on most triples, |B| ≪ H|S||A| , and the mismatch is well-seperated, σs ≫ 0. In this case, real-world interaction is concentrated on the small region where the simulator differs substantially from the real world, yielding a total saving of order eO(H2|S||A| /(ξ2|B| )) . Thus, our algorithm preserves safe exploration while using real-world samples only where simulator knowledge is insufficient. 
+
+Proof sketch. The full proof of Theorem 4.1 is given in Appendix C.4. The proof has three main ingredients. First, the estimated mismatch region is reliable. Lemma C.3 guarantees that no mismatch triple from B is removed, while Lemma C.4 guarantees that every non-mismatch triple is removed after eO(|S| /σ 2 
+
+> s
+
+) samples. Thus, real-world learning eventually concentrates on the true mismatch region, while identifying the non-mismatch triples incurs only finite sample complexity. Second, Lemma 3.1 shows that the uncertainty certificate ∆t defined in (8) upper-bounds both the planning     
+
+> 5Huang et al. [2023] state their sample-complexity result in terms of the number of trajectories and assume that cumulative rewards and costs are bounded by 1. We rescale their bound to cumulative utilities of order H
+> and multiply by H, since we measure the total number of state-action pairs sampled from Mreal .
+
+8(a) Gridworld instance: red cells are the mismatch region B, hatched cells are un-safe, and the star marks the initial state s1.0 10 2 10 3 10 4    
+
+> Iteration t
+> 6810 12
+> Constraint value
+> Sim-to-real safe RL Reward-free safe RL Unconstrained sim-to-real RL Safety threshold = 10.78
+> (b) Constraint values of deployed policies for three algorithms over iterations. Markers denote termination points. Shaded regions indicate the min–max range across 10 seeds.
+
+error and the possible constraint violation when transferring a policy from the hybrid model to 
+
+Mreal . The algorithm uses this bound, together with the Slater margin of the baseline policy π0, to construct a mixture policy that guarantees safe exploration in Mreal . Finally, the algorithm terminates once ∆t ≤ ε/ 2. At this point, Lemma C.6 implies that the hybrid model is accurate enough for reward-free planning. Next, we bound the number of iterations until termination by counting how often each triple can contribute to the uncertainty certificate. Mismatch triples may need to be learned accurately, giving a learning cost proportional to |B| . Non-mismatch triples contribute only until they are identified and removed, giving an identification cost proportional to H|S||A| − |B| . These two terms give final sample complexity bound in Theorem 4.1. 
+
+## 5 Computational experiment 
+
+We evaluate our algorithm on a 5 × 5 gridworld with horizon H = 12 , adapted from Sutton et al. [1998]. We compare against two baselines: (i) Reward-free safe RL , which treats all state-action pairs as mismatch triples and does not exploit simulator information, thereby isolating the benefit of simulator access; and (ii) Unconstrained sim-to-real RL , which exploits simulator information without enforcing safety, allowing us to quantify the cost of safe exploration. Both baselines are modifications of Algorithm 1 and are described in Appendix B. 
+
+Experiment setup We consider a CMDP with stationary dynamics, i.e., Ph = P for all h ∈ [H]
+
+(a special case of our setting). The agent starts in the bottom-left corner (star in Figure 1a) and has four actions: up , right , down , and left . With probability 0.85 , the intended action is executed; otherwise, the agent moves uniformly to a neighboring cell. The environment contains a central unsafe wall formed by three cells (hatched cells in Figure 1a). The constraint function is defined as c(s, a ) = 1{s is safe }, so V P real ,π c, 1 (s1) ≥ ℓ limits the expected number of unsafe visits to at most 
+
+H − ℓ. The simulator P sim corresponds to the nominal gridworld, while the real environment introduces three windy cells near the unsafe wall (red cells in Figure 1a). In these cells the transition kernel is overridden by the wind: with probability 0.8 the agent is pushed to the cell opposite the chosen direction (e.g., up sends it downward) instead of to the intended neighbor, while the remaining probability mass is distributed uniformly among neighboring cells. Because these windy cells are located adjacent to the unsafe wall, the resulting model mismatch is safety-critical: a policy optimized in the simulator expects to move away from the wall, but is instead pushed toward it. 
+
+Safety versus sample complexity. Table 1 and Figure 1b summarize the performance of all methods. All methods achieve accurate planning, but differ substantially in safety and sample complexity. The unconstrained sim-to-real baseline is the most sample-efficient, but violates the safety constraint in 
+
+68 .5% of learning iterations. At the other extreme, the reward-free safe RL baseline guarantees safety throughout learning but requires 7.5× as many samples from Mreal compared with unconstrained sim-to-real baseline. Our method strikes a favorable balance: it maintains safe exploration while using only 2× more samples than the unconstrained baseline. These results show that simulator 9Table 1: Performance comparison over 10 seeds. Planning accuracy is defined in (1) and is reported as mean ± standard deviation over 20 random reward functions per seed. Unsafe iterations denote the fraction of learning iterations in which the constraint is violated. Algorithm Samples from Mreal Planning accuracy Unsafe iterations Sim-to-real safe RL 77 , 958 ± 1, 334 0.000 ± 0.000 0.0% 
+
+Reward-free safe RL 296 , 910 ± 1, 484 0.000 ± 0.000 0.0% 
+
+Unconstrained sim-to-real RL 39 , 342 ± 140 0.000 ± 0.000 68 .5% 
+
+information can be exploited safely to substantially reduce real-world interaction without sacrificing planning accuracy. Figure 2 provides further insight into how these gains arise by visualizing the state visitation distribution of each algorithm. Sim-to-real safe RL concentrates its exploration on the mismatch region, while the reward-free safe RL baseline spreads visits almost uniformly across the grid, re-learning dynamics that the simulator already models correctly. Meanwhile, sim-to-real safe RL spends less time visiting the unsafe region compared with the unconstrained baseline. Sim-to-real safe RL (79,380 samples) 
+
+> Reward-free safe RL (295,980 samples)
+> Unconstrained sim-to-real RL (39,360 samples)
+> 1% 2% 5% 10% 30%
+> Share of state visits
+
+Figure 2: State visitation of the three algorithms. Each panel is normalized by the algorithm’s total number of samples, reported in the panel title, so the plots show the share of visits falling in each cell and compare where real-world interaction is spent. The color scale is shared across panels and logarithmic. We use a logarithmic scale because s1 accounts for 10 –29% of visits simply by being visited once per iteration by construction, which would otherwise dominate the rest of the grid on a linear scale. 
+
+Assumption verification. For Assumption 2.2, π0 can be obtained in practice either from expert demonstrations via behavior cloning [Torabi et al., 2018] or from a known safe controller. The margin ξ can then be estimated by rolling out π0 in Mreal . In our experiments, we manually construct π0 using the gridworld structure. For Assumption 2.3, σs can be specified using domain knowledge or estimated from independent data [Brunskill and Li, 2013]. We further provide a practical estimation procedure in Algorithm 4. Proposition B.1 shows that the resulting estimate is conservative, i.e., ˆσs ≤ σs, when all mismatch triples are covered; otherwise, it gives a lower bound over the detected mismatch region. Appendix B.4.2 studies the sample complexity of estimating 
+
+σs, showing that smaller values of σs require more samples for accurate estimation. Experiments in Appendix B.4.3 shows that misspecifying ˆσs affects sample complexity and planning accuracy, but not safe exploration. Underestimating σs preserves planning accuracy but increases sample complexity; when ˆσs = 0 , the algorithm degenerates to reward-free safe RL. Overestimating σs
+
+can reduce sample complexity, but may remove true mismatch triples from ˆBt; in our experiments, planning failures appear when ˆσs is as large as 2.5σs, as the returned policy is not feasible in Mreal .Implementation details and additional ablation results on |B| and σs are provided in Appendix B. 
+
+## 6 Conclusion and future work 
+
+We proposed a computationally efficient algorithm for safe sim-to-real transfer that uses simulator to guide real-world data collection under safe exploration, identifies sim-to-real mismatch, and corrects 10 it using the collected data. Our analysis shows that the algorithm guarantees safe exploration and supports ϵ-accurate planning with high probability. The sample-complexity bound characterizes the benefit of simulator access: when the mismatch region is small and well separated, the required number of real-world samples scales with the size of the mismatch region rather than the full state-action-time space. Experiments in a gridworld illustrate the benefit of exploiting simulator information for safe exploration and reward-free planning. 
+
+Limitations and future work. This work considers tabular CMDPs. Extending it to continuous settings, such as linear CMDPs, is an important future direction. It would also be useful to relax the separability condition and study more general forms of simulator bias. Another direction is to further improve sample efficiency. Replacing the computable certificate V ˆP t,π b, 1 with the tighter certificate from Lemma C.5 could improve sample complexity by a factor of H, but doing so would require an efficient way to exploit problem structure in the resulting non-convex optimization problem. 
+
+## References 
+
+Joshua Achiam, David Held, Aviv Tamar, and Pieter Abbeel. Constrained policy optimization. In 
+
+International conference on machine learning , pages 22–31. Pmlr, 2017. Eitan Altman. Constrained Markov decision processes . Routledge, 2021. Yarden As, Chengrui Ray Qu, Benjamin Unger, Dongho Kang, Max van der Hart, Laixi Shi, Stelian Coros, Adam Wierman, and Andreas Krause. Spidr: A simple approach for zero-shot safety in sim-to-real transfer. Advances in Neural Information Processing Systems , 38:90882–90924, 2026. Emma Brunskill and Lihong Li. Sample complexity of multi-task reinforcement learning. In 
+
+Proceedings of the Twenty-Ninth Conference on Uncertainty in Artificial Intelligence , UAI’13, page 122–131, Arlington, Virginia, USA, 2013. AUAI Press. Archana Bura, Aria HasanzadeZonuzy, Dileep Kalathil, Srinivas Shakkottai, and Jean-Francois Chamberland. Dope: Doubly optimistic and pessimistic exploration for safe reinforcement learning. Advances in neural information processing systems , 35:1047–1059, 2022. Xiaoyu Chen, Jiachen Hu, Chi Jin, Lihong Li, and Liwei Wang. Understanding domain randomization for sim-to-real transfer. In International Conference on Learning Representations , 2022. Wang Chi Cheung and Lixing Lyu. Leveraging (Biased) information: Multi-armed bandits with offline data. In Ruslan Salakhutdinov, Zico Kolter, Katherine Heller, Adrian Weller, Nuria Oliver, Jonathan Scarlett, and Felix Berkenkamp, editors, Proceedings of the 41st International Conference on Machine Learning , volume 235 of Proceedings of Machine Learning Research , pages 8286–8309. PMLR, 21–27 Jul 2024. Kurtland Chua, Qi Lei, and Jason Lee. Provable hierarchy-based meta-reinforcement learning. In 
+
+International Conference on Artificial Intelligence and Statistics , pages 10918–10967. PMLR, 2023. Christoph Dann, Tor Lattimore, and Emma Brunskill. Unifying PAC and regret: Uniform PAC bounds for episodic reinforcement learning. Advances in Neural Information Processing Systems ,30, 2017. Jonas Degrave, Federico Felici, Jonas Buchli, Michael Neunert, Brendan Tracey, Francesco Carpanese, Timo Ewalds, Roland Hafner, Abbas Abdolmaleki, Diego de Las Casas, et al. Magnetic control of tokamak plasmas through deep reinforcement learning. Nature , 602(7897):414–419, 2022. Claude-Nicolas Fiechter. Efficient reinforcement learning. In Proceedings of the seventh annual conference on Computational learning theory , pages 88–97, 1994. Sami Haddadin, Alin Albu-Schäffer, and Gerd Hirzinger. Requirements for safe robots: Measure-ments, analysis and new insights. The International Journal of Robotics Research , 28(11-12): 1507–1527, 2009. Ruiquan Huang, Jing Yang, and Yingbin Liang. Safe exploration incurs nearly no additional sample complexity for reward-free RL. In The Eleventh International Conference on Learning Representations , 2023. 11 Chi Jin, Akshay Krishnamurthy, Max Simchowitz, and Tiancheng Yu. Reward-free exploration for reinforcement learning. In International conference on machine learning , pages 4870–4879. PMLR, 2020. Anders Jonsson, Emilie Kaufmann, Pierre Ménard, Omar Darwiche Domingues, Edouard Leurent, and Michal Valko. Planning in Markov decision processes with gap-dependent sample complexity. 
+
+Advances in Neural Information Processing Systems , 33:1253–1263, 2020. Torsten Koller, Felix Berkenkamp, Matteo Turchetta, and Andreas Krause. Learning-based model predictive control for safe exploration. In 2018 IEEE conference on decision and control (CDC) ,pages 6059–6066. IEEE, 2018. Maria Kyrarini, Fotios Lygerakis, Akilesh Rajavenkatanarayanan, Christos Sevastopoulos, Har-ish Ram Nambiappan, Kodur Krishna Chaitanya, Ashwin Ramesh Babu, Joanne Mathew, and Fillia Makedon. A survey of robots in healthcare. Technologies , 9(1):8, 2021. Joonho Lee, Jemin Hwangbo, Lorenz Wellhausen, Vladlen Koltun, and Marco Hutter. Learning quadrupedal locomotion over challenging terrain. Science robotics , 5(47):eabc5986, 2020. Xin Liu, Bin Li, Pengyi Shi, and Lei Ying. An efficient pessimistic-optimistic algorithm for stochastic linear bandits with general constraints. Advances in Neural Information Processing Systems , 34: 24075–24086, 2021. Pierre Ménard, Omar Darwiche Domingues, Anders Jonsson, Emilie Kaufmann, Edouard Leurent, and Michal Valko. Fast active learning for pure exploration in reinforcement learning. In Interna-tional Conference on Machine Learning , pages 7599–7608. PMLR, 2021. Sobhan Miryoosefi and Chi Jin. A simple reward-free approach to constrained reinforcement learning. In International conference on machine learning , pages 15666–15698. PMLR, 2022. Volodymyr Mnih, Koray Kavukcuoglu, David Silver, Alex Graves, Ioannis Antonoglou, Daan Wierstra, and Martin Riedmiller. Playing atari with deep reinforcement learning. arXiv preprint arXiv:1312.5602 , 2013. Mirco Mutti and Aviv Tamar. Test-time regret minimization in meta reinforcement learning. In Ruslan Salakhutdinov, Zico Kolter, Katherine Heller, Adrian Weller, Nuria Oliver, Jonathan Scarlett, and Felix Berkenkamp, editors, Proceedings of the 41st International Conference on Machine Learning ,volume 235 of Proceedings of Machine Learning Research , pages 37016–37040. PMLR, 21–27 Jul 2024. Tingting Ni and Maryam Kamgarpour. A learning-based approach to stochastic optimal control under reach-avoid constraint. In Proceedings of the 28th ACM International Conference on Hybrid Systems: Computation and Control , pages 1–8, 2025a. Tingting Ni and Maryam Kamgarpour. A safe exploration approach to constrained markov decision processes. In Yingzhen Li, Stephan Mandt, Shipra Agrawal, and Emtiyaz Khan, editors, Proceed-ings of The 28th International Conference on Artificial Intelligence and Statistics , volume 258 of 
+
+Proceedings of Machine Learning Research , pages 3592–3600. PMLR, 03–05 May 2025b. Tingting Ni and Maryam Kamgarpour. Constrained meta reinforcement learning with provable test-time safety. In Forty-third International Conference on Machine Learning , 2026. Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida, Carroll Wainwright, Pamela Mishkin, Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, et al. Training language models to follow instructions with human feedback. Advances in neural information processing systems , 35:27730– 27744, 2022. Xue Bin Peng, Marcin Andrychowicz, Wojciech Zaremba, and Pieter Abbeel. Sim-to-real transfer of robotic control with dynamics randomization. In 2018 IEEE international conference on robotics and automation (ICRA) , pages 3803–3810. IEEE, 2018. 12 Chengrui Qu, Laixi Shi, Kishan Panaganti, Pengcheng You, and Adam Wierman. Hybrid transfer reinforcement learning: Provable sample efficiency from shifted-dynamics data. In Yingzhen Li, Stephan Mandt, Shipra Agrawal, and Emtiyaz Khan, editors, Proceedings of The 28th International Conference on Artificial Intelligence and Statistics , volume 258 of Proceedings of Machine Learning Research , pages 1054–1062. PMLR, 03–05 May 2025. David Silver, Aja Huang, Chris J Maddison, Arthur Guez, Laurent Sifre, George Van Den Driessche, Julian Schrittwieser, Ioannis Antonoglou, Veda Panneershelvam, Marc Lanctot, et al. Mastering the game of go with deep neural networks and tree search. nature , 529(7587):484–489, 2016. Yuda Song, Yifei Zhou, Ayush Sekhari, Drew Bagnell, Akshay Krishnamurthy, and Wen Sun. Hybrid RL: Using both offline and online data can make RL efficient. In The Eleventh International Conference on Learning Representations , 2023. Richard S Sutton, Andrew G Barto, and Andrew Barto. Reinforcement learning: An introduction ,volume 1. MIT press Cambridge, 1998. Jie Tan, Tingnan Zhang, Erwin Coumans, Atil Iscen, Yunfei Bai, Danijar Hafner, Steven Bohez, and Vincent Vanhoucke. Sim-to-real: Learning agile locomotion for quadruped robots. arXiv preprint arXiv:1804.10332 , 2018. Faraz Torabi, Garrett Warnell, and Peter Stone. Behavioral cloning from observation. In Proceedings of the 27th International Joint Conference on Artificial Intelligence , IJCAI’18, page 4950–4957. AAAI Press, 2018. ISBN 9780999241127. Andrew Wagenmaker, Kevin Huang, Liyiming Ke, Kevin Jamieson, and Abhishek Gupta. Overcom-ing the sim-to-real gap: Leveraging simulation to learn to explore for real-world rl. Advances in Neural Information Processing Systems , 37:78715–78765, 2024. Zheshun Wu, Renjie Zheng, Jinhang Zuo, Zenglin Xu, and Fang Kong. A unified algorithmic framework for hybrid reinforcement learning in tabular mdps with shifted transition dynamics. 
+
+arXiv preprint arXiv:2607.25207 , 2026. Tengyang Xie, Nan Jiang, Huan Wang, Caiming Xiong, and Yu Bai. Policy finetuning: Bridg-ing sample-efficient offline and online reinforcement learning. Advances in neural information processing systems , 34:27395–27407, 2021. Siyuan Xu and Minghui Zhu. Efficient safe meta-reinforcement learning: Provable near-optimality and anytime safety. Advances in Neural Information Processing Systems , 38:31362–31406, 2026. Haotian Ye, Xiaoyu Chen, Liwei Wang, and Simon Shaolei Du. On the power of pre-training for generalization in rl: provable benefits and hardness. In International Conference on Machine Learning , pages 39770–39800. PMLR, 2023. Kihyun Yu, Duksang Lee, William Overman, and Dabeen Lee. Improved regret bound for safe reinforcement learning via tighter cost pessimism and reward optimism. In Reinforcement Learning Conference , 2025. Zhengfei Zhang, Kishan Panaganti, Laixi Shi, Yanan Sui, Adam Wierman, and Yisong Yue. Dis-tributionally robust constrained reinforcement learning under strong duality. In Reinforcement Learning Conference , 2024. 13 Organization of the Appendix 
+
+A Comparison with related work 15 B Experimental details 15 
+
+B.1 Baseline algorithms . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 16 B.2 Sample complexity versus the size of the mismatch region |B| . . . . . . . . . . . 17 B.3 Sample complexity versus the value of the separation parameter σs . . . . . . . . . 17 B.4 Estimating the separation parameter σs from real-world data . . . . . . . . . . . . 18 B.4.1 Algorithm for estimating σs and its guarantees . . . . . . . . . . . . . . . 19 B.4.2 Sample complexity of estimating σs . . . . . . . . . . . . . . . . . . . . . 21 B.4.3 Effect of misspecifying σs . . . . . . . . . . . . . . . . . . . . . . . . . . 21 
+
+C Proofs 22 
+
+C.1 Concentration events . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 22 C.2 Analysis of the estimated mismatch region . . . . . . . . . . . . . . . . . . . . . . 24 C.3 Proof of Lemma 3.1 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25 C.4 Proof of Theorem 4.1 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 30 
+
+D Supporting lemmas 38 
+
+14 A Comparison with related work 
+
+In this section, we compare our setting with the best-known prior work along four directions: (i) 
+
+sim-to-real , whether the algorithm exploits simulator information despite mismatch with the real world or learns entirely from real-world interaction, corresponding to the fully online setting; (ii) 
+
+reward-free learning , whether the returned model supports planning for arbitrary reward functions or only the single reward used during learning; (iii) constraints , whether constraints are part of the problem formulation; and (iv) safe exploration , whether the algorithm guarantees that constraints are satisfied during learning. We also compare the total number of state-action pairs sampled from the real world to obtain ϵ-accurate planning, for either a fixed reward or arbitrary rewards depending on the setting of each paper. The results are summarized in Table 2. Our method is the only one in the comparison that simultaneously handles simulator mismatch, constraints, safe real-world exploration, and reward-free planning for arbitrary rewards. To the best of our knowledge, it is the first provable algorithm with all four properties. Table 2: Comparison with related work.      
+
+> Algorithm Sim-to-real Reward Constraints Safe exploration Sample complexity
+
+Ménard et al. [2021] × any × × eO
+
+ H4|S||A| 
+
+> ϵ2
+
+
+
+Miryoosefi and Jin [2022] 
+
+× any ✓ × eO
+
+ H4|S||A| 
+
+> ϵ2
+
+
+
+Huang et al. [2023] × any ✓ ✓ eO
+
+ |A||S| 2H8
+
+> ϵ2ξ4
+
+
+
+Yu et al. [2025] × fixed ✓ ✓ eO
+
+ |A||S| 2H6
+
+> ϵ2ξ2
+
+
+
+Ni and Kamgarpour [2025a] 
+
+× fixed ✓ ✓ eO
+
+ 1min {ϵ6,ξ 6}
+
+
+
+Wagenmaker et al. [2024] 
+
+✓ fixed × × eO
+
+ H16 
+
+> ϵ8
+
+
+
+Qu et al. [2025] ✓ fixed × × eO     
+
+> 
+> min
+> H4|A||S|
+> ϵ2, H3|B|
+> ϵ2+H3|S| 2|A|
+> σ2
+> sσ2
+> r
+> 
+
+Wu et al. [2026] ✓ fixed × × eO
+
+ H4|A||S| 
+
+> ϵ2
+
+
+
+Algorithm 1 (ours) ✓ any ✓ ✓ eO    
+
+> |S| H6
+> 
+> |B| + ( H|S||A| − |B| )log 21
+> σs
+> 
+> ξ2ϵmin {1, ϵ, ξ }
+> 
+
+Remark. Both Qu et al. [2025], Wu et al. [2026] study finite-horizon MDPs with stationary transition dynamics. In Table 2, we report all bounds in terms of the number of state-action pairs sampled from the real environment and in our non-stationary finite-horizon setting. Thus, when a prior result is stated for stationary transitions and counts online iterations, we multiply by H to convert iterations to state-action samples and replace SA by HSA to account for time-dependent transition kernels. Moreover, Qu et al. [2025] assume σr-reachability: there exists a known constant σr ∈ (0 , 1] such that, for every (h, s, a ) ∈ [H] × S × A ,
+
+max  
+
+> π∈Π
+
+dP real ,π h (s, a ) ≥ σr ,
+
+where dP real ,π h (s, a ) is the probability of visiting (s, a ) at timestep h under policy π. As shown in Table 2, their sample complexity depends polynomially on 1/σ r. In contrast, our analysis does not require this reachability assumption and therefore has no dependence on σr .
+
+## B Experimental details 
+
+Computational resources. All experiments were conducted on a single desktop machine equipped with an AMD Ryzen 9 9950X3D CPU (16 cores) and 128 GB RAM. No GPU was used. All planning subproblems were formulated as linear programs over the occupancy-measure polytope and solved using the HiGHS solver through SciPy. In our largest instance, each linear program contained 
+
+H|S||A| = 1200 decision variables. 15 Stationary adaptation. Here, we describe how we adapt Algorithm 1 to the stationary setting, where the transition dynamics are time-independent. In this case, visitation counts are aggregated across timesteps: 
+
+nt(s, a ) = 
+
+> t−1
+
+X
+
+> i=1
+> H
+
+X
+
+> h=1
+
+1{(sih,a ih)=( s,a )}, n t(s, a, s ′) = 
+
+> t−1
+
+X
+
+> i=1
+> H
+
+X
+
+> h=1
+
+1{(sih,a ih,s ih+1 )=( s,a,s ′)}.
+
+The empirical model is 
+
+ˆP t(s′ | s, a ) = 1{nt(s,a )>0}
+
+nt(s, a, s ′)
+
+nt(s, a ) + 1{nt(s,a )=0 }
+
+1
+
+|S| ,
+
+The mismatch region and the exploration bonuses are indexed by (s, a ) instead of (h, s, a ), and each trajectory contributes H samples to the aggregated counts. 
+
+B.1 Baseline algorithms 
+
+In this section, we describe two baseline algorithms: a reward-free safe RL algorithm and an unconstrained sim-to-real RL algorithm. Both are modifications of Algorithm 1 and are designed to isolate the benefits of simulator access and safe exploration, respectively. 
+
+Reward-free safe RL setting. To adapt Algorithm 1 to the reward-free safe RL setting, we treat all state-action pairs as mismatch triples, i.e., B = [ H] × S × A . In this case, the algorithm does not exploit simulator information and reduces to an online reward-free safe RL algorithm. Correspondingly, we define the empirical model ˆP t and the bonus bt as 
+
+ˆP th(s′ | s, a ) := 1{nth(s,a )>0}nth(s, a, s ′)/n th(s, a ) + 1{nth(s,a )=0 }/|S| 
+
+bth(s, a ) := min 11 Hβ (nth(s, a ), δ )/(nth(s, a ) ∨ 1) , 1 . (10) We present reward-free safe RL algorithm below. 
+
+Algorithm 2 Reward-free safe RL 
+
+Require: A strictly feasible baseline policy π0 with margin ξ, safety threshold ℓ, accuracy ε, and access to Mreal 
+
+1: Initialize n0
+
+> h
+
+(s, a ) ← 0 for all (h, s, a ) ∈ [H] × S × A .
+
+2: for t = 1 , 2, . . . do 
+
+3: Construct ˆP t and bt from trajectories {τ i}t−1 
+
+> i=1
+
+, as defined in Equation (10). 
+
+4: if V ˆP t,π 0 
+
+> c, 1
+
+(s1) < ℓ + ξ/ 2 then 
+
+5: πt ← π0
+
+6: else // Computing safe exploration policy 
+
+7: ¯πt ∈ arg max π∈Π
+
+n
+
+V ˆP t,π b, 1 (s1) : V ˆP t,π c, 1 (s1) ≥ ℓ
+
+o
+
+8: ∆t ← min 
+
+
+
+H, 3e
+
+q
+
+HV ˆP t,¯πt 
+
+> b, 1
+
+(s1) + HV ˆP t,¯πt 
+
+> b, 1
+
+(s1)
+
+
+
+9: if ∆t ≤ ε/ 2 then 
+
+10: break the for loop 
+
+11: end if 
+
+12: πt ← αt ¯πt + (1 − αt)π0, where αt is defined in Equation (9) 
+
+13: end if 
+
+14: Roll out πt in Mreal and observe τ t := {(sth, a th, s th+1 )}Hh=1 
+
+15: end for 
+
+16: return ˆP t and πout ∈ arg max π∈Π
+
+n
+
+V ˆP t,π r, 1 (s1) : V ˆP t,π c, 1 (s1) ≥ ℓ + ε/ 2
+
+o
+
+for any r ∈ F 
+
+Unconstrained sim-to-real RL setting. To adapt Algorithm 1 to the unconstrained sim-to-real RL setting, we ignore the safety constraint and compute the exploration policy directly by maximizing the bonus value, without enforcing safe exploration. Correspondingly, we choose 
+
+πt ∈ arg max  
+
+> π∈Π
+
+V ˆP t,π b, 1 (s1)
+
+16 as the exploration policy. We present the unconstrained sim-to-real RL algorithm below. 
+
+Algorithm 3 Unconstrained sim-to-real RL 
+
+Require: Accuracy ε, simulator information Msim , and access to Mreal  
+
+> 1:
+
+Initialize n0
+
+> h
+
+(s, a ) ← 0 for all (h, s, a ) ∈ [H] × S × A . 
+
+> 2:
+
+for t = 1 , 2, . . . do  
+
+> 3:
+
+Construct ˆBt as in Equations (3) and (4) // Estimating the mismatch region  
+
+> 4:
+
+Construct ˆP t as in Equations (2) and (5) // Constructing the hybrid model  
+
+> 5:
+
+πt ∈ arg max π∈Π V ˆP t,π b, 1 (s1) // Computing exploration policy  
+
+> 6:
+
+∆t ← min 
+
+
+
+H, 3e
+
+q
+
+HV ˆP t,π t 
+
+> b, 1
+
+(s1) + HV ˆP t,π t 
+
+> b, 1
+
+(s1)
+
+ 
+
+> 7:
+
+if ∆t ≤ ε/ 2 then  
+
+> 8:
+
+break the for loop  
+
+> 9:
+
+end if  
+
+> 10:
+
+Roll out πt in Mreal and observe τ t := {(sth, a th, s th+1 )}Hh=1  
+
+> 11:
+
+end for  
+
+> 12:
+
+return ˆP t and πout ∈ arg max π∈Π
+
+n
+
+V ˆP t,π r, 1 (s1) : V ˆP t,π c, 1 (s1) ≥ ℓ + ε/ 2
+
+o
+
+for any r ∈ F 
+
+B.2 Sample complexity versus the size of the mismatch region |B| 
+
+In this section, we study how the size of the mismatch region, |B| , affects the sample complexity of Algorithm 1 in achieving safe exploration and accurate planning. The size of the mismatch region is controlled by the number of windy cells in the gridworld. Since each windy cell affects all four actions, n windy cells correspond to |B| = 4 n mismatch state-action pairs. We vary the number of windy cells so that |B| ∈ { 4, 8, 12 , 24 , 40 , 64 , 84 , 100 }, out of 
+
+|S||A| = 100 . The default configuration has three windy cells adjacent to the unsafe wall, yielding 
+
+|B| = 12 . Windy cells are selected according to a fixed priority order rather than by uniform sampling. We first rank all regular cells, excluding the three unsafe cells and the initial state, by increasing Manhattan distance to the center of the unsafe wall. Cells at the same distance are ordered randomly using the instance seed. The unsafe cells are appended next, followed by the initial state s1. The first n cells in this ordering are then designated as windy cells. This construction has two important properties. First, mismatch is introduced closest to the unsafe wall first, so the sparse-mismatch regime is safety-critical rather than benign. Second, the construction is incremental: the windy set for a smaller |B| is always contained in the windy set for any larger |B| . Thus, the experiment adds mismatch to a fixed layout instead of redrawing unrelated instances, making the growth in Figure 3 attributable to the size of B.As shown in Figure 3, the number of iterations required by Algorithm 1 to achieve safe exploration and accurate planning grows approximately linearly with |B| . When the mismatch region covers the entire state-action space, Algorithm 1 no longer exploits simulator information, and the total number of iterations coincides with that of the reward-free safe RL baseline. 
+
+B.3 Sample complexity versus the value of the separation parameter σs
+
+In this section, we study how different values of the separation parameter σs affect the sample complexity of Algorithm 1 in achieving safe exploration and accurate planning. To vary value of σs, we vary the wind strength pwind , defined as the probability that the wind reverses the intended move. On a windy cell, the real transition is 
+
+P real (· | s, a ) = (1 − pwind )P sim (· | s, a ) + pwind P sim (· | s, ¯a),
+
+where ¯a denotes the action opposite to a. Hence, the total-variation gap from the simulator is 
+
+pwind P sim (· | s, ¯a) − P sim (· | s, a ) TV ,
+
+which scales linearly with pwind . We vary 
+
+pwind ∈ { 0.15 , 0.2, 0.3, 0.4, 0.55 , 0.7, 0.85 },
+
+17 4 812 24 40 64 84 100 
+
+Mismatch region | | (state-action pairs) 
+
+50 100 150 200 250 
+
+> Total iterations (×100)
+
+Reward-free safe RL Sim-to-real safe RL Figure 3: Total iterations versus the size of the mismatch region, |B| , at fixed σs = 0 .68 , where all runs ensure safe exploration and accurate planning. Shaded regions indicate the min–max range across 10 seeds. which gives 
+
+σs ∈ { 0.1275 , 0.17 , 0.255 , 0.34 , 0.4675 , 0.595 , 0.7225 }.
+
+As shown in Figure 4, Algorithm 1 requires more iterations when σs is smaller, because non-mismatch state-action pairs become harder to distinguish from mismatch state-action pairs. When the separation is sufficiently small, the total number of iterations approaches that of the reward-free safe RL baseline. 0.0 0.2 0.4 0.6 0.8 1.0 
+
+log 10 (1/ s)
+
+50 100 150 200 250  
+
+> Total iterations (×100)  Reward-free safe RL Sim-to-real safe RL
+
+Figure 4: Total iterations versus log 10 (1 /σ s) at fixed |B| = 12 , where all runs ensure safe exploration and accurate planning. Shaded regions indicate the min–max range across 10 seeds. 
+
+B.4 Estimating the separation parameter σs from real-world data 
+
+From the design of Algorithm 1, the separation parameter σs is used only in Line 3 to obtain the estimated mismatch region ˆBt through the deletion rule Gt defined in Equation (3), where it enters through the threshold σs/2. In practice, σs is unknown and need to be estimated from data. To this end, in Appendix B.4.1, we describe how we estimate σs in our experiments and present the 18 estimation procedure in Algorithm 4, together with its theoretical guarantees in Proposition B.1. In Appendix B.4.2, we study the sample complexity of estimating σs, namely the number of samples that Algorithm 4 needed from Mreal for computing ˆσs to approach σs. Finally, in Appendix B.4.3, we study how Algorithm 1 performs when it is run with an estimated separation parameter ˆσs that differs from the true value σs. We evaluate its effect on three aspects: sample complexity, safe exploration, and the planning accuracy of the returned policy. For planning accuracy, we check whether the returned policy is both near-optimal and feasible in Mreal .
+
+B.4.1 Algorithm for estimating σs and its guarantees 
+
+To estimate σs, we roll out the strictly feasible baseline policy π0 in Mreal for N episodes, which ensures safe exploration by Assumption 2.2. We then use the collected trajectories to estimate the separation parameter σs as follows. Given the trajectories {τ i}Ni=1 collected from Mreal by the policy π0, we define the visitation counts for each (h, s, a ) ∈ [H] × S × A as 
+
+nh(s, a ) := 
+
+> N
+
+X
+
+> i=1
+
+1{(sih,a ih)=( s,a )}, nh(s, a, s ′) := 
+
+> N
+
+X
+
+> i=1
+
+1{(sih,a ih,s ih+1 )=( s,a,s ′)}.
+
+The empirical transition model estimated from real-world data is defined as 
+
+ˆP real  
+
+> h
+
+(s′ | s, a ) := 1{nh(s,a )>0}
+
+nh(s, a, s ′)
+
+nh(s, a ) + 1{nh(s,a )=0 }
+
+1
+
+|S| , (11) and its statistical uncertainty is quantified by the confidence bound 
+
+ρh(s, a ) = min 
+
+n
+
+1, pβ(nh(s, a ), δ )/(2 nh(s, a ) ∨ 1) 
+
+o
+
+,
+
+where β(n, δ ) := log(2 |S||A| H/δ ) + |S| log(8 e(n + 1)) .The quantity we estimate is the minimum total variation gap over all (h, s, a ) ∈ [H] × S × A . For every (h, s, a ) ∈ [H] × S × A , let 
+
+gh(s, a ) := P real  
+
+> h
+
+(· | s, a ), P sim  
+
+> h
+
+(· | s, a ) TV ,
+
+so that mismatch region B = {(h, s, a ) : gh(s, a ) > 0} by Definition 2.4 and σs =min (h,s,a )∈B gh(s, a ) is the constant for which Assumption 2.3 holds. Neither B nor the gaps 
+
+gh are observable, since P real is unknown. Then, for each (h, s, a ) ∈ [H] × S × A , we compute a lower confidence bound on gh(s, a ),
+
+Lh(s, a ) := 
+
+ ˆP real  
+
+> h
+
+(· | s, a ), P sim  
+
+> h
+
+(· | s, a ) TV 
+
+− ρh(s, a )
+
+
+
+> +
+
+. (12) Consider 
+
+C := (h, s, a ) : nh(s, a ) ≥ nmin and Lh(s, a ) > 0 , (13) the set of triples that are visited at least nmin times and whose gap is provably positive; as we show below, every such triple is certified to be a mismatch triple. Unvisited triples have ρh(s, a ) = 1 and hence Lh(s, a ) = 0 , so they never enter C. Finally, we compute the estimated separation parameter as 
+
+ˆσs := min 
+
+n
+
+1, min  
+
+> (h,s,a )∈C
+
+Lh(s, a )
+
+o
+
+, and ˆσs := 0 if C = ∅.
+
+The procedure of estimation of σs is summarized in Algorithm 4. 19 Algorithm 4 Safe estimation of the separation parameter σs
+
+Require: Strictly feasible baseline policy π0, simulator information Msim , number of iterations N
+
+from Mreal , confidence level δ, coverage requirement nmin ≥ 1
+
+1: for i = 1 , . . . , N do 
+
+2: Roll out π0 in Mreal and observe τ i := {(sih, a ih, s ih+1 )}Hh=1 
+
+3: end for 
+
+4: Compute ˆP real as in Equation (11), Lh as in Equation (12) and C as in Equation (13). 
+
+5: if C̸ = ∅ then 
+
+6: return ˆσs ← min {1, min (h,s,a )∈C Lh(s, a )}
+
+7: else 
+
+8: return ˆσs ← 0
+
+9: end if 
+
+In the following, we characterize the statistical guarantee for ˆσs returned by Algorithm 4. 
+
+Proposition B.1. With probability at least 1 − δ, Algorithm 4 ensures: (i) C ⊆ B ; (ii) 
+
+ˆσs ≤ min  
+
+> (h,s,a )∈C
+
+P real  
+
+> h
+
+(· | s, a ) − P sim  
+
+> h
+
+(· | s, a ) TV = min  
+
+> (h,s,a )∈C
+
+gh(s, a ); 
+
+and (iii) consequently, if B ⊆ C , then σs − 2 max (h,s,a )∈B ρh(s, a ) ≤ ˆσs ≤ σs.
+
+Proposition B.1 shows that Algorithm 4 provides a conservative estimate of both the mismatch region and the separation parameter: with high probability, every triple in C is a true mismatch triple, and ˆσs
+
+lower bounds the smallest simulator-real gap over this set. Consequently, if the collected data are sufficiently rich to identify all mismatch triples, i.e., B ⊆ C , then ˆσs ≤ σs.As shown in Appendix B.4.2, when sufficient data are sampled from Mreal , the estimated separation parameter ˆσs approaches the true value σs with high probability. In this case, C = B, and ˆσs is a conservative estimate of σs. Furthermore, as shown in Appendix B.4.3 and implied by Theorem 4.1, such a conservative estimate is sufficient for Algorithm 1 to achieve safe exploration and accurate planning, at the cost of increased sample complexity. Next, we present proof of Proposition B.1. 
+
+Proof of Proposition B.1. By Lemma D.1, applied to each (h, s, a ) at level δ/ (2 |S||A| H), and by a union bound over the H|S||A| triples, exactly as in Lemma C.1, with probability at least 1 − δ,
+
+∀(h, s, a ) ∈ [H] × S × A : KL 
+
+ ˆP real  
+
+> h
+
+(· | s, a ), P real  
+
+> h
+
+(· | s, a )
+
+
+
+≤ β(nh(s, a ), δ )
+
+nh(s, a ) ∨ 1 .
+
+Condition on this event. For every triple with nh(s, a ) ≥ 1, Pinsker’s inequality gives 
+
+ˆP real  
+
+> h
+
+(· | s, a ), P real  
+
+> h
+
+(· | s, a ) TV 
+
+≤ ρh(s, a ).
+
+By the triangle inequality, 
+
+ˆP real  
+
+> h
+
+(· | s, a ), P sim  
+
+> h
+
+(· | s, a ) TV 
+
+− gh(s, a ) ≤ ρh(s, a ).
+
+Consequently, 
+
+Lh(s, a ) = 
+
+ ˆP real  
+
+> h
+
+(· | s, a ), P sim  
+
+> h
+
+(· | s, a ) TV − ρh(s, a )
+
+
+
+> +
+
+≤ gh(s, a ).
+
+Thus, Lh(s, a ) > 0 implies gh(s, a ) > 0, so every triple in C belongs to B. This proves (i). For (ii), if C = ∅, Algorithm 4 returns ˆσs = 0 . If C̸ = ∅, then 
+
+ˆσs = min 
+
+
+
+1, min  
+
+> (h,s,a )∈C
+
+Lh(s, a )
+
+
+
+≤ min  
+
+> (h,s,a )∈C
+
+Lh(s, a ) ≤ min  
+
+> (h,s,a )∈C
+
+gh(s, a ).
+
+For (iii), we assume that B̸ = ∅. Indeed, if B = ∅, then the simulator is exact, σs is unconstrained by Assumption 2.3, and part (i) forces C = ∅ and ˆσs = 0 , so the claim is vacuous. Now suppose that 
+
+B ⊆ C and B̸ = ∅. Since B̸ = ∅, this implies C̸ = ∅. Together with (i), it gives C = B. Hence, 
+
+ˆσs ≤ min  
+
+> (h,s,a )∈C
+
+gh(s, a ) = min  
+
+> (h,s,a )∈B
+
+gh(s, a ) = σs.
+
+20 Furthermore, 
+
+ˆP real  
+
+> h
+
+(· | s, a ), P sim  
+
+> h
+
+(· | s, a ) TV 
+
+≥ gh(s, a ) − ρh(s, a ),
+
+so 
+
+Lh(s, a ) ≥ (gh(s, a ) − 2ρh(s, a )) + ≥ gh(s, a ) − 2ρh(s, a ).
+
+Using C = B,
+
+min  
+
+> (h,s,a )∈C
+
+Lh(s, a ) ≥ min  
+
+> (h,s,a )∈B
+
+(gh(s, a ) − 2ρh(s, a )) 
+
+≥ min  
+
+> (h,s,a )∈B
+
+gh(s, a ) − 2 max  
+
+> (h,s,a )∈B
+
+ρh(s, a )= σs − 2 max  
+
+> (h,s,a )∈B
+
+ρh(s, a ).
+
+Since σs − 2 max (h,s,a )∈B ρh(s, a ) ≤ σs ≤ 1, clipping at 1 preserves this lower bound. Therefore, 
+
+σs − 2 max  
+
+> (h,s,a )∈B
+
+ρh(s, a ) ≤ ˆσs ≤ σs.
+
+B.4.2 Sample complexity of estimating σs
+
+In this section, we investigate the sample complexity required to obtain a sufficiently accurate estimate 
+
+ˆσs. Here, sample complexity refers to the number of samples collected by rolling out the safe baseline policy π0 in Mreal .We consider the gridworld example with mismatch region |B| = 64 , shown in Figure 1a, while varying the profile of the wind strength across the windy cells. Specifically, we consider three instances: (i) a homogeneous instance with pwind = 0 .8 throughout the mismatch region; (ii) a homogeneous instance with pwind = 0 .35 throughout the mismatch region, since this value yields a small separation parameter σs, making σs more sample-demanding to estimate; and (iii) a heterogeneous instance in which pwind varies from 0.2 to 0.8 across the mismatch region, with values equispaced in this range. In the heterogeneous instance, the windy cells are ordered by increasing distance from the unsafe wall, and the wind strength increases along this order. Thus, the weakest and hardest-to-certify mismatch lies closest to the unsafe wall, making the instance more challenging rather than benign. We summarize the three instances in the table below. Instance pwind σs
+
+I (homogeneous) 0.8 everywhere 0.68 
+
+II (homogeneous) 0.35 everywhere 0.2975 
+
+III (heterogeneous) 0.2 to 0.8, equispaced 0.17 
+
+Table 3: Three gridworld instances As shown in Figure 5, with a sufficient number of samples (more than 3 × 10 3 in these experiments), the estimate ˆσs is conservative with respect to the true value σs, i.e., ˆσs ≤ σs. As the number of samples increases, ˆσs converges to σs, and the estimated mismatch set C coincides with the true mismatch region B. Instance I is the easiest to estimate because it has the largest σs, whereas Instances II and III are harder because they have smaller separation parameters. 
+
+B.4.3 Effect of misspecifying σs
+
+In this section, we investigate the effect of using an estimated separation parameter ˆσs, instead of the true value σs, in Algorithm 1. We consider the same three example as in Table 3. By varying the value of ˆσs used by the algorithm, we study its effect on three aspects of algorithm performance: sample complexity, safe exploration, and the planning accuracy of the returned policy. For planning accuracy, we check whether the returned policy is both near-optimal and feasible in Mreal .We summarize the results in Table 4. As shown in the table, Algorithm 1 ensures safe exploration for all values of ˆσs, due to its mixture-policy design. However, sample complexity and planning accuracy differ across choices of ˆσs. When ˆσs underestimates σs, the algorithm preserves both safe exploration and accurate planning, but requires more samples from the real environment to identify 21 10 3 10 4 10 5 10 6
+
+Samples from real   
+
+> 10 2
+> 10 1
+> 0.68
+> s
+
+I (homogeneous)    
+
+> 10 310 410 510 6
+
+Samples from real   
+
+> 10 2
+> 10 1
+> 10 0
+> 0.2975
+
+II (homogeneous)    
+
+> 10 310 410 510 6
+
+Samples from real  
+
+> 10 2
+> 10 0
+> 0.17
+
+III (heterogeneous) 
+
+true s output s (Alg. 4) = in every seed Figure 5: Sample complexity of estimating σs in the three instances. The curves show the mean over 
+
+20 seeds, with shaded regions indicating the min–max range. the mismatch triples. This leads to higher sample complexity. The worst case occurs when ˆσs = 0 ,in which case Algorithm 1 degenerates to an online reward-free RL algorithm. On the other hand, when ˆσs overestimates σs, the algorithm may require fewer real-environment samples than in the underestimation case, but it can incorrectly remove true mismatch triples from ˆBt. As a result, the returned transition model may be insufficiently accurate for planning: although the output policy may remain near-optimal for any reward function under the learned model, it may no longer be feasible in 
+
+Mreal . This failure occurs for Instances II and III when ˆσs is 2.5× larger than the true value. In summary, underestimating σs is safe but can increase sample complexity, whereas overestimating 
+
+σs may lead to inaccurate planning. Therefore, a conservative estimate of σs is important for safe learning. 
+
+## C Proofs 
+
+For simplicity of notation, we introduce the following operators. 
+
+Notation For any function f : S → R, we define Phf (s, a ) := Es′∼Ph(·| s,a )[f (s′)] as the expectation operator, and Var p(f ) ≜ Es∼p
+
+h f (s) − Es′∼p[f (s′)] 2i
+
+as the variance operator. For any function g : S × A → R, we define πg (s) := P 
+
+> a
+
+π(a|s)g(s, a ) as the policy operator. Unless indicated otherwise, an unadorned Ph abbreviates the real-world kernel P real  
+
+> h
+
+.
+
+C.1 Concentration events 
+
+Let dP real ,π h (s, a ) denote the probability of visiting (s, a ) at step h under the policy π. Define the cumulative visitation probability 
+
+¯nth(s, a ) := 
+
+> t−1
+
+X
+
+> i=1
+
+dP real ,π i 
+
+> h
+
+(s, a )
+
+which represents the expected number of visits to (s, a ) at step h during the first t − 1 iterations of Algorithm 1, and when t = 1 we set ¯n1
+
+> h
+
+(s, a ) = 0 .We introduce two favorable events. The event E ensures that the empirical transition model is close to the true transition model, while Ecnt guarantees that the pseudo-counts are close to their expected values: 
+
+E := 
+
+
+
+∀t ∈ N, ∀h ∈ [H], ∀(s, a ) ∈ S × A : KL 
+
+ ˆP t, real  
+
+> h
+
+(· | s, a ), P real  
+
+> h
+
+(· | s, a )
+
+
+
+≤ β(nth(s, a ), δ )
+
+nth(s, a )
+
+
+
+,
+
+Ecnt := ∀t ∈ N, ∀h ∈ [H], ∀(s, a ) ∈ S × A : nth(s, a ) ≥ 12 ¯nth(s, a ) − βcnt (δ) .
+
+22 Table 4: Performance of Algorithm 1 with different values of ˆσs. Samples from Mreal : total number of samples required from Mreal before termination, reported as mean ± standard deviation over 20 seeds. Unsafe iterations: share of seeds for which there exists at least one iteration t such that the deployed policy πt is infeasible during the execution of Algorithm 1. Pairs of B lost: mean number of mismatch pairs from B incorrectly removed from ˆBt, averaged over 20 seeds. Runs with false deletion: share of seeds in which at least one pair from B is lost. Output optimality: V π∗
+
+r − V πr ,averaged over 10 random reward functions per seed, where π is the output optimal policy for reward 
+
+r, and π∗ is the true optimal policy for reward r. Output feasibility: share of output policies that are feasible in Mreal . Rows in bold indicate settings in which the output policy is infeasible in Mreal 
+
+for at least one reward and seed. 
+
+ˆσs Samples from Unsafe iterations Pairs of B lost Runs with false Output Output 
+
+Mreal (share of seeds) (out of 64 ) deletion optimality feasibility 
+
+I (homogeneous) , σs = 0 .68 
+
+0.000 269 ,658 ± 6,792 0.0% 0.0 0% 0.0003 100 .0% 
+
+0.050 269 ,658 ± 6,792 0.0% 0.0 0% 0.0003 100 .0% 
+
+0.100 266 ,637 ± 6,520 0.0% 0.0 0% 0.0002 100 .0% 
+
+0.150 252 ,378 ± 4,095 0.0% 0.0 0% 0.0003 100 .0% 
+
+0.200 232 ,344 ± 3,346 0.0% 0.0 0% 0.0004 100 .0% 
+
+0.250 209 ,784 ± 3,092 0.0% 0.0 0% 0.0002 100 .0% 
+
+0.300 184 ,668 ± 3,881 0.0% 0.0 0% 0.0003 100 .0% 
+
+0.340 174 ,948 ± 3,940 0.0% 0.0 0% 0.0003 100 .0% 
+
+0.400 166 ,146 ± 3,843 0.0% 0.0 0% 0.0002 100 .0% 
+
+0.450 162 ,051 ± 4,041 0.0% 0.0 0% 0.0005 100 .0% 
+
+0.500 158 ,172 ± 3,655 0.0% 0.0 0% 0.0004 100 .0% 
+
+0.550 155 ,784 ± 3,646 0.0% 0.0 0% 0.0003 100 .0% 
+
+0.595 154 ,203 ± 3,544 0.0% 0.0 0% 0.0003 100 .0% 
+
+0.620 153 ,375 ± 3,561 0.0% 0.0 0% 0.0004 100 .0% 
+
+0.650 152 ,460 ± 3,496 0.0% 0.0 0% 0.0003 100 .0% 
+
+0.700 151 ,461 ± 3,581 0.0% 0.0 0% 0.0004 100 .0% 
+
+0.750 150 ,519 ± 3,451 0.0% 0.0 0% 0.0005 100 .0% 
+
+0.800 149 ,562 ± 3,339 0.0% 0.0 0% 0.0004 100 .0% 
+
+0.850 149 ,106 ± 3,260 0.0% 0.0 0% 0.0003 100 .0% 
+
+1.000 147 ,816 ± 3,326 0.0% 0.0 0% 0.0003 100 .0% 
+
+II (homogeneous) , σs = 0 .2975 
+
+0.000 291 ,447 ± 4,586 0.0% 0.0 0% 0.0005 100 .0% 
+
+0.050 291 ,324 ± 4,550 0.0% 0.0 0% 0.0005 100 .0% 
+
+0.100 286 ,770 ± 3,295 0.0% 0.0 0% 0.0004 100 .0% 
+
+0.150 277 ,749 ± 2,789 0.0% 0.0 0% 0.0004 100 .0% 
+
+0.200 262 ,854 ± 6,689 0.0% 0.0 0% 0.0005 100 .0% 
+
+0.250 252 ,834 ± 8,453 0.0% 0.0 0% 0.0004 100 .0% 
+
+0.300 235 ,734 ± 7,056 0.0% 0.0 0% 0.0004 100 .0% 
+
+0.340 217 ,677 ± 8,188 0.0% 0.0 0% 0.0004 100 .0% 
+
+0.400 201 ,945 ± 9,807 0.0% 0.0 0% 0.0004 100 .0% 
+
+0.450 193 ,515 ± 11 ,638 0.0% 0.0 0% 0.0005 100 .0% 
+
+0.500 187 ,689 ± 12 ,893 0.0% 0.0 0% 0.0005 100 .0% 
+
+0.550 182 ,604 ± 13 ,441 0.0% 0.0 0% 0.0005 100 .0% 
+
+0.595 180 ,267 ± 13 ,974 0.0% 0.0 0% 0.0005 100 .0% 
+
+0.620 178 ,860 ± 14 ,514 0.0% 0.0 0% 0.0004 100 .0% 
+
+0.650 177 ,414 ± 15 ,049 0.0% 0.0 0% 0.0004 100 .0% 
+
+0.700 185 ,628 ± 14 ,777 0.0% 1.8 90% 0.0087 100 .0% 
+
+0.750 186 ,582 ± 11 ,558 0.0% 10 .0 100% 0.0559 98 .5% 
+
+0.800 178 ,083 ± 14 ,329 0.0% 31 .1 100% 0.1089 92 .5% 
+
+0.850 162 ,444 ± 12 ,923 0.0% 46 .6 100% 0.1453 90 .0% 
+
+1.000 107 ,913 ± 7,517 0.0% 62 .7 100% 0.1601 90 .0% 
+
+III (heterogeneous) , σs = 0 .17 
+
+0.000 283 ,437 ± 6,806 0.0% 0.0 0% 0.0007 100 .0% 
+
+0.050 283 ,281 ± 6,660 0.0% 0.0 0% 0.0007 100 .0% 
+
+0.100 278 ,700 ± 5,605 0.0% 0.0 0% 0.0007 100 .0% 
+
+0.150 270 ,189 ± 5,877 0.0% 0.0 0% 0.0007 100 .0% 
+
+0.200 255 ,762 ± 9,410 0.0% 0.0 0% 0.0006 100 .0% 
+
+0.250 242 ,670 ± 11 ,522 0.0% 0.0 0% 0.0007 100 .0% 
+
+0.300 223 ,038 ± 11 ,942 0.0% 0.0 0% 0.0006 100 .0% 
+
+0.340 205 ,590 ± 11 ,723 0.0% 0.0 0% 0.0005 100 .0% 
+
+0.400 191 ,334 ± 11 ,695 0.0% 0.0 0% 0.0006 100 .0% 
+
+0.450 184 ,200 ± 11 ,361 0.0% 0.1 5% 0.0006 100 .0% 
+
+0.500 178 ,368 ± 12 ,508 0.0% 0.8 65% 0.0008 100 .0% 
+
+0.550 173 ,556 ± 12 ,592 0.0% 2.8 100% 0.0018 100 .0% 
+
+0.595 168 ,756 ± 13 ,252 0.0% 5.7 100% 0.0031 100 .0% 
+
+0.620 166 ,314 ± 13 ,007 0.0% 6.8 100% 0.0033 100 .0% 
+
+0.650 162 ,690 ± 13 ,555 0.0% 8.6 100% 0.0050 100 .0% 
+
+0.700 158 ,874 ± 15 ,081 0.0% 11 .3 100% 0.0099 100 .0% 
+
+0.750 154 ,278 ± 13 ,504 0.0% 13 .4 100% 0.0166 99 .0% 
+
+0.800 151 ,353 ± 12 ,925 0.0% 15 .9 100% 0.0244 98 .0% 
+
+0.850 146 ,103 ± 11 ,516 0.0% 18 .4 100% 0.0289 96 .0% 
+
+1.000 133 ,131 ± 11 ,364 0.0% 26 .6 100% 0.0451 93 .5% 
+
+23 We next show that, for appropriate choices of the confidence functions β and βcnt , the events E and 
+
+Ecnt hold simultaneously with high probability. 
+
+Lemma C.1. With the choices 
+
+β(n, δ ) := log(2 SAH/δ ) + S log(8 e(n + 1)) , β cnt (δ) := log(2 SAH/δ ) ,
+
+it holds that Pr( E ∩ E cnt ) ≥ 1 − δ.Proof of Lemma C.1. By Lemma D.1, we have Pr( E) ≥ 1 − δ/ 2. Similarly, by Lemma D.2, 
+
+Pr( Ecnt ) ≥ 1 − δ/ 2. Applying the union bound yields Pr( E ∩ E cnt ) ≥ 1 − δ.
+
+Lemma C.2. On the event Ecnt , for all h ∈ [H], (s, a ) ∈ S × A and t ∈ N,
+
+β(nth(s, a ), δ )
+
+nth(s, a ) ∧ 1 ≤ 4 min 
+
+n 14 , β(¯ nth(s,a ),δ )¯nth(s,a )∨1
+
+o
+
+.
+
+Proof of Lemma C.2. By [Ménard et al., 2021, Lemma 10], we have 
+
+β(nth(s, a ), δ )
+
+nth(s, a ) ∧ 1 ≤ 4 β(¯ nth(s, a ), δ )¯nth(s, a ) ∨ 1 .
+
+Moreover, since the left-hand side is clipped at 1, it follows that 
+
+β(nth(s, a ), δ )
+
+nth(s, a ) ∧ 1 ≤ min {1, 4 β(¯ nth(s, a ), δ )¯nth(s, a ) ∨ 1 } = 4 min 
+
+n 14 , β(¯ nth(s,a ),δ )¯nth(s,a )∨1
+
+o
+
+.
+
+Next, we establish the guarantees of Algorithms 1, under the events E and Ecnt , which jointly hold with high probability by Lemma C.1. 
+
+C.2 Analysis of the estimated mismatch region 
+
+This section proves the theoretical guarantees for Algorithm 1 on the estimated mismatch region. Lemma C.3 shows that, with high probability, no mismatch triple is removed from ˆBt during the learning process, while Lemma C.4 shows that every non-mismatch triple is removed once it has been sampled sufficiently often. 
+
+Lemma C.3. On the event E, for every t ∈ N, the following hold: (i) ˆBt ⊆ ˆBt−1; and (ii) B ⊆ ˆBt.Proof of Lemma C.3. By definition, ˆBt = ˆBt−1 \ G t, which immediately implies ˆBt ⊆ ˆBt−1.To establish (ii), fix (h, s, a ) ∈ B and suppose, towards a contradiction, that (h, s, a ) ∈ G t for some iteration t. By the definition of Gt, we have 
+
+ˆP t, real  
+
+> h
+
+(· | s, a ), P sim  
+
+> h
+
+(· | s, a ) TV 
+
++ ρth(s, a ) ≤ σs
+
+2 .
+
+Moreover, on the event E, Pinsker’s inequality yields 
+
+ˆP t, real  
+
+> h
+
+(· | s, a ), P real  
+
+> h
+
+(· | s, a ) TV 
+
+≤
+
+r 12 KL 
+
+ ˆP t, real  
+
+> h
+
+(· | s, a ), P real  
+
+> h
+
+(· | s, a )
+
+
+
+≤ ρth(s, a ).
+
+Hence, by the triangle inequality, 
+
+P real  
+
+> h
+
+(· | s, a ), P sim  
+
+> h
+
+(· | s, a ) TV 
+
+≤ P real  
+
+> h
+
+(· | s, a ), ˆP t, real  
+
+> h
+
+(· | s, a ) TV 
+
++ ˆP t, real  
+
+> h
+
+(· | s, a ), P sim  
+
+> h
+
+(· | s, a ) TV 
+
+≤ρth(s, a ) + ˆP t, real  
+
+> h
+
+(· | s, a ), P sim  
+
+> h
+
+(· | s, a ) TV 
+
+≤ σs
+
+2 .
+
+However, since (h, s, a ) ∈ B , Assumption 2.3 implies P real  
+
+> h
+
+(· | s, a ), P sim  
+
+> h
+
+(· | s, a ) TV ≥ σs,which is a contradiction. Therefore, (h, s, a ) /∈ G t. Since B ⊆ ˆB0 by initialization, no element of B
+
+is ever removed from ˆBt, and thus B ⊆ ˆBt for all t ∈ N.24 Lemma C.4. On the event E, for every (h, s, a ) /∈ B and every t ∈ N, if nth(s, a ) ≥ n, then 
+
+(h, s, a ) /∈ ˆBt, where 
+
+n := 1 + 16 
+
+σ2
+
+> s
+
+(log(2 |S||A| H/δ ) + |S| log(8 e)) + 16 |S| 
+
+σ2
+
+> s
+
+log 
+
+
+
+max 
+
+ 16 |S| 
+
+σ2
+
+> s
+
+, e 
+
+ 
+
+.
+
+Proof of Lemma C.4. Fix (h, s, a ) /∈ B and t ∈ N. Since (h, s, a ) /∈ B , we have P real  
+
+> h
+
+(· | s, a ) = 
+
+P sim  
+
+> h
+
+(· | s, a ). On the event E, Pinsker’s inequality gives 
+
+ˆP t, real  
+
+> h
+
+(· | s, a ), P sim  
+
+> h
+
+(· | s, a ) TV 
+
+= ˆP t, real  
+
+> h
+
+(· | s, a ), P real  
+
+> h
+
+(· | s, a ) TV 
+
+≤ ρth(s, a ).
+
+By Algorithm 1, (h, s, a ) ∈ G t whenever 
+
+ˆP t, real  
+
+> h
+
+(· | s, a ), P sim  
+
+> h
+
+(· | s, a ) TV 
+
++ ρth(s, a ) ≤ σs
+
+2 .
+
+Therefore, it suffices to ensure 2ρth(s, a ) ≤ σs/2.Using ρth(s, a ) = pβ(nth(s, a ), δ )/(2 nth(s, a )) , the condition 2ρth(s, a ) ≤ σs/2 is equivalent to 
+
+nth(s, a ) ≥ 8β(nth(s, a ), δ )
+
+σ2
+
+> s
+
+.
+
+Now write 
+
+β(n, δ ) = log(2 |S||A| H/δ ) + |S| log(8 e(n + 1)) .
+
+Equivalently, 
+
+β(n, δ ) = log(2 |S||A| H/δ ) + |S| log(8 e) + |S| log( n + 1) .
+
+Thus Lemma D.6 applies with κ = σ2 
+
+> s
+
+/8, b = |S| , and c = log(2 |S||A| H/δ ) + |S| log(8 e). It follows that 
+
+nth(s, a ) ≥ n
+
+implies 
+
+nth(s, a ) ≥ 8β(nth(s, a ), δ )
+
+σ2
+
+> s
+
+.
+
+Hence 2ρth(s, a ) ≤ σs/2, so the removal test in Equation (3) is satisfied. If (h, s, a ) ∈ ˆBt−1, this gives (h, s, a ) ∈ G t and therefore (h, s, a ) /∈ ˆBt = ˆBt−1 \ G t. Otherwise (h, s, a ) /∈ ˆBt−1, and part (i) of Lemma C.3 gives ˆBt ⊆ ˆBt−1, so again (h, s, a ) /∈ ˆBt.
+
+C.3 Proof of Lemma 3.1 
+
+In this section, we prove a stronger version of Lemma 3.1. We first define At,π b,h recursively by setting 
+
+At,π b,H +1 (s, a ) := 0 , and for h ∈ [H],
+
+At,π b,h (s, a ) = min 
+
+
+
+1, b th(s, a ) + 
+
+
+
+1 + 1
+
+H
+
+
+
+ˆP thπh+1 At,π b,h +1 (s, a )
+
+
+
+. (14) For the proof analysis, we further define et,π f,h (s, a ) := Q ˆP t,π f,h (s, a ) − QP real ,π f,h (s, a ) , which will be used to bound et,π f,h (s), noting that 
+
+et,π f,h (s) = Ea∼πh(·| s)
+
+h
+
+Q ˆP t,π f,h (s, a ) − QP real ,π f,h (s, a )
+
+i
+
+≤ Ea∼πh(·| s)et,π f,h (s, a ).
+
+Lemma C.5. With probability at least 1 − δ, for any iteration t, policy π, function f ∈ F , timestep 
+
+h ∈ [H], and state-action pair (s, a ),
+
+et,π f,h (s, a ) ≤ min 
+
+
+
+3e
+
+q
+
+HA t,π b,h (s, a ) + HA t,π b,h (s, a ), H 
+
+
+
+,et,π f,h (s) ≤ min 
+
+
+
+3e
+
+q
+
+Hπ hAt,π b,h (s) + Hπ hAt,π b,h (s), H 
+
+
+
+.
+
+25 Remark. Lemma C.5 is tighter than Lemma 3.1. In particular, we show by backward induction that 
+
+At,π b,h (s, a ) ≤ Q ˆP t,π b,h (s, a ), πhAt,π b,h (s) ≤ V ˆP t,π b,h (s).
+
+The claim is immediate at h = H + 1 . Suppose it holds at step h + 1 . Then, for any (s, a ),
+
+At,π b,h (s, a ) = min 
+
+
+
+1, b th(s, a ) + 
+
+
+
+1 + 1
+
+H
+
+
+
+ˆP thπh+1 At,π b,h +1 (s, a )
+
+
+
+≤ min 
+
+
+
+1, b th(s, a ) + 
+
+
+
+1 + 1
+
+H
+
+
+
+ˆP thV ˆP t,π b,h +1 (s, a )
+
+
+
+≤ bth(s, a ) + 
+
+
+
+1 + 1
+
+H
+
+
+
+ˆP thV ˆP t,π b,h +1 (s, a )= Q ˆP t,π b,h (s, a ),
+
+where the first inequality uses the induction hypothesis. Taking expectation over a ∼ πh(· | s) yields 
+
+πhAt,π b,h (s) ≤ πhQ ˆP t,π b,h (s) = V ˆP t,π b,h (s).
+
+Proof of Lemma C.5. By Lemma C.1, the event E ∩ E cnt holds with probability at least 1 − δ, and on E Lemma C.3 gives B ⊆ ˆBt for every t. In the remainder of the analysis, we condition on the event E ∩ E cnt , on which B ⊆ ˆBt therefore also holds. We fix an iteration t, a policy π, and a function f ∈ F . Throughout the proof, we adopt the convention that if nth(s, a ) = 0 , then 
+
+β(nth(s, a ), δ )/n th(s, a ) = + ∞. Due to the clipping, all recursively defined quantities remain finite. 
+
+Step 1: Recursive empirical Bernstein bound. Fix a timestep-state-action tuple (h, s, a )̸ ∈ ˆBt,then by part (ii) of Lemma C.3 together with Definition 2.4, 
+
+ˆP th(·| s, a ) = P real  
+
+> h
+
+(·| s, a ).
+
+Hence, 
+
+et,π f,h (s, a ) ≤ ˆP th|V ˆP t,π f,h +1 − V P real ,π f,h +1 |(s, a ) ≤ ˆP thπh+1 et,π f,h +1 (s, a ),
+
+where we use 
+
+|V ˆP t,π f,h +1 (s′) − V P real ,π f,h +1 (s′)| = X
+
+> a′
+
+πh+1 (a′|s′)
+
+
+
+Q ˆP t,π f,h +1 (s′, a ′) − QP real ,π f,h +1 (s′, a ′)
+
+
+
+≤ X
+
+> a′
+
+πh+1 (a′|s′)et,π f,h +1 (s′, a ′) = πh+1 et,π f,h +1 (s′). (15) Now consider (h, s, a ) ∈ ˆBt, we decompose the estimation error as 
+
+et,π f,h (s, a )
+
+≤ [( ˆP th − P real  
+
+> h
+
+)V P real ,π f,h +1 ]( s, a ) + ˆP th|V ˆP t,π f,h +1 − V P real ,π f,h +1 |(s, a )
+
+≤
+
+s
+
+2Var P real  
+
+> h
+
+(V P real ,π f,h +1 )( s, a ) β(nth(s, a ), δ )
+
+nth(s, a ) + 2Hβ (nth(s, a ), δ )3nth(s, a ) + ˆP th|V ˆP t,π f,h +1 − V P real ,π f,h +1 |(s, a )
+
+(16) where the last step follows from Lemma D.3 and V P real ,π f,h +1 ∈ [0 , H ].Again, by Lemma D.3 and the fact that V P real ,π f,h +1 ∈ [0 , H ], we have 
+
+Var P real  
+
+> h
+
+(V P real ,π f,h +1 )( s, a )
+
+≤2Var ˆP th
+
+(V P real ,π f,h +1 )( s, a ) + 4 H2KL( ˆP th(·| s, a ), P real  
+
+> h
+
+(·| s, a )) 
+
+26 ≤2Var ˆP th
+
+(V P real ,π f,h +1 )( s, a ) + 4 H2 β(nth(s, a ), δ )
+
+nth(s, a )
+
+≤4Var ˆP th
+
+(V ˆP t,π f,h +1 )( s, a ) + 4 H ˆP th|V P real ,π f,h +1 − V ˆP t,π f,h +1 |(s, a ) + 4 H2 β(nth(s, a ), δ )
+
+nth(s, a ) ,
+
+Plugging this bound into the first term in Inequality (16) and using √x + y + z ≤ √x + √y + √z,we obtain 
+
+s
+
+2Var P real  
+
+> h
+
+(V P real ,π f,h +1 )( s, a ) β(nth(s, a ), δ )
+
+nth(s, a )
+
+≤
+
+s
+
+8Var ˆP th
+
+(V ˆP t,π f,h +1 )( s, a ) β(nth(s, a ), δ )
+
+nth(s, a ) +
+
+s
+
+1
+
+H ˆP th|V P real ,π f,h +1 − V ˆP t,π f,h +1 |(s, a ) · 8H2 β(nth(s, a ), δ )
+
+nth(s, a )+ 2 √2H β(nth(s, a ), δ )
+
+nth(s, a )
+
+≤3
+
+s
+
+Var ˆP th
+
+(V ˆP t,π f,h +1 )( s, a ) β(nth(s, a ), δ )
+
+nth(s, a ) + 7 H2 β(nth(s, a ), δ )
+
+nth(s, a ) + 1
+
+H ˆP th|V P real ,π f,h +1 − V ˆP t,π f,h +1 |(s, a ),
+
+where the last step uses the Arithmetic Mean–Geometric Mean inequality √xy ≤ 12 (x + y) on the third term with x = 1 
+
+> H
+
+ˆP th|V P real ,π f,h +1 − V ˆP t,π f,h +1 |(s, a ) and y = 8 H2β(nth(s, a ), δ )/n th(s, a ). Therefore, Inequality (16) can be bounded as 
+
+et,π f,h (s, a ) ≤ 3
+
+s
+
+Var ˆP th
+
+(V ˆP t,π f,h +1 )( s, a ) β(nth(s, a ), δ )
+
+nth(s, a ) + 8 H2 β(nth(s, a ), δ )
+
+nth(s, a )+
+
+
+
+1 + 1
+
+H
+
+
+
+ˆP th|V ˆP t,π f,h +1 − V P real ,π f,h +1 |(s, a ). (17) We next replace the unclipped square root factor in Inequality (17) by its clipped version. If 
+
+H2β(nth(s, a ), δ )/n th(s, a ) ≤ 1, the term is unchanged. Otherwise, H2β(nth(s, a ), δ )/n th(s, a ) > 1,so pH2β(nth(s, a ), δ )/n th(s, a ) ≤ H2β(nth(s, a ), δ )/n th(s, a ), and using Var ˆP th
+
+(V ˆP t,π f,h +1 )( s, a ) ≤
+
+H2 we get 
+
+3
+
+vuuut Var ˆP th
+
+(V ˆP t,π f,h +1 )( s, a )
+
+H2
+
+ β(nth(s, a ), δ )H2
+
+nth(s, a )
+
+
+
+≤ 3H2 β(nth(s, a ), δ )
+
+nth(s, a ) .
+
+Therefore, Inequality (17) can be bounded as 
+
+et,π f,h (s, a ) ≤ 3
+
+s
+
+Var ˆP th
+
+(V ˆP t,π f,h +1 )( s, a )
+
+H2
+
+s
+
+β(nth(s, a ), δ )H2
+
+nth(s, a ) ∧ 1 + 11 H2 β(nth(s, a ), δ )
+
+nth(s, a )+
+
+
+
+1 + 1
+
+H
+
+
+
+ˆP thπh+1 et,π f,h +1 (s, a ),
+
+where the last term uses Inequality (15). Next, we define the functions B recursively. Let Bt,π f,H +1 (s, a ) := 0 , and for h ∈ [H] define 
+
+Bt,π f,h (s, a ) := min 
+
+(
+
+H, 1{(h,s,a )∈ ˆBt}
+
+
+
+3
+
+s
+
+Var ˆP th
+
+(V ˆP t,π f,h +1 )( s, a )
+
+H2
+
+s
+
+β(nth(s, a ), δ )H2
+
+nth(s, a ) ∧ 1+ 11 H2β(nth(s, a ), δ )
+
+nth(s, a )
+
+
+
++
+
+
+
+1 + 1
+
+H
+
+
+
+ˆP thπh+1 Bt,π f,h +1 (s, a )
+
+)
+
+.
+
+Since et,π f,h (s, a ) ≤ H, the recursive bound above implies, by backward induction on h, that for all 
+
+(s, a, h ),
+
+et,π f,h (s, a ) ≤ Bt,π f,h (s, a ). (18) 27 Step 2: Law of total variance. For all (s, a ), we recursively define C by setting Ct,π f,H +1 (s, a ) := 0 
+
+and, for h < H + 1 ,
+
+Ct,π f,h (s, a ) := 1{(h,s,a )∈ ˆBt} × 3
+
+vuut Var ˆP th
+
+(V ˆP t,π f,h +1 )( s, a )
+
+H2
+
+ β(nth(s, a ), δ )H2
+
+nth(s, a ) ∧ 1
+
+
+
++
+
+
+
+1 + 1
+
+H
+
+
+
+ˆP thπh+1 Ct,π f,h +1 (s, a ).
+
+We first show by backward induction that, for all h, s, a ,
+
+Bt,π f,h (s, a ) ≤ Ct,π f,h (s, a ) + HA t,π b,h (s, a ),
+
+where At,π b,h (s, a ) is defined in Equation (14). The claim is trivial for h = H + 1 . Suppose the claim holds at step h + 1 . By the induction hypothesis, we have 
+
+Bt,π f,h (s, a )
+
+≤ min 
+
+(
+
+H, 1{(h,s,a )∈ ˆBt}
+
+3
+
+vuut Var ˆP th
+
+(V ˆP t,π f,h +1 )( s, a )
+
+H2
+
+ β(nth(s, a ), δ )H2
+
+nth(s, a ) ∧ 1
+
+
+
++ 11 H2 β(nth(s, a ), δ )
+
+nth(s, a )
+
+
+
++
+
+
+
+1 + 1
+
+H
+
+
+
+ˆP thπh+1 Ct,π f,h +1 (s, a ) + H
+
+
+
+1 + 1
+
+H
+
+
+
+ˆP thπh+1 At,π b,h +1 (s, a )
+
+)
+
+≤Ct,π f,h (s, a ) + H min 
+
+
+
+1, 1{(h,s,a )∈ ˆBt}
+
+11 Hβ (nth(s, a ), δ )
+
+nth(s, a ) +
+
+
+
+1 + 1
+
+H
+
+
+
+ˆP thπh+1 At,π b,h +1 (s, a )
+
+
+
+=Ct,π f,h (s, a ) + H min 
+
+
+
+1, min 
+
+
+
+1{(h,s,a )∈ ˆBt}
+
+11 Hβ (nth(s, a ), δ )
+
+nth(s, a ) , 1
+
+
+
++
+
+
+
+1 + 1
+
+H
+
+
+
+ˆP thπh+1 At,π b,h +1 (s, a )
+
+
+
+=Ct,π f,h (s, a ) + HA t,π b,h (s, a ),
+
+where the second inequality uses min( x, y + z) ≤ min( x, y ) + z, the third inequality uses min {a, b +
+
+c} ≤ min {a, min {a, b } + c} for c ≥ 0, and the final equality follows from the definition 
+
+bth(s, a ) := 1{(h,s,a )∈ ˆBt} min 
+
+ 11 Hβ (nth(s, a ), δ )
+
+nth(s, a ) , 1
+
+
+
+= min 
+
+
+
+1{(h,s,a )∈ ˆBt}
+
+11 Hβ (nth(s, a ), δ )
+
+nth(s, a ) , 1
+
+
+
+together with the recursive definition of At,π b,h .Combining the above with Inequality (18), we have, for all π ∈ Π, h ∈ [H], and (s, a ) ∈ S × A ,
+
+et,π f,h (s, a ) ≤ Ct,π f,h (s, a ) + HA t,π b,h (s, a ), (19) 
+
+et,π f,h (s) ≤ πhCt,π f,h (s) + Hπ hAt,π b,h (s).
+
+It remains to upper-bound Ct,π f,h by At,π b,h , thereby removing the explicit dependence on the empirical variance of the value function under policy π. We define d ˆP t,π ℓ (s, a | sh = s′) as the state-action occupancy distribution at step ℓ ∈ { h, . . . , H } induced by policy π and the empirical transition model 
+
+ˆP t, conditioned on starting from state s′ at step h. By recursively expanding Ct,π f,h over the timestep h
+
+and applying the Cauchy–Schwarz inequality together with  1 + 1
+
+> H
+
+m ≤ e for all m ∈ { 0, . . . , H },we obtain 
+
+πhCt,π f,h (s′) =3 X
+
+> s,a H
+
+X
+
+> ℓ=h
+
+1{(ℓ,s,a )∈ ˆBt}d ˆP t,π ℓ (s, a | sh = s′)
+
+
+
+1 + 1
+
+H
+
+ℓ−h
+
+×
+
+vuut Var ˆP tℓ
+
+(V ˆP t,π f,ℓ +1 )( s, a )
+
+H2
+
+ H2β(ntℓ(s, a ), δ )
+
+ntℓ(s, a ) ∧ 1
+
+
+
+28 ≤3e
+
+vuuutX
+
+> s,a H
+
+X
+
+> ℓ=h
+
+d ˆP t,π ℓ (s, a | sh = s′)Var ˆP tℓ
+
+(V ˆP t,π f,ℓ +1 )( s, a )
+
+H2
+
+×
+
+vuutX
+
+> s,a H
+
+X
+
+> ℓ=h
+
+1{(ℓ,s,a )∈ ˆBt}d ˆP t,π ℓ (s, a | sh = s′)
+
+ H2β(ntℓ(s, a ), δ )
+
+ntℓ(s, a ) ∧ 1
+
+
+
+≤ 3e
+
+vuuut 1
+
+H2 Eπ, ˆP t
+
+
+
+> H
+
+X
+
+> ℓ=h
+
+fℓ(sℓ, a ℓ) − V ˆP t,π f,h (sh)
+
+!2
+
+sh = s′
+
+
+
+×
+
+vuutX
+
+> s,a H
+
+X
+
+> ℓ=h
+
+1{(ℓ,s,a )∈ ˆBt}d ˆP t,π ℓ (s, a | sh = s′)
+
+ H2β(ntℓ(s, a ), δ )
+
+ntℓ(s, a ) ∧ 1
+
+
+
+≤ 3e
+
+vuutX
+
+> s,a H
+
+X
+
+> ℓ=h
+
+1{(ℓ,s,a )∈ ˆBt}d ˆP t,π ℓ (s, a | sh = s′)
+
+ H2β(ntℓ(s, a ), δ )
+
+ntℓ(s, a ) ∧ 1
+
+
+
+.
+
+Here the second-to-last step follows from Lemma D.8 applied to the empirical CMDP with transition model ˆP t, and the last step uses PHℓ=h fℓ(sℓ, a ℓ) ∈ [0 , H ].
+
+Step 3: Clipping. For this step, define ˆAt,π recursively by ˆAt,π H+1 (s, a ) := 0 and 
+
+ˆAt,π h (s, a ) := min 
+
+
+
+H, 1{(h,s,a )∈ ˆBt}
+
+ H2β(nth(s, a ), δ )
+
+nth(s, a ) ∧ 1
+
+
+
++ ˆP thπh+1 ˆAt,π h+1 (s, a )
+
+
+
+.
+
+Then, by construction, 
+
+X
+
+> s,a H
+
+X
+
+> ℓ=h
+
+1{(ℓ,s,a )∈ ˆBt}d ˆP t,π ℓ (s, a | sh = s′)
+
+ H2β(ntℓ(s, a ), δ )
+
+ntℓ(s, a ) ∧ 1
+
+
+
+≤ πh ˆAt,π h (s′).
+
+We next show by backward induction that 
+
+ˆAt,π h (s, a ) ≤ HA t,π b,h (s, a ).
+
+The claim is immediate at h = H + 1 . Suppose it holds at step h + 1 . Then 
+
+ˆAt,π h (s, a ) = min 
+
+
+
+H, 1{(h,s,a )∈ ˆBt}
+
+ H2β(nth(s, a ), δ )
+
+nth(s, a ) ∧ 1
+
+
+
++ ˆP thπh+1 ˆAt,π h+1 (s, a )
+
+
+
+≤ min 
+
+
+
+H, 1{(h,s,a )∈ ˆBt} min 
+
+ H2β(nth(s, a ), δ )
+
+nth(s, a ) , H 
+
+
+
++ H ˆP thπh+1 At,π b,h +1 (s, a )
+
+
+
+≤ H min 
+
+
+
+1, b th(s, a ) + 
+
+
+
+1 + 1
+
+H
+
+
+
+ˆP thπh+1 At,π b,h +1 (s, a )
+
+
+
+= HA t,π b,h (s, a ),
+
+where we used the induction hypothesis ˆAt,π h+1 ≤ HA t,π b,h +1 and the definition bth(s, a ). Consequently, 
+
+πhCt,π f,h (s) ≤ 3e
+
+q
+
+πh ˆAt,π h (s) ≤ 3e
+
+q
+
+Hπ hAt,π b,h (s).
+
+Finally, to obtain the action-value bound, we fix (h, s, a ) and define a modified policy πh,s,a which takes action a at state s and time h, and follows π from time h + 1 onward. Applying the preceding state-value bound to πh,s,a thus gives 
+
+Ct,π f,h (s, a ) = Ct,π h,s,a  
+
+> f,h
+
+(s, a ) = πh,s,a h Ct,π h,s,a  
+
+> f,h
+
+(s) ≤ 3e
+
+q
+
+Hπ h,s,a h At,π h,s,a  
+
+> b,h
+
+(s) = 3 e
+
+q
+
+HA t,π b,h (s, a ).
+
+29 Plugging these bounds into Inequality (19) yields 
+
+et,π f,h (s, a ) ≤ 3e
+
+q
+
+HA t,π b,h (s, a ) + HA t,π b,h (s, a ),et,π f,h (s) ≤ 3e
+
+q
+
+Hπ hAt,π b,h (s) + πhHA t,π b,h (s).
+
+We further note that, by definition, 
+
+et,π f,h (s, a ) ≤ H, e t,π f,h (s) ≤ H. 
+
+C.4 Proof of Theorem 4.1 
+
+Before proceeding with the proof of Theorem 4.1, we state the following lemma, which shows that once the estimation error is sufficiently small, solving the empirical CMDP under a slightly tightened safety constraint yields a policy that is feasible and near-optimal for the true CMDP. We then use this lemma to prove Theorem 4.1. 
+
+Lemma C.6 (Connection between estimation error and CMDPs) . Suppose Assumption 2.2 holds. At iteration t, assume that there exists a constant ε > 0 such that 
+
+3e
+
+q
+
+H V ˆP t,π 0 
+
+> b, 1
+
+(s1) + H V ˆP t,π 0 
+
+> b, 1
+
+(s1) ≤ ξ
+
+4 ,
+
+max 
+
+> π∈Π
+
+n
+
+3e
+
+q
+
+H V ˆP t,π b, 1 (s1) + H V ˆP t,π b, 1 (s1) : V ˆP t,π c, 1 (s1) ≥ ℓ
+
+o
+
+≤ ε ≤ ξ
+
+4 . (20) 
+
+Then, on the high-probability event of Lemma 3.1, for any reward function r ∈ F , every optimal solution 
+
+πout ∈ arg max 
+
+> π∈Π
+
+n
+
+V ˆP t,π r, 1 (s1) : V ˆP t,π c, 1 (s1) ≥ ℓ + ε
+
+o
+
+is feasible for the true CMDP and satisfies 
+
+V P real ,π ⋆ 
+
+> r, 1
+
+(s1) − V P real ,π out  
+
+> r, 1
+
+(s1) ≤ 2Hε ξ + 2 ε, 
+
+where 
+
+π⋆ ∈ arg max 
+
+> π∈Π
+
+n
+
+V P real ,π r, 1 (s1) : V P real ,π c, 1 (s1) ≥ ℓ
+
+o
+
+.
+
+In particular, πout is feasible for the true CMDP and is O(Hε/ξ )-optimal. Proof of Lemma C.6. We work on the high-probability event of Lemma 3.1. On this event, for every policy π ∈ Π and every f ∈ F ,
+
+V ˆP t,π f, 1 (s1) − V P real ,π f, 1 (s1) ≤ 3e
+
+q
+
+H V ˆP t,π b, 1 (s1) + H V ˆP t,π b, 1 (s1).
+
+By the assumed upper bound, we have 
+
+max   
+
+> f∈F
+
+V ˆP t,π f, 1 (s1) − V P real ,π f, 1 (s1) ≤ ε, ∀π ∈ { π ∈ Π | V ˆP t,π c, 1 (s1) ≥ ℓ}. (21) By the first two conditions in Lemma C.6, the policy π0 satisfies 
+
+V ˆP t,π 0 
+
+> c, 1
+
+(s1) ≥ ℓ + ξ
+
+2 , V P real ,π 0 
+
+> c, 1
+
+(s1) ≥ ℓ + ξ. (22) Let π⋆ be an optimal feasible policy for the true CMDP: 
+
+π⋆ ∈ arg max 
+
+> π∈Π
+
+n
+
+V P real ,π r, 1 (s1) : V P real ,π c, 1 (s1) ≥ ℓ
+
+o
+
+.
+
+For each λ ∈ [0 , 1] , let πλ be the episode-level mixture policy that follows π0 with probability λ and follows π⋆ with probability 1 − λ. For every f ∈ F , we have 30 V P real ,π λ 
+
+> f, 1
+
+(s1) = (1 − λ)V P real ,π ⋆ 
+
+> f, 1
+
+(s1) + λV P real ,π 0 
+
+> f, 1
+
+(s1), (23) and analogously, 
+
+V ˆP t,π λ 
+
+> f, 1
+
+(s1) = (1 − λ)V ˆP t,π ⋆ 
+
+> f, 1
+
+(s1) + λV ˆP t,π 0 
+
+> f, 1
+
+(s1). (24) Although πλ is a mixture policy and therefore may not belong to Π, Inequality (21) still applies whenever V ˆP t,π λ 
+
+> c, 1
+
+(s1) ≥ ℓ. To see this, define g(x) := 3 e√Hx + Hx . By Inequalities (23)–(24) and the triangle inequality, 
+
+max   
+
+> f∈F
+
+V ˆP t,π λ 
+
+> f, 1
+
+(s1) − V P real ,π λ 
+
+> f, 1
+
+(s1)
+
+≤ (1 − λ)g
+
+
+
+V ˆP t,π ⋆ 
+
+> b, 1
+
+(s1)
+
+
+
++ λg 
+
+
+
+V ˆP t,π 0 
+
+> b, 1
+
+(s1)
+
+
+
+≤ g
+
+
+
+V ˆP t,π λ 
+
+> b, 1
+
+(s1)
+
+
+
+,
+
+where the first inequality applies Lemma 3.1 to π⋆, π 0 ∈ Π, and the second uses the concavity of 
+
+g together with the linearity of V ˆP t,π λ 
+
+> b, 1
+
+(s1) in the mixing weight. Moreover, πλ induces the same state-action occupancy measure under ˆP t as some ˜π ∈ Π. Hence 
+
+V ˆP t,˜πc, 1 (s1) = V ˆP t,π λ 
+
+> c, 1
+
+(s1) ≥ ℓ, V ˆP t,˜πb, 1 (s1) = V ˆP t,π λ 
+
+> b, 1
+
+(s1),
+
+and therefore 
+
+g
+
+
+
+V ˆP t,π λ 
+
+> b, 1
+
+(s1)
+
+
+
+= g
+
+
+
+V ˆP t,˜πb, 1 (s1)
+
+
+
+≤ ε
+
+by Inequality (20). Since ε ≤ ξ 
+
+> 4
+
+, we have 
+
+V ˆP t,π 0 
+
+> c, 1
+
+(s1) ≥ ℓ + ξ
+
+2 ≥ ℓ + ε. 
+
+Then the set 
+
+Λ := 
+
+n
+
+λ ∈ [0 , 1] : V ˆP t,π λ 
+
+> c, 1
+
+(s1) ≥ ℓ + ε
+
+o
+
+is nonempty. Define 
+
+λ⋆ := inf Λ .
+
+By the linearity of λ 7 → V ˆP t,π λ 
+
+> c, 1
+
+(s1) and the set Λ is closed, we have λ⋆ ∈ Λ, and therefore 
+
+V ˆP t,π λ⋆  
+
+> c, 1
+
+(s1) ≥ ℓ + ε. (25) We next show that λ⋆ is small. If λ⋆ = 0 , the desired bound is trivial. Suppose λ⋆ > 0. By the minimality of λ⋆ and the continuity of λ 7 → V ˆP t,π λ 
+
+> c, 1
+
+(s1),
+
+V ˆP t,π λ⋆  
+
+> c, 1
+
+(s1) = ℓ + ε. 
+
+Since πλ⋆ is empirically feasible at level ℓ, Inequality (21) gives 
+
+V P real ,π λ⋆  
+
+> c, 1
+
+(s1) ≤ V ˆP t,π λ⋆  
+
+> c, 1
+
+(s1) + ε = ℓ + 2 ε. 
+
+On the other hand, by Inequalities (22) and (23), and feasibility of π⋆,
+
+V P real ,π λ⋆  
+
+> c, 1
+
+(s1) = (1 − λ⋆)V P real ,π ⋆ 
+
+> c, 1
+
+(s1) + λ⋆V P real ,π 0 
+
+> c, 1
+
+(s1) ≥ (1 − λ⋆)ℓ + λ⋆(ℓ + ξ) = ℓ + λ⋆ξ. 
+
+Combining the two bounds yields 
+
+ℓ + λ⋆ξ ≤ ℓ + 2 ε =⇒ λ⋆ ≤ 2εξ . (26) The same bound also holds when λ⋆ = 0 .We now prove feasibility of πout in the true CMDP. Since πout is feasible for the tightened empirical CMDP, 
+
+V ˆP t,π out  
+
+> c, 1
+
+(s1) ≥ ℓ + ε. 
+
+31 Thus πout is empirically feasible at level ℓ, and Inequality (21) gives 
+
+V P real ,π out  
+
+> c, 1
+
+(s1) ≥ V ˆP t,π out  
+
+> c, 1
+
+(s1) − ε ≥ ℓ. 
+
+Therefore, πout is feasible for the true CMDP. It remains to prove near-optimality of πout . By Inequality (25), πλ⋆ is feasible for the tightened empirical CMDP. Since πout is an optimal solution of that problem, and since by the occupancy-measure argument above πλ⋆ has the same empirical constraint and reward values as some Markov policy ˜π ∈ Π, which is therefore itself feasible for the tightened empirical CMDP, 
+
+V ˆP t,π out  
+
+> r, 1
+
+(s1) ≥ V ˆP t,π λ⋆  
+
+> r, 1
+
+(s1) = V ˆP t,˜πr, 1 (s1).
+
+Both πout and πλ⋆ are empirically feasible at level ℓ, so we can apply Inequality (21) to both and get 
+
+V P real ,π out  
+
+> r, 1
+
+(s1) ≥ V ˆP t,π out  
+
+> r, 1
+
+(s1) − ε ≥ V ˆP t,π λ⋆  
+
+> r, 1
+
+(s1) − ε ≥ V P real ,π λ⋆  
+
+> r, 1
+
+(s1) − 2ε. (27) Using the linearity of the episode-level mixture and the non-negativity of rewards, 
+
+V P real ,π λ⋆  
+
+> r, 1
+
+(s1) = (1 − λ⋆)V P real ,π ⋆ 
+
+> r, 1
+
+(s1) + λ⋆V P real ,π 0 
+
+> r, 1
+
+(s1) ≥ (1 − λ⋆)V P real ,π ⋆ 
+
+> r, 1
+
+(s1).
+
+Since rh ∈ [0 , 1] , we have V P real ,π ⋆ 
+
+> r, 1
+
+(s1) ≤ H. Together with Inequality (26), this implies 
+
+V P real ,π ⋆ 
+
+> r, 1
+
+(s1) − V P real ,π λ⋆  
+
+> r, 1
+
+(s1) ≤ λ⋆V P real ,π ⋆ 
+
+> r, 1
+
+(s1) ≤ λ⋆H ≤ 2εH ξ .
+
+Combining this bound with Inequality (27), we obtain 
+
+V P real ,π ⋆ 
+
+> r, 1
+
+(s1) − V P real ,π out  
+
+> r, 1
+
+(s1) ≤ V P real ,π ⋆ 
+
+> r, 1
+
+(s1) − V P real ,π λ⋆  
+
+> r, 1
+
+(s1) + 2 ε ≤ 2εH ξ + 2 ε. 
+
+This completes the proof. Now, we are ready to prove Theorem 4.1. 
+
+Proof of Theorem 4.1. In the following, we condition on the high-probability events in Lemmas C.1 and 3.1. Throughout, we may assume ϵ ≤ H without loss of generality: since rh ∈ [0 , 1] for every r ∈ F ,we have V P real ,π r, 1 (s1) ∈ [0 , H ] for every policy π, so for ϵ > H the near-optimality requirement in Objective is satisfied by any feasible policy, in particular by π0. Moreover, ch ∈ [0 , 1] gives 
+
+V P real ,π 0 
+
+> c, 1
+
+(s1) ≤ H, so Assumption 2.2 yields ξ ≤ H − ℓ ≤ H. Consequently, with ε = ξϵ/ (2 H),
+
+ε
+
+2 = ξϵ 
+
+4H ≤ H
+
+4 < H and ε
+
+2 = ξϵ 
+
+4H ≤ ξ
+
+4 . (28) 
+
+Safe exploration. If V ˆP t,π 0 
+
+> c, 1
+
+(s1) < ℓ + ξ 
+
+> 2
+
+, we execute the initial safe policy π0. Otherwise, we execute the mixture policy πt, which satisfies 
+
+V P real ,π t 
+
+> c, 1
+
+= αtV P real ,¯πt 
+
+> c, 1
+
++ (1 − αt)V P real ,π 0
+
+> c, 1(i)
+
+≥ αt V ˆP t,¯πt 
+
+> c, 1
+
+− min {H, 3e
+
+q
+
+HV ˆP t,¯πt 
+
+> b, 1
+
+(s1) + HV ˆP t,¯πt 
+
+> b, 1
+
+(s1)} + (1 − αt)( ξ + ℓ)= ξ + ℓ − αt  min {H, 3e
+
+q
+
+HV ˆP t,¯πt 
+
+> b, 1
+
+(s1) + HV ˆP t,¯πt 
+
+> b, 1
+
+(s1)} + ℓ − V ˆP t,¯πt 
+
+> c, 1
+
+(s1) + ξ
+
+> (ii )
+
+≥ ℓ. 
+
+Here, step (i) follows from Assumption 2.2 and Lemma 3.1, while step (ii ) uses the definition of αt.Therefore, safe exploration is ensured. 32 Optimality. We first establish optimality. If the algorithm terminates at iteration t, the break condition gives ∆t ≤ ε/ 2. By the first bound in (28) we have ε/ 2 < H , so the minimum in 
+
+∆t = min {H, 3e
+
+q
+
+HV ˆP t,¯πt 
+
+> b, 1
+
+(s1) + HV ˆP t,¯πt 
+
+> b, 1
+
+(s1)} is attained by its second argument, and therefore 
+
+3e
+
+q
+
+HV ˆP t,¯πt 
+
+> b, 1
+
+(s1) + HV ˆP t,¯πt 
+
+> b, 1
+
+(s1) ≤ ξϵ 
+
+4H , where ¯πt = arg max 
+
+> π∈Π
+
+n
+
+V ˆP t,π b, 1 (s1) : V ˆP t,π c, 1 (s1) ≥ ℓ
+
+o
+
+.
+
+Since V ˆP t,π b, 1 (s1) ≥ 0 for all π ∈ Π, the function x 7 → 3e√x + x is nondecreasing. Therefore, 
+
+max   
+
+> π∈Π: VˆP t,π c, 1(s1)≥ℓ
+
+
+
+3e
+
+q
+
+HV ˆP t,π b, 1 (s1) + HV ˆP t,π b, 1 (s1)
+
+
+
+≤ 3e
+
+q
+
+HV ˆP t,¯πt 
+
+> b, 1
+
+(s1) + HV ˆP t,¯πt 
+
+> b, 1
+
+(s1) ≤ ξϵ 
+
+4H .
+
+Hence, the optimal value of 
+
+max 
+
+> π∈Π
+
+
+
+3e
+
+q
+
+HV ˆP t,π b, 1 (s1) + HV ˆP t,π b, 1 (s1) : V ˆP t,π c, 1 (s1) ≥ ℓ
+
+
+
+is upper bounded by ξϵ  
+
+> 4H
+
+. By Lemma 3.1, we have that the optimal value of 
+
+max   
+
+> π:VˆP t,π c, 1(s1)≥ℓ
+
+et,π f, 1(s1)
+
+is also upper bounded by ξϵ  
+
+> 4H
+
+.Moreover, Algorithm 1 terminates only if V ˆP t,π 0 
+
+> c, 1
+
+(s1) ≥ ℓ + ξ 
+
+> 2
+
+(see line 5). Thus, π0 is empirically feasible at level ℓ, and the bound above applies to π0 as well. Line 17 of Algorithm 1 returns 
+
+πout ∈ arg max 
+
+> π∈Π
+
+n
+
+V ˆP t,π r, 1 (s1) : V ˆP t,π c, 1 (s1) ≥ ℓ + ε/ 2
+
+o
+
+.
+
+This is exactly the tightened empirical problem in Lemma C.6, with accuracy parameter ε/ 2 = 
+
+ξϵ/ (4 H). Therefore, 
+
+V P real ,π ⋆ 
+
+> r, 1
+
+(s1) − V P real ,π out  
+
+> r, 1
+
+(s1) ≤ 2Hξ · ε
+
+2 + 2 · ε
+
+2 = ϵ
+
+2 + ξϵ 
+
+2H ≤ ϵ, 
+
+where the last inequality uses ξ ≤ H.
+
+Sample complexity. It remains to upper bound the sample complexity. We fix an iteration t and derive a uniform upper bound on Q ˆP t,π b,h (s, a ) for all (s, a, h ) and π ∈ Π. By definition, 
+
+Q ˆP t,π b,h (s, a ) ≤ 11 Hβ (nth(s, a ), δ )
+
+nth(s, a ) +
+
+
+
+1 + 1
+
+H
+
+
+
+ˆP thV ˆP t,π b,h +1 (s, a )= 11 Hβ (nth(s, a ), δ )
+
+nth(s, a ) +
+
+
+
+1 + 1
+
+H
+
+
+
+( ˆP th − Ph)V ˆP t,π b,h +1 (s, a ) + 
+
+
+
+1 + 1
+
+H
+
+
+
+PhV ˆP t,π b,h +1 (s, a ).(29) For the well definiteness of Q ˆP t,π b,h (s, a ), we define V ˆP t,π b,H +1 (s) = 0 . Applying Lemma D.3 on the above bound with V ˆP t,π b,h +1 (s) ≤ (1 + 1 
+
+> H
+
+)H−1H yields: 
+
+( ˆP th − Ph)V ˆP t,π b,h +1 (s, a ) ≤
+
+vuut 2Var Ph (V ˆP t,π b,h +1 )( s, a )β(nth(s, a ), δ )
+
+nth(s, a ) + 2(1 + 1 
+
+> H
+
+)H−1Hβ (nth(s, a ), δ )3nth(s, a ) .
+
+(30) Using Var Ph (V ˆP t,π b,h +1 )( s, a ) ≤ (1 + 1 
+
+> H
+
+)H−1HP hV ˆP t,π b,h +1 (s, a ) and √xy ≤ x + y for x, y ≥ 0, we bound the square-root term as 
+
+vuut 2Var Ph (V ˆP t,π b,h +1 )( s, a )β(nth(s, a ), δ )
+
+nth(s, a ) ≤ PhV ˆP t,π b,h +1 (s, a )
+
+H + 2(1 + 1 
+
+> H
+
+)H−1H2β(nth(s, a ), δ )
+
+nth(s, a ) .
+
+33 Substituting into Inequality (30) gives 
+
+
+
+1 + 1
+
+H
+
+
+
+( ˆP th − Ph)V ˆP t,π b,h +1 (s, a ) ≤ 8eH 2β(nth(s, a ), δ )3nth(s, a ) + 2PhV ˆP t,π b,h +1 (s, a )
+
+H .
+
+Plugging this into Inequality (29) and using Q ˆP t,π b,h (s, a ) ≤ eH , we obtain for all nth(s, a ) ≥ 0,
+
+Q ˆP t,π b,h (s, a ) ≤ 7eH 2
+
+ β(nth(s, a ), δ )
+
+nth(s, a ) ∧ 1
+
+
+
++
+
+
+
+1 + 3
+
+H
+
+
+
+PhV ˆP t,π b,h +1 (s, a ). (31) Meanwhile, for (h, s, a )̸ ∈ ˆBt, we have 
+
+Q ˆP t,π b,h (s, a ) = 
+
+
+
+1 + 1
+
+H
+
+
+
+ˆP thV ˆP t,π b,h +1 (s, a ) = 
+
+
+
+1 + 1
+
+H
+
+
+
+P real  
+
+> h
+
+V ˆP t,π b,h +1 (s, a ).
+
+Together with Inequality (31), we have 
+
+Q ˆP t,π b,h (s, a ) ≤ 7eH 2
+
+ β(nth(s, a ), δ )
+
+nth(s, a ) ∧ 1
+
+
+
+1(h,s,a )∈ ˆBt +
+
+
+
+1 + 3
+
+H
+
+
+
+PhV ˆP t,π b,h +1 (s, a ).
+
+Unrolling the above inequality over timestep h and using (1 + 3 /H )H ≤ e3 yields 
+
+V ˆP t,π b, 1 (s1) ≤ 7H2e4 X 
+
+> (h,s,a )∈ˆBt
+
+dP real ,π h (s, a )
+
+ β(nth(s, a ), δ )
+
+nth(s, a ) ∧ 1
+
+
+
+,
+
+Applying Lemma C.2 to replace counts by pseudo-counts gives 
+
+V ˆP t,π b, 1 (s1) ≤ 28 H2e4 X 
+
+> (h,s,a )∈ˆBt
+
+dP real ,π h (s, a ) min 
+
+n 14 , β(¯ nth(s,a ),δ )¯nth(s,a )∨1
+
+o
+
+. (32) If the algorithm does not terminate before T , we divide the iterations into two sets: 
+
+Eπ0 := {t ∈ [T ] | πt = π0 is executed in line 6 of Algorithm 1 },
+
+and 
+
+Erest := {t ∈ [T ] | πt is the mixture policy executed in line 13 of Algorithm 1 }.
+
+We bound these two sets separately. The set Eπ0 consists of iterations where the algorithm falls back to the initial safe policy π0, which happens when its empirical safety guarantee for π0 is not yet reliable; this part can be controlled using the estimation error of π0. The set Erest consists of iterations where the adaptive mixture policy is executed; this part is controlled using the stopping rule together with the growth of pseudo-counts induced by the mixing weight αt. Combining these two bounds yields the desired upper bound on T .Summing Inequality (32) over t ∈ E π0 gives 
+
+X
+
+> t∈E π0
+
+V ˆP t,π t 
+
+> b, 1
+
+(s1) ≤ 28 H2e4 X
+
+> t∈E π0
+
+X 
+
+> (h,s,a )∈ˆBt
+
+dP real ,π t 
+
+> h
+
+(s, a ) min 
+
+n 14 , β(¯ nth(s,a ),δ )¯nth(s,a )∨1
+
+o
+
+≤ 28 H2e4
+
+> T
+
+X
+
+> t=1
+
+X 
+
+> (h,s,a )∈ˆBt
+
+(¯ nt+1  
+
+> h
+
+(s, a ) − ¯nth(s, a )) min 
+
+n 14 , β(¯ nth(s,a ),δ )¯nth(s,a )∨1
+
+o
+
+,
+
+where last step uses dP real ,π t 
+
+> h
+
+(s, a ) = ¯ nt+1  
+
+> h
+
+(s, a ) − ¯nth(s, a ).For each (h, s, a ) ∈ [H] × S × A , define the last iteration at which it remains in ˆBt−1 by 
+
+τh,s,a := max 
+
+n
+
+t ∈ { 0, . . . , T } : ( h, s, a ) ∈ ˆBt′−1 for every t′ ∈ { 1, . . . , t }
+
+o
+
+.
+
+By fact (i) from Lemma C.3, (h, s, a ) ∈ ˆBt implies t ≤ τh,s,a . Therefore, 
+
+X
+
+> t∈E π0
+
+V ˆP t,π t 
+
+> b, 1
+
+(s1) ≤ 28 H2e4 X
+
+> (h,s,a )∈[H]×S×A
+> τh,s,a
+
+X
+
+> t=1
+
+(¯ nt+1  
+
+> h
+
+(s, a ) − ¯nth(s, a )) min 
+
+n 14 , β(¯ nth(s,a ),δ )¯nth(s,a )∨1
+
+o
+
+.
+
+(33) 34 Since for any fixed (h, s, a ) and apply Lemma D.5, we have 
+
+> τh,s,a
+
+X
+
+> t=1
+
+ ¯nt+1  
+
+> h
+
+− ¯nth
+
+ min 
+
+n 14 , β(¯ nth,δ )¯nth∨1
+
+o
+
+≤ 2β(¯ nτh,s,a +1  
+
+> h
+
+(s, a ), δ )
+
+
+
+1 + (log ¯nτh,s,a +1    
+
+> h(s,a )4β(¯ nτh,s,a +1
+> h(s,a ),δ )
+
+)+
+
+
+
+.
+
+If (h, s, a ) ∈ B , then ¯nτh,s,a +1  
+
+> h
+
+(s, a ) ≤ T , since ¯nT +1  
+
+> h
+
+(s, a ) = PTi=1 dP real ,π i 
+
+> h
+
+(s, a ) ≤ T . Now consider (h, s, a ) /∈ B . If there exists an iteration σh,s,a such that nσh,s,a  
+
+> h
+
+(s, a ) ≥ n, let σh,s,a be the first such iteration. Since nth(s, a ) − nt−1 
+
+> h
+
+(s, a ) ∈ { 0, 1}, we have nσh,s,a  
+
+> h
+
+(s, a ) = n. By Lemma C.4, 
+
+(h, s, a ) is removed at or before iteration σh,s,a , and thus τh,s,a ≤ σh,s,a . Together with the event 
+
+Ecnt ,
+
+¯nτh,s,a  
+
+> h
+
+(s, a ) ≤ ¯nσh,s,a  
+
+> h
+
+(s, a ) ≤ 2 nσh,s,a  
+
+> h
+
+(s, a ) + βcnt (δ) = 2  n + βcnt (δ).
+
+If no such iteration exists, then nTh (s, a ) < n . Hence, in either case, 
+
+¯nτh,s,a  
+
+> h
+
+(s, a ) ≤ 2 n + βcnt (δ) ≤ 4n, 
+
+where last inequality uses the fact that βcnt (δ) ≤ n.Combining these two cases together with Lemma D.5 and the monotonicity of φ, we obtain 
+
+X
+
+> (h,s,a )∈[H]×S×A
+> τh,s,a
+
+X
+
+> t=1
+
+ ¯nt+1  
+
+> h
+
+(s, a ) − ¯nth(s, a ) min 
+
+n 14 , β(¯ nth(s,a ),δ )¯nth(s,a )∨1
+
+o
+
+≤ M, (34) where 
+
+M := 2 |B| β(T, δ )
+
+
+
+1 + (log T 
+
+> 4β(T,δ )
+
+)+
+
+
+
++ 2  H|S||A| − |B|  β(4 n+1 , δ )
+
+
+
+1 + (log 4n+1 4β(4 n+1 ,δ ) )+
+
+
+
+.
+
+Therefore, applying Inequality (34) on Inequality (33) gives 
+
+X
+
+> t∈E π0
+
+V ˆP t,π t 
+
+> b, 1
+
+(s1) ≤ 28 M H 2e4. (35) Moreover, by Assumption 2.2 and the definition of Eπ0 , for every t ∈ E π0 ,
+
+V P real ,π 0 
+
+> c, 1
+
+(s1) − V ˆP t,π 0 
+
+> c, 1
+
+(s1) ≥ (ℓ + ξ) −
+
+
+
+ℓ + ξ
+
+2
+
+
+
+= ξ
+
+2 .
+
+Together with Lemma 3.1, this implies 
+
+X
+
+> t∈E π0
+
+
+
+HV ˆP t,π t 
+
+> b, 1
+
+(s1) + 3 e
+
+q
+
+HV ˆP t,π t 
+
+> b, 1
+
+(s1)
+
+
+
+≥ X
+
+> t∈E π0
+
+
+
+V P real ,π 0 
+
+> c, 1
+
+(s1) − V ˆP t,π 0 
+
+> c, 1
+
+(s1)
+
+
+
+≥ ξ|E π0 |
+
+2 .
+
+Combining this bound with Inequality (35) and applying Cauchy–Schwarz inequality gives 
+
+ξ|E π0 |
+
+2 ≤ X
+
+> t∈E π0
+
+
+
+HV ˆP t,π t 
+
+> b, 1
+
+(s1) + 3 e
+
+q
+
+HV ˆP t,π t 
+
+> b, 1
+
+(s1)
+
+
+
+≤ H X
+
+> t∈E π0
+
+V ˆP t,π t 
+
+> b, 1
+
+(s1) + 3 e
+
+s
+
+H|E π0 | X
+
+> t∈E π0
+
+V ˆP t,π t 
+
+> b, 1
+
+(s1)
+
+≤ 28 M H 3e4 + 3 ep28 M |E π0 |H3e4
+
+Since ax 2 − bx − c ≤ 0 with a, b, c > 0 implies x ≤ b+√b2+4 ac  
+
+> 2a
+
+, solving the above quadratic inequality gives 
+
+|E π0 | ≤ 28 M  3e + p9e2 + 2 ξ2H3e4
+
+ξ2 . (36) For each iteration t ∈ E rest , using Inequality (32), the monotonicity of β(·, δ ), and Lemma D.5, we have 
+
+V ˆP t,¯πt 
+
+> b, 1
+
+(s1) ≤ 28 H2e4 X 
+
+> (h,s,a )∈ˆBt
+
+dP real ,¯πt 
+
+> h
+
+(s, a ) min 
+
+n 14 , β(¯ nth(s,a ),δ )¯nth(s,a )∨1
+
+o
+
+35 ≤ 28 H2e4 X 
+
+> (h,s,a )∈ˆBt
+
+¯nt+1  
+
+> h
+
+(s, a ) − ¯nth(s, a )
+
+αt min 
+
+n 14 , β(¯ nth(s,a ),δ )¯nth(s,a )∨1
+
+o
+
+,
+
+where last step uses 
+
+¯nt+1  
+
+> h
+
+(s, a ) − ¯nth(s, a ) = dP real ,π t 
+
+> h
+
+(s, a ) = αtdP real ,¯πt 
+
+> h
+
+(s, a ) + (1 − αt)dP real ,π 0 
+
+> h
+
+(s, a )
+
+≥ αtdP real ,¯πt 
+
+> h
+
+(s, a ).
+
+We further split Erest into 
+
+EA := 
+
+
+
+t ∈ E rest : HV ˆP t,¯πt 
+
+> b, 1
+
+(s1) + 3 e
+
+q
+
+HV ˆP t,¯πt 
+
+> b, 1
+
+(s1) ≤ ξ
+
+
+
+,
+
+EB := Erest \ E A.
+
+For every t ∈ E A, by the definition of αt and the fact that V ˆP t,¯πt 
+
+> c, 1
+
+(s1) ≥ ℓ by construction, 
+
+αt ≥ ξ
+
+
+
+ℓ + HV ˆP t,¯πt 
+
+> b, 1
+
+(s1) + 3 e
+
+q
+
+HV ˆP t,¯πt 
+
+> b, 1
+
+(s1) − V ˆP t,¯πt 
+
+> c, 1
+
+(s1)
+
+
+
+> +
+
++ ξ
+
+≥ ξ
+
+(ℓ + ξ − V ˆP t,¯πt 
+
+> c, 1
+
+(s1)) + + ξ
+
+≥ 12 .
+
+Therefore, 
+
+X
+
+> t∈E A
+
+V ˆP t,¯πt 
+
+> b, 1
+
+(s1) ≤ 56 H2e4 X
+
+> t∈E A
+
+X 
+
+> (h,s,a )∈ˆBt
+
+(¯ nt+1  
+
+> h
+
+(s, a ) − ¯nth(s, a )) min 
+
+n 14 , β(¯ nth(s,a ),δ )¯nth(s,a )∨1
+
+o
+
+≤ 56 H2e4
+
+> T
+
+X
+
+> t=1
+
+X 
+
+> (h,s,a )∈ˆBt
+
+(¯ nt+1  
+
+> h
+
+(s, a ) − ¯nth(s, a )) min 
+
+n 14 , β(¯ nth(s,a ),δ )¯nth(s,a )∨1
+
+o
+
+≤ 56 H2e4 X
+
+> (h,s,a )∈[H]×S×A
+> τh,s,a
+
+X
+
+> t=1
+
+(¯ nt+1  
+
+> h
+
+(s, a ) − ¯nth(s, a )) min 
+
+n 14 , β(¯ nth(s,a ),δ )¯nth(s,a )∨1
+
+o
+
+≤ 56 M H 2e4,
+
+where the last step follows from Inequality (34). For any t ∈ [T ], since ∆t ≤ H by clipping, we also have 
+
+αt ≥ ξH + ξ .
+
+Thus, for any subset E′ ⊆ E rest ,
+
+X
+
+> t∈E ′
+
+V ˆP t,¯πt 
+
+> b, 1
+
+(s1) ≤ 28( H + ξ)M H 2e4
+
+ξ .
+
+Applying this bound with E′ is EB , Erest and using the sharper bound above for EA, Cauchy–Schwarz inequality gives 
+
+X
+
+> t∈E rest
+
+
+
+HV ˆP t,¯πt 
+
+> b, 1
+
+(s1) + 3 e
+
+q
+
+HV ˆP t,¯πt 
+
+> b, 1
+
+(s1)
+
+
+
+≤3e
+
+s
+
+H|E A| X
+
+> t∈E A
+
+V ˆP t,¯πt 
+
+> b, 1
+
+(s1) + 3 e
+
+s
+
+H|E B | X
+
+> t∈E B
+
+V ˆP t,¯πt 
+
+> b, 1
+
+(s1) + H X
+
+> t∈E rest
+
+V ˆP t,¯πt 
+
+> b, 1
+
+(s1)
+
+≤√504 M H 3e6 p|E A| +
+
+s
+
+(H + ξ)|E B |
+
+ξ
+
+!
+
++ 28( H + ξ)M H 3e4
+
+ξ . (37) 36 Since the algorithm does not terminate before T , the stopping rule implies that for every t ∈ E rest ,
+
+ξϵ 
+
+4H ≤ HV ˆP t,¯πt 
+
+> b, 1
+
+(s1) + 3 e
+
+q
+
+HV ˆP t,¯πt 
+
+> b, 1
+
+(s1).
+
+Moreover, by the definition of EB , for every t ∈ E B ,
+
+ξ ≤ HV ˆP t,¯πt 
+
+> b, 1
+
+(s1) + 3 e
+
+q
+
+HV ˆP t,¯πt 
+
+> b, 1
+
+(s1).
+
+Combining these inequalities gives 
+
+ξϵ |E A|
+
+4H + ξ|E B | ≤ X
+
+> t∈E rest
+
+
+
+HV ˆP t,¯πt 
+
+> b, 1
+
+(s1) + 3 e
+
+q
+
+HV ˆP t,¯πt 
+
+> b, 1
+
+(s1)
+
+
+
+.
+
+Plugging this into Inequality (37), we obtain 
+
+ξϵ |E A|
+
+4H + ξ|E B |≤ √504 M H 3e6 p|E A| +
+
+s
+
+(H + ξ)|E B |
+
+ξ
+
+!
+
++ 28( H + ξ)M H 3e4
+
+ξ .
+
+By Lemma D.7 with α = 2 , we obtain 
+
+|E rest | =|E A| + |E B |≤ HM ξϵ 
+
+"
+
+2016 e6H3
+
+s
+
+4Hξϵ +
+
+s
+
+H + ξξ2
+
+!2
+
++ 224( H + ξ)e4H3
+
+ξ
+
+#
+
+≤ M H 4e4
+
+ξϵ 
+
+ 16128 e2Hξϵ + 4032 e2(H + ξ)
+
+ξ2 + 224( H + ξ)
+
+ξ
+
+
+
+.
+
+where the last step uses (x + y)2 ≤ 2x2 + 2 y2.Combining this with the bound on |E π0 | in (36), we obtain 
+
+T = |E π0 | + |E rest |≤ M H 4e4
+
+ξϵ 
+
+ 16128 e2Hξϵ + 4032 e2(H + ξ)
+
+ξ2 + 224( H + ξ)
+
+ξ
+
+
+
++ 28 M  3e + p9e2 + 2 ξ2H3e4
+
+ξ2
+
+≤ 49280 e6H5
+
+ξ2ϵ min {1, ϵ, ξ } M . (38) For simplicity, define C := 49280 e6H5  
+
+> ξ2ϵmin {1,ϵ,ξ }
+
+. We next bound T by splitting M = MB(T ) + Mid , where 
+
+MB(T ) := 2 |B| β(T, δ )
+
+
+
+1 +  log T
+
+> 4β(T,δ )
+
+
+
+> +
+
+
+
+,Mid := 2  H|S||A| − |B|  β(4 n+1 , δ )
+
+
+
+1 +  log 4n+1 4β(4 n+1 ,δ )
+
+
+
+> +
+
+
+
+.
+
+If CM id ≥ T / 2, then 
+
+T ≤ 2CM id .
+
+By the definition of n, we have 
+
+T ≤ eO
+
+ H5|S|  H|S||A| − |B| 
+
+ξ2ϵ min {1, ϵ, ξ } log 2 1
+
+> σs
+
+
+
+. (39) On the other hand, if CM id ≤ T / 2, then Inequality (38) gives 
+
+T ≤ 2CM B(T ).
+
+Applying Lemma D.4, we have 
+
+T ≤ eO
+
+ H5|S||B| 
+
+ξ2ϵ min {1, ϵ, ξ }
+
+
+
+. (40) 37 Combining Inequalities (39) and (40), we obtain 
+
+T ≤ eO
+
+
+
+max 
+
+n H5|S|  H|S||A| − |B| 
+
+ξ2ϵ min {1, ϵ, ξ } log 2 1 
+
+> σs
+
+, H5|S||B| 
+
+ξ2ϵ min {1, ϵ, ξ }
+
+o 
+
+.
+
+Since each iteration collects one trajectory of length H, the total number of samples drawn from 
+
+Mreal is at most 
+
+HT ≤ eO
+
+
+
+max 
+
+n H6|S|  H|S||A| − |B| 
+
+ξ2ϵ min {1, ϵ, ξ } log 2 1 
+
+> σs
+
+, H6|S||B| 
+
+ξ2ϵ min {1, ϵ, ξ }
+
+o 
+
+.
+
+## D Supporting lemmas 
+
+We first state a deviation inequality for empirical distributions of i.i.d. categorical samples, which will be used to control the estimation error of empirical transition models. Let (Xt)t∈N be i.i.d. samples from a distribution supported on [m] with probability vector p ∈ ∆([ m]) . We denote by ˆpn the empirical distribution, i.e., 
+
+ˆpn,k = 1
+
+n
+
+> n
+
+X
+
+> ℓ=1
+
+1{Xℓ=k}, k ∈ [m].
+
+Lemma D.1 ([Jonsson et al., 2020, Proposition 1]) . For all p ∈ ∆([ m]) and all δ ∈ (0 , 1) ,
+
+Pr 
+
+
+
+∃n ∈ N, n KL(ˆ pn, p ) > log(1 /δ ) + ( m − 1) log 
+
+
+
+e
+
+
+
+1 + nm − 1
+
+ 
+
+≤ δ. 
+
+Next, we state a deviation inequality for adapted Bernoulli random variables, which will be used to control state-action visitation counts. Let (Ft)t∈N be a filtration and let (Xt)t∈N be Bernoulli random variables such that Xt is Ft-measurable and 
+
+Pr( Xt = 1 | F t−1) = Pt,
+
+where Pt is Ft−1-measurable. 
+
+Lemma D.2 ([Dann et al., 2017, Lemma F.4]) . For all δ > 0,
+
+Pr ∃n ∈ N :
+
+> n
+
+X
+
+> t=1
+
+Xt < 12
+
+> n
+
+X
+
+> t=1
+
+Pt − log 1
+
+δ
+
+!
+
+≤ δ. 
+
+Lemma D.3 ([Ménard et al., 2021, Lemmas 10, 11, 12]) . Let p, q ∈ ∆( S). For any α, b > 0 and any functions f, g : S → [0 , b ], if KL( p, q ) ≤ α, then 
+
+Var q (f ) ≤ 2Var p(f ) + 4 b2α, Var p(f ) ≤ 2Var q (f ) + 4 b2α, 
+
+Var p(f ) ≤ 2Var p(g) + 2 bp |f − g|, Var q (f ) ≤ Var p(f ) + 3 b2∥p − q∥1,
+
+|Epf − Eq f | ≤ 
+
+q
+
+2Var q (f )α + 23 bα, |Eq f − Epf | ≤ 
+
+q
+
+2Var p(f )α + 23 bα. 
+
+Lemma D.4 ([Ménard et al., 2021, Lemma 13]) . Let C be a non-negative scalar and A, B, D, E, 
+
+and α be positive scalars such that 1 ≤ B ≤ E and α ≥ e. If τ ≥ 0 satisfies 
+
+τ ≤ C
+
+q
+
+τ  A log( ατ ) + B log( ατ )2 + D  A log( ατ ) + E log( ατ )2
+
+then 
+
+τ ≤ C2 (A + B) C21 +
+
+
+
+D + 2 √DC 
+
+
+
+(A + E) C21 + 1 ,
+
+where 
+
+C1 = 85 log  11 α2 (A + E) ( C + D) .
+
+Remark. [Ménard et al., 2021, Lemma 13] is stated for C be positive, but the same proof applies C
+
+be non-negative. 
+
+38 Lemma D.5. Let β : [0 , ∞) → [1 , ∞) be nondecreasing. For any τ ∈ N and any sequence (ut)t∈N
+
+with ut ∈ [0 , 1] , define U0 := 0 and Ut := Ptℓ=1 uℓ. Then 
+
+> τ
+
+X
+
+> t=0
+
+ut+1 min 
+
+n 14 , β(Ut)
+
+> Ut∨1
+
+o
+
+≤ 2 β(Uτ +1 )
+
+
+
+1 + (log Uτ +1   
+
+> 4β(Uτ+1 )
+
+)+
+
+
+
+.
+
+Proof of Lemma D.5. If Uτ +1 ≤ 4β(Uτ +1 ), we have 
+
+> τ
+
+X
+
+> t=0
+
+ut+1 min 
+
+n 14 , β(Ut)
+
+> Ut∨1
+
+o
+
+≤
+
+> τ
+
+X
+
+> t=0
+
+ut+1 
+
+4 = Uτ +1 
+
+4 ≤ β(Uτ +1 ),
+
+which implies the lemma. Hence, assume that Uτ +1 > 4β(Uτ +1 ), and let 
+
+t0 := max {t ∈ { 0, . . . , τ } : Ut ≤ 4β(Uτ +1 )}.
+
+This index is well-defined because U0 = 0 .We first bound the part of the sum with t ≤ t0 by 
+
+> t0
+
+X
+
+> t=0
+
+ut+1 min 
+
+n 14 , β(Ut)
+
+> Ut∨1
+
+o
+
+≤
+
+> t0
+
+X
+
+> t=0
+
+ut+1 
+
+4 = Ut0+1 
+
+4 ≤ 4β(Uτ +1 ) + 1 4 ≤ β(Uτ +1 ) + 14 .
+
+Here we used Ut0+1 ≤ Ut0 + 1 ≤ 4β(Uτ +1 ) + 1 .We now bound the part of the sum with t > t 0. For such t, we have Ut > 4β(Uτ +1 ). Since 
+
+Ut ≤ Uτ +1 and β is nondecreasing, β(Ut) ≤ β(Uτ +1 ). Therefore Ut > 4β(Ut), so Ut > 1 and 
+
+min 
+
+n 14 , β(Ut)
+
+> Ut∨1
+
+o
+
+= β(Ut)
+
+Ut
+
+≤ β(Uτ +1 )
+
+Ut
+
+.
+
+Also, since Ut+1 = Ut + ut+1 with ut+1 ≤ 1, and Ut > 4β(Uτ +1 ) ≥ 4, we have 
+
+Ut+1 
+
+Ut
+
+= 1 + ut+1 
+
+Ut
+
+≤ 1 + 1
+
+Ut
+
+≤ 1 + 14β(Uτ +1 ) ≤ 54 .
+
+Applying − log(1 − v) ≥ v with v = ut+1 /U t+1 ∈ [0 , 1) gives 
+
+ut+1 
+
+Ut+1 
+
+≤ log Ut+1 
+
+Ut
+
+.
+
+Thus, 
+
+> τ
+
+X
+
+> t=t0+1
+
+ut+1 min 
+
+n 14 , β(Ut)
+
+> Ut∨1
+
+o
+
+≤ β(Uτ +1 )
+
+> τ
+
+X
+
+> t=t0+1
+
+ut+1 
+
+Ut
+
+≤ 54 β(Uτ +1 )
+
+> τ
+
+X
+
+> t=t0+1
+
+log Ut+1 
+
+Ut
+
+= 54 β(Uτ +1 ) log Uτ +1 
+
+Ut0+1 
+
+≤ 54 β(Uτ +1 ) log Uτ +1 
+
+4β(Uτ +1 ) .
+
+The last inequality uses Ut0+1 > 4β(Uτ +1 ), which follows from the definiton of t0 and the assump-tion Uτ +1 > 4β(Uτ +1 ).Combining the bounds for t ≤ t0 and t > t 0, and using β(Uτ +1 ) ≥ 1, we obtain 
+
+> τ
+
+X
+
+> t=0
+
+ut+1 min 
+
+n 14 , β(Ut)
+
+> Ut∨1
+
+o
+
+≤ β(Uτ +1 ) + 14 + 54 β(Uτ +1 ) log Uτ +1 
+
+4β(Uτ +1 )
+
+≤ 2β(Uτ +1 )
+
+
+
+1 + (log Uτ +1 
+
+4β(Uτ +1 ) )+
+
+
+
+.
+
+Lemma D.6. Let c ≥ 0 and b ≥ 1, and suppose f : N → R+ satisfies f (m) ≤ c + b + b log( m + 1) 
+
+for all m ∈ N. Then, for any κ > 0, define 
+
+m† := 1 + 2cκ + 2bκ log 
+
+
+
+max 
+
+ 2bκ , e 
+
+ 
+
+.
+
+Then m ≥ m† implies m ≥ f (m)/κ .
+
+39 Proof. Let t := max {2b/κ, e }. By concavity of the logarithm, for all z, t > 0,
+
+log z ≤ log t + z − tt = zt + log t − 1.
+
+Applying this with z = m + 1 and multiplying by b gives 
+
+b log( m + 1) ≤ b(m + 1) 
+
+t + b log t − b. 
+
+Since t ≥ 2b/κ , we have b/t ≤ κ/ 2, and hence 
+
+b log( m + 1) ≤ κ(m + 1) 2 + b log t − b. 
+
+By definition of f (m), we obtain 
+
+f (m) ≤ c + b + b log( m + 1) ≤ c + κ(m + 1) 2 + b log t. 
+
+Therefore, κm ≥ f (m) holds whenever 
+
+κm ≥ c + κ(m + 1) 2 + b log t. 
+
+The last condition is equivalent to 
+
+m ≥ 1 + 2cκ + 2bκ log t = 1 + 2cκ + 2bκ log 
+
+
+
+max 
+
+ 2bκ , e 
+
+ 
+
+= m†.
+
+Thus m ≥ m† implies κm ≥ f (m), equivalently m ≥ f (m)/κ .
+
+Lemma D.7. Let A, B, C, D, E and α be positive scalars with α > 1. If m, n ≥ 0 satisfy 
+
+Am + Bn ≤ C
+
+√m + √Dn 
+
+
+
++ E, (41) 
+
+then 
+
+m + n ≤ 1
+
+A ∧ B
+
+ α2
+
+4( α − 1) C2 1
+
+√A +
+
+r DB
+
+!2
+
++ αα − 1 E
+
+ .
+
+Proof of Lemma D.7. Let Z := Am + Bn . Since m, n ≥ 0, we have m ≤ Z/A and n ≤ Z/B .Hence, 
+
+√m + √Dn ≤
+
+r ZA +
+
+r DZ B = 1
+
+√A +
+
+r DB
+
+! √Z. 
+
+Substituting this into Inequality (41) gives 
+
+Z ≤ C 1
+
+√A +
+
+r DB
+
+! √Z + E. 
+
+Define a := C
+
+ 1√A +
+
+q DB
+
+
+
+. Then Z ≤ a√Z + E. By Young’s inequality, for any α > 1,
+
+a√Z ≤ Zα + αa 2
+
+4 .
+
+Therefore, 
+
+Z ≤ Zα + αa 2
+
+4 + E, 
+
+and rearranging yields 
+
+Z ≤ α2
+
+4( α − 1) a2 + αα − 1 E. 
+
+Substituting the definition of a and using Z = Am + Bn ≥ (A ∧ B)( m + n) proves the Lemma. 40 Lemma D.8. Given a transition dynamics P , for any policy π, any function f ∈ F , any h ∈ [H],and any state s, we have 
+
+EπP
+
+"
+
+(
+
+> H
+
+X
+
+> ℓ=h
+
+fℓ(sℓ, a ℓ) − V P,π f,h (sh)) 2 | sh = s
+
+#
+
+≥
+
+> H
+
+X
+
+> h′=h
+
+X
+
+> s′,a ′
+
+dP,π h′ (s′, a ′|sh = s)Var Ph′
+
+ V P,π f,h ′+1 
+
+(s′, a ′),
+
+(42) 
+
+where dP,π ℓ (s, a | sh = s′) is the state-action occupancy distribution at step ℓ ∈ { h, . . . , H } induced by policy π and the transition model P , conditioned on starting from state s′ at step h.
+
+Remark. Note that [Qu et al., 2025, Lemma 15] states a related result with an equality in (42) 
+
+for stochastic policies. This equality is valid for deterministic policies, as shown in [Ménard et al., 2021, Lemma 7], but it does not hold in general for stochastic policies because policy randomness introduces additional variance terms. We prove and use the corresponding inequality, which suffices for our analysis. Proof of Lemma D.8. First, note that 
+
+V P,π f,h (sh) = EπP
+
+" HX
+
+> ℓ=h
+
+fℓ(sℓ, a ℓ) sh
+
+#
+
+.
+
+Hence, 
+
+EπP
+
+
+
+> H
+
+X
+
+> ℓ=h
+
+fℓ(sℓ, a ℓ) − V P,π f,h (sh)
+
+!2
+
+sh
+
+ = Var πP
+
+> H
+
+X
+
+> ℓ=h
+
+fℓ(sℓ, a ℓ) sh
+
+!
+
+. (43) For any t ∈ { h, . . . , H }, applying the law of total variance with respect to at ∼ πt(·| st) gives 
+
+Var πP
+
+> H
+
+X
+
+> ℓ=t
+
+fℓ(sℓ, a ℓ) st
+
+!
+
+=Eat∼πt(·| st)
+
+"
+
+Var πP
+
+> H
+
+X
+
+> ℓ=t
+
+fℓ(sℓ, a ℓ) st, a t
+
+!# 
+
++ Var at∼πt(·| st)
+
+
+
+QP,π f,t (st, a t)
+
+
+
+≥Eat∼πt(·| st)
+
+"
+
+Var πP
+
+> H
+
+X
+
+> ℓ=t
+
+fℓ(sℓ, a ℓ) st, a t
+
+!# 
+
+. (44) Conditioned on (st, a t), the term ft(st, a t) is deterministic, so 
+
+Var πP
+
+> H
+
+X
+
+> ℓ=t
+
+fℓ(sℓ, a ℓ) st, a t
+
+!
+
+= Var πP
+
+> H
+
+X
+
+> ℓ=t+1
+
+fℓ(sℓ, a ℓ) st, a t
+
+!
+
+.
+
+Applying the law of total variance again with respect to st+1 ∼ Pt(·| st, a t) yields 
+
+Var πP
+
+> H
+
+X
+
+> ℓ=t+1
+
+fℓ(sℓ, a ℓ) st, a t
+
+!
+
+=Var Pt (V P,π f,t +1 )( st, a t) + PtVar πP
+
+> H
+
+X
+
+> ℓ=t+1
+
+fℓ(sℓ, a ℓ) st+1 
+
+!
+
+(st, a t). (45) Combining Inequalities (44) and (45), we obtain the following lower bound 
+
+Var πP
+
+> H
+
+X
+
+> ℓ=t
+
+fℓ(sℓ, a ℓ) st
+
+!
+
+≥Eat∼πt(·| st)
+
+h
+
+Var Pt (V P,π f,t +1 )( st, a t)
+
+i
+
++ Eat∼πt(·| st)
+
+"
+
+PtVar πP
+
+> H
+
+X
+
+> ℓ=t+1
+
+fℓ(sℓ, a ℓ) st+1 
+
+!
+
+(st, a t)
+
+#
+
+.
+
+41 Unrolling this recursion from t = h to H gives 
+
+Var πP
+
+> H
+
+X
+
+> ℓ=h
+
+fℓ(sℓ, a ℓ) sh = s
+
+!
+
+≥
+
+> H
+
+X
+
+> h′=h
+
+X
+
+> s′,a ′
+
+dP,π h′ (s′, a ′ | sh = s)Var Ph′ (V P,π f,h ′+1 )( s′, a ′).
+
+Combining this with Equation (43) proves the lemma. 42
