@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-09</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-10</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 50 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 24 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>37</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>11</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-09 22:08:58 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-10 21:29:17 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读聚焦具身智能：双手机器人操作与移动机器人强化学习控制均获满分评价，另有速读涉猎LLM智能体世界模型、场景图感知导航等方向。</p>
-<p>最值得关注的是利用1500小时演示+策略修正实现双手机器人操作，以及通过RL增强推理的移动机器人控制，二者代表“数据+强化学习”结合的前沿范式。</p>
-<p>建议普通读者优先精读这两篇满分论文，重点理解其数据收集与在线修正策略；速读文章可选择性浏览，作为扩展视野。</p>
+<p>今天从24篇中精读11篇、速读13篇，最亮眼的是两篇9.0分工作：FWBC-VLA用力感知全身补偿攻克接触密集的移动操作，另一篇用潜在语义脚手架让VLA策略“会推理却不增推理成本”。最值得追的方向是接触丰富操作中的力/全身控制，以及长时程VLA的推理与泛化，速读里的RoboSPA、神经符号长时程操作和驾驶世界模型都在补这两块短板。普通读者可先读两篇9.0分摘要与图示，再顺着速读中的长时程与世界模型线索看落地场景。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">37 篇</strong>
+    <strong class="dpr-home-dashboard-count">11 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Scaling Bimanual Household Manipulation from 1,500 hours of Demonstrations to On-Policy Corrections">Scaling Bimanual Household Manipulation from 1,500 hours of Demonstrations to On-Policy Corrections</span></li><li><span class="dpr-home-dashboard-paper-title" title="MobileVLA-R1 2.0: RL-Enhanced Reasoning for Mobile Robot Control">MobileVLA-R1 2.0: RL-Enhanced Reasoning for Mobile Robot Control</span></li><li><span class="dpr-home-dashboard-paper-title" title="Asynchronous Model Predictive Control Under Model Mismatch: Stability and Performance Guarantees">Asynchronous Model Predictive Control Under Model Mismatch: Stability and Performance Guarantees</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="FWBC-VLA: Force-Aware Whole-Body Compensation for Contact-Rich Loco-Manipulation">FWBC-VLA: Force-Aware Whole-Body Compensation for Contact-Rich Loco-Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Reasoning Without Inference Cost: Latent Semantic Scaffolding for Robot VLA Policies">Reasoning Without Inference Cost: Latent Semantic Scaffolding for Robot VLA Policies</span></li><li><span class="dpr-home-dashboard-paper-title" title="CR-VLA-Force: Learning Control-aware Compliance VLA Model for Robust Contact-rich Robotic Manipulation">CR-VLA-Force: Learning Control-aware Compliance VLA Model for Robust Contact-rich Robotic Manipulation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>10</strong></span><span class="dpr-home-dashboard-tag">control <strong>9</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>9</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>9</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>6</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>3</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>2</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -89,9 +87,9 @@
     <strong class="dpr-home-dashboard-count">13 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Towards a Belief-Based World Model for LLM Agents">Towards a Belief-Based World Model for LLM Agents</span></li><li><span class="dpr-home-dashboard-paper-title" title="SG-AMP: Scene-Graph-Guided Active Perception and Semantics-Aware Motion Planning for Pepper Plants">SG-AMP: Scene-Graph-Guided Active Perception and Semantics-Aware Motion Planning for Pepper Plants</span></li><li><span class="dpr-home-dashboard-paper-title" title="LookStep: Efficient Vision-Language Navigation with Linguistic Foresight and Event Driven Memory">LookStep: Efficient Vision-Language Navigation with Linguistic Foresight and Event Driven Memory</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Long-Horizon Consistent and Interaction-Aware World Models for Multi-Style End-to-End Driving">Long-Horizon Consistent and Interaction-Aware World Models for Multi-Style End-to-End Driving</span></li><li><span class="dpr-home-dashboard-paper-title" title="RoboSPA: Can VLA Models Go Beyond Simple Scenes and Short-Horizon Tasks?">RoboSPA: Can VLA Models Go Beyond Simple Scenes and Short-Horizon Tasks?</span></li><li><span class="dpr-home-dashboard-paper-title" title="Towards Neuro-Symbolic Procedural Reasoning for Long-Horizon Vision-Language-Action Manipulation">Towards Neuro-Symbolic Procedural Reasoning for Long-Horizon Vision-Language-Action Manipulation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>5</strong></span><span class="dpr-home-dashboard-tag">vla <strong>4</strong></span><span class="dpr-home-dashboard-tag">control <strong>2</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>4</strong></span><span class="dpr-home-dashboard-tag">vla <strong>4</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>3</strong></span><span class="dpr-home-dashboard-tag">control <strong>2</strong></span></div>
 </section>
 </div>
 
