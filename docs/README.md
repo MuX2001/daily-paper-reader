@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-11</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-12</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 23 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 22 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>10</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>9</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-11 21:33:45 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-12 21:24:31 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,10 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>2026-09-11 日报完成：23 篇中精读 10 篇、速读 13 篇。最值得看的是两篇 9 分工作——FWBC-VLA 用“力感知+全身补偿”攻克接触密集的移动操作，另一篇则让机器人 VLA 策略以“潜语义脚手架”实现零推理成本增强推理。普通读者可优先从这两篇切入，再关注速读中世界模型安全与神经符号长程操作等 8 分方向。</p>
+<p>今日共生成 22 篇推荐（精读 9 篇，速读 13 篇）</p>
+<p>精读：《Reasoning Without Inference Cost: Latent Semantic Scaffolding for Robot VLA Policies》（9.0/10）, 《CR-VLA-Force: Learning Control-aware Compliance VLA Model for Robust Contact-rich Robotic Manipulation》（9.0/10）</p>
+<p>速读：《RoboSPA: Can VLA Models Go Beyond Simple Scenes and Short-Horizon Tasks?》（8.0/10）, 《OpenWAM: An Open, Modular Exploration Towards Systematic World-Action Model Pretraining》（8.0/10）, 《CASD: Chunk-Aligned Semantic Distillation for Multi-StageRobot Manipulation》（8.0/10）</p>
+<p>这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +74,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">10 篇</strong>
+    <strong class="dpr-home-dashboard-count">9 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="FWBC-VLA: Force-Aware Whole-Body Compensation for Contact-Rich Loco-Manipulation">FWBC-VLA: Force-Aware Whole-Body Compensation for Contact-Rich Loco-Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Reasoning Without Inference Cost: Latent Semantic Scaffolding for Robot VLA Policies">Reasoning Without Inference Cost: Latent Semantic Scaffolding for Robot VLA Policies</span></li><li><span class="dpr-home-dashboard-paper-title" title="RoboSPA: Can VLA Models Go Beyond Simple Scenes and Short-Horizon Tasks?">RoboSPA: Can VLA Models Go Beyond Simple Scenes and Short-Horizon Tasks?</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Reasoning Without Inference Cost: Latent Semantic Scaffolding for Robot VLA Policies">Reasoning Without Inference Cost: Latent Semantic Scaffolding for Robot VLA Policies</span></li><li><span class="dpr-home-dashboard-paper-title" title="CR-VLA-Force: Learning Control-aware Compliance VLA Model for Robust Contact-rich Robotic Manipulation">CR-VLA-Force: Learning Control-aware Compliance VLA Model for Robust Contact-rich Robotic Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="MobileVLA-R1 2.0: RL-Enhanced Reasoning for Mobile Robot Control">MobileVLA-R1 2.0: RL-Enhanced Reasoning for Mobile Robot Control</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>7</strong></span><span class="dpr-home-dashboard-tag">control <strong>1</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>1</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>6</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>2</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>1</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -87,9 +90,9 @@
     <strong class="dpr-home-dashboard-count">13 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Rethinking World Models for Safety-Critical Embodied Systems">Rethinking World Models for Safety-Critical Embodied Systems</span></li><li><span class="dpr-home-dashboard-paper-title" title="Towards Neuro-Symbolic Procedural Reasoning for Long-Horizon Vision-Language-Action Manipulation">Towards Neuro-Symbolic Procedural Reasoning for Long-Horizon Vision-Language-Action Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Phase-and-First-Arrival VLM Feedback for Sparse-Reward Reinforcement Learning in Surgical Manipulation">Phase-and-First-Arrival VLM Feedback for Sparse-Reward Reinforcement Learning in Surgical Manipulation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="RoboSPA: Can VLA Models Go Beyond Simple Scenes and Short-Horizon Tasks?">RoboSPA: Can VLA Models Go Beyond Simple Scenes and Short-Horizon Tasks?</span></li><li><span class="dpr-home-dashboard-paper-title" title="OpenWAM: An Open, Modular Exploration Towards Systematic World-Action Model Pretraining">OpenWAM: An Open, Modular Exploration Towards Systematic World-Action Model Pretraining</span></li><li><span class="dpr-home-dashboard-paper-title" title="CASD: Chunk-Aligned Semantic Distillation for Multi-StageRobot Manipulation">CASD: Chunk-Aligned Semantic Distillation for Multi-StageRobot Manipulation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>8</strong></span><span class="dpr-home-dashboard-tag">control <strong>2</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>2</strong></span><span class="dpr-home-dashboard-tag">vla <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>8</strong></span><span class="dpr-home-dashboard-tag">control <strong>2</strong></span><span class="dpr-home-dashboard-tag">vla <strong>2</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>1</strong></span></div>
 </section>
 </div>
 
