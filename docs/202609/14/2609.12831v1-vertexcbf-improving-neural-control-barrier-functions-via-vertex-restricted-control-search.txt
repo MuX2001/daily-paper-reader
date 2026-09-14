@@ -1,0 +1,2327 @@
+Title: VertexCBF: Improving Neural Control Barrier Functions via Vertex-Restricted Control Search
+
+URL Source: https://arxiv.org/pdf/2609.12831v1
+
+Published Time: Mon, 14 Sep 2026 01:03:33 GMT
+
+Number of Pages: 38
+
+Markdown Content:
+# VertexCBF: Improving Neural Control Barrier Functions via Vertex-Restricted Control Search 
+
+Bojan Deraji´ c1,4, Sebastian Bernhard 2, Wolfgang H¨ onig 1,31Technical University of Berlin, Germany 
+
+> 2
+
+Technical University of Applied Sciences Augsburg, Germany 
+
+> 3
+
+Robotics Institute Germany (RIG), Germany 
+
+> 4
+
+AUMOVIO, Germany Contact: bojan.derajic@campus.tu-berlin.de 
+
+Abstract: As the number of autonomous robots continues to grow, safety be-comes increasingly important. Control barrier functions (CBFs) provide a theoret-ically grounded framework for ensuring safety, but existing design methods often face limitations in effectiveness, scalability, or interpretability, and may result in overly conservative safe sets. In this paper, we propose VertexCBF , a framework for learning neural CBFs in a scalable, systematic, and explainable way. We ap-proximate the stationary Hamilton–Jacobi value function using a neural network trained via a combination of physics-informed and sparsely supervised learning. By exploiting control-affine dynamics and a convex polytope control set, under which the Hamiltonian is maximized at the control vertices, we efficiently gen-erate supervision points via GPU-parallel vertex-restricted tree search, while a residual architecture guarantees that the learned CBF is never larger than the spec-ified constraint function. We evaluate the method on 15 systems and compare it against relevant baselines, showing that it reliably recovers large safe sets where the baselines are conservative or fail completely. In addition, we perform a hard-ware experiment in which a mobile robot safely avoids pedestrians using a neural CBF trained with our method. 
+
+Keywords: Neural Control Barrier Functions, Learning-Based Safe Control, Hamilton–Jacobi Reachability Analysis 
+
+1 Introduction 
+
+In recent years, robotics applications have expanded rapidly across many areas of society. Many of these advances are driven by learning-based algorithms and involve direct interaction between autonomous robots and their environments. However, ensuring safe and reliable operation in a systematic and explainable manner remains a key challenge in robot deployment. One well-established approach is safety filtering, where the nominal control input is modified at runtime to preserve safety [1]. In particular, control barrier functions (CBFs) provide a theoretically grounded and explainable way to design safety filters, and are especially efficient for control-affine systems [2, 3]. Nevertheless, designing CBFs for systems with state and input constraints is notori-ously difficult and often results in a compromise between performance and safety [4]. In this paper, we propose VertexCBF , a learning-based framework for constructing neural CBFs that approximate the optimal safe set characterized by Hamilton–Jacobi (HJ) reachability. Specifically, we use a neural approximation of the stationary HJ safety value function as a CBF and train it using a combination of physics-informed and sparsely supervised losses. Following a residual parametriza-tion, the learned function is constrained to be no larger than the specified constraint function, ensur-ing that learning cannot enlarge the safe set beyond the original state constraint. The key idea is to exploit the standard structure used by CBF-QP filters, namely control-affine dynamics and a convex arXiv:2609.12831v1 [cs.RO] 11 Sep 2026 polytope control set. Under these assumptions, the continuous-time Hamiltonian is maximized at a control vertex. We therefore generate supervision labels by solving finite-horizon optimization problems restricted to control vertices, enabling efficient GPU-parallel tree search while avoiding numerical PDE solvers and sampling-based trajectory optimization. The main contributions of this paper are summarized as follows: • We introduce a systematic method for learning neural CBFs that approximate the optimal safe set. It is grounded in HJ reachability, combines physics-informed and supervised learning, and exploits control-affine dynamics with polytope input constraints to generate supervision points through highly parallel vertex-restricted optimization. • We evaluate the proposed method on 15 dynamical systems and against relevant baselines. The results show that our approach consistently recovers large and reliable safe sets where the baselines are conservative or fail completely. We further demonstrate the method in a hardware experiment, where a mobile robot safely navigates among pedestrians. 
+
+2 Related Work 
+
+Learning-based approaches to safe robot control have attracted considerable attention due to their flexibility and scalability [4, 5]. Particularly relevant are methods that combine machine learning with CBFs and HJ reachability. Early work on learning CBFs used support vector machines [6] and neural networks [7], while more recent approaches employ expressive representations such as Gaussian splats to construct distance-based CBFs [8]. However, these methods often struggle with higher-order systems and limited actuation, where distance-based formulations become inadequate [1]. Extensions that account for control limits [9, 10] improve feasibility but typically yield conser-vative or suboptimal safe sets. The maximal safe set can be characterized through HJ reachability, but solving the corresponding PDEs is generally intractable for real-time applications. Methods in [11, 12, 13] learn approxima-tions of the HJ value function but rely on numerically generated training data, which limits scalabil-ity. DeepReach [14] improves scalability through self-supervised learning, with further refinements addressing boundary conditions and uncertainty [15, 16]. Nevertheless, these methods rely on care-fully designed curriculum training procedures that can be difficult to tune and may exhibit instability. The method in [17] trains neural CBFs by minimizing a loss derived from the stationary HJB vari-ational inequality (HJB-VI). However, this objective alone admits multiple trivial or suboptimal solutions, leading to poor results for many relevant systems in practice, as we also demonstrate ex-perimentally. This motivates augmenting physics-informed learning with additional supervision to guide optimization toward meaningful solutions. Our approach combines physics-informed learning with efficiently generated, high-quality supervi-sion by exploiting control-affine dynamics and convex control constraints. The closest work, [18], similarly combines PDE-based and data-driven losses, but targets the general time-dependent HJ reachability problem and relies on full-control sampling-based MPC for supervision, together with pretraining, curriculum training, and iterative refinement. In contrast, we solve the infinite-horizon stationary HJB-VI, eliminating the time variable and the need for curriculum learning, and assume control-affine dynamics with a convex polytope control set. These assumptions replace full-control trajectory optimization with a vertex-restricted tree search, while the residual parametrization makes pretraining unnecessary. 
+
+3 Preliminaries and Problem Formulation 
+
+We consider control-affine system dynamics 
+
+˙x = ϕ(x, u ) = f (x) + g(x)u, (1) 2where x ∈ X ⊆ Rnx is the system state and u ∈ U ⊂ Rnu is the control input. We assume that U is a compact convex polytope, with the set of control vertices denoted by V = vert( U). The system is required to remain within the constraint set C = {x : c(x) ≥ 0}, where c : X → R is a continuous constraint function. Given the initial time t = 0 , the infinite-horizon safety value function V : X → R is defined as 
+
+V (x) = sup 
+
+> u(·)∈U
+
+inf  
+
+> t≥0
+
+c (x(t)) , (2) where x(0) = x and x(t) evolves according to Eq. (1). The value V (x) is the largest worst-case constraint value that can be maintained from x, and the set S = {x : V (x) ≥ 0} is the maximal controlled invariant subset of C, termed the maximal safe set 1 [19, 20]. We assume throughout the paper that the supremum in Eq. (2) is finite for every x ∈ X , so that V is well defined. This holds in all our experiments, since U is compact and c is bounded on X .A common approach to enforcing safety is through CBFs. A continuously differentiable function 
+
+h : X → R is a CBF if there exists an extended class-K function α such that, for all x ∈ X ,
+
+sup 
+
+> u∈U
+
+∇h(x)⊤ϕ(x, u ) + α(h(x)) ≥ 0. (3) For an arbitrary nominal control unom , the safe control u∗ is obtained by solving the following quadratic program (QP): 
+
+u∗ = argmin 
+
+> u∈U
+
+12 ∥u − unom ∥2
+
+s.t. Lf h(x) + Lg h(x)u + α(h(x)) ≥ 0,
+
+(4) where Lf and Lg are the Lie derivatives of h with respect to f and g, respectively [2]. If the QP is feasible, by Nagumo’s theorem [21] this CBF-QP safety filter renders the set Sh = {x : h(x) ≥ 0}
+
+forward invariant. The central problem of this paper is to establish a systematic method for designing a CBF h such that Sh ≈ S . In the next section, we describe the proposed method. 
+
+4 Methodology 
+
+VertexCBF aims to design a CBF whose resulting safe set coincides with the maximal safe set S.Similar to [11, 12, 13], we use a neural approximation VΘ of the safety value function Eq. (2) as a CBF, i.e., h = VΘ. The model parameters Θ are trained by combining a PDE-based loss with sparse supervision, as in [18]. In contrast to that work, our approach exploits the assumptions on the system dynamics and control set to obtain more effective supervision. The safety value function Eq. (2) is a solution of the stationary HJB-VI [17] and necessarily satisfies 
+
+min {c(x) − V (x), H (x, ∇V (x)) } = 0 , (5) where the Hamiltonian is 
+
+H(x, p ) = max  
+
+> u∈U
+
+p⊤ϕ(x, u ) = p⊤f (x) + max  
+
+> u∈U
+
+p⊤g(x)u. (6) Since the second term is linear in u and U is a compact convex polytope, the maximum is attained at a vertex v ∈ V . Therefore, we can rewrite the stationary HJB-VI as 
+
+min 
+
+
+
+c(x) − V (x), max  
+
+> u∈V
+
+∇V (x)⊤ϕ(x, u )
+
+
+
+= 0 . (7) This variational inequality could be used as a PDE loss and optimized as a single self-supervised objective when training a neural approximation VΘ(x), similar to [17]. However, Eq. (7) generally does not have a unique solution. In fact, any constant value function V (x) = a such that a ≤ c(x)
+
+for all x ∈ X satisfies the stationary HJB-VI. Moreover, gradient-based optimization of the model parameters is prone to local optima, further undermining training performance. An effective alter-native is to generate a (potentially sparse) dataset of state-value pairs and add a supervised loss term that guides training toward the true optimal solution. Nevertheless, generating such a dataset with existing methods is often ineffective without a strong nominal policy.  
+
+> 1Also known as the viability kernel .
+
+34.1 Time Discretization of the Vertex-Restricted Problem 
+
+The restriction to control vertices is already made in continuous time in Eq. (7), and we now dis-cretize that problem in time. For a time step ∆t > 0, we define the forward-Euler dynamics map 
+
+xk+1 = F (xk, u k) = xk + ∆ t ϕ (xk, u k). (8) Applying this map to the vertex-restricted problem, we define the discrete-time safety value function 
+
+V∆t : X → R as 
+
+V∆t(x) = sup 
+
+> {ui}∞
+> i=0 ∈V
+
+inf  
+
+> k≥0
+
+c(xk), (9) where x0 = x. This is the infinite-horizon safety value function of the Euler-discretized system with input sequences restricted to the control vertices. It satisfies the Bellman equation 
+
+V∆t(x) = min 
+
+
+
+c(x), max  
+
+> u∈V
+
+V∆t
+
+ F (x, u )
+
+. (10) The order of these two steps is important. We do not restrict a full-control discrete-time Bellman operator to V, which would not be exact, because u 7 → V∆t(F (x, u )) is nonlinear in u. We instead restrict the continuous-time Hamiltonian, where the maximization is linear in the control, and only then apply the forward-Euler map. Therefore, V∆t approximates the vertex-restricted continuous-time problem, not the full-control discrete-time value function. Wherever V is differentiable, an op-timal control can be chosen from V, and such value functions are differentiable almost everywhere. Eq. (10) is exact for Euler-discretized vertex-restricted system, but it is not the Bellman equation of the full-control discrete-time system and only approximates the original continuous-time problem. The discrete-time solution is not guaranteed to be obtained from Eq. (10) by standard value itera-tion, because the Bellman operator is not a contraction and the usual contraction-based convergence guarantees therefore do not apply. [22, 23]. One possible remedy is to introduce a discounted value function, as in [24, 22], and gradually increase the discount factor to recover the optimal solution. Restricting the inner maximization to control vertices is an additional constraint and may yield a suboptimal solution for the discretized system. Our primary objective, however, is to approximate the safety values of the continuous-time system, and we reformulate Eq. (10) as 
+
+min 
+
+(
+
+c(x) − V∆t(x), max u∈V V∆t
+
+ F (x, u ) − V∆t(x)∆t
+
+)
+
+= 0 , (11) where the second term is a finite-difference approximation of the Hamiltonian in Eq. (5). In Ap-pendix A, we show that the vertex-restricted Euler Bellman operator Eq. (10) is a first-order consis-tent local approximation of the continuous-time HJB-VI. 
+
+4.2 Finite-Horizon Search over Vertex-Restricted Controls 
+
+Obtaining the infinite-horizon vertex-restricted value V∆t may still be impractical for many systems of interest. Moreover, we compute each label independently over a sparsely sampled set of states, so that it does not depend on values at other states, unlike grid-based numerical methods. We therefore consider the finite-horizon approximation 
+
+V K
+
+> ∆t
+
+(x) = max  
+
+> u0,...,u K−1∈V
+
+min  
+
+> 0≤k≤K
+
+c(xk), (12) where x0 = x and K is the horizon length. Since inputs are restricted to control vertices, the search space is reduced to a typically small set of control vectors. Instead of gradient-based or sampling-based optimization, we can therefore perform a tree search over the finite-horizon trajectories. If 
+
+M = |V| denotes the number of control vertices, the branching factor is M and the tree depth is 
+
+K, resulting in M K possible trajectories. For low-dimensional systems, a full tree search finds the optimal solution exactly. However, when M or K is large, we use approximate tree-search variants such as beam search, stochastic beam search, or branch-and-bound, summarized in Appendix B. 4A non-complete search introduces an additional approximation by evaluating only a subset of the full tree. Let V K,B  
+
+> ∆t
+
+(x) denote the value returned by a tree-search method with beam width B, as described in Appendix B. Since beam search optimizes over a subset of all vertex-control sequences, 
+
+V K,B  
+
+> ∆t
+
+(x) ≤ V K
+
+> ∆t
+
+(x), (13) with equality if the retained beam contains an optimal sequence. Width-limited labels are therefore lower bounds on the full vertex-restricted search. This is the conservative direction, because a lower label can only shrink the safe set. The influence of beam-search hyperparameters is analyzed in Appendix C. The total discrepancy between the generated label and the continuous infinite-horizon safety value can therefore be decomposed conceptually as 
+
+V K,B  
+
+> ∆t
+
+(x) − V (x) ≤ V∆t(x) − V (x)
+
+| {z }
+
+> discretization and vertex-restriction error
+
++ V K
+
+> ∆t
+
+(x) − V∆t(x)
+
+| {z }
+
+> horizon truncation error
+
++ V K,B  
+
+> ∆t
+
+(x) − V K
+
+> ∆t
+
+(x)
+
+| {z }
+
+> beam-pruning error
+
+. (14) The first term collects the error of the forward-Euler discretization and the error of holding one vertex control over each interval of length ∆t, and a smaller ∆t reduces both (Appendix D). The second term is caused by truncating the horizon after K steps. It vanishes under the assumption that an optimal sequence of Eq. (12) can be extended by further vertex controls that keep c(xk) ≥ V K
+
+> ∆t
+
+(x)
+
+for all k > K , so that the safety level attained within the horizon is maintained forever. Such a continuation gives V∆t(x) ≥ V K
+
+> ∆t
+
+(x), while the opposite inequality always holds. The assumption is plausible when the horizon is long enough to reach a region where the attained safety level can be maintained. It fails for a short horizon, where the label overestimates the true value. The third term vanishes under a complete tree search, and in practice we reduce it with stochastic beam search or branch-and-bound. 
+
+Scope of the vertex restriction. Restricting the search to vertices does not by itself improve the finite-horizon optimum, since Eq. (12) is a constrained version of the same problem over the full control set. The benefit is effectiveness under a finite computational budget. An optimal continuous-time control can be chosen from V at almost every state, so the tree search operates on a small set that already contains these controls. A sampling-based method such as MPPI instead allocates much of its budget to interior controls that are rarely optimal. This relies on control-affine dynamics, a polytope control set, and a sufficiently small ∆t. The approximation can become conservative or suboptimal for a large ∆t, for a short horizon K, or for a small beam width B when M or K is large. We therefore do not claim that vertex-restricted search always outperforms full-control optimization. 
+
+4.3 Model Architecture and Training Procedure 
+
+Following [17, 11, 13], we do not approximate the value function directly, but instead approximate its non-negative residual rΘ with respect to the constraint function: 
+
+VΘ(x) = c(x) − rΘ(x), rΘ(x) ≥ 0, ∀x ∈ X . (15) Since VΘ(x) ≤ c(x),the learned safe set ˆS = {x : VΘ(x) ≥ 0} is always contained in the constraint set C. Moreover, this parametrization makes trivial constant solutions less natural, because a constant 
+
+VΘ(x) = a would require rΘ(x) = c(x) − a rather than a constant network output. As the residual function, we use a multi-layer perceptron (MLP) with sinusoidal hidden activations [25] and a softplus output that enforces rΘ ≥ 0 while remaining smooth. Non-periodic inputs are linearly rescaled to [−1, 1] to keep the input features on a common scale. Each periodic state θ is replaced by the pair (cos( θ), sin( θ)) , so that periodicity is built in by construction. 
+
+Loss function. The model is trained by minimizing a convex combination of the physics-informed PDE loss and the data loss: 
+
+L(Θ) = λ LPDE (Θ) + (1 − λ) Ldata (Θ) , λ ∈ [0 , 1] . (16) 5The PDE term penalizes pointwise violations of the stationary HJB-VI Eq. (7) on collocation states 
+
+{xi}NPDE  
+
+> i=1
+
+sampled uniformly from X . Substituting Eq. (15) into Eq. (7) simplifies the first term because c(x) − VΘ(x) = rΘ(x), yielding 
+
+LPDE (Θ) = 1
+
+NPDE 
+
+> NPDE
+
+X
+
+> i=1
+
+min {rΘ(xi), H (xi, ∇VΘ(xi)) }2 . (17) The state gradient ∇VΘ is obtained by automatic differentiation, and the Hamiltonian is evaluated exactly over the finite vertex set V. The minimum in Eq. (17) is non-differentiable where its two arguments cross, near the boundary of the safe set. We also evaluated a smooth minimum, but observed no training instability and no consistent difference in the results, so all reported results use the exact minimum. The data term is a mean-squared error against labels generated by vertex-restricted tree search at supervision states {(xj , y j )}Ndata  
+
+> j=1
+
+, with yj = V K,B  
+
+> ∆t
+
+(xj ):
+
+Ldata (Θ) = 1
+
+Ndata 
+
+> Ndata
+
+X
+
+> j=1
+
+(c(xj ) − rΘ(xj ) − yj )2 . (18) The two terms are complementary. The term LPDE enforces local self-consistency on densely sam-pled unlabeled states, while Ldata anchors the solution to non-trivial values and steers optimization away from spurious local minima of the PDE objective alone. 
+
+5 Experimental Results 
+
+We evaluate the proposed method on 15 systems with varying dynamics, state and control dimen-sions, and safety constraints 2. This broad evaluation is important because learning-based CBF meth-ods can be highly system-dependent. A method may succeed on one system yet fail on another of similar dimension with a more complex value function. We compare against two baselines. The first, PDE-only , follows [17] and uses only the PDE-based loss, without data supervision. Since the methods differ only in supervision data, we denote it by ND (no data) in the tables. The sec-ond is motivated by [18] and uses full-control data ( FCD ) generated by the MPPI technique. It reproduces only the data-generation step of [18], and not the pretraining, curriculum training and iterative refinement of the complete method. Therefore, the comparison isolates the effect of the supervision data. Our method, VertexCBF, uses vertex-restricted control data ( VRCD ) generated via a tree search method. Details on the dynamics, data generation, training, and validation are given in Appendix I. All methods use the same model architecture, hyperparameters, training settings, and validation protocol, and differ only in supervision data. FCD uses the same horizon length and step size as our tree search, and a number of sampled trajectories equal to the beam width. For FCD, we run five MPPI iterations, using the best trajectory of each iteration as the nominal trajectory for the next [18]. The influence of the PDE-loss weight on the result is studied in Appendix F. 
+
+Validation procedure. Since there are no formal convergence or error-bound guarantees, we em-phasize the importance of post-training validation. For each learned CBF VΘ, we draw Nvalid initial states {xi}Nvalid  
+
+> i=1
+
+from the state-space bounding box X = [ xmin , x max ] by stratified rejection sam-pling, so that roughly half lie in the predicted safe set ˆS and the other half lie in its complement. Balancing the samples reduces the variance of the validation metrics when the predicted safe set is much smaller than its complement. From each xi, we execute the closed-loop dynamics forward in time for a period Tvalid under the Hamiltonian-maximizing policy 
+
+u⋆(x) = arg max  
+
+> u∈V
+
+∇VΘ(x)⊤ (f (x) + g(x)u) . (19) An initial state xi is declared validated safe if the entire rolled-out trajectory remains within C. This estimates the forward-invariant subset of C induced by the learned CBF VΘ. 
+
+> 2All numerical experiments are conducted on a single NVIDIA RTX 3090 24GB GPU. The code is available at https://github.com/bojan-derajic/vertexcbf .
+
+6Table 1: CBF validation results, reported as mean ± standard deviation over five seeds. A dash marks systems whose predicted safe set is empty for every seed, and a missing standard deviation indicates that ρFS is defined for a single seed only. 
+
+System ( nx, nu) ρFS (%) ↓ ρFU (%) ↓ ηeff ↑
+
+ND FCD VRCD (ours) ND FCD VRCD (ours) ND FCD VRCD (ours) Inverted Pendulum (2, 1) 100.00 0.00 ±0.00 0.00 ±0.00 0.00 ±0.00 15.96 ±0.53 1.11 ±0.30 0.00 ±0.00 0.08 ±0.00 0.22 ±0.00 1D Double Integrator (2, 1) 0.00 ±0.00 0.00 ±0.00 0.00 ±0.00 0.95 ±0.56 4.01 ±0.42 1.18 ±0.31 0.41 ±0.00 0.39 ±0.00 0.41 ±0.00 2D Vertical Drone (2, 1) 36.80 ±5.39 – 0.00 ±0.00 4.73 ±6.81 4.72 ±6.81 1.88 ±0.46 0.35 ±0.20 0.00 ±0.00 0.58 ±0.01 Dubins Car (3, 1) 0.06 ±0.04 0.01 ±0.01 0.04 ±0.01 4.75 ±1.28 4.33 ±0.31 2.25 ±0.28 0.92 ±0.00 0.92 ±0.00 0.93 ±0.00 2D Double Integrator (4, 2) 0.03 ±0.01 0.00 ±0.00 0.03 ±0.01 4.68 ±0.25 6.84 ±0.30 3.42 ±0.22 0.93 ±0.00 0.92 ±0.00 0.93 ±0.00 Kinematic Bicycle (4, 2) 4.68 ±0.91 0.52 ±0.38 1.16 ±0.51 15.49 ±1.07 3.16 ±0.24 5.03 ±0.15 0.86 ±0.01 0.91 ±0.00 0.91 ±0.00 Cart-Pole (4, 1) 88.14 ±8.15 – 0.16 ±0.19 0.65 ±0.48 4.06 ±2.46 2.64 ±0.34 0.06 ±0.04 0.00 ±0.00 0.32 ±0.00 Dynamic Unicycle (5, 2) 4.17 ±0.89 0.09 ±0.09 0.23 ±0.26 2.93 ±0.38 5.50 ±0.42 6.49 ±0.44 0.90 ±0.01 0.93 ±0.00 0.93 ±0.00 Relative Unicycle (5, 2) 6.06 ±0.10 0.26 ±0.51 0.16 ±0.02 4.49 ±0.33 37.07 ±3.49 2.35 ±0.13 0.87 ±0.00 0.87 ±0.01 0.93 ±0.00 3D Double Integrator (6, 3) 0.01 ±0.00 0.00 ±0.00 0.00 ±0.00 9.12 ±0.37 11.20 ±0.43 10.60 ±0.27 0.97 ±0.00 0.97 ±0.00 0.97 ±0.00 3-DOF Manipulator (6, 3) 13.52 ±12.09 0.55 ±0.36 0.43 ±0.49 3.69 ±0.78 6.74 ±0.16 5.68 ±0.12 0.58 ±0.08 0.65 ±0.00 0.66 ±0.00 Landing Rocket (7, 2) 76.45 ±14.68 56.41 ±13.54 1.17 ±0.78 0.13 ±0.07 2.95 ±0.91 5.95 ±0.20 0.09 ±0.06 0.02 ±0.01 0.24 ±0.00 Quadruped Trunk (9, 4) 99.98 ±0.05 – 0.07 ±0.09 0.00 ±0.00 0.00 ±0.00 3.14 ±0.11 0.00 ±0.00 0.00 ±0.00 0.07 ±0.00 6-DoF Underw. Veh. (12, 6) 22.24 ±0.93 0.61 ±0.07 1.00 ±0.25 0.80 ±0.14 5.15 ±0.06 2.27 ±0.09 0.33 ±0.00 0.34 ±0.00 0.36 ±0.00 Quadrotor (13, 4) 5.75 ±0.20 1.21 ±0.08 1.07 ±0.12 11.18 ±0.35 9.50 ±0.42 10.10 ±0.42 0.88 ±0.00 0.91 ±0.00 0.91 ±0.00 
+
+Validation metrics. We report the false-safe rate ρFS , false-unsafe rate ρFU , and effective safe volume ηeff . The false-safe rate is the fraction of states in ˆS whose validated trajectories leave C,and it measures the trustworthiness of the learned certificate. The false-unsafe rate is the fraction of states outside ˆS whose trajectories remain safe, and it measures conservatism. Finally, 
+
+ηeff = vol( ˆS)vol( X )
+
+ 1 − ρFS 
+
+, (20) measures the fraction of the state space that the neural CBF both predicts and validates as safe. The ratio vol( ˆS)/ vol( X ) is estimated as the fraction of states drawn uniformly from X , before the rejection step, for which VΘ ≥ 0. Thus, ηeff captures the practical operating region of the safety filter, while ρFS indicates whether that region is reliable. A good method should have small ρFS and large ηeff , while ρFU indicates how much safe behavior is unnecessarily rejected. These metrics rely only on rollouts, so they are available for every system. For the seven systems with at most four states, we additionally compare against the ground truth in Appendix G. The results in Table 1 show that PDE-only learning is unreliable across systems. It performs well on some simpler systems, such as double integrators, but fails completely on several others. FCD often reduces false-safe errors, but it tends to be conservative or ineffective because the full-control MPPI supervision data are less informative. In contrast, VRCD generally achieves low false-safe rates and competitive false-unsafe rates, while maintaining the highest or tied-highest effective safe volume. These results demonstrate the benefits of the proposed method and the importance of evaluating multiple complementary metrics. Each configuration is trained with five seeds. The false-safe rate is undefined when the predicted safe set is empty, so such seeds are excluded from its average and contribute ηeff = 0 . All three methods share the residual parametrization Eq. (15), whose contribution is isolated in Appendix E. In Fig. 1, we illustrate the difference between data-generation methods on the inverted pendulum system. Although this low-dimensional example can be handled with gradient- or grid-based solvers, our goal is to highlight the effects that arise in higher dimensions, where optimization runs in parallel across many initial states and sampling-based methods are standard. In this example, MPPI searches over the full control set but keeps the system within the constraint set for only a small number of initial states, whereas vertex-restricted beam search generates safe trajectories whenever possible. Fig. 2 shows that the PDE-only baseline can collapse to a trivial constant solution with an empty pre-dicted safe set, even for a two-dimensional system, and the only seed that avoids this collapse yields a completely unsafe certificate (Table 1). Adding MPPI-based supervision improves the learned CBF, but the result is overly conservative. On the other hand, vertex-restricted beam search provides better supervision and enables the neural CBF to approximately recover the maximal safe set. 70.4 0.2 0.0 0.2 0.4        
+
+> 1.5
+> 1.0
+> 0.5
+> 0.0 0.5 1.0 1.5 full-control MPPI
+> Constraint Ground truth 0.4 0.2 0.0 0.2 0.4
+> vertex-restricted BS (ours)
+> 0.1
+> 0.0 0.1 0.2
+> min
+> k0
+> c(xk)
+
+Figure 1: Finite-horizon trajectories for the inverted pendulum generated by full-control MPPI (left) and vertex-restricted beam search (right). Both methods start from the same 160 random initial states, drawn as large circles and colored by the worst constraint value min k≥0 c(xk) reached along the trajectory. The states that follow are drawn as small arrows that point in the direction of motion. The black line is the constraint boundary and the red line is the boundary of the true safe set. Vertex-restricted beam search keeps the system inside the constraint set for all sampled initial states of the true safe set, whereas full-control MPPI succeeds only for a few of them. 0.4 0.2 0.0 0.2 0.4           
+
+> 1.5
+> 1.0
+> 0.5
+> 0.0 0.5 1.0 1.5 PDE-only
+> Constraint Ground truth Predicted
+> 0.4 0.2 0.0 0.2 0.4
+> FCD
+> 0.4 0.2 0.0 0.2 0.4
+> VRCD
+> 0.5
+> 0.4
+> 0.3
+> 0.2
+> 0.1
+> 0.0 0.1 0.2 0.3
+> V(x)
+
+Figure 2: Learned neural CBFs for the inverted pendulum. PDE-only learning collapses to a trivial constant solution with an empty safe set, while FCD supervision results in an overly conservative solution. Only the proposed VRCD method approximately recovers the maximal safe set. 
+
+5.1 Hardware Experiments 
+
+We conduct hardware experiments in which a mobile robot must avoid collisions with pedestrians using the neural CBF obtained with the proposed method. The nominal controller is an MPC planner without safety constraints that drives the robot from the start to the goal position. The CBF-QP filter receives pedestrian detections from the perception module and filters the nominal control to achieve safe motion. The CBF is designed for the relative dynamics between the robot and an obstacle, as described in [13]. The learned CBF is the one reported for the relative unicycle in Table 1, and additional details are provided in Appendix H and Appendix I.9. We conduct 10 trials in which one or two pedestrians intentionally intercept the robot’s motion, and the robot avoids a collision in all of them. Fig. 3 shows results from one representative scenario, in which the robot safely navigates among pedestrians using the learned CBF. In this scenario, the CBF value stays close to zero and becomes slightly negative while the pedestri-ans pass the robot. The CBF constraint in the QP is relaxed by a slack variable, so the QP remains feasible at all times. The small violations are therefore not caused by an infeasible QP, but by the 8mismatch between the training model and the real system. The CBF is learned for an ideal kinematic unicycle, whereas the real skid-steer robot is affected by tire slip, unmodeled actuator dynamics, and noisy and delayed perception. To compensate, the robot and pedestrian radii used during training are a few centimeters larger than the physical dimensions. A small negative CBF value therefore does not cause a collision. 2 4 6 8 10 12 x [m] 2        
+
+> 1
+> 01234y [m]
+> Robot & tracked objects (map frame)
+> start goal Robot Tracked object 0.0 2.5 CBF value 1
+> 01
+> a [m/s 2]
+> anom
+> asafe
+> 0246810 12
+> t[s] 0.6
+> 0.0 0.6 [rad/s]
+> nom
+> safe
+> 0246810 12
+> t[s]
+
+Figure 3: Results from the hardware experiment with the mobile robot — visualized motion of the robot and tracked pedestrians (left), and CBF value and control signals (right). 
+
+6 Conclusion 
+
+We presented VertexCBF, a framework for learning neural CBFs that approximate stationary HJ safety value functions. By exploiting control-affine dynamics and convex-polytope control con-straints, it generates supervision through vertex-restricted finite-horizon search, avoiding grid-based PDE solvers and full-control trajectory optimization. Combined with a physics-informed loss and a residual architecture that upper-bounds the learned function by the constraint function, this provides a practical and systematic design approach for learning neural CBFs. Experiments across diverse systems show that the proposed method recovers larger and more reliable validated safe sets than PDE-only learning and full-control MPPI supervision. Vertex-restricted control therefore provides an effective supervision signal that guides learning toward the optimal solution. The hardware experiment further demonstrates that the learned CBF can be deployed in real time as a CBF-QP safety filter for robots operating around people. Future work includes establishing stronger convergence and error guarantees for the learned CBFs, better scalability for systems with many control vertices, and extensions to uncertain dynamics and perception-based constraints. 
+
+7 Limitations 
+
+Our method does not yet provide formal convergence guarantees or deterministic error bounds on the learned CBF. The approximation error comes from time discretization, finite-horizon truncation, width-limited tree search, and neural function approximation. We therefore rely on post-training validation with large-scale closed-loop rollouts. Future work could strengthen this validation with sample-based certification methods such as scenario optimization or conformal prediction, which compute safety margins with finite-sample probabilistic guarantees [16, 18]. A second limitation is the scalability of data generation. Although restricting controls to polytope vertices reduces the search space, the tree search still grows rapidly with the horizon and the number of control vertices. The method scales well to the systems considered in this paper, including systems with up to 13 states and 6 controls. However, applying it directly to very high-dimensional whole-body dynamics, such as full humanoid models, may be computationally prohibitive. In such settings, the method may be more suitable for reduced-order models or safety-critical subsystems. 9Acknowledgments 
+
+This research was supported by the German Federal Ministry for Economic Affairs and Energy within the project ”NXT GEN AI METHODS – Generative Methoden f¨ ur Perzeption, Pr¨ adiktion und Planung”. 
+
+References 
+
+[1] K.-C. Hsu, H. Hu, and J. F. Fisac. The Safety Filter: A Unified View of Safety-Critical Control in Autonomous Systems. Annual Review of Control, Robotics, and Autonomous Systems , 7 (Volume 7, 2024):47–72, 2024. doi:10.1146/annurev-control-071723-102940. [2] A. D. Ames, J. W. Grizzle, and P. Tabuada. Control barrier function based quadratic programs with application to adaptive cruise control. In IEEE Conference on Decision and Control (CDC) , pages 6271–6278, 2014. doi:10.1109/CDC.2014.7040372. [3] A. D. Ames, S. Coogan, M. Egerstedt, G. Notomista, K. Sreenath, and P. Tabuada. Control Barrier Functions: Theory and Applications. In European Control Conference (ECC) , pages 3420–3431, 2019. doi:10.23919/ECC.2019.8796030. [4] K. P. Wabersich, A. J. Taylor, J. J. Choi, K. Sreenath, C. J. Tomlin, A. D. Ames, and M. N. Zeilinger. Data-Driven Safety Filters: Hamilton-Jacobi Reachability, Control Barrier Func-tions, and Predictive Methods for Uncertain Systems. IEEE Control Systems , 43(5):137–177, 2023. doi:10.1109/MCS.2023.3291885. [5] C. Dawson, S. Gao, and C. Fan. Safe Control With Learned Certificates: A Survey of Neural Lyapunov, Barrier, and Contraction Methods for Robotics and Control. IEEE Transactions on Robotics , 39(3):1749–1767, 2023. doi:10.1109/TRO.2022.3232542. [6] M. Srinivasan, A. Dabholkar, S. Coogan, and P. A. Vela. Synthesis of Control Barrier Func-tions Using a Supervised Machine Learning Approach. In 2020 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 7139–7145. IEEE, 2020. doi: 10.1109/IROS45743.2020.9341190. [7] K. Long, C. Qian, J. Cort´ es, and N. Atanasov. Learning Barrier Functions With Memory for Robust Safe Navigation. IEEE Robotics and Automation Letters , 6(3):4931–4938, 2021. doi:10.1109/LRA.2021.3070250. [8] T. Chen, A. Swann, J. Yu, O. Shorinwa, R. Murai, M. Kennedy, and M. Schwager. A Control Barrier Function for Safe Navigation with Online Gaussian Splatting Maps. In IEEE Inter-national Conference on Robotics and Automation (ICRA) , pages 11758–11765, 2025. doi: 10.1109/ICRA55743.2025.11128723. [9] S. Liu, C. Liu, and J. Dolan. Safe Control Under Input Limits with Neural Control Barrier Functions. In Conference on Robot Learning (CoRL) , 2022. [10] W. Xiao, T.-H. Wang, R. Hasani, M. Chahine, A. Amini, X. Li, and D. Rus. BarrierNet: Dif-ferentiable Control Barrier Functions for Learning of Safe Robot Control. IEEE Transactions on Robotics , 39(3):2289–2307, 2023. doi:10.1109/TRO.2023.3249564. [11] B. Deraji´ c, S. Bernhard, and W. H¨ onig. ORN-CBF: Learning Observation-conditioned Resid-ual Neural Control Barrier Functions via Hypernetworks, 2025. arXiv:2509.16614 [cs]. [12] A. Lin, S. Peng, and S. Bansal. One Filter to Deploy Them All: Robust Safety for Quadrupedal Navigation in Unknown Environments. IEEE Transactions on Robotics , 42:545–560, 2026. doi:10.1109/TRO.2025.3644957. [13] B. Deraji´ c, S. Bernhard, and W. H¨ onig. CN-CBF: Composite Neural Control Barrier Function for Safe Robot Navigation in Dynamic Environments, 2026. arXiv:2603.06921 [cs]. 10 [14] S. Bansal and C. J. Tomlin. DeepReach: A Deep Learning Approach to High-Dimensional Reachability. In IEEE International Conference on Robotics and Automation (ICRA) , pages 1817–1824, 2021. doi:10.1109/ICRA48506.2021.9561949. [15] A. Singh, Z. Feng, and S. Bansal. Exact Imposition of Safety Boundary Conditions in Neural Reachable Tubes. In 2025 IEEE International Conference on Robotics and Automation (ICRA) ,pages 5489–5495, 2025. doi:10.1109/ICRA55743.2025.11127972. [16] A. Lin and S. Bansal. Verification of neural reachable tubes via scenario optimization and conformal prediction. In Proceedings of the 6th Annual Learning for Dynamics & Control Conference , pages 719–731. PMLR, 2024. [17] L. Manda, S. Chen, and M. Fazlyab. Learning Performance-oriented Control Barrier Func-tions Under Complex Safety Constraints and Limited Actuation. In Proceedings of The 8th Conference on Robot Learning , pages 4793–4804. PMLR, 2025. [18] Z. Feng, L. Qiu, and S. Bansal. Bridging Model Predictive Control and Deep Learning for Scalable Reachability Analysis. In Proceedings of Robotics: Science and Systems , volume 21, 2025. ISBN 979-8-9902848-1-4. [19] S. Bansal, M. Chen, S. Herbert, and C. J. Tomlin. Hamilton-Jacobi reachability: A brief overview and recent advances. In IEEE Conference on Decision and Control (CDC) , pages 2242–2253, 2017. doi:10.1109/CDC.2017.8263977. [20] K.-C. Hsu, V. Rubies-Royo, C. Tomlin, and J. Fisac. Safety and Liveness Guarantees through Reach-Avoid Reinforcement Learning. In Robotics: Science and Systems XVII . Robotics: Science and Systems Foundation, 2021. ISBN 978-0-9923747-7-8. doi:10.15607/RSS.2021. XVII.077. [21] M. Nagumo. ¨Uber die Lage der Integralkurven gew¨ ohnlicher Differentialgleichungen. Pro-ceedings of the Physico-Mathematical Society of Japan. 3rd Series , 24:551–559, 1942. doi: 10.11429/ppmsj1919.24.0 551. [22] J. F. Fisac, N. F. Lugovoy, V. Rubies-Royo, S. Ghosh, and C. J. Tomlin. Bridging Hamilton-Jacobi Safety Analysis and Reinforcement Learning. In 2019 International Conference on Robotics and Automation (ICRA) , pages 8550–8556, 2019. doi:10.1109/ICRA.2019.8794107. [23] O. So, Z. Serlin, M. Mann, J. Gonzales, K. Rutledge, N. Roy, and C. Fan. How to Train Your Neural Control Barrier Function: Learning Safety Filters for Complex Input-Constrained Sys-tems. In IEEE International Conference on Robotics and Automation (ICRA) , pages 11532– 11539, 2024. doi:10.1109/ICRA57147.2024.10610418. [24] A. K. Akametalu, S. Ghosh, J. F. Fisac, V. Rubies-Royo, and C. J. Tomlin. A Minimum Dis-counted Reward Hamilton–Jacobi Formulation for Computing Reachable Sets. IEEE Transac-tions on Automatic Control , 69(2):1097–1103, 2024. doi:10.1109/TAC.2023.3327159. [25] V. Sitzmann, J. Martel, A. Bergman, D. Lindell, and G. Wetzstein. Implicit Neural Repre-sentations with Periodic Activation Functions. In Advances in Neural Information Processing Systems , volume 33, pages 7462–7473. Curran Associates, Inc., 2020. [26] S. J. Russell and P. Norvig. Artificial Intelligence: A Modern Approach . Prentice Hall Series in Artificial Intelligence. Pearson, 3rd edition, 2016. ISBN 978-0-13-604259-4. [27] W. Kool, H. V. Hoof, and M. Welling. Stochastic Beams and Where To Find Them: The Gumbel-Top-k Trick for Sampling Sequences Without Replacement. In Proceedings of the 36th International Conference on Machine Learning (ICML) , pages 3499–3508. PMLR, 2019. [28] A. H. Land and A. G. Doig. An Automatic Method of Solving Discrete Programming Prob-lems. Econometrica , 28(3):497, 1960. doi:10.2307/1910129. 11 A First-order consistency of the vertex-restricted discretization 
+
+In this appendix, we show that the vertex-restricted Bellman equation Eq. (10) is a first-order con-sistent approximation of the continuous stationary HJB-VI Eq. (5). Since safety value functions are generally nonsmooth, consistency is checked using a smooth test function ψ rather than the value function itself. Intuitively, ψ acts as a smooth local proxy for the value function near a regular point. Let Y ⊆ X be a compact local region containing x and F (x, v ) for all v ∈ V and all sufficiently small ∆t. Let ψ ∈ C1,1(Y). For any vertex v ∈ V , Taylor’s theorem gives 
+
+ψ(F (x, v )) = ψ(x) + ∆ t ∇ψ(x)⊤ϕ(x, v ) + R∆t(x, v ), (21) where 
+
+|R∆t(x, v )| ≤ 12 L∇ψ ∥ϕ(x, v )∥2∆t2. (22) Here L∇ψ denotes a Lipschitz constant of ∇ψ on Y. If ψ ∈ C2(Y), one may take L∇ψ =sup y∈Y ∥∇ 2ψ(y)∥.Taking the maximum over vertices in Eq. (21) yields 
+
+max  
+
+> v∈V
+
+ψ(F (x, v )) = ψ(x) + ∆ t max  
+
+> v∈V
+
+∇ψ(x)⊤ϕ(x, v ) + O(∆ t2) (23) 
+
+= ψ(x) + ∆ tH (x, ∇ψ(x)) + O(∆ t2), (24) where the second equality uses the vertex representation of the Hamiltonian. Equivalently, 
+
+max v∈V ψ(F (x, v )) − ψ(x)∆t = H(x, ∇ψ(x)) + O(∆ t). (25) More explicitly, the local truncation error satisfies 
+
+max v∈V ψ(F (x, v )) − ψ(x)∆t − H(x, ∇ψ(x)) ≤ 12 L∇ψ max  
+
+> v∈V
+
+∥ϕ(x, v )∥2∆t. (26) Thus, the one-step Bellman expansion has O(∆ t2) error, while the time-normalized finite-difference approximation of the Hamiltonian has O(∆ t) error. Substituting Eq. (25) into the discrete variational-inequality operator Eq. (11) gives 
+
+min 
+
+
+
+c(x) − ψ(x), max v∈V ψ(F (x, v )) − ψ(x)∆t
+
+
+
+= min {c(x) − ψ(x), H (x, ∇ψ(x)) } + O(∆ t).
+
+(27) Therefore, the vertex-restricted Euler Bellman operator is a first-order consistent discretization of the continuous stationary HJB-VI operator. 
+
+Scope of the consistency result. The calculation above establishes only local consistency of the vertex-restricted Bellman operator with the stationary HJB-VI. It is not a complete convergence proof for the infinite-horizon value function, which would also require well-posedness of the lim-iting viscosity problem, including a comparison principle, appropriate boundary or state-constraint conditions, and a selection argument identifying the dynamic-programming solution among possible stationary viscosity solutions. We use this result only to justify the local first-order behavior of the proposed vertex-restricted discretization. 
+
+B Overview of the Tree Search Methods 
+
+This appendix details the three vertex-restricted tree search methods used to generate supervision labels in Eq. (12), namely beam search, stochastic beam search, and branch and bound [26, 27, 28]. All three methods seek to approximate the same optimization problem 
+
+V K
+
+> ∆t
+
+(x0) = max  
+
+> u0,...,u K−1∈V
+
+min  
+
+> 0≤k≤K
+
+c(xk), xk+1 = F (xk, u k), (28) 12 over the tree whose nodes at depth k are reachable states and whose M = |V| children of each node correspond to the control vertices. The full tree has M K leaves, so exact enumeration is intractable for large M or K and we use width-bounded heuristic searches with a budget B. All three methods are implemented in a batched GPU-parallel form. At every depth, all N initial states, all current beam entries, and all M vertices are expanded and scored in a single forward pass. The three methods differ only in the rule for selecting which candidates to retain. 
+
+Score function. For a partial trajectory committed up to depth k, the running-minimum score 
+
+sk = min  
+
+> 0≤j≤k
+
+c(xj ) (29) is monotonically non-increasing in k, so sk is an upper bound on min 0≤j≤K c(xj ) for any extension to depth K. The three methods differ only in how they use sk to prune the search. 
+
+B.1 Beam Search (BS) 
+
+Beam search keeps, after each expansion, the B partial trajectories with the largest score sk. At depth k with current beam of size W ≤ B, all W · M children are generated by appending every 
+
+u ∈ V and propagating via F . The running-minimum score is then updated, and the top-B children by sk+1 are retained. After K steps, the returned label is max i=1 ,...,B s(i) 
+
+> K
+
+, where s(i) 
+
+> K
+
+is the score of the i-th surviving trajectory in the final beam. 
+
+B.2 Stochastic Beam Search (SBS) 
+
+Deterministic beam search may converge to a single locally optimal branch early in the search. SBS replaces the deterministic top-B selection with a score-proportional draw of B children without replacement , preserving diversity. We implement four sampling strategies: • Softmax : multinomial sampling from softmax( s/T ) with temperature T > 0.• Gumbel top-k: add i.i.d. Gumbel(0 , 1) noise to s/T and take the top-B — an unbiased, fully parallel sampler without replacement. • Rank : weight proportional to (C − rank +1) , independent of score scale and requiring no temperature. • ε-greedy : with probability ε, replace the deterministic top-B by B uniformly random can-didates. 
+
+B.3 Branch and Bound (BnB) 
+
+Because sk is an upper bound on the score of any completion, a child node with sk+1 ≤ sLB cannot improve the global lower bound sLB on Eq. (28) and may be safely discarded. Our BnB performs 
+
+nrestarts passes over the same tree: • Pass 1 : sLB = −∞ , no pruning, so the pass behaves like BS and yields an initial sLB from the best leaf sK .• Passes 2 onwards : sLB is the best leaf score found over all previous passes. At every depth, children with sk+1 ≤ sLB are masked out before the top-B selection. Small Gaussian tie-breaking noise on the selection scores diversifies which B survive across passes, so that pruning allows previously unexplored subtrees to enter the beam. Pruning preserves optimality with respect to the searched subtree and BnB therefore returns a value at least as large as BS for the same B, at the cost of running nrestarts passes. 
+
+Choice of the search variant. All three methods solve the same problem Eq. (28) and differ only in how they use the budget B. The choice therefore depends on the width of the beam relative to the 13 size of the tree. When M is small, the retained beam already covers a large portion of the complete control tree at every depth, the discarded subtrees are unlikely to contain the optimum, and BS is preferred for its simplicity and its deterministic labels. As M grows, the beam becomes narrow relative to the M k nodes at depth k, and a deterministic top-B selection is more likely to commit early to a locally optimal branch and to discard the optimal one. In this regime it is beneficial to use part of the budget for exploration, either by randomizing the selection as in SBS, or by running several passes in which the best value found in the previous passes is used to prune the tree, so that previously unexplored subtrees can enter the beam, as in BnB. Both increase the chance of obtaining a better solution at the same beam width, at the cost of stochastic labels for SBS and of 
+
+nrestarts times the runtime for BnB. The variant used for each system is listed in the configuration tables of Appendix I. 
+
+C Influence of Beam-Search Hyperparameters 
+
+The supervision data for VertexCBF are generated by one of the beam-search-based methods, and the data quality is mainly determined by three parameters, namely the beam width B, the horizon length K, and the step size ∆t. In this section, we consider the inverted pendulum because its numerically computed value function is available, although the conclusions are applicable to other systems. We evaluate all combinations of B ∈ { 50 , 200 , 500 , 800 , 1000 }, K ∈ { 5, 10 , 20 , 30 , 40 }, and ∆t ∈{0.05 , 0.1, 0.2} for the settings detailed in Appendix I.1. As the main metric, we report the mean-squared error (MSE) of the resulting V K,B  
+
+> ∆t
+
+(x) with respect to the ground-truth value V (x) over a uniform state-space lattice. The results are presented in Fig. 4, and several trends are evident. First, if the effective prediction horizon K∆t is too short to detect future violations, the error is high because the value is systematically overestimated. Second, as the number of prediction steps K increases, the beam width B must also increase to retain near-optimal trajectories and maintain low approximation error. Finally, for larger ∆t, fewer steps are needed to obtain an accurate approximation. However, a further increase of the step size makes the discretization inaccurate. 50 200 500 800 1000                
+
+> B510 20 30 40 K
+> 3.5
+> 3.0
+> 2.5
+> 2.0
+> log10(MSE)
+> t= 0.05 [s]
+> 50 200 500 800 1000
+> B510 20 30 40 K
+> 3.5
+> 3.0
+> 2.5
+> 2.0
+> t= 0.1 [s]
+> 50 200 500 800 1000
+> B510 20 30 40 K
+> 3.5
+> 3.0
+> 2.5
+> 2.0
+> t= 0.2 [s]
+
+Figure 4: Beam-search MSE against the ground-truth value on the inverted pendulum system, as a function of B and K for different ∆t.In addition to MSE, Fig. 5 reports the beam-search execution time for the inverted pendulum under the same settings. Since the number of search operations does not depend on the step size ∆t, we show runtime only as a function of B and K. As expected, runtime grows approximately linearly with both parameters. At each depth, beam search evaluates up to BM successors and retains the best B partial trajectories. Therefore, for N initial states and branching factor M = |V| , the overall complexity is O(N KBM ), up to the cost of simulating transitions and evaluating the objective. 
+
+D Influence of the Search Step Size 
+
+The step size ∆t enters the first term of Eq. (14), which collects the error of the forward-Euler discretization and the error of holding one vertex control over an interval of length ∆t. A smaller 14 50 200 500 800 1000 
+
+> B
+> 510 20 30 40
+> K
+> 0.0 0.2 0.4 0.6 0.8 1.0 Elapsed time [s]
+
+Figure 5: Execution time of the beam-search algorithm for the inverted pendulum as a function of beam width B and tree depth K. Runtime scales approximately proportionally to B · K and does not depend on ∆t.
+
+∆t reduces both, but for a fixed horizon K it also shortens the look-ahead time K∆t, so the labels cover a shorter part of the future. We study this trade-off on the 6-DoF underwater vehicle. We regenerate the supervision data for ∆t ∈ { 0.02 , 0.05 , 0.1, 0.2, 0.4} s and train a model from scratch for each of them with three different seeds. Every other setting is the one of Table 18, including the horizon K = 40 and the beam width B = 800 , so the look-ahead time ranges from 
+
+0.8 s to 16 s. The cost of the search does not depend on ∆t, because the number of expanded nodes remains the same. The five settings corresponding to different ∆t values therefore differ in accuracy and not in runtime. The validation metrics are reported in Table 2 and the corresponding value function slices in Fig. 6. The smallest and the largest step sizes underperform for different reasons. At ∆t = 0 .02 s the look-ahead time is only 0.8 s, which is shorter than the braking time of the vehicle. The labels then fail to detect later violations, and the false-safe rate rises to 3.94% . At ∆t = 0 .4 s the discretization itself becomes inaccurate. The predicted safe set shrinks visibly in Fig. 6, the false-unsafe rate rises to 
+
+7.02% , and the effective safe volume drops to 0.317 .Between these two extremes, the method is stable. For ∆t between 0.05 and 0.2 s the false-safe rate remains at or below 1.18% and the effective safe volume varies only between 0.348 and 0.356 . The best result is obtained at ∆t = 0 .1 s, which is the value used in the main experiments, and the spread over the three seeds is small everywhere. The resulting guideline is to choose ∆t small enough for the Euler step to remain accurate, and then to choose K such that K∆t covers the time the system needs to stop. 3 2 1 0 1 2 3                              
+
+> py
+> 3
+> 2
+> 1
+> 0123
+> pz
+> t= 0.02 s
+> Constraint Predicted
+> 3210123
+> py
+> t= 0.05 s
+> 3210123
+> py
+> t= 0.1 s
+> 3210123
+> py
+> t= 0.2 s
+> 3210123
+> py
+> t= 0.4 s
+> 2.5
+> 2.0
+> 1.5
+> 1.0
+> 0.5
+> 0.0 0.5 1.0 1.5
+> V(x)
+
+Figure 6: Learned neural CBF slices for the 6-DoF underwater vehicle for each search step size. The black line is the constraint boundary and the dashed line is the predicted safe-set boundary. 
+
+E Ablation on the Residual Architecture 
+
+All methods in Table 1 use the residual parametrization Eq. (15). To isolate its contribution, we repeat every experiment with a network that approximates the value function directly, replacing 15 Table 2: Influence of the discretization step size ∆t on the 6-DoF underwater vehicle. All other settings are those of Table 18. Entries are mean ± standard deviation over three training seeds. 
+
+∆t [s] ρFS (%) ↓ ρFU (%) ↓ ηeff ↑
+
+0.02 3.94 ±0.24 2.88 ±0.03 0.340 ±0.001 
+
+0.05 0.63 ±0.03 3.12 ±0.02 0.354 ±0.000 
+
+0.1 1.15 ±0.06 2.16 ±0.02 0.356 ±0.000 
+
+0.2 1.18 ±0.13 3.22 ±0.06 0.348 ±0.000 
+
+0.4 0.51 ±0.13 7.02 ±0.14 0.317 ±0.000 
+
+the softplus output of the residual rΘ by a linear output activation. Architecture, hyperparameters, supervision data, and validation protocol are otherwise unchanged, and each configuration is again trained with five seeds. The results are reported in Table 3. The residual parametrization proves essential for PDE-only learning. Without it, training converges to a trivial solution with an empty predicted safe set for 14 of the 15 systems, so both ρFS and ηeff 
+
+degenerate and the large false-unsafe rates merely reflect that every state is predicted unsafe. Only the 3-DOF Manipulator retains a non-empty safe set, and it does so with a high and strongly seed-dependent false-safe rate. This behavior is expected, because a sufficiently negative constant value function makes the PDE loss Eq. (17) vanish everywhere. The supervised methods are considerably less sensitive because the data loss already anchors the solution to non-trivial values. Removing the residual parametrization nevertheless degrades most entries. For VRCD, the false-safe rate increases on 13 of the 15 systems and the effective safe volume decreases on 11, with the largest losses on the Cart-Pole and the Quadrotor. The two com-ponents are thus complementary. The residual parametrization significantly decreases the risk of a trivial solution and guarantees ˆS ⊆ C by construction, while the supervision data determine how closely ˆS approaches the maximal safe set. 
+
+F Sensitivity to the PDE-Loss Weight 
+
+The weight λ in Eq. (16) balances the PDE loss and the data loss. We vary it on the inverted pendulum, keeping every other setting of Table 5 and training three seeds per value. The two ends of the range are the limiting cases, because λ = 0 trains on the supervision data alone and λ = 1 
+
+reduces the method to PDE-only learning. Table 3: CBF validation results without the residual parametrization, where VΘ is approximated directly by a network with linear output activation. All other settings and reporting conventions follow Table 1. 
+
+System ( nx, nu) ρFS (%) ↓ ρFU (%) ↓ ηeff ↑
+
+ND FCD VRCD (ours) ND FCD VRCD (ours) ND FCD VRCD (ours) Inverted Pendulum (2, 1) – 1.06 ±0.19 6.49 ±3.23 0.00 ±0.01 14.91 ±0.76 0.29 ±0.17 0.00 ±0.00 0.08 ±0.00 0.21 ±0.01 1D Double Integrator (2, 1) – 0.16 ±0.07 0.15 ±0.07 26.15 ±15.13 4.35 ±0.28 1.20 ±0.10 0.00 ±0.00 0.39 ±0.00 0.41 ±0.00 2D Vertical Drone (2, 1) – – 0.14 ±0.06 3.95 ±6.12 4.06 ±7.96 1.80 ±0.14 0.00 ±0.00 0.00 ±0.00 0.58 ±0.00 Dubins Car (3, 1) – 0.08 ±0.04 0.18 ±0.07 81.06 ±4.98 4.78 ±1.16 2.51 ±0.49 0.00 ±0.00 0.92 ±0.00 0.92 ±0.00 2D Double Integrator (4, 2) – 1.60 ±0.55 1.58 ±0.83 67.67 ±10.10 3.69 ±0.39 3.87 ±0.43 0.00 ±0.00 0.91 ±0.01 0.91 ±0.01 Kinematic Bicycle (4, 2) – 0.19 ±0.12 0.73 ±0.81 71.98 ±5.65 4.91 ±0.25 5.77 ±0.45 0.00 ±0.00 0.91 ±0.00 0.91 ±0.01 Cart-Pole (4, 1) – – 20.39 ±20.37 1.66 ±2.98 6.00 ±10.21 1.96 ±0.62 0.00 ±0.00 0.00 ±0.00 0.26 ±0.07 Dynamic Unicycle (5, 2) – 0.15 ±0.05 0.26 ±0.05 79.18 ±1.55 8.41 ±1.10 10.61 ±0.69 0.00 ±0.00 0.93 ±0.00 0.92 ±0.00 Relative Unicycle (5, 2) – 0.17 ±0.11 0.36 ±0.07 83.25 ±2.48 39.64 ±0.67 4.67 ±1.05 0.00 ±0.00 0.88 ±0.00 0.93 ±0.00 3D Double Integrator (6, 3) – 0.79 ±0.71 0.75 ±0.87 84.35 ±3.09 4.62 ±0.77 4.97 ±1.04 0.00 ±0.00 0.96 ±0.01 0.96 ±0.01 3-DOF Manipulator (6, 3) 40.01 ±32.95 0.48 ±0.10 0.44 ±0.05 0.56 ±0.29 7.31 ±0.18 5.88 ±0.05 0.43 ±0.24 0.65 ±0.00 0.66 ±0.00 Landing Rocket (7, 2) – 80.40 ±9.66 1.10 ±0.41 0.00 ±0.00 2.22 ±1.40 6.01 ±0.14 0.00 ±0.00 0.01 ±0.01 0.24 ±0.00 Quadruped Trunk (9, 4) – – 15.62 ±14.32 0.00 ±0.00 1.96 ±1.79 2.47 ±0.28 0.00 ±0.00 0.00 ±0.00 0.06 ±0.01 6-DoF Underw. Veh. (12, 6) – 1.92 ±0.15 3.24 ±0.16 1.65 ±0.32 5.38 ±0.03 2.49 ±0.04 0.00 ±0.00 0.33 ±0.00 0.35 ±0.00 Quadrotor (13, 4) – 6.09 ±2.48 6.04 ±4.17 82.36 ±0.62 6.93 ±0.50 7.78 ±0.57 0.00 ±0.00 0.87 ±0.02 0.87 ±0.04 
+
+16 The results are shown in Fig. 7. The method is not significantly sensitive to λ over the entire range from 0 to 0.5. The effective safe volume stays between 20 .2% and 22 .1% , the false-safe rate stays below 0.3% , and the error against the ground truth varies between 1.8 · 10 −4 and 7.8 · 10 −4. The smallest error is reached near λ = 0 .1, and the value λ = 0 .2 used for this system lies inside the flat region. The behavior changes abruptly above λ = 0 .5. At λ = 0 .7 the predicted safe set is empty for every seed, and at λ = 0 .9 and λ = 1 it is non-empty but every predicted-safe state is false-safe. The error against the ground truth grows by more than two orders of magnitude over the same range. The data term is therefore what keeps the optimization away from the trivial solutions of the PDE loss, while a moderate weight on the PDE term is enough to enforce local consistency without dominating the objective. We selected λ per system in the same way, by choosing a value inside the range where the validation metrics are flat. 0.0 0.2 0.4 0.6 0.8 1.0 PDE-loss weight              
+
+> 020 40 60 80 100 [%]  empty Seff [%]
+> FS [%]
+> FU [%]
+> 0.0 0.2 0.4 0.6 0.8 1.0 PDE-loss weight
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> MSE vs ground truth
+
+Figure 7: Sensitivity to the PDE-loss weight λ on the inverted pendulum. The results show validation metrics (left) and mean squared error against the ground-truth value function (right). Mean values are obtained over three seeds and the bands are one standard deviation. In the shaded region ηeff is zero and ρFS is undefined for λ = 0 .7 where the predicted safe set is empty for every seed. 
+
+G Comparison with the Ground Truth 
+
+The metrics of Table 1 are obtained from closed-loop rollouts, so they can be computed for every system. For seven of the fifteen systems, a reference value function computed on a state-space grid is also available 3. These are systems with at most four states, because the memory and the runtime of a grid-based solver grow exponentially with the state dimension. For the remaining systems, a grid solution is not feasible on our hardware. For these seven systems, we report the intersection over union metric defined as 
+
+IoU = | ˆS ∩ S| | ˆS ∪ S| ,
+
+where ˆS = {x : VΘ(x) > 0} is the predicted safe set, S = {x : V (x) > 0} is the ground-truth safe set, and both are evaluated on the grid points of the reference solution. The IoU penalizes a predicted safe set that is too large and one that is too small, so it complements ρFS and ηeff , which separate the two effects. The results are given in Table 4. VRCD reaches the highest IoU on five of the seven systems and stays within 0.3 percentage points of the best value on the other two. The three methods are almost identical on the systems that all of them solve well, such as the Dubins car and the 2D double integrator. The differences are large on the inverted pendulum, the vertical drone and the cart-pole, where FCD predicts an empty safe set (vertical drone, cart-pole) or only a small subset of the true one (inverted pendulum), and PDE-only recovers only a part of it. 
+
+> 3
+
+The reference value functions are computed with the hj reachability toolbox available at https:// github.com/StanfordASL/hj_reachability .
+
+17 Table 4: Intersection over union (%) between the predicted safe set ˆS and the ground-truth safe set 
+
+S, evaluated on the ground-truth grid of every system for which it is available. Entries are mean ±
+
+standard deviation over five training seeds.                                              
+
+> System ND FCD VRCD (ours) Inverted Pendulum 1.54 ±3.07 33.53 ±0.61 96.39 ±1.16 1D Double Integrator 98.37 ±0.72 94.02 ±0.43 98.10 ±0.35 2D Vertical Drone 64.09 ±32.05 0.00 ±0.00 98.48 ±0.20 Dubins Car 99.56 ±0.15 99.66 ±0.04 99.80 ±0.03 2D Double Integrator 99.52 ±0.03 99.39 ±0.02 99.64 ±0.02 Kinematic Bicycle 97.71 ±0.24 99.65 ±0.00 99.59 ±0.00 Cart-Pole 65.07 ±0.22 0.00 ±0.00 93.38 ±0.35
+
+H Details on Hardware Experiments 
+
+The hardware experiments are conducted on a mobile delivery robot equipped with a 3D LiDAR and stereo cameras. All computation and data processing, including object recognition and tracking, robot localization, and QP optimization, are performed on the onboard computer 4.During the hardware experiments, we conduct 10 trials in which the robot navigates from the start position to the goal position while avoiding pedestrians. In all trials, the robot successfully avoids collisions with pedestrians using the neural CBF trained with the approach proposed in this paper and deployed as in [13]. As the extended class-K function, we use α(h(x)) = kh (x) with k = 2 .8.Details on the relative system dynamics, constraint function, state limits, and control limits are provided in Appendix I.9. In Fig. 8, we show a screenshot from the onboard computer of the mobile robot used in the experiments. The CBF is evaluated for the relative state between the robot and each tracked pedestrian, and then aggregated into a single composite CBF constraint added to the QP. As it is standard in practice, the constraint is relaxed by a slack variable, which is penalized in the QP cost. The relaxation keeps the QP feasible even when the perception module reports a new pedestrian at a state where the CBF constraint cannot be satisfied by any admissible control. When a slack variable becomes active, the corresponding constraint is violated and forward invariance of the safe set is no longer guaranteed. Two properties of the deployment explain the small negative CBF values in Fig. 3. First, the learned CBF assumes the ideal relative unicycle model of Appendix I.9, while the real platform is a skid-steer robot whose wheels slip during turns and whose velocity controller has its own dynamics. The pedestrian states are estimated from LiDAR and camera measurements, so they are noisy and slightly delayed, and the constant-velocity assumption of the relative model only holds approximately. The QP also runs at a finite rate, so the control is held constant between two updates. Second, the radii 
+
+rr and ro used during training are inflated by 5 cm with respect to the physical dimensions of the robot and of a pedestrian. The learned safe set is therefore slightly smaller than the collision-free set of the real system, which absorbs the effects listed above. This is why the robot completes all trials without a collision even though the CBF value becomes negative for short periods. 
+
+I Details on Numerical Experiments 
+
+I.1 Inverted Pendulum 
+
+The state and control are 
+
+x = [ θ ω]⊤ , u = τ,     
+
+> 4An Intel NUC11PHi7 with an 11th generation Intel Core i7-1165G7 processor at 2.80 GHz, 16 GB of RAM, and an NVIDIA GeForce RTX 2060 graphics card.
+
+18 Front camera view Robot's perception Neural CBF (2D slice) 
+
+> Safe Set
+> Unsafe set
+
+Figure 8: Screenshot from the onboard computer of the mobile robot used in the hardware exper-iments. The screenshot shows the front camera view, a 2D slice of the neural CBF in positional coordinates, and a visualization from the perception module. where θ is the pole angle from the upright equilibrium, ω the angular velocity, and τ the applied pivot torque. The dynamics are 
+
+f (x) = 
+
+" ωgl sin θ
+
+#
+
+, g(x) = 
+
+" 01
+
+m l 2
+
+#
+
+.
+
+The constraint function bounds the pole angle: 
+
+c(x) = d − | θ|.
+
+See Table 5 for the configuration and Fig. 9 for a 2D CBF slice. 0.4 0.2 0.0 0.2 0.4  
+
+> 1.5
+> 1.0
+> 0.5
+> 0.0 0.5 1.0 1.5
+> Constraint Ground truth Predicted Validated
+> 0.2
+> 0.1
+> 0.0 0.1 0.2 0.3
+> V(x)
+
+Figure 9: 2D slice of the learned neural CBF for the inverted pendulum in the (θ, ω ) plane. 
+
+I.2 1D Double Integrator 
+
+The state and control are 
+
+x = [ p v]⊤ , u = a, 
+
+19 Table 5: Configuration — Inverted Pendulum. 
+
+Dynamics 
+
+xmin [−0.5, −1.5] 
+
+xmax [ 0.5, 1.5] 
+
+umin −3.5
+
+umax 3.5
+
+Model params m=2 .0, l=1 .0, g=9 .81 
+
+Constraint d 0.3
+
+Data Method Beam search # samples 60 × 60 (grid) 
+
+K 20 
+
+B 500 ∆t 0.1 sextra params —
+
+Tdata 1 sModel Hidden layers 5 × 32 , sin 
+
+Output softplus ( β = 10 )Training Epochs 10 ,000 
+
+Learning rate 10 −3
+
+LR schedule ×0.1 at epoch 7,000 
+
+PDE # samples 10 ,000 
+
+PDE weight 0.2 (fixed) 
+
+Ttrain 1 m 0 sValidation Horizon T 5.0 s
+
+∆t 0.01 s# samples 20 ,000 
+
+Tvalid 1 s
+
+where p is the position, v the velocity, and a the commanded acceleration. The dynamics are 
+
+f (x) = 
+
+v
+
+0
+
+
+
+, g(x) = 
+
+01
+
+
+
+.
+
+The constraint function bounds the position around an interval center pc:
+
+c(x) = d − | p − pc|.
+
+See Table 6 for the configuration and Fig. 10 for a 2D CBF slice. 1.5 1.0 0.5 0.0 0.5 1.0 1.5  
+
+> p
+> 1.5
+> 1.0
+> 0.5
+> 0.0 0.5 1.0 1.5
+> v
+> Constraint Ground truth Predicted Validated
+> 2.5
+> 2.0
+> 1.5
+> 1.0
+> 0.5
+> 0.0 0.5
+> V(x)
+
+Figure 10: 2D slice of the learned neural CBF for the 1D double integrator in the (p, v ) plane. 20 Table 6: Configuration — 1D Double Integrator. 
+
+Dynamics 
+
+xmin [−1.5, −1.5] 
+
+xmax [ 1.5, 1.5] 
+
+umin −0.5
+
+umax 0.5
+
+Model params —Constraint pc 0.0
+
+d 1.0
+
+Data Method Stochastic beam search # samples 50 × 50 (grid) 
+
+K 40 
+
+B 1,500 ∆t 0.1 sextra params T =0 .05 
+
+Tdata 1 sModel Hidden layers 4 × 32 , sin 
+
+Output softplus ( β = 1 )Training Epochs 10 ,000 
+
+Learning rate 10 −3
+
+LR schedule ×0.1 at epoch 8,000 
+
+PDE # samples 10 ,000 
+
+PDE weight 0.9 (fixed) 
+
+Ttrain 51 sValidation Horizon T 4.0 s
+
+∆t 0.01 s# samples 20 ,000 
+
+Tvalid 1 s
+
+I.3 2D Vertical Drone 
+
+The state and control are 
+
+x = [ z vz ]⊤ , u = a, 
+
+where z is the altitude, vz the vertical velocity, and a the commanded acceleration (scaled by a thrust gain K). The dynamics are 
+
+f (x) = 
+
+ vz
+
+−g
+
+
+
+, g(x) = 
+
+ 0
+
+K
+
+
+
+.
+
+The constraint function enforces an altitude band z ∈ [zc − d, z c + d]:
+
+c(x) = d − | z − zc|.
+
+See Table 7 for the configuration and Fig. 11 for a 2D CBF slice. 
+
+I.4 Dubins Car 
+
+The state and control are 
+
+x = [ px py θ]⊤ , u = ω, 
+
+where (px, p y ) is the position, θ the heading angle, and ω the turning rate. The forward speed v is a fixed parameter. The dynamics are 
+
+f (x) = 
+
+"v cos θv sin θ
+
+0
+
+#
+
+, g(x) = 
+
+"001
+
+#
+
+.
+
+The constraint function is a circular obstacle of radius r centered at the origin: 
+
+c(x) = 
+
+q
+
+p2 
+
+> x
+
++ p2 
+
+> y
+
+− r. 
+
+See Table 8 for the configuration and Fig. 12 for a 2D CBF slice. 21 Table 7: Configuration — 2D Vertical Drone. 
+
+Dynamics 
+
+xmin [−0.5, −4.0] 
+
+xmax [ 3.5, 4.0] 
+
+umin −1.0
+
+umax 1.0
+
+Model params K=12 .0, g=9 .81 
+
+Constraint zc 1.5
+
+d 1.5
+
+Data Method Branch-and-bound # samples 80 × 80 (grid) 
+
+K 60 
+
+B 2,000 ∆t 0.05 sextra params nrestarts = 2 
+
+Tdata 5 sModel Hidden layers 4 × 32 , sin 
+
+Output softplus ( β = 10 )Training Epochs 10 ,000 
+
+Learning rate 10 −3
+
+LR schedule ×0.1 at epoch 7,000 
+
+PDE # samples 10 ,000 
+
+PDE weight 0.55 (fixed) 
+
+Ttrain 52 sValidation Horizon T 5.0 s
+
+∆t 0.01 s# samples 20 ,000 
+
+Tvalid 1 s0.5 0.0 0.5 1.0 1.5 2.0 2.5 3.0 3.5 
+
+z 
+
+> 4
+> 3
+> 2
+> 1
+> 01234
+> vz
+> Constraint Ground truth Predicted Validated
+> 4
+> 3
+> 2
+> 1
+> 01
+> V(x)
+
+Figure 11: 2D slice of the learned neural CBF for the 2D vertical drone in the (z, v z ) plane. 
+
+I.5 2D Double Integrator 
+
+The state and control are 
+
+x = [ px py vx vy ]⊤ , u = [ ax ay ]⊤ ,
+
+22 Table 8: Configuration — Dubins Car. 
+
+Dynamics 
+
+xmin [−4.0, −4.0, −3.14] 
+
+xmax [ 4.0, 4.0, 3.14] 
+
+umin −0.5
+
+umax 0.5
+
+Model params v=1 .0
+
+Constraint r 1.0
+
+Data Method Beam search # samples 50 ,000 
+
+K 150 
+
+B 1,000 ∆t 0.05 sextra params —
+
+Tdata 27 sModel Hidden layers 4 × 32 , sin 
+
+Output softplus ( β = 10 )Training Epochs 10 ,000 
+
+Learning rate 10 −3
+
+LR schedule ×0.1 at epoch 8,000 
+
+PDE # samples 200 ,000 
+
+PDE weight 0.8 (fixed) 
+
+Ttrain 2 m 15 sValidation Horizon T 5.0 s
+
+∆t 0.01 s# samples 200 ,000 
+
+Tvalid 3 s4 3 2 1 0 1 2 3 4 
+
+> px
+> 4
+> 3
+> 2
+> 1
+> 01234
+> py
+> Constraint Ground truth Predicted Validated
+> 1
+> 01234
+> V(x)
+
+Figure 12: 2D slice of the learned neural CBF for the Dubins car in the (px, p y ) plane with the heading fixed at θ = −0.8377 rad. with (px, p y ) and (vx, v y ) the planar position and velocity and (ax, a y ) the commanded accelera-tions. The dynamics are 
+
+f (x) = 
+
+
+
+vx
+
+vy
+
+00
+
+ , g(x) = 
+
+
+
+0 00 01 00 1
+
+ .
+
+The constraint function is a circular obstacle of radius r centered at the origin: 
+
+c(x) = 
+
+q
+
+p2 
+
+> x
+
++ p2 
+
+> y
+
+− r. 
+
+23 See Table 9 for the configuration and Fig. 13 for a 2D CBF slice. Table 9: Configuration — 2D Double Integrator. 
+
+Dynamics 
+
+xmin [−4.0, −4.0, −2.0, −2.0] 
+
+xmax [ 4.0, 4.0, 2.0, 2.0] 
+
+umin [−1.0, −1.0] 
+
+umax [ 1.0, 1.0] 
+
+Model params —Constraint r 1.0
+
+Data Method Branch-and-bound # samples 300 ,000 
+
+K 100 
+
+B 1,000 ∆t 0.05 sextra params nrestarts = 3 
+
+Tdata 8 m 2 sModel Hidden layers 5 × 32 , sin 
+
+Output softplus ( β = 10 )Training Epochs 10 ,000 
+
+Learning rate 10 −3
+
+LR schedule ×0.1 at epoch 7,000 
+
+PDE # samples 600 ,000 
+
+PDE weight normalized 
+
+Ttrain 6 m 46 sValidation Horizon T 5.0 s
+
+∆t 0.01 s# samples 1,000 ,000 
+
+Tvalid 12 s4 3 2 1 0 1 2 3 4 
+
+> px
+> 4
+> 3
+> 2
+> 1
+> 01234
+> py
+> Constraint Ground truth Predicted Validated
+> 1
+> 01234
+> V(x)
+
+Figure 13: 2D slice of the learned neural CBF for the 2D double integrator in the (px, p y ) plane with velocity fixed at (vx, v y ) = (2 .0, 1.0) .
+
+I.6 Kinematic Bicycle 
+
+The state and control are 
+
+x = [ px py ψ v]⊤ , u = [tan δ a]⊤ ,
+
+where (px, p y ) is the rear-axle position, ψ the heading, v the longitudinal speed, δ the front-wheel steering angle, and a the longitudinal acceleration. We use tan δ in place of δ to keep the dynamics 24 control-affine. With wheelbase L,
+
+f (x) = 
+
+
+
+v cos ψv sin ψ
+
+00
+
+ , g(x) = 
+
+
+
+0 00 0
+
+v/L 00 1
+
+ .
+
+The constraint function is a circular obstacle of radius r centered at the origin: 
+
+c(x) = 
+
+q
+
+p2 
+
+> x
+
++ p2 
+
+> y
+
+− r. 
+
+See Table 10 for the configuration and Fig. 14 for a 2D CBF slice. Table 10: Configuration — Kinematic Bicycle. 
+
+Dynamics 
+
+xmin [−25 .0, −25 .0, −3.14 , 0.0] 
+
+xmax [ 25 .0, 25 .0, 3.14 , 20 .0] 
+
+umin [−0.3, −3.0] 
+
+umax [ 0.3, 3.0] 
+
+Model params L=2 .8
+
+Constraint r 7.0
+
+Data Method Beam search # samples 200 ,000 
+
+K 80 
+
+B 1,000 ∆t 0.1 sextra params —
+
+Tdata 2 m 24 sModel Hidden layers 32 -64 -64 -32 , sin 
+
+Output softplus ( β = 10 )Training Epochs 10 ,000 
+
+Learning rate 10 −3
+
+LR schedule ×0.1 at epoch 7,000 
+
+PDE # samples 500 ,000 
+
+PDE weight 0.15 (fixed) 
+
+Ttrain 6 m 3 sValidation Horizon T 5.0 s
+
+∆t 0.01 s# samples 500 ,000 
+
+Tvalid 6 s
+
+I.7 Cart-Pole 
+
+The state and control vectors are 
+
+x = p θ ˙p ˙θ⊤ , u = F, 
+
+where p is the cart position, θ the pole angle from the upright equilibrium, and F the horizontal force on the cart. With D(θ) = mc + mp sin 2θ we have: 
+
+f (x) = 
+
+
+
+˙p
+
+˙θmp sin θ
+
+
+
+l ˙θ2 − g cos θ
+
+
+
+D(θ)(mc + mp) g sin θ − mp l ˙θ2 cos θ sin θl D (θ)
+
+
+
+, g(x) = 
+
+
+
+001
+
+D(θ)
+
+− cos θl D (θ)
+
+
+
+.
+
+The constraint function is a smooth box constraint on p and θ:
+
+c(x) = − 1
+
+α log 
+
+
+
+e−α(pmax −| p|) + e−α(θmax −| θ|)
+
+.
+
+See Table 11 for the configuration and Fig. 15 for a 2D CBF slice. 25 20 10 0 10 20 
+
+px 
+
+> 20
+> 10
+> 010 20
+> py
+> Constraint Ground truth Predicted Validated
+> 5
+> 0510 15 20 25
+> V(x)
+
+Figure 14: 2D slice of the learned neural CBF for the kinematic bicycle in the (px, p y ) plane with heading ψ = 0 .0 rad and speed v = 20 .0 m/s. 1.5 1.0 0.5 0.0 0.5 1.0 1.5 
+
+p  
+
+> 0.3
+> 0.2
+> 0.1
+> 0.0 0.1 0.2 0.3 Constraint Ground truth Predicted Validated
+> 0.3
+> 0.2
+> 0.1
+> 0.0 0.1 0.2
+> V(x)
+
+Figure 15: 2D slice of the learned neural CBF for the cart-pole in the (p, θ ) plane with velocities fixed at ˙p = 0 .0 and ˙θ = 0 .0.
+
+I.8 Dynamic Unicycle 
+
+The state and control are 
+
+x = [ px py θ v ω]⊤ , u = [ a α]⊤ ,
+
+where (px, p y ) is position, θ heading, v longitudinal speed, ω angular velocity, and (a, α ) are the linear and angular accelerations. The dynamics are 
+
+f (x) = 
+
+
+
+v cos θv sin θω
+
+00
+
+ , g(x) = 
+
+
+
+0 00 00 01 00 1
+
+ .
+
+The constraint function is a circular obstacle of radius r centered at the origin: 
+
+c(x) = 
+
+q
+
+p2 
+
+> x
+
++ p2 
+
+> y
+
+− r. 
+
+See Table 12 for the configuration and Fig. 16 for a 2D CBF slice. 26 Table 11: Configuration — Cart-Pole. 
+
+Dynamics 
+
+xmin [−1.5, −0.35 , −1.0, −1.0] 
+
+xmax [ 1.5, 0.35 , 1.0, 1.0] 
+
+umin −5.0
+
+umax 5.0
+
+Model params mc=2 .0, mp=0 .5, l=0 .5, g=9 .81 
+
+Constraint 
+
+pmax 1.2
+
+θmax 0.25 
+
+α 30 .0
+
+Data Method Branch-and-bound # samples 400 ,000 
+
+K 50 
+
+B 500 ∆t 0.05 sextra params nrestarts = 2 
+
+Tdata 1 m 40 sModel Hidden layers 32 -64 -64 -64 -32 , sin 
+
+Output softplus ( β = 10 )Training Epochs 10 ,000 
+
+Learning rate 10 −3
+
+LR schedule ×0.1 at epoch 8,000 
+
+PDE # samples 800 ,000 
+
+PDE weight 0.0 (fixed) 
+
+Ttrain 2 m 14 sValidation Horizon T 3.0 s
+
+∆t 0.002 s# samples 1,000 ,000 
+
+Tvalid 51 s
+
+I.9 Relative Unicycle 
+
+This system models the relative dynamics between a dynamic-unicycle robot and a constant-velocity obstacle (e.g. a pedestrian), expressed in the robot’s body frame. The obstacle speed vp is unknown and lifted into the state. The state and control are 
+
+x = [ px py ψ vr vp]⊤ , u = [ a ω]⊤ ,
+
+where (px, p y ) is the obstacle’s position in the robot body frame, ψ its heading relative to the robot, 
+
+vr the robot’s linear speed, vp the obstacle’s linear speed, and (a, ω ) the robot’s linear acceleration and angular velocity. The rotating body frame induces a Coriolis-like coupling that makes g(x)
+
+state-dependent: 
+
+f (x) = 
+
+
+
+vp cos ψ − vr
+
+vp sin ψ
+
+000
+
+ , g(x) = 
+
+
+
+0 py
+
+0 −px
+
+0 −11 00 0
+
+ .
+
+The constraint function is a two-disk collision check in the body frame between the robot disk (radius 
+
+rr) at the origin and the obstacle disk (radius ro) at (px, p y ):
+
+c(x) = 
+
+q
+
+p2 
+
+> x
+
++ p2 
+
+> y
+
+− (rr + ro).
+
+See Table 13 for the configuration and Fig. 17 for a 2D CBF slice. 
+
+I.10 3D Double Integrator 
+
+The state and control are 
+
+x = [ px py pz vx vy vz ]⊤ , u = [ ax ay az ]⊤ ,
+
+27 Table 12: Configuration — Dynamic Unicycle. 
+
+Dynamics 
+
+xmin [−4.0, −4.0, −3.14 , −2.0, −1.0] 
+
+xmax [ 4.0, 4.0, 3.14 , 2.0, 1.0] 
+
+umin [−1.0, −1.0] 
+
+umax [ 1.0, 1.0] 
+
+Model params —Constraint r 1.0
+
+Data Method Beam search # samples 600 ,000 
+
+K 50 
+
+B 1,000 ∆t 0.1 sextra params —
+
+Tdata 3 sModel Hidden layers 4 × 64 , sin 
+
+Output softplus ( β = 10 )Training Epochs 10 ,000 
+
+Learning rate 10 −3
+
+LR schedule ×0.1 at epoch 7,000 
+
+PDE # samples 1,000 ,000 
+
+PDE weight 0.6 (fixed) 
+
+Ttrain 15 m 44 sValidation Horizon T 5.0 s
+
+∆t 0.01 s# samples 1,000 ,000 
+
+Tvalid 17 s4 3 2 1 0 1 2 3 4 
+
+> px
+> 4
+> 3
+> 2
+> 1
+> 01234
+> py
+> Constraint Predicted Validated
+> 1
+> 01234
+> V(x)
+
+Figure 16: 2D slice of the learned neural CBF for the dynamic unicycle in the (px, p y ) plane with heading θ = 0 .0 rad, linear speed v = 2 .0, and angular velocity ω = 0 .0.where (px, p y , p z ) and (vx, v y , v z ) are position and velocity in R3 and the controls are component-wise accelerations. With I3 and 03 the 3 × 3 identity and zero matrices, 
+
+f (x) = 
+
+
+
+vx
+
+vy
+
+vz
+
+000
+
+
+
+, g(x) = 
+
+03
+
+I3
+
+
+
+.
+
+28 Table 13: Configuration — Relative Unicycle. 
+
+Dynamics 
+
+xmin [−4.0, −4.0, −3.14 , 0.0, 0.0] 
+
+xmax [ 4.0, 4.0, 3.14 , 1.5, 1.5] 
+
+umin [−1.0, −0.6] 
+
+umax [ 1.0, 0.6] 
+
+Model params —Constraint rr 0.5
+
+ro 0.5
+
+Data Method Beam search # samples 1,000 ,000 
+
+K 50 
+
+B 1,000 ∆t 0.1 sextra params —
+
+Tdata 6 m 26 sModel Hidden layers 5 × 32 , sin 
+
+Output softplus ( β = 10 )Training Epochs 10 ,000 
+
+Learning rate 10 −3
+
+LR schedule ×0.1 at epoch 8,000 
+
+PDE # samples 2,000 ,000 
+
+PDE weight 0.3 (fixed) 
+
+Ttrain 22 m 2 sValidation Horizon T 5.0 s
+
+∆t 0.005 s# samples 1,000 ,000 
+
+Tvalid 28 s4 3 2 1 0 1 2 3 4 
+
+> px
+> 4
+> 3
+> 2
+> 1
+> 01234
+> py
+> Constraint Predicted Validated
+> 1
+> 01234
+> V(x)
+
+Figure 17: 2D slice of the learned neural CBF for the relative unicycle in the (px, p y ) plane with relative heading ψ = π rad, robot speed vr = 1 .0, and obstacle speed vp = 1 .0.The constraint function is a spherical obstacle of radius r centered at the origin: 
+
+c(x) = 
+
+q
+
+p2 
+
+> x
+
++ p2 
+
+> y
+
++ p2 
+
+> z
+
+− r. 
+
+See Table 14 for the configuration and Fig. 18 for a 2D CBF slice. 29 Table 14: Configuration — 3D Double Integrator. 
+
+Dynamics 
+
+xmin [−3.0, −3.0, −3.0, −2.0, −2.0, −2.0] 
+
+xmax [ 3.0, 3.0, 3.0, 2.0, 2.0, 2.0] 
+
+umin [−1.0, −1.0, −1.0] 
+
+umax [ 1.0, 1.0, 1.0] 
+
+Model params —Constraint r 1.0
+
+Data Method Stochastic beam search # samples 400 ,000 
+
+K 80 
+
+B 600 ∆t 0.05 sextra params Gumbel top-k, T =0 .05 
+
+Tdata 4 m 12 sModel Hidden layers 4 × 64 , sin 
+
+Output softplus ( β = 10 )Training Epochs 10 ,000 
+
+Learning rate 10 −3
+
+LR schedule ×0.1 at epoch 8,000 
+
+PDE # samples 600 ,000 
+
+PDE weight normalized 
+
+Ttrain 9 m 40 sValidation Horizon T 5.0 s
+
+∆t 0.005 s# samples 1,000 ,000 
+
+Tvalid 33 s3 2 1 0 1 2 3 
+
+> px
+> 3
+> 2
+> 1
+> 0123
+> py
+> Constraint Predicted Validated
+> 1.0
+> 0.5
+> 0.0 0.5 1.0 1.5 2.0 2.5 3.0
+> V(x)
+
+Figure 18: 2D slice of the learned neural CBF for the 3D double integrator in the (px, p y ) plane with 
+
+pz = 0 .0 and velocity (vx, v y , v z ) = (2 .0, 2.0, 0.0) .
+
+I.11 3-DOF Manipulator 
+
+This is a three-link spatial RRR arm with a shoulder yaw joint about world +z, a shoulder pitch joint about the local +y axis, and an elbow pitch joint. At q1 = q2 = q3 = 0 the arm is fully extended along world +x. The state and control are 
+
+x = [ q1 q2 q3 ˙q1 ˙q2 ˙q3]⊤ , u = [ τ1 τ2 τ3]⊤ .
+
+The links are modeled as point masses m1, m2 at the centers of mass lc1, lc2 along the upper-arm (l1) and forearm ( l2). Each joint carries a diagonal inertia I1, I 2, I 3. The manipulator equation 30 M (q)¨ q + C(q, ˙q) ˙ q + G(q) = τ then has a non-zero pattern in which the shoulder-yaw row is dynamically decoupled from the two pitch rows, so 
+
+M (q) = 
+
+"M11 (q2, q 3) 0 00 M22 (q3) M23 (q3)0 M23 (q3) M33 
+
+#
+
+,
+
+with (writing rc = l1 cos q2 + lc2 cos( q2+q3) and hc = l1 sin q2 + lc2 sin( q2+q3))
+
+M11 = m1l2 
+
+> c1
+
+cos 2 q2 + m2 r2 
+
+> c
+
++ I1,M22 = m1l2 
+
+> c1
+
++ m2
+
+ l21 + l2 
+
+> c2
+
++ 2 l1lc2 cos q3
+
+ + I2,M33 = m2l2 
+
+> c2
+
++ I3, M23 = m2
+
+ l2 
+
+> c2
+
++ l1lc2 cos q3
+
+ .
+
+The Coriolis and gravity terms are 
+
+(C ˙q)1 = −(m1l2 
+
+> c1
+
+sin 2 q2 + 2 m2rchc) ˙ q1 ˙q2 − 2m2rclc2 sin( q2+q3) ˙ q1 ˙q3,
+
+(C ˙q)2 = 12 m1l2 
+
+> c1
+
+sin 2 q2 ˙q21 + m2rchc ˙q21 − 2m2l1lc2 sin q3 ˙q2 ˙q3 − m2l1lc2 sin q3 ˙q23 ,
+
+(C ˙q)3 = m2rclc2 sin( q2+q3) ˙ q21 + m2l1lc2 sin q3 ˙q22 ,G1 = 0 , G2 = g(( m1lc1 + m2l1) cos q2 + m2lc2 cos( q2+q3)) ,G3 = m2g l c2 cos( q2+q3).
+
+The control-affine form is 
+
+f (x) = 
+
+ ˙q
+
+−M −1(C ˙q + G)
+
+
+
+, g(x) = 
+
+ 03
+
+M −1(q)
+
+
+
+,
+
+with M −1 available in closed form because of the block-diagonal structure. The constraint is a whole-arm collision check against a spherical obstacle at c ∈ R3 of radius r. Each link is modeled as a capsule of thickness rℓ, and the safe-set SDF is the smooth minimum of the per-link capsule-vs-sphere distances, 
+
+c(x) = − 1
+
+α log 
+
+ 2X
+
+> i=1
+
+e−α d i(x)
+
+, di(x) = dist  c, link i(q) − r − rℓ,
+
+where dist( c, link i) is the Euclidean distance from the obstacle center to the i-th link segment in world coordinates. See Table 15 for the configuration and Fig. 19 for a 2D CBF slice. 1.00 0.75 0.50 0.25 0.00 0.25 0.50 0.75 1.00  
+
+> q2
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00 0.25 0.50 0.75 1.00
+> q3
+> Constraint Predicted Validated
+> 0.15
+> 0.10
+> 0.05
+> 0.00 0.05 0.10 0.15 0.20
+> V(x)
+
+Figure 19: 2D slice of the learned neural CBF for the 3-DOF manipulator in the (q2, q 3) plane with 
+
+q1 = 0 .25 rad and joint velocities ( ˙ q1, ˙q2, ˙q3) = (0 .0, −5.0, 0.0) rad/s. 31 Table 15: Configuration — 3-DOF Manipulator. 
+
+Dynamics 
+
+xmin [−1.0, −1.0, −1.0, −3.0, −6.0, −6.0] 
+
+xmax [ 1.0, 1.0, 1.0, 3.0, 6.0, 6.0] 
+
+umin [−10 .0, −20 .0, −10 .0] 
+
+umax [ 10 .0, 20 .0, 10 .0] 
+
+Model params m1=m2=2 .0
+
+l1=l2=0 .5
+
+lc1=lc2=0 .25 
+
+I1=I2=I3=0 .0417 
+
+g=9 .81 
+
+Constraint Obstacle center (0 .6, 0.0, −0.2) 
+
+Obstacle radius r 0.2
+
+Link radius rℓ 0.1
+
+α 20 .0
+
+Data Method Beam search # samples 600 ,000 
+
+K 60 
+
+B 1,000 ∆t 0.05 sextra params —
+
+Tdata 28 m 49 sModel Hidden layers 4 × 64 , sin 
+
+Output softplus ( β = 10 )Training Epochs 10 ,000 
+
+Learning rate 10 −3
+
+LR schedule ×0.1 at epoch 8,000 
+
+PDE # samples 600 ,000 
+
+PDE weight 0.0 (fixed) 
+
+Ttrain 3 m 17 sValidation Horizon T 4.0 s
+
+∆t 0.005 s# samples 1,000 ,000 
+
+Tvalid 35 s
+
+I.12 Landing Rocket 
+
+The state and control vectors are 
+
+x = [ px pz vx vz θ ω m]⊤ , u = [ T τ ]⊤ ,
+
+where (px, p z ) is the planar position (the ground is at pz = 0 ), (vx, v z ) the linear velocities, θ the pitch angle, ω the angular rate, m the (time-varying) mass, T ≥ 0 the thrust magnitude, and τ the body torque. Denoting the rotational inertia by I and the mass-flow coefficient by α,
+
+f (x) = 
+
+
+
+vx
+
+vz
+
+0
+
+−gω
+
+00
+
+
+
+, g(x) = 
+
+
+
+0 00 0
+
+− sin θ/m 0cos θ/m 00 00 1/I 
+
+−α 0
+
+
+
+.
+
+The constraint function is a smooth landing funnel that couples the lateral position to altitude and penalizes high translational velocity and large tilt. With pad half-width ρ, funnel slope s, velocity weight wv , tilt weight wθ , and smoothing ε,
+
+c(x) = ( ρ + s p z ) − pp2 
+
+> x
+
++ ε − wv (v2 
+
+> x
+
++ v2 
+
+> z
+
+) − wθ θ2.
+
+See Table 16 for the configuration and Fig. 20 for a 2D CBF slice. 32 Table 16: Configuration — Landing Rocket. 
+
+Dynamics 
+
+xmin [−6.0, 0.0, −3.0, −6.0, −1.0, −3.0, 0.6] 
+
+xmax [ 6.0, 10 .0, 3.0, 3.0, 1.0, 3.0, 1.0] 
+
+umin [ 0.0, −1.0] 
+
+umax [15 .0, 1.0] 
+
+Model params I=0 .25 , α=0 .01 , g=9 .81 
+
+Constraint 
+
+ρ 0.5
+
+s 0.5
+
+wv 0.02 
+
+wθ 0.1
+
+ε 10 −4
+
+Data Method Stochastic beam search # samples 600 ,000 
+
+K 40 
+
+B 1,500 ∆t 0.1 sextra params Gumbel top-k, T =0 .2
+
+Tdata 6 m 55 sModel Hidden layers 4 × 84 , sin 
+
+Output softplus ( β = 10 )Training Epochs 10 ,000 
+
+Learning rate 10 −3
+
+LR schedule ×0.1 at epoch 8,000 
+
+PDE # samples 800 ,000 
+
+PDE weight 0.2 (fixed) 
+
+Ttrain 18 m 2 sValidation Horizon T 5.0 s
+
+∆t 0.005 s# samples 1,000 ,000 
+
+Tvalid 47 s
+
+I.13 Quadruped Trunk 
+
+This is a centroidal trunk model of a quadruped in quasi-static all-four-feet stance. The uncontrolled world planar position and yaw are dropped, and contact forces enter only along body +z at four nominal foot positions ri = ( ±a, ±b, ∗) in (FL, FR, RL, RR) order. The state and control are 
+
+x = [ pz ϕ θ vx vy vz p q r]⊤ , u = [ F1 F2 F3 F4]⊤ ,
+
+where pz is the trunk height, (ϕ, θ ) are roll and pitch, (vx, v y , v z ) the world-frame linear velocity, 
+
+(p, q, r ) the body-frame angular velocity, and Fi ≥ 0 the body-frame normal contact force at foot i.Writing FΣ = F1 + F2 + F3 + F4, the dynamics are 
+
+f (x) = 
+
+
+
+vz
+
+p + sin ϕ tan θ q + cos ϕ tan θ r 
+
+cos ϕ q − sin ϕ r 
+
+00
+
+−g
+
+−(Iz − Iy )/I x qr 
+
+−(Ix − Iz )/I y pr 
+
+−(Iy − Ix)/I z pq 
+
+
+
+,
+
+33 6 4 2 0 2 4 6 
+
+> px
+> 0246810
+> pz
+> Constraint Predicted Validated
+> 6
+> 4
+> 2
+> 02
+> V(x)
+
+Figure 20: 2D slice of the learned neural CBF for the landing rocket in the (px, p z ) plane with velocity (vx, v z ) = (1 .0, −6.0) , pitch θ = −0.2 rad, angular rate ω = 0 .0, and mass m = 0 .9.
+
+g(x) = 
+
+
+
+0 0 0 00 0 0 00 0 0 0
+
+sθ cϕ/m sθ cϕ/m sθ cϕ/m sθ cϕ/m 
+
+−sϕ/m −sϕ/m −sϕ/m −sϕ/m cθ cϕ/m cθ cϕ/m cθ cϕ/m cθ cϕ/m b/I x −b/I x b/I x −b/I x
+
+−a/I y −a/I y a/I y a/I y
+
+0 0 0 0
+
+
+
+,
+
+where (sϕ, c ϕ) = (sin ϕ, cos ϕ) and similarly for θ. The yaw-rate row is uncontrolled in this contact mode but retained so its gyroscopic coupling into roll/pitch is preserved. The constraint is a smooth box constraint on trunk height, roll, and pitch that prevents the trunk from falling: 
+
+c(x) = − 1
+
+α log 
+
+
+
+e−α d pz (x) + e−α d ϕ(x) + e−α d θ (x)
+
+,
+
+with dpz (x) = min( pz − pmin  
+
+> z
+
+, pmax  
+
+> z
+
+− pz ), and analogously dϕ(x) = |ϕmax | − | ϕ|, dθ (x) = 
+
+|θmax | − | θ|. See Table 17 for the configuration and Fig. 21 for a 2D CBF slice. 
+
+I.14 6-DoF Underwater Vehicle 
+
+We model a neutrally-buoyant 6-DoF AUV in a rigid-body Fossen-style formulation. Added mass is absorbed into a single isotropic translational mass mt, the inertia is diagonal in the principal axes, and the damping is linear+quadratic. The world frame is ENU and the body frame is x forward, y
+
+left, z up. The state is partitioned into the world-frame pose η and the body-frame twist ν,
+
+x = η⊤ ν⊤⊤ , η = [ px py pz ϕ θ ψ]⊤ , ν = [ ub vb wb p q r]⊤ ,u = [ Fx Fy Fz τx τy τz ]⊤ ,
+
+where (px, p y , p z ) is world position, (ϕ, θ, ψ ) are ZYX Euler angles (roll, pitch, yaw), (ub, v b, w b)
+
+the body-frame linear velocity, (p, q, r ) the body-frame angular velocity, and (Fi, τ i) the body-frame force/moment after thruster allocation. The kinematics use the standard transformation ˙η = J(η) ν:
+
+" ˙px
+
+˙py
+
+˙pz
+
+#
+
+= R(ϕ, θ, ψ )
+
+"ub
+
+vb
+
+wb
+
+#
+
+,
+
+
+
+˙ϕ
+
+˙θ
+
+˙ψ
+
+ =
+
+"1 sin ϕ tan θ cos ϕ tan θ
+
+0 cos ϕ − sin ϕ
+
+0 sin ϕ/ cos θ cos ϕ/ cos θ
+
+# " pqr
+
+#
+
+,
+
+34 Table 17: Configuration — Quadruped Trunk. 
+
+Dynamics 
+
+xmin [ 0.05 , −0.6, −0.6, −1.5, −1.5, −2.0, −5.0, −5.0, −2.0] 
+
+xmax [ 0.55 , 0.6, 0.6, 1.5, 1.5, 2.0, 5.0, 5.0, 2.0] 
+
+umin [ 0.0, 0.0, 0.0, 0.0] 
+
+umax [60 .0, 60 .0, 60 .0, 60 .0] 
+
+Model params m=12 .0
+
+Ix=0 .10 , I y =0 .20 , I z =0 .25 
+
+a=0 .20 , b =0 .15 
+
+g=9 .81 
+
+Constraint 
+
+[pmin  
+
+> z
+
+, p max  
+
+> z
+
+] [0 .18 , 0.42] 
+
+ϕmax 0.4
+
+θmax 0.4
+
+α 20 .0
+
+Data Method Stochastic beam search # samples 600 ,000 
+
+K 100 
+
+B 1,000 ∆t 0.02 sextra params Gumbel top-k, T =0 .05 
+
+Tdata 1 h 41 m 32 sModel Hidden layers 5 × 84 , sin 
+
+Output softplus ( β = 10 )Training Epochs 10 ,000 
+
+Learning rate 10 −3
+
+LR schedule ×0.1 at epoch 8,000 
+
+PDE # samples 600 ,000 
+
+PDE weight 0.0 (fixed) 
+
+Ttrain 5 m 28 sValidation Horizon T 3.0 s
+
+∆t 0.002 s# samples 1,000 ,000 
+
+Tvalid 1 m 38 s
+
+where R is the body-to-world rotation. The body-frame dynamics combine Coriolis terms, hydro-dynamic damping Fdrag ,i (νi) = −(dℓi + dqi |νi|)νi, and a self-righting restoring moment from the center-of-buoyancy offset hcb above the center of gravity: 
+
+mt ˙ub = Fx − mt(qw b − rv b) − (dℓu + dqu|ub|) ub,mt ˙vb = Fy − mt(ru b − pw b) − (dℓv + dqv |vb|) vb,mt ˙wb = Fz − mt(pv b − qu b) − (dℓw + dqw|wb|) wb,Ix ˙p = τx − (Iz − Iy ) qr − hcb B cos θ sin ϕ − (dℓp + dqp|p|) p, Iy ˙q = τy − (Ix − Iz ) pr − hcb B sin θ − (dℓq + dqq |q|) q, Iz ˙r = τz − (Iy − Ix) pq − (dℓr + dqr |r|) r, 
+
+with B = mtg the buoyancy magnitude (neutrally buoyant). Gravity and buoyancy cancel in the translational equations because the centers of gravity and buoyancy share the same body-z line. Col-lecting these into control-affine form gives a drift f (x) assembling the kinematics and the u=0 body-frame dynamics above, and a constant g(x) = [0 6×6; diag(1 /m t, 1/m t, 1/m t, 1/I x, 1/I y , 1/I z )] 
+
+input matrix. The constraint confines the vehicle to a tunnel of half-width rt in the world (py , p z )
+
+plane, implemented as a smooth state-limits SDF 
+
+c(x) = − 1
+
+α log 
+
+
+
+e−α(py +rt) + e−α(rt−py ) + e−α(pz +rt) + e−α(rt−pz )
+
+.
+
+See Table 18 for the configuration and Fig. 22 for a 2D CBF slice. 35 0.6 0.4 0.2 0.0 0.2 0.4 0.6  
+
+> 0.6
+> 0.4
+> 0.2
+> 0.0 0.2 0.4 0.6
+> Constraint Predicted Validated
+> 0.20
+> 0.15
+> 0.10
+> 0.05
+> 0.00 0.05 0.10
+> V(x)
+
+Figure 21: 2D slice of the learned neural CBF for the quadruped trunk in the (ϕ, θ ) plane with trunk height pz = 0 .3, linear velocity (vx, v y , v z ) = (0 .0, 0.0, 0.0) , and body-frame angular velocity 
+
+(p, q, r ) = ( −4.0, −4.0, 0.0) .3 2 1 0 1 2 3 
+
+> py
+> 3
+> 2
+> 1
+> 0123
+> pz
+> Constraint Predicted Validated
+> 2.0
+> 1.5
+> 1.0
+> 0.5
+> 0.0 0.5 1.0
+> V(x)
+
+Figure 22: 2D slice of the learned neural CBF for the 6-DoF underwater vehicle in the (py , p z )
+
+plane with world position px = 0 .0, orientation (ϕ, θ, ψ ) = (0 .0, −1.0, 1.0) rad, body-frame linear velocity (ub, v b, w b) = (1 .8, 0.0, −1.8) , and body-frame angular velocity (p, q, r ) = (0 .0, 0.0, 0.0) .
+
+I.15 Quadrotor 
+
+The 13-dimensional state and 4-dimensional control are 
+
+x = p⊤ q⊤ v⊤ ω⊤⊤ , u = [ F αx αy αz ]⊤ ,
+
+where p ∈ R3 is the world-frame position, q = [ qw, q x, q y , q z ]⊤ is the body-to-world unit quater-nion, v ∈ R3 the world-frame linear velocity, and ω ∈ R3 the body-frame angular velocity. The control comprises the total thrust F ≥ 0 and the three body-frame angular accelerations. Let 
+
+Rxz (q) = 2( qwqy + qxqz ), Ryz (q) = 2( −qwqx + qy qz ), and Rzz (q) = 1 − 2( q2 
+
+> x
+
++ q2 
+
+> y
+
+) denote the third column of the body-to-world rotation matrix, and let 
+
+H(q) ω = 12
+
+
+
+−qxωx − qy ωy − qz ωz
+
+qwωx + qy ωz − qz ωy
+
+qwωy − qxωz + qz ωx
+
+qwωz + qxωy − qy ωx
+
+
+
+36 Table 18: Configuration — 6-DoF Underwater Vehicle. 
+
+Dynamics 
+
+xmin [−3, −3, −3, −π, −1, −π, −2, −2, −2, −1.5, −1.5, −1.5] 
+
+xmax [ 3, 3, 3, π, 1, π, 2, 2, 2, 1.5, 1.5, 1.5] 
+
+umin [−80 , −10 , −10 , −20 , −20 , −20] 
+
+umax [ 80 , 10 , 10 , 20 , 20 , 20] 
+
+Model params mt=30 .0
+
+Ix=0 .5, I y =2 .0, I z =2 .0
+
+dℓ=(3 , 3, 3, 0.3, 0.5, 0.5) 
+
+dq =(5 , 5, 5, 0.3, 1, 1) 
+
+hcb =0 .02 , g =9 .81 
+
+Constraint rt 2.0
+
+α 20 .0
+
+Data Method Stochastic beam search # samples 800 ,000 
+
+K 40 
+
+B 800 ∆t 0.1 sextra params T =0 .08 
+
+Tdata 3 h 7 m 6 sModel Hidden layers 3 × 128 , sin 
+
+Output softplus ( β = 10 )Training Epochs 10 ,000 
+
+Learning rate 10 −3
+
+LR schedule ×0.1 at epoch 8,000 
+
+PDE # samples 800 ,000 
+
+PDE weight 0.0 (fixed) 
+
+Ttrain 4 m 58 sValidation Horizon T 4.0 s
+
+∆t 0.005 s# samples 1,000 ,000 
+
+Tvalid 52 s
+
+denote the quaternion kinematics. With the gyroscopic ratio γ = 5 /9 inherited from the inertia tensor used in our experiments, 
+
+f (x) = 
+
+
+
+vH(q) ω
+
+00
+
+−g
+
+−γ ω y ωz
+
+γ ω xωz
+
+0
+
+
+
+, g(x) = 
+
+
+
+03×1 03×3
+
+04×1 04×3
+
+Rxz (q)/m 01×3
+
+Ryz (q)/m 01×3
+
+Rzz (q)/m 01×3
+
+03×1 I3
+
+
+
+.
+
+The constraint function is a vertical cylindrical obstacle of radius r about the world z-axis through the origin: 
+
+c(x) = 
+
+q
+
+p2 
+
+> x
+
++ p2 
+
+> y
+
+− r. 
+
+See Table 19 for the configuration and Fig. 23 for a 2D CBF slice. 37 Table 19: Configuration — Quadrotor. 
+
+Dynamics 
+
+xmin [−3·13, −14, −5·13, −5·13]
+
+xmax [ 3·13, 14, 5·13, 5·13]
+
+umin [ 0.0, −8.0, −8.0, −4.0] 
+
+umax [20 .0, 8.0, 8.0, 4.0] 
+
+Model params m=1 .0, CT =1 .0, g=9 .81 
+
+Constraint r 0.67 
+
+Data Method Branch-and-bound # samples 1,000 ,000 
+
+K 30 
+
+B 150 ∆t 0.1 sextra params nrestarts = 2 
+
+Tdata 24 m 41 sModel Hidden layers 4 × 128 , sin 
+
+Output softplus ( β = 10 )Training Epochs 10 ,000 
+
+Learning rate 10 −3
+
+LR schedule ×0.1 at epoch 9,000 
+
+PDE # samples 2,000 ,000 
+
+PDE weight 0.15 (fixed) 
+
+Ttrain 54 m 8 sValidation Horizon T 4.0 s
+
+∆t 0.01 s# samples 2,000 ,000 
+
+Tvalid 55 s3 2 1 0 1 2 3 
+
+> px
+> 3
+> 2
+> 1
+> 0123
+> py
+> Constraint Predicted Validated
+> 0.5
+> 0.0 0.5 1.0 1.5 2.0 2.5 3.0 3.5
+> V(x)
+
+Figure 23: 2D slice of the learned neural CBF for the quadrotor in the (px, p y ) plane with altitude 
+
+pz = 0 .0, orientation quaternion q = (0 , 0, 0, 1) , linear velocity (vx, v y , v z ) = (4 .0, 0.0, 0.0) , and body-frame angular velocity (ωx, ω y , ω z ) = (0 .0, 0.0, 0.0) .38
