@@ -1,0 +1,2034 @@
+1
+MM-LMPC: Multi-Modal Learning Model
+Predictive Control via Mode-Specific Terminal
+Design and Bandit-Based Exploration
+Wataru Hashimoto, Kazumune Hashimoto, and Masako Kishida
+Abstract—Learning Model Predictive Control (LMPC) im-
+proves iterative control tasks by using previous executions to
+construct the terminal constraint and terminal cost of the MPC
+problem. Although effective, this reuse of past trajectories can
+make LMPC sensitive to the initial data. In particular, LMPC
+may repeatedly exploit stored trajectories with favorable cost-to-
+go values while insufficiently exploring alternative route patterns
+that could yield lower cost after further improvement. To address
+this issue, we propose Multi-Modal LMPC (MM-LMPC). The
+proposed framework clusters past trajectories into motion modes,
+constructs a mode-specific LMPC controller for each mode,
+and uses an LCB-based meta-controller to select which mode-
+specific controller to execute at each iteration. Mode information
+is incorporated into the terminal constraint and terminal cost
+through two designs. The hard-constrained design uses mode-
+specific terminal constraints and terminal costs constructed from
+the data associated with each mode. The soft-regularized design
+retains a shared terminal constraint while adding membership-
+based penalties to the terminal cost. These designs reduce the
+bias caused by pooling all trajectories into a single terminal
+memory while retaining the recursive feasibility and stability
+structure of LMPC. Our theoretical analysis shows that both
+designs preserve recursive feasibility and closed-loop stability.
+For the hard-constrained design, we further establish mode-
+wise cost convergence, asymptotic best-mode performance, and
+a logarithmic cumulative regret bound under the LCB rule.
+Simulations on multi-route obstacle-avoidance tasks show that
+MM-LMPC improves exploration and achieves lower costs than
+standard LMPC.
+Index Terms—Model predictive control, iterative tasks, explo-
+ration and exploitation, multi-modal control.
+I. INTRODUCTION
+M
+ODEL Predictive Control (MPC) is a widely used con-
+trol strategy that determines control inputs by repeat-
+edly solving a finite-horizon optimal control problem at each
+sampling instant based on a predictive model of the system
+dynamics [1]. Its ability to explicitly handle system constraints
+and multivariate systems has made MPC a powerful tool
+in various engineering domains, from process control [2] to
+autonomous systems such as robotics and self-driving vehicles
+[3], [4]. However, since MPC determines the control input
+by solving an optimal control problem over a relatively short
+Wataru Hashimoto and Kazumune Hashimoto are with the Gradu-
+ate School of Engineering, The University of Osaka, Suita, Japan (e-
+mail: hashimoto@is.eei.eng.osaka-u.ac.jp, hashimoto@eei.eng.osaka-u.ac.jp).
+Masako
+Kishida
+is
+with
+the
+Institute
+of
+Systems
+and
+Information
+Engineering, University of Tsukuba, Tsukuba, Ibaraki, Japan (e-mail:
+kishida@cs.tsukuba.ac.jp). The corresponding author is Wataru Hashimoto.
+This work is supported by JST CREST JPMJCR201, JST ACT-X JPM-
+JAX23CK, and JSPS KAKENHI Grant 21K14184, and 22KK0155.
+prediction horizon, its decisions may deviate from the true
+infinite-horizon optimal solution. This can lead to high-cost
+suboptimal performance, particularly in scenarios where long-
+term effects and delayed consequences play a significant role
+in achieving the control objectives.
+To address this problem, Ugo Rosolia and Francesco Bor-
+relli proposed Learning Model Predictive Control (LMPC) [5],
+which repeatedly applies control with MPC to iterative tasks
+while leveraging state and input trajectories from previous
+iterations to improve control performance. In their approach,
+terminal constraints and terminal cost functions are progres-
+sively updated using data from successful past iterations,
+thereby ensuring recursive feasibility of the optimization prob-
+lem, stability of the closed-loop system, and non-increasing
+iteration costs under suitable assumptions.
+However, a key limitation of the LMPC framework is
+its strong dependence on the trajectories collected in early
+iterations. Since both the sampled safe set and the terminal
+cost are constructed from states visited in previous successful
+trials, the finite-horizon optimizer is biased toward terminal
+states with favorable cost-to-go values in the stored data.
+Consequently, even when the initial dataset contains feasible
+trajectories corresponding to multiple qualitatively different
+routes, trajectories belonging to modes with initially large cost-
+to-go values may be rarely selected as terminal candidates
+and may therefore remain under-explored. For example, in a
+navigation task with obstacles, even if feasible trajectories are
+initially provided on both sides of an obstacle, LMPC may
+keep refining the side with the smaller initial cost-to-go and
+fail to discover that the other side can eventually yield a lower-
+cost route. A naive alternative is to run independent LMPC
+processes from several or all initial trajectories and select the
+best result. However, this requires repeated task executions
+for multiple LMPC processes, which becomes costly as the
+number of initial trajectories increases.
+To overcome this limitation, we propose Multi-Modal
+Learning Model Predictive Control (MM-LMPC), a frame-
+work that systematically explores and exploits multiple so-
+lution modes while preserving the recursive feasibility and
+stability properties of LMPC. Here, a mode refers to a qualita-
+tively distinct way of accomplishing the same task. Examples
+include different routes around obstacles and different grasp/-
+contact patterns in robotic manipulation.
+MM-LMPC consists of a two-level control architecture
+together with a mode-identification and terminal-memory up-
+date module. The mode-identification module associates stored
+arXiv:2609.15623v1  [eess.SY]  14 Sep 2026
+
+
+2
+trajectories with modes and uses this information to construct
+and update the terminal ingredients associated with each mode.
+Based on this mode information, the upper-level LCB-based
+multi-armed-bandit meta-controller selects a mode by balanc-
+ing exploitation of well-performing modes with exploration
+of under-tested ones. The lower-level mode-specific LMPC
+controller then executes the selected mode in a receding-
+horizon manner. After each execution, the resulting closed-
+loop trajectory is processed by the mode-identification module,
+and the stored trajectory data, mode information, and terminal
+ingredients are updated for subsequent iterations.
+For the lower-level controller, we consider two terminal
+designs that differ in how trajectory data are shared across
+modes. The hard-constrained formulation uses only mode-
+assigned trajectories to construct mode-specific terminal con-
+straints and costs, thereby enforcing strict mode separation.
+In contrast, the soft-regularized formulation retains the shared
+sampled safe set while adding membership-based terminal
+penalties. This keeps trajectories collected under other modes
+available as terminal candidates while encouraging the opti-
+mizer to select terminal states associated with the selected
+mode.
+Our theoretical analysis establishes recursive feasibility and
+asymptotic stability for both formulations. We also derive
+iteration-wise cost bounds accounting for LCB exploration
+and, in the soft formulation, the membership penalty. For
+the hard-constrained formulation, we show that the realized
+closed-loop cost approaches the best limiting cost among
+the modes infinitely often. Under an additional summability
+assumption, we further show that the cumulative regret relative
+to the best limiting cost among the modes grows at most
+logarithmically with the number of iterations. Simulations on
+a minimum-time reach–avoid problem for a Dubins car show
+that MM-LMPC explores initially unfavorable routes and finds
+lower-cost trajectories than standard LMPC.
+Related work:
+Learning from repeated executions and LMPC: Iterative
+learning control (ILC) improves tracking performance in
+repetitive tasks by updating the control input using errors
+observed in previous executions [6]. To incorporate feedback
+during each execution and explicitly enforce state and input
+constraints, ILC has also been combined with model predictive
+control (MPC) [7]–[9]. Recent data-driven extensions develop
+robust and model-free learning laws [10], [11], but these
+methods are primarily formulated for tracking a prescribed
+reference trajectory. Reference-free Learning Model Predictive
+Control (LMPC) instead constructs a sampled terminal con-
+straint and an empirical terminal cost directly from successful
+closed-loop trajectories [5]. Under suitable assumptions, this
+construction guarantees recursive feasibility and closed-loop
+stability and yields non-increasing iteration costs. Its conver-
+gence and optimality properties have also been analyzed in
+[12]. Subsequent LMPC extensions have addressed stochastic
+systems [13], unknown dynamics [14], distributed tasks [15],
+and alternative certified terminal constructions [16].
+Learning terminal ingredients of MPC: RL and ADP have
+been used to approximate long-horizon value functions for
+MPC terminal costs [17], [18], while other approaches learn
+terminal regions or construct terminal ingredients directly
+from input–output data [19], [20]. In contrast, MM-LMPC
+constructs the terminal constraint and terminal cost directly
+from stored trajectories, without requiring a separate learning
+or optimization procedure for the terminal ingredients.
+Representing multiple solution modes: Within the LMPC
+literature, multimodality has also been addressed for systems
+with switching physical dynamics, where historical data are
+used to construct local predictive models and sampled safe
+sets for different dynamical modes [21]. In contrast, the
+present work considers multimodality arising from multiple
+qualitatively distinct feasible solutions to a single nonconvex
+task, while the system dynamics remain fixed.
+Related trajectory-optimization and MPC methods have
+explicitly
+considered
+multiple
+locally
+distinct
+solutions.
+Topology-aware planners generate and optimize candidate tra-
+jectories belonging to different homology or homotopy classes
+[22], [23], while multi-modal MPC solves multiple maneuver-
+specific trajectory-optimization problems in parallel and se-
+lects among the resulting locally optimal plans [24]. These
+methods generate and compare alternative solutions within an
+online planning episode. MM-LMPC instead preserves mode-
+associated experience across complete task executions and
+progressively updates the corresponding terminal information,
+thereby enabling different solution modes to be refined over
+successive iterations.
+A preliminary version was presented at the 2026 American
+Control Conference (ACC) [25]. The current paper substan-
+tially extends it by introducing a soft-regularized terminal de-
+sign, developing a unified theoretical analysis, and evaluating
+the proposed method on a more complex reach–avoid scenario.
+II. PROBLEM FORMULATION
+We consider a discrete-time nonlinear system
+xt+1 = f(xt, ut),
+xt ∈Rn, ut ∈Rm,
+(1)
+subject to state and input constraints
+xt ∈X,
+ut ∈U.
+(2)
+We consider an iterative control task in which each execution
+starts from the fixed initial state x0 = xS and aims to reach
+the equilibrium state xF . Feasible trajectories may belong to
+multiple qualitatively distinct modes, for example when the
+state constraint set X is nonconvex.
+Let T denote the set of complete feasible trajectories from
+xS to xF , and let M = {1, . . . , M} denote a finite set of
+solution modes. Each mode m ∈M is associated with a subset
+Tm ⊆T ,
+consisting of trajectories that share a common task-relevant
+qualitative pattern. Examples include different routes or ho-
+motopy patterns in obstacle avoidance and different contact
+patterns in manipulation.
+
+
+3
+The performance of each execution is evaluated by the
+accumulated stage cost. The optimal control problem for a
+single execution is given by
+min
+{ut}∞
+t=0
+∞
+X
+t=0
+h(xt, ut)
+s.t.
+xt+1 = f(xt, ut),
+xt ∈X,
+ut ∈U,
+∀t ≥0,
+x0 = xS.
+(3)
+Here, {xt}∞
+t=0 denotes the state sequence generated from
+x0 = xS by (1), {ut}∞
+t=0 denotes the corresponding input
+sequence, and h is the stage cost function that evaluates the
+control performance.
+Since solving (3) directly is generally difficult, our objec-
+tive is to design an iterative control method that repeatedly
+executes the task from xS to xF and uses data from previous
+executions to improve the control solution, as measured by
+the objective in (3), while ensuring constraint satisfaction
+and successful arrival at xF in every execution. We make
+the following assumptions on the system and the stage cost
+function h, which are standard in the MPC literature [1], [5].
+Assumption 1. The system dynamics f(·, ·) are continuous.
+The state and input constraint sets X and U are compact.
+Assumption 2. The stage cost function h : X × U →R≥0 is
+continuous and satisfies
+h(x, u) > 0,
+∀x ∈X \ {xF }, u ∈U,
+(4)
+where the final state xF is assumed to be a feasible equilibrium
+of the unforced system (1), i.e., f(xF , 0) = xF . Moreover, the
+function h satisfies
+h(xF , 0) = 0,
+(5)
+h(xF , u) > 0,
+∀u ∈U \ {0}.
+(6)
+Under Assumptions 1 and 2, any feasible solution of (3)
+with a finite objective value satisfies limt→∞xt = xF and
+limt→∞ut = 0.
+III. REVIEW OF LEARNING MODEL PREDICTIVE CONTROL
+In this section, we review the Learning Model Predictive
+Control (LMPC) framework [5], which forms the basis of our
+method. At each iteration, LMPC solves a finite-horizon MPC
+problem whose terminal set and terminal cost are constructed
+from successful previous executions. We then discuss a limi-
+tation of standard LMPC that motivates MM-LMPC.
+In LMPC, the task is executed repeatedly over iterations
+j = 1, 2, . . . using a finite-horizon MPC. Consistent with (3),
+each closed-loop execution starts from the same initial state,
+i.e.,
+xj
+0 = xS,
+j = 1, 2, . . . .
+(7)
+At iteration j, a feasible closed-loop trajectory
+{xj
+0, uj
+0, xj
+1, uj
+1, . . . , xj
+Tj−1, uj
+Tj−1, xj
+Tj}
+is obtained, where Tj denotes the time to reach the final state
+xF . From all successful previous iterations, LMPC constructs
+the terminal set as
+SSj =
+[
+i∈Ij
+Ti
+[
+t=0
+{xi
+t},
+(8)
+where Ij is the set of indices of iterations that successfully
+completed the task before iteration j. For each x ∈SSj,
+LMPC defines the terminal cost as the minimal cost-to-go
+among previous visits:
+Qj(x) =
+
+
+
+
+
+min
+(i,t)∈Fj(x)
+Ti−1
+X
+k=t
+h(xi
+k, ui
+k),
+if x ∈SSj,
++∞,
+otherwise,
+(9)
+where
+Fj(x) = {(i, t) | i ∈Ij, t ∈{0, . . . , Ti}, xi
+t = x}.
+(10)
+With the above definitions of terminal set and cost, at time t
+in iteration j, LMPC solves the finite-horizon optimal control
+problem:
+min
+{uj
+k|t}t+N−1
+k=t
+t+N−1
+X
+k=t
+h(xj
+k|t, uj
+k|t) + Qj−1(xj
+t+N|t)
+(11a)
+s.t.
+xj
+k+1|t = f(xj
+k|t, uj
+k|t),
+k = t, . . . , t + N −1,
+(11b)
+xj
+k|t ∈X,
+uj
+k|t ∈U,
+k = t, . . . , t + N −1,
+(11c)
+xj
+t+N|t ∈SSj−1,
+(11d)
+xj
+t|t = xj
+t,
+(11e)
+where N ∈N is the prediction horizon. After solving (11), the
+optimal input and corresponding state trajectories are obtained
+as {uj,∗
+k|t}t+N−1
+k=t
+and {xj,∗
+k|t}t+N
+k=t , respectively. Then, the first
+optimal control input uj,∗
+t|t is applied to the system (1), and
+the next state xj
+t+1 is observed. At the next time step, the
+optimization is solved again from the initial state xj
+t+1. This
+procedure is repeated at each time step, thereby implementing
+receding-horizon control. During iteration j, the terminal set
+SSj−1 and terminal cost Qj−1 remain fixed. After completing
+iteration j, the collected closed-loop trajectory is used to
+update them to SSj and Qj, which are then used in iteration
+j + 1. As discussed in Section III of [5], LMPC guarantees
+desirable properties such as recursive feasibility and stability
+of the closed-loop system, and ensures that the total cost of
+each iteration does not increase.
+However, standard LMPC can be sensitive to the trajectories
+available in the early iterations. Since the sampled safe set and
+terminal cost are constructed from successful past trajectories,
+the optimizer tends to favor stored states with low cost-to-
+go values. As a result, routes represented by high-cost initial
+trajectories may be revisited only rarely and receive little
+opportunity for improvement.
+Figure 1 illustrates this behavior in the reach–avoid problem
+of Section VI. The task admits eight routes defined by passing
+above or below three obstacles, and the initial dataset contains
+
+
+4
+Fig. 1: Closed-loop trajectories of standard LMPC in the
+reach–avoid example. Blue: all executions; black: the best
+trajectory. Despite feasible initialization of all eight routes,
+standard LMPC repeatedly refines one initially favorable route.
+Fig. 2: The proposed MM-LMPC architecture.
+a feasible trajectory for each route (for details, see Section VI).
+Nevertheless, standard LMPC primarily refines a geometrically
+longer route with a relatively low initial cost, while routes
+represented by higher-cost initial trajectories receive little
+refinement. This behavior motivates the proposed MM-LMPC
+framework.
+IV. PROPOSED METHODOLOGY: MULTI-MODAL
+LEARNING MODEL PREDICTIVE CONTROL (MM-LMPC)
+To address the limitation of standard LMPC discussed in
+the previous section, we propose Multi-Modal LMPC (MM-
+LMPC). Instead of pooling all trajectories into a single termi-
+nal memory, MM-LMPC identifies multiple solution modes
+and constructs mode-dependent terminal ingredients to enable
+mode-aware improvement across repeated executions.
+The proposed framework combines a two-level control
+architecture with a mode-identification and terminal-memory
+Algorithm 1: Generalized MM-LMPC
+Input: xS, D0, Jmax, κ, and σ ∈{hard, soft}
+1 Identify M0 and the mode information from D0 as
+described in Subsection IV-A
+2 Initialize the mode statistics and terminal ingredients
+3 for j = 1 to Jmax do
+4
+Compute ˆc(j−1)
+m
+= min C(j−1)
+m
+and select
+mj ∈Mj−1 using (21) as described in
+Subsection IV-C
+5
+Set xj
+0 = xS and t ←0
+6
+while xj
+t̸ = xF do
+7
+Solve (14) or (19) for mj using the
+iteration-(j −1) terminal ingredients as
+described in Subsection IV-B
+8
+Apply uj
+t = uj,∗
+t|t , observe xj
+t+1, and set
+t ←t + 1
+9
+Store (xj, uj), set cj = J(xj, uj), and update Dj
+10
+Update Mj and the mode information from Dj
+according to σ as described in Subsection IV-A
+11
+Update the mode statistics and terminal ingredients
+update module. This module assigns mode information to the
+collected trajectories and uses it to update the corresponding
+terminal ingredients. Using this information, the upper-level
+LCB-based meta-controller determines the mode to be consid-
+ered at each global iteration, and the lower-level mode-specific
+LMPC controller performs the corresponding receding-horizon
+control. The trajectory obtained from the resulting closed-loop
+execution is subsequently used to update the mode information
+and terminal memory.
+For each global iteration j, let xj
+:=
+{xj
+t}Tj
+t=0 and
+uj := {uj
+t}Tj−1
+t=0
+denote the resulting closed-loop state and
+input sequences, respectively, and define the realized cost as
+cj := J(xj, uj). The overall architecture is illustrated in
+Fig. 2. Since MM-LMPC constructs its terminal ingredients
+from previously observed feasible trajectories, we first impose
+the following assumption.
+Assumption 3 (Initial Feasible Trajectories). The initial
+dataset D0 is nonempty, and every trajectory (xi, ui) ∈D0 is
+a complete feasible closed-loop trajectory from xS to xF . In
+particular, it satisfies
+xi
+0 = xS,
+xi
+Ti = xF ,
+(12)
+as well as the system dynamics and all state and input
+constraints.
+The following subsections describe the components of MM-
+LMPC. For ease of definition, their presentation order differs
+from the execution order summarized in Algorithm 1.
+A. Mode Identification
+The solution modes introduced in Section II, together with
+the association of stored trajectories with these modes, are
+specified using task-dependent knowledge or inferred from
+
+
+5
+trajectory data using classification, clustering, or probabilis-
+tic modeling methods, such as neural-network classifiers, k-
+means, DBSCAN [26], or Gaussian mixture models [27]. For
+each stored trajectory (xi, ui), the mode-identification step
+provides either a hard label or a membership vector
+ri = (ri,1, . . . , ri,M),
+(13)
+where ri,m
+∈[0, 1] represents the degree of association
+between trajectory i and mode m.
+The mode labels and membership values are then used
+differently in the two formulations introduced in the next
+subsection. The proposed framework is not tied to a particular
+identification method, provided that the resulting mode infor-
+mation satisfies the assumptions introduced in the theoretical
+analysis.
+B. Mode-Specific LMPC
+Given a selected mode m, MM-LMPC executes iteration
+j using an LMPC controller whose mode information is in-
+corporated through the terminal ingredients. We consider two
+complementary designs: the hard-constrained formulation uses
+a mode-specific terminal constraint and terminal cost, whereas
+the soft-regularized formulation retains the shared sampled
+safe set and introduces a mode-dependent regularization term
+in the terminal cost. For each iteration j, let Ij denote the
+index set of stored closed-loop trajectories available up to
+iteration j.
+1) Hard-Constrained Mode-Specific LMPC: Using only the
+trajectory data associated with mode m, we construct a mode-
+specific sampled safe set SSj,m and a mode-specific value
+function Qj,m(·), defined as in (8) and (9) on the subset of
+trajectories assigned to mode m. At time t of iteration j, the
+controller for the selected mode m solves
+min
+{uk|t}
+t+N−1
+X
+k=t
+h(xk|t, uk|t) + Qj−1,m(xt+N|t)
+s.t.
+xk+1|t = f(xk|t, uk|t),
+xk|t ∈X, uk|t ∈U,
+xt+N|t ∈SSj−1,m,
+xt|t = xj
+t.
+(14)
+The resulting control inputs are applied in a receding-horizon
+manner, with the selected mode m fixed throughout iteration
+j.
+2) Soft-Regularized
+Mode-Specific
+LMPC:
+The
+hard-
+constrained formulation can be sample-inefficient because,
+for a selected mode m, it excludes terminal samples from
+trajectories assigned to other modes. To alleviate this issue,
+the soft-regularized design retains all past samples in the
+shared sampled safe set SSj−1 and biases terminal selection
+through a membership-based regularization term. For each
+stored trajectory i ∈Ij−1, let r(j−1)
+i,m
+∈[0, 1] denote its degree
+of association with mode m defined in Subsection IV-A at
+iteration j −1. We define
+ψ(j−1)
+i,m
+:= ρ ϕ
+
+1 −r(j−1)
+i,m
+
+,
+(15)
+where ρ ≥0 is a design parameter and ϕ(·) is monotonically
+increasing. We also define the offset term used in the terminal
+cost below as
+bj−1,m := min
+i∈Ij−1 ψ(j−1)
+i,m
+,
+(16)
+For a terminal state x ∈SSj−1, let
+Fj−1(x) := {(i, t) | i ∈Ij−1, xi
+t = x}
+(17)
+be the set of stored trajectory-time pairs containing x. The
+mode-dependent terminal cost is defined as
+eQe
+j−1,m(x)
+:=
+min
+(i,t)∈Fj−1(x)
+ Ti−1
+X
+k=t
+h(xi
+k, ui
+k) + ψ(j−1)
+i,m
+−bj−1,m
+!
+.
+(18)
+Given the mode m selected at the beginning of iteration
+j and fixed throughout that iteration, the soft-regularized
+controller solves the following problem at each time t:
+min
+{uj
+k|t}
+t+N−1
+X
+k=t
+h(xj
+k|t, uj
+k|t) + eQe
+j−1,m(xj
+t+N|t)
+s.t.
+xj
+k+1|t = f(xj
+k|t, uj
+k|t),
+xj
+k|t ∈X, uj
+k|t ∈U,
+xj
+t+N|t ∈SSj−1,
+xj
+t|t = xj
+t.
+(19)
+For both designs, we denote by cm,k the total cost of the
+closed-loop trajectory obtained when mode m is executed for
+the k-th time.
+C. Meta-Controller for Mode Selection
+The choice of which mode to execute at the beginning
+of iteration j + 1 is posed as a multi-armed bandit (MAB)
+problem [28], [29], where each mode is treated as an arm.
+The meta-controller should exploit modes that have already
+achieved low costs, while still occasionally testing modes that
+have been selected only a few times. To achieve this balance,
+we adopt a Lower Confidence Bound (LCB) rule.
+Let Mj denote the set of modes represented in the stored
+data up to iteration j. For each mode m ∈Mj, let nm(j)
+denote the number of times mode m has been selected up
+to iteration j, and let C(j)
+m
+denote the set of realized costs
+recorded for mode m up to iteration j. We then define
+ˆc(j)
+m := min
+
+C(j)
+m
+
+,
+(20)
+where ˆc(j)
+m represents the best cost statistic currently associated
+with mode m. With these quantities, the mode selected at
+iteration j + 1 is given by
+mj+1 = arg min
+m∈Mj
+
+ˆc(j)
+m −κ
+r
+log(j+1)
+max{1,nm(j)}
+
+,
+(21)
+where κ > 0 controls the exploration–exploitation trade-off.
+In this rule, the first term favors modes that have already
+produced low realized costs. The second term lowers the score
+
+
+6
+of modes with small selection counts, thereby encouraging the
+controller to revisit under-tested modes. Thus, the LCB rule
+selects the mode with the most promising optimistic score,
+rather than simply choosing the mode with the lowest cost
+observed so far. For both the hard and soft formulations, the
+meta-controller selects the mode according to the same bandit-
+based rule.
+D. Overall Procedure
+The complete MM-LMPC procedure is summarized in Al-
+gorithm 1. Here, Jmax denotes the number of global iterations,
+and σ ∈{hard, soft} specifies the terminal design. Before
+the iterative executions begin, the initial feasible dataset D0
+is used to identify the available modes and to initialize the
+corresponding mode statistics and terminal ingredients.
+At each global iteration j, the meta-controller first selects
+a mode mj according to the LCB rule using the performance
+statistics accumulated from previous executions. The selected
+mode is then fixed throughout the iteration, and the corre-
+sponding mode-specific LMPC problem is solved repeatedly
+in a receding-horizon manner until the task is completed. After
+the resulting closed-loop trajectory and its realized cost are
+recorded, the dataset is augmented, and the mode information,
+mode statistics, and terminal ingredients are updated for the
+next iteration.
+V. THEORETICAL ANALYSIS
+In this section, we establish the main theoretical results of
+the proposed MM-LMPC framework. We first prove recursive
+feasibility and asymptotic stability for both formulations, and
+then analyze the mode-wise evolution of the cost and derive
+iteration-wise closed-loop cost bounds under LCB-based mode
+selection. For the hard-constrained formulation, we further
+establish mode-wise cost convergence, asymptotic best-mode
+performance, and logarithmic regret.
+For a fixed iteration j and selected mode m, let Vj,m(x)
+denote the optimal value of the corresponding finite-horizon
+problem initialized at state x. Along the closed-loop trajectory
+of iteration j, define
+V ∗
+t := Vj,m(xj
+t) =
+t+N−1
+X
+k=t
+h
+
+xj,∗
+k|t, uj,∗
+k|t
+
++ Qj−1,m
+
+xj,∗
+t+N|t
+
+,
+where
+Qj−1,m =
+(
+Qj−1,m,
+hard-constrained,
+eQe
+j−1,m,
+soft-regularized.
+Theorem 1 (Recursive Feasibility and Asymptotic Sta-
+bility). Consider the proposed MM-LMPC scheme with
+the hard terminal-constraint formulation (14) or the soft-
+penalized formulation (19). Suppose Assumptions 1, 2, and
+3 hold. Then, for all iterations j ≥1 and all times t ≥0,
+the corresponding finite-horizon optimal control problem is
+recursively feasible. Moreover, for each fixed iteration j
+and selected mode m, the equilibrium xF is asymptotically
+stable and the resulting closed-loop trajectory satisfies
+xj
+t →xF ,
+uj
+t →0
+as t →∞.
+Proof. For notational simplicity, we omit the iteration super-
+script j from the closed-loop state and input throughout the
+proof.
+In the hard formulation, once a mode is selected, the
+controller is a standard LMPC controller with the corre-
+sponding mode-specific sampled safe set and terminal cost.
+Therefore, recursive feasibility and asymptotic stability follow
+from the standard LMPC argument [5]. In the soft formulation,
+the terminal constraint and the stored feasible continuations
+are unchanged, while only the terminal cost is modified by
+the membership-based penalty. Therefore, recursive feasibility
+follows from the same LMPC argument, whereas stability is
+established by the additional argument below.
+Asymptotic stability of the soft-regularized formulation. We
+use the optimal value function Vj,m associated with (19) as a
+Lyapunov candidate. By Assumption 2 and the definition of
+the soft-regularized terminal cost, we have
+eQe
+j−1,m(x) ≥0,
+∀x ∈SSj−1.
+(22)
+Hence, V ∗
+t ≥0 for every feasible state. Moreover, since each
+stored feasible trajectory reaches xF and the equilibrium can
+be extended by applying u = 0, the remaining cost from xF
+is zero. Therefore,
+eQe
+j−1,m(xF ) = min
+i∈Ij−1 ψ(j−1)
+i,m
+−bj−1,m
+(23)
+= 0,
+(24)
+where we used the definition of bj−1,m. Since the zero input
+keeps the system at xF , it follows that Vj,m(xF ) = 0. If
+xt̸ = xF , then the first stage cost is positive by Assumption 2,
+while all remaining cost terms are nonnegative. Thus, V ∗
+t > 0
+for xt̸ = xF .
+We next show that V ∗
+t
+decreases along the closed-loop
+trajectory. Let
+{u∗
+k|t}t+N−1
+k=t
+,
+{x∗
+k|t}t+N
+k=t
+be an optimal solution of (19) at time t. Since x∗
+t+N|t ∈
+SSj−1,
+choose
+a
+stored
+trajectory-time
+pair
+(¯i, ℓ)
+∈
+Fj−1(x∗
+t+N|t) that attains the minimum in the definition of
+eQe
+j−1,m(x∗
+t+N|t). Then,
+x
+¯i
+ℓ= x∗
+t+N|t
+(25)
+and
+eQe
+j−1,m(x
+¯i
+ℓ) =
+T¯i−1
+X
+k=ℓ
+h(x
+¯i
+k, u
+¯i
+k) + ψ¯i,m −bj−1,m.
+(26)
+Using the same stored trajectory to evaluate the terminal cost
+at the successor stored state gives
+eQe
+j−1,m(x
+¯i
+ℓ+1) ≤
+T¯i−1
+X
+k=ℓ+1
+h(x
+¯i
+k, u
+¯i
+k) + ψ(j−1)
+¯i,m
+−bj−1,m
+=
+T¯i−1
+X
+k=ℓ
+h(x
+¯i
+k, u
+¯i
+k) + ψ(j−1)
+¯i,m
+−bj−1,m −h(x
+¯i
+ℓ, u
+¯i
+ℓ)
+= eQe
+j−1,m(x
+¯i
+ℓ) −h(x
+¯i
+ℓ, u
+¯i
+ℓ).
+(27)
+
+
+7
+If x¯i
+ℓ= xF , the same inequality follows from the equilibrium
+extension f(xF , 0) = xF and h(xF , 0) = 0.
+Now evaluate the optimization problem at time t + 1 using
+the standard shifted candidate: the tail of the optimal sequence
+at time t, followed by the stored continuation input u¯i
+ℓ. This
+gives
+V ∗
+t+1 ≤
+t+N−1
+X
+k=t+1
+h(x∗
+k|t, u∗
+k|t) + h(x
+¯i
+ℓ, u
+¯i
+ℓ) + eQe
+j−1,m(x
+¯i
+ℓ+1)
+≤
+t+N−1
+X
+k=t+1
+h(x∗
+k|t, u∗
+k|t) + eQe
+j−1,m(x
+¯i
+ℓ)
+= V ∗
+t −h(xt, ut).
+(28)
+Consequently, by Assumption 2, V ∗
+t
+is strictly decreasing
+whenever xt̸ = xF and remains constant at the equilibrium.
+Summing (28) from t = 0 to T −1 yields
+T −1
+X
+t=0
+h(xt, ut) ≤V ∗
+0 −V ∗
+T ≤V ∗
+0 .
+(29)
+Since h(xt, ut) ≥0, the partial sums are monotone and
+bounded, and hence
+∞
+X
+t=0
+h(xt, ut) < ∞.
+(30)
+Therefore, h(xt, ut) →0 as t →∞. By Assumptions 1 and
+2, this implies
+(xt, ut) →(xF , 0),
+(31)
+or equivalently, xt →xF and ut →0. Furthermore, continuity
+of Vj,m can be established as in the standard MPC stability
+analysis [1], [5]. Therefore, the positive definiteness and
+continuity of Vj,m, together with the decrease condition (28),
+establish Lyapunov stability of xF . Combined with the above
+convergence result, this proves asymptotic stability of the soft-
+regularized formulation.
+Remark 1. The present analysis is restricted to the nom-
+inal disturbance-free setting and extending MM-LMPC to
+systems with disturbances is outside the scope of this paper.
+In particular, the exact terminal-state matching used here
+is generally not preserved under disturbances. Nevertheless,
+related extensions have been studied in the LMPC literature
+for uncertain and stochastic settings, and similar ideas
+could potentially be incorporated into the present mode-
+dependent framework; see, e.g., [13], [14], [30].
+To analyze the mode-wise evolution of the iteration cost,
+we now introduce the additional assumptions used in the
+subsequent results.
+Assumption 4 (Finiteness of Modes). Let Mj denote the set
+of modes discovered up to iteration j. We assume that there
+exists a finite set M∞such that
+Mj = M∞
+for all sufficiently large j.
+That is, the set of discovered modes eventually stabilizes and
+contains only finitely many elements.
+Assumption 5 (Eventual Consistency of Hard Mode Classifi-
+cation). There exists a finite iteration index Jc ∈N such that,
+for every mode m ∈M∞and every iteration j > Jc, if the
+hard MM-LMPC controller is executed with selected mode m,
+then the resulting closed-loop trajectory is classified into the
+same mode m.
+Assumption 4 means that the task has only finitely many
+relevant motion modes. This excludes cases where new quali-
+tatively different modes keep appearing indefinitely. Assump-
+tion 5 ensures that, after finitely many iterations, the hard
+mode-specific terminal ingredients are updated consistently.
+The following lemma characterizes the mode-wise evolution
+of the iteration cost.
+Lemma 1 (Intra-Mode Cost Evolution). Suppose Assump-
+tions 1–4 hold. For the hard formulation, suppose addition-
+ally Assumption 5 holds. Fix any mode m ∈M∞, let jm,k
+denote the global iteration index of the k-th execution of
+mode m, and define
+cm,k :=
+Tjm,k −1
+X
+t=0
+h
+
+xjm,k
+t
+, ujm,k
+t
+
+.
+(32)
+Then the following statements hold.
+(i) Hard formulation. For every k ≥1 such that jm,k > Jc,
+cm,k+1 ≤cm,k.
+(33)
+(ii) Soft formulation. For every k ≥1 and every ℓ∈
+{1, . . . , k},
+cm,k+1 ≤cm,ℓ+ ψ(jm,k+1−1)
+jm,ℓ,m
+−bjm,k+1−1,m.
+(34)
+Proof. We prove the two statements separately.
+(i) Hard formulation. For any k ≥1 such that jm,k > Jc,
+Assumption 5 ensures that the trajectory generated at iteration
+jm,k is classified into mode m. Therefore, this trajectory
+is incorporated into the mode-specific sampled safe set and
+terminal cost used at iteration jm,k+1. Hence, the standard
+LMPC monotonicity argument in Theorem 2 of [5] applies
+mode-wise:
+cm,k+1 ≤cm,k.
+(35)
+(ii) Soft formulation. Fix k ≥1 and an arbitrary ℓ∈
+{1, . . . , k}. Set
+jℓ:= jm,ℓ,
+j+ := jm,k+1.
+(36)
+Let V j+
+t
+denote the optimal value of (19) at time t of iteration
+j+.
+To compare the cost of the trajectory generated at iteration
+jℓwith the optimal value at iteration j+, we separate its first
+N stage costs from the remaining cost-to-go and include the
+
+
+8
+penalty offset used at iteration j+:
+cm,ℓ+ ψ(j+−1)
+jℓ,m
+−bj+−1,m
+=
+N−1
+X
+t=0
+h(xjℓ
+t , ujℓ
+t )
++
+Tjℓ−1
+X
+t=N
+h(xjℓ
+t , ujℓ
+t ) + ψ(j+−1)
+jℓ,m
+−bj+−1,m
+
+.
+(37)
+Since xjℓ
+N ∈SSj+−1 and eQe
+j+−1,m is defined by minimizing
+over stored trajectories in (18), evaluating it on the stored
+trajectory jℓwith index t = N yields
+eQe
+j+−1,m(xjℓ
+N) ≤
+Tjℓ−1
+X
+t=N
+h(xjℓ
+t , ujℓ
+t ) + ψ(j+−1)
+jℓ,m
+−bj+−1,m.
+(38)
+Combining (37) and (38) gives
+cm,ℓ+ ψ(j+−1)
+jℓ,m
+−bj+−1,m
+≥
+N−1
+X
+t=0
+h(xjℓ
+t , ujℓ
+t ) + eQe
+j+−1,m(xjℓ
+N).
+(39)
+The right-hand side of (39) is the objective value of (19)
+evaluated using the first N steps of the stored trajectory
+(xjℓ, ujℓ) as a feasible candidate at time 0 of iteration j+.
+Therefore, by optimality of V j+
+0
+,
+cm,ℓ+ ψ(j+−1)
+jℓ,m
+−bj+−1,m ≥V j+
+0
+.
+(40)
+By Theorem 1, within the fixed iteration j+, the optimal
+value satisfies the one-step decrease
+V j+
+t+1 ≤V j+
+t
+−h(xj+
+t , uj+
+t ),
+∀t ≥0.
+(41)
+Iterating (41) yields, for any T ≥1,
+V j+
+0
+≥
+T −1
+X
+t=0
+h(xj+
+t , uj+
+t ) + V j+
+T .
+(42)
+From V j+
+T
+≥0 and taking T = Tjm,k+1, we obtain
+V j+
+0
+≥
+Tjm,k+1−1
+X
+t=0
+h(xj+
+t , uj+
+t ) = cm,k+1.
+(43)
+Combining (40) and (43) gives
+cm,k+1 ≤V j+
+0
+≤cm,ℓ+ ψ(j+−1)
+jℓ,m
+−bj+−1,m.
+(44)
+Since ℓ∈{1, . . . , k} was arbitrary, (34) follows.
+For the hard-constrained formulation, the eventual intra-
+mode non-increasing cost property in Lemma 1(i) leads to
+the following asymptotic best-mode performance result.
+Theorem 2 (Asymptotic Best-Mode Performance). Con-
+sider the hard-constrained formulation under the assump-
+tions of Lemma 1(i), with mode selection given by the
+LCB rule (21). Then, for every m ∈M∞, the mode-wise
+cost sequence {cm,k}k≥1 converges to a finite limit c∗
+m.
+Moreover,
+lim inf
+j→∞cj = c∗,
+c∗:=
+min
+m∈M∞c∗
+m.
+(45)
+Proof. Under the LCB rule, every mode in M∞is selected
+infinitely often [28], [29]. Indeed, if a mode were selected only
+finitely many times, its selection count would remain bounded,
+and the negative exploration term in (21) would eventually
+force its reselection. Hence, nm(j) →∞and thus jm,k →∞
+for every m ∈M∞.
+Consequently, for each mode m, there exists a finite Km
+such that jm,k > Jc for all k ≥Km. By Lemma 1(i), the
+tail sequence {cm,k}k≥Km is non-increasing. Since the costs
+are nonnegative, it converges to a finite limit c∗
+m, and the full
+sequence converges to the same limit.
+Let m∗∈arg minm∈M∞c∗
+m. Since mode m∗is selected
+infinitely often, cjm∗,k
+=
+cm∗,k
+→
+c∗, which implies
+lim infj→∞cj ≤c∗. On the other hand, the eventual non-
+increasing property implies cm,k ≥c∗
+m ≥c∗for all sufficiently
+large k. Since M∞is finite, it follows that cj ≥c∗for all
+sufficiently large j, and hence lim infj→∞cj ≥c∗. Combining
+the two inequalities proves (45).
+While the preceding theorem establishes mode-wise cost
+convergence and asymptotic best-mode performance, the fol-
+lowing results analyze finite-time behavior. For the hard for-
+mulation, we strengthen Assumption 5 by taking Jc = 0.
+Theorem 3 (Cost Bound under LCB Selection). Define
+ˆc(j−1)
+m
+:= min C(j−1)
+m
+,
+m⋆∈arg
+min
+m∈Mj−1 ˆc(j−1)
+m
+,
+c(j−1)
+best
+:= ˆc(j−1)
+m⋆
+.
+Suppose that the LCB policy selects mode mj at iteration
+j, and let cj be the resulting iteration cost. Define
+∆j :=
+(
+0,
+hard-constrained,
+ψ(j−1)
+i⋆
+j ,mj −bj−1,mj,
+soft-regularized,
+(46)
+where, in the soft-regularized formulation, i⋆
+j is a stored
+trajectory index associated with mode mj that attains
+ˆc(j−1)
+mj
+. Then
+cj ≤c(j−1)
+best
++ κ
+s
+log j
+max{1, nmj(j −1)}
+−κ
+s
+log j
+max{1, nm⋆(j −1)} + ∆j.
+(47)
+Proof. Let kj be the unique local execution index satisfying
+j = jmj,kj; then cj = cmj,kj.
+For the hard formulation, since Assumption 5 holds with
+Jc = 0, Lemma 1(i) implies that the mode-wise cost is non-
+increasing from the first execution. Hence,
+cj ≤ˆc(j−1)
+mj
+.
+(48)
+
+
+9
+For the soft formulation, choose ℓ⋆
+j such that cmj,ℓ⋆
+j =
+ˆc(j−1)
+mj
+, and let i⋆
+j := jmj,ℓ⋆
+j . Then Lemma 1(ii) gives
+cj = cmj,kj ≤cmj,ℓ⋆
+j + ψ(j−1)
+i⋆
+j ,mj −bj−1,mj
+= ˆc(j−1)
+mj
++ ∆j.
+(49)
+Therefore, by the definition of ∆j, both formulations satisfy
+cj ≤ˆc(j−1)
+mj
++ ∆j.
+(50)
+Because mj is selected by the LCB rule,
+ˆc(j−1)
+mj
+−κ
+s
+log j
+max{1, nmj(j −1)}
+≤ˆc(j−1)
+m⋆
+−κ
+s
+log j
+max{1, nm⋆(j −1)}.
+(51)
+Using ˆc(j−1)
+m⋆
+= c(j−1)
+best
+and rearranging yields
+ˆc(j−1)
+mj
+≤c(j−1)
+best
++ κ
+s
+log j
+max{1, nmj(j −1)}
+−κ
+s
+log j
+max{1, nm⋆(j −1)}.
+(52)
+Combining this inequality with (50) proves (47).
+We now introduce an additional assumption used in the
+regret analysis.
+Assumption 6 (Mode-wise Improvement Summability). For
+every mode m ∈M∞,
+∞
+X
+k=1
+(cm,k −c∗
+m)+ ≤Cm < ∞,
+(53)
+where c∗
+m is defined in Theorem 2, (a)+ := max{a, 0}, and
+Cm is a finite constant.
+Assumption 6 strengthens the eventual mode-wise non-
+increasing property established in Lemma 1(i). It is introduced
+to ensure that the cumulative transient suboptimality within
+each mode remains uniformly bounded.
+For the hard formulation, the eventual intra-mode non-
+increasing property in Lemma 1(i), together with Assump-
+tion 6, allows us to bound both the transient suboptimality
+within each mode and the regret induced by the LCB-based
+mode selection rule.
+Theorem 4 (Logarithmic Regret Bound). Consider the hard
+formulation under Assumptions 1, 2, 3, 4, 5, and 6, with
+Jc = 0. Let Jr be sufficiently large that Mj = M∞for all
+j ≥Jr and every mode in M∞has been executed at least
+once by iteration Jr. Then, there exists a finite constant C,
+independent of T, such that
+RT :=
+T
+X
+j=1
+(cj −c∗) ≤
+X
+m: ∆m>0
+4κ2
+∆m
+log T + C = O(log T),
+(54)
+where c∗:= minm∈M∞c∗
+m and ∆m := c∗
+m −c∗.
+Proof. The regret accumulated before iteration Jr consists of
+finitely many terms and is therefore bounded above by a finite
+constant Ctr. For T ≥Jr, we have
+RT ≤Ctr +
+T
+X
+j=Jr
+
+c∗
+mj −c∗
+|
+{z
+}
+(A) Suboptimal Selection Regret
++
+T
+X
+j=Jr
+
+cj −c∗
+mj
+
+|
+{z
+}
+(B) Intra-Mode Cost Gap
+.
+(55)
+For term (B), Assumption 6 gives
+T
+X
+j=Jr
+
+cj −c∗
+mj
+
+≤
+X
+m∈M∞
+∞
+X
+k=1
+(cm,k −c∗
+m)+
+≤
+X
+m∈M∞
+Cm,
+(56)
+which is finite and independent of T.
+It remains to bound term (A). Let m∗∈arg minm∈M∞c∗
+m,
+and fix any mode m with ∆m > 0. Since Assumption 5 holds
+with Jc = 0, Lemma 1(i) implies
+ˆc(j−1)
+m
+≥c∗
+m.
+(57)
+Moreover, the LCB rule selects every mode infinitely often.
+In particular, m∗is selected infinitely often, and cm∗,k →c∗.
+Hence, for any ε ∈(0, ∆m), there exists a finite Jε such that
+ˆc(j−1)
+m∗
+≤c∗+ ε,
+∀j ≥Jε.
+(58)
+If mode m is selected at iteration j ≥Jε, the LCB rule
+gives
+ˆc(j−1)
+m
+−κ
+s
+log j
+nm(j −1) ≤ˆc(j−1)
+m∗
+−κ
+s
+log j
+nm∗(j −1).
+(59)
+Using the preceding bounds and dropping the nonpositive
+exploration term associated with m∗, we obtain
+∆m −ε ≤κ
+s
+log j
+nm(j −1).
+(60)
+Let τs denote the iteration at which mode m is selected for
+the s-th time. Applying (60) at j = τs gives, for all sufficiently
+large s,
+s −1 ≤
+κ2
+(∆m −ε)2 log τs.
+(61)
+Consequently, there exists a finite constant C0,m, independent
+of T, such that
+nm(T) ≤
+κ2
+(∆m −ε)2 log T + C0,m.
+(62)
+Choosing ε = ∆m/2 yields
+nm(T) ≤4κ2
+∆2m
+log T + C0,m.
+(63)
+Therefore,
+T
+X
+j=Jr
+
+c∗
+mj −c∗
+≤
+X
+m: ∆m>0
+nm(T)∆m
+≤
+X
+m: ∆m>0
+4κ2
+∆m
+log T +
+X
+m: ∆m>0
+C0,m∆m.
+(64)
+
+
+10
+Combining the bounds for terms (A) and (B) gives
+RT ≤
+X
+m: ∆m>0
+4κ2
+∆m
+log T + C,
+(65)
+where
+C := Ctr +
+X
+m∈M∞
+Cm +
+X
+m: ∆m>0
+C0,m∆m
+(66)
+is finite and independent of T. Enlarging C, if necessary, also
+covers the finitely many horizons T < Jr. Therefore, RT =
+O(log T).
+VI. SIMULATION STUDY
+This section evaluates the proposed MM-LMPC framework
+on a minimum-time reach–avoid task with multiple obstacles.
+We compare standard LMPC with the hard-constrained and
+soft-regularized MM-LMPC designs under the same dynamics,
+constraints, prediction horizon, and initial dataset. We also
+examine the sensitivity of the MM-LMPC results to the LCB
+exploration parameter κ and, for the soft design, the terminal-
+penalty weight ρ.
+A. Experimental Setup
+We consider a discrete-time Dubins-type vehicle model with
+state xk = [px,k py,k vk]⊤∈R3 and input uk = [θk ak]⊤∈
+R2, governed by
+px,k+1 = px,k + vk cos θk,
+(67a)
+py,k+1 = py,k + vk sin θk,
+(67b)
+vk+1 = vk + ak,
+(67c)
+with input constraints −π/2 ≤θk ≤π/2 and −0.8 ≤ak ≤
+0.8. The initial and target states are xS = [0 0 0]⊤and xF =
+[78 0 0]⊤, respectively. The stage cost is one before reaching
+the target and zero at the target. Hence, the realized closed-
+loop cost equals the number of control inputs applied before
+task completion. The prediction horizon is N = 5.
+The collision-free region is the exterior of the following
+three elliptical obstacles: (px,k −18)2/92 +(py,k −12)2/92 ≥
+1, (px,k −40)2/72 + (py,k + 6.5)2/82 ≥1, and (px,k −
+62)2/72 + (py,k −10)2/82 ≥1. These obstacles induce eight
+route patterns according to whether a trajectory passes above
+or below each obstacle. We denote the resulting mode set by
+M
+=
+{UUU, UUL, ULU, ULL, LUU, LUL, LLU, LLL}.
+For example, ULU denotes a trajectory that passes above the
+first obstacle, below the second, and above the third.
+For the q-th obstacle with center (cx,q, cy,q), the route
+classifier finds the trajectory sample whose horizontal coor-
+dinate is closest to cx,q. The q-th letter is set to U when the
+corresponding vertical coordinate is larger than cy,q and to L
+otherwise. Applying this rule to the three obstacles yields a
+label in {U, L}3.
+One feasible initial trajectory is prepared for each route
+pattern, as shown in Fig. 3. The corresponding costs are listed
+in Table I. Although the LUL route is geometrically the most
+direct, its initial trajectory has the largest cost.
+For the soft formulation, memberships are assigned di-
+rectly from the route labels. For a stored trajectory τ and
+0
+10
+20
+30
+40
+50
+60
+70
+80
+px
+20
+10
+0
+10
+20
+30
+py
+Start
+Goal
+UUU
+UUL
+ULU
+ULL
+LUU
+LUL
+LLU
+LLL
+Fig. 3: Initial trajectories for the eight route patterns in the
+three-obstacle reach–avoid task.
+TABLE I: Initial costs for the eight route modes.
+Route
+Cost
+Route
+Cost
+UUU
+111
+LUU
+137
+UUL
+121
+LUL
+185
+ULU
+135
+LLU
+122
+ULL
+108
+LLL
+160
+mode m, let ℓ(τ), ℓ(m) ∈{U, L}3 denote their route labels.
+We define rτ,m = (1/3) P3
+q=1 1{ℓq(τ) = ℓq(m)}, so that
+rτ,m ∈{0, 1/3, 2/3, 1}. The corresponding terminal penalty
+is ψτ,m = ρ(1 −rτ,m), where ρ ≥0 determines the strength
+of the mode-dependent preference. Each experiment is run for
+30 global iterations. For both MM-LMPC designs, we evaluate
+κ ∈{1, 10, 50, 100}. For soft MM-LMPC, we additionally
+evaluate ρ ∈{0, 10, 30, 50, 150, 200, 300, 500, 800}.
+All MPC problems were implemented using CasADi [31].
+The implementation builds on the publicly available LMPC
+code [32], which was extended to implement the proposed
+hard-constrained and soft-regularized MM-LMPC designs.
+B. Comparison and Effects of Design Parameters
+1) Overall Performance Comparison: We first briefly com-
+pare the best closed-loop costs attained by standard LMPC,
+hard MM-LMPC, and soft MM-LMPC over 30 iterations. For
+each MM-LMPC variant, we report the best result over the
+tested values of the LCB exploration parameter κ and, for soft
+MM-LMPC, the terminal-penalty weight ρ. Table II reports the
+best cost, its first attainment iteration, and the corresponding
+parameter setting.
+Standard LMPC attains its best cost of 24 at iteration 13. As
+shown in Fig. 1, all of its closed-loop trajectories follow the
+UUU route, although initial trajectories are available for all
+eight routes. Because standard LMPC uses a single terminal
+memory shared across all routes, stored states on the UUU
+route with relatively low cost-to-go values are repeatedly
+selected as terminal candidates, causing the controller to
+continue refining the same route.
+Hard MM-LMPC attains a lower cost of 22 at iteration
+15 for κ ∈{50, 100}. Soft MM-LMPC attains the lowest
+cost of 21, first at iteration 19 with (ρ, κ) = (300, 10). All
+trajectories attaining cost 21 are classified as LUL. Overall,
+both MM-LMPC variants attain lower costs than standard
+
+
+11
+TABLE II: Best-cost comparison over 30 iterations.
+Method
+Best
+cost
+First
+iter.
+κ
+ρ
+Standard LMPC
+24
+13
+–
+–
+Hard MM-LMPC
+22
+15
+{50, 100}
+–
+Soft MM-LMPC
+21
+19
+10
+300
+Fig. 4: Performance of soft MM-LMPC over the tested (ρ, κ)
+grid. Left: best attained closed-loop cost. Right: first iteration
+attaining that cost.
+LMPC, with soft MM-LMPC achieving the lowest overall
+cost. As examined below, this improvement is enabled by the
+ability of MM-LMPC to revisit and refine routes other than
+the initially favored routes.
+2) Effects of the Design Parameters: We next examine how
+the exploration parameter κ affects both MM-LMPC designs
+and how the terminal membership penalty ρ affects soft MM-
+LMPC. For hard MM-LMPC, κ = 1 attains a best cost of 23
+at iteration 10, whereas κ = 10 attains cost 22 at iteration 18.
+For κ ∈{50, 100}, the same cost of 22 is reached earlier, at
+iteration 15.
+For soft MM-LMPC, the effects of ρ and κ are examined
+jointly. Figure 4 reports the best cost and its first attainment
+iteration over the tested (ρ, κ) grid. The lowest cost of 21 is at-
+tained for (ρ, κ) ∈{(300, 1), (300, 10), (500, 10), (800, 10)}.
+Among these settings, (ρ, κ) = (300, 10) reaches this cost
+first, at iteration 19. For ρ = 300, κ ∈{50, 100} attains
+a best cost of 22 within the 30 iterations. As ρ decreases
+toward zero, the soft-regularized formulation approaches stan-
+dard LMPC because the membership-based terminal penalty
+vanishes, whereas larger values of ρ enforce stronger mode
+preference and lead to behavior closer to hard mode separation.
+Table III reports the results for different values of ρ with
+κ = 10. Mode agreement is defined as the fraction of iterations
+for which the selected mode equals the route label of the
+resulting closed-loop trajectory. At small ρ, mode agreement
+is low because the membership term has little influence on
+the terminal-state choice. Increasing ρ generally strengthens
+the relation between the selected mode and the realized route:
+mode agreement increases to 0.77 at ρ = 300 and reaches
+1.00 for ρ ∈{500, 800}. The lowest cost of 21 is attained for
+ρ ∈{300, 500, 800}, with ρ = 300 reaching this cost earliest,
+at iteration 19. Thus, ρ = 300 provides a favorable balance
+between mode consistency and rapid discovery of a low-cost
+route in this experiment.
+The executed trajectories in Fig. 5 show the closed-loop
+behavior of soft MM-LMPC with κ = 10 for selected values
+TABLE III: Effect of ρ on soft MM-LMPC with κ = 10.
+ρ
+Best
+cost
+First
+iter.
+Mode
+agreement
+ρ
+Best
+cost
+First
+iter.
+Mode
+agreement
+0
+24
+6
+0.13
+200
+24
+9
+0.33
+10
+23
+18
+0.13
+300
+21
+19
+0.77
+30
+22
+19
+0.20
+500
+21
+29
+1.00
+50
+24
+5
+0.13
+800
+21
+29
+1.00
+150
+24
+9
+0.33
+10
+0
+10
+20
+py
+= 10
+best 23, iter. 18
+= 150
+best 24, iter. 9
+0
+10
+20
+30
+40
+50
+60
+70
+80
+px
+10
+0
+10
+20
+py
+= 300
+best 21, iter. 19
+0
+10
+20
+30
+40
+50
+60
+70
+80
+px
+= 500
+best 21, iter. 29
+0
+10
+20
+30
+40
+50
+60
+70
+80
+px
+10
+0
+10
+20
+py
+Hard MM-LMPC, = 10
+best 22, iter. 18
+All
+First best
+Start
+Goal
+Fig. 5: Executed trajectories for soft MM-LMPC at selected
+values of ρ and for hard MM-LMPC, with κ = 10 in all
+panels. Thin gray curves show all 30 executions, and the solid
+highlighted curve is the first trajectory attaining the best cost
+in each setting. The hard-MM-LMPC result is shown in the
+bottom panel.
+of the terminal membership penalty ρ, together with the hard
+MM-LMPC result for κ = 10 in the bottom panel. At ρ = 10,
+the trajectories remain concentrated around the UUU route,
+and the resulting behavior closely resembles that of standard
+LMPC. At ρ = 300, the controller explores several route
+families, whereas the larger penalty ρ = 500 produces more
+mode-consistent trajectories. For ρ = 500, the selected mode
+and realized route agree in all 30 executions, illustrating the
+increasingly hard-like mode separation induced by a large
+membership penalty.
+Finally, Fig. 6 illustrates how κ affects the mode-selection
+behavior of soft MM-LMPC at ρ = 300. A smaller value
+of κ places greater emphasis on modes that have already
+achieved low costs, so the executed trajectories remain con-
+centrated around the corresponding routes. As κ increases, the
+exploration term in the LCB rule becomes more influential,
+causing under-tested modes to be selected more frequently and
+alternative routes to be revisited more often.
+VII. CONCLUSION
+This paper presented MM-LMPC, a mode-aware extension
+of LMPC designed to reduce bias toward initially favored
+solution modes. MM-LMPC selects a solution mode at each
+
+
+12
+15
+10
+5
+0
+5
+10
+15
+20
+25
+py
+best 21, iter. 21
+= 1
+best 21, iter. 19
+= 10
+0
+10
+20
+30
+40
+50
+60
+70
+80
+px
+15
+10
+5
+0
+5
+10
+15
+20
+25
+py
+best 22, iter. 6
+= 50
+0
+10
+20
+30
+40
+50
+60
+70
+80
+px
+best 22, iter. 6
+= 100
+All
+First best
+Start
+Goal
+Fig. 6: Executed trajectories for different values of κ with
+ρ = 300. Thin gray curves show all 30 executions, and the
+solid highlighted curve is the first best trajectory.
+iteration using an LCB-based exploration rule and incorporates
+the selected mode into the LMPC terminal design. Two
+formulations were developed: a hard-constrained formulation
+with mode-specific sampled safe sets and terminal costs, and
+a soft-regularized formulation with a shared sampled safe set
+and membership-based terminal penalties. We showed that
+both formulations preserve recursive feasibility and closed-
+loop stability, characterized their mode-wise cost evolution,
+and established, for the hard formulation, asymptotic best-
+mode performance and an O(log T) regret bound. Simulations
+on minimum-time reach–avoid tasks showed that MM-LMPC
+explores under-tested modes and finds lower-cost trajectories
+than standard LMPC.
+REFERENCES
+[1] D. Mayne, J. Rawlings, C. Rao, and P. Scokaert, “Constrained model
+predictive control: Stability and optimality,” Automatica, vol. 36, no. 6,
+pp. 789–814, 2000.
+[2] M. Schwenzer, M. Ay, T. Bergs, and D. Abel, “Review on model predic-
+tive control: an engineering perspective,” The International Journal of
+Advanced Manufacturing Technology, vol. 117, no. 5–6, pp. 1327–1349,
+2021.
+[3] M. Babu, R. R. Theerthala, A. K. Singh, B. Baladhurgesh, B. Gopalakr-
+ishnan, K. M. Krishna, and S. Medasani, “Model predictive control for
+autonomous driving considering actuator dynamics,” in 2019 American
+Control Conference (ACC), 2019, pp. 1983–1989.
+[4] R. Grandia, F. Jenelten, S. Yang, F. Farshidian, and M. Hutter, “Per-
+ceptive locomotion through nonlinear model-predictive control,” IEEE
+Transactions on Robotics, vol. 39, no. 5, pp. 3402–3421, 2023.
+[5] U. Rosolia and F. Borrelli, “Learning model predictive control for
+iterative tasks. a data-driven control framework,” IEEE Transactions on
+Automatic Control, vol. 63, no. 7, pp. 1883–1896, 2018.
+[6] D. Bristow, M. Tharayil, and A. Alleyne, “A survey of iterative learning
+control,” IEEE Control Systems Magazine, vol. 26, no. 3, pp. 96–114,
+2006.
+[7] G. M. Bone, “A novel iterative learning control formulation of gener-
+alized predictive control,” Automatica, vol. 31, no. 10, pp. 1483–1487,
+1995.
+[8] K. Lee and J. Lee, “Convergence of constrained model-based predictive
+control for batch processes,” IEEE Transactions on Automatic Control,
+vol. 45, no. 10, pp. 1928–1932, 2000.
+[9] Y. Zhou, X. Tang, D. Li, X. Lai, and F. Gao, “Combined iterative
+learning and model predictive control scheme for nonlinear systems,”
+IEEE Transactions on Systems, Man, and Cybernetics: Systems, vol. 54,
+no. 6, pp. 3558–3567, 2024.
+[10] S. He, W. Chen, D. Li, Y. Xi, Y. Xu, and P. Zheng, “Iterative learning
+control with data-driven-based compensation,” IEEE Transactions on
+Cybernetics, vol. 52, no. 8, pp. 7492–7503, 2022.
+[11] R. Chi, H. Li, N. Lin, and B. Huang, “Data-driven indirect iterative
+learning control,” IEEE Transactions on Cybernetics, vol. 54, no. 3, pp.
+1650–1660, 2024.
+[12] U. Rosolia, Y. Lian, E. T. Maddalena, G. Ferrari-Trecate, and C. N.
+Jones, “On the optimality and convergence properties of the iterative
+learning model predictive controller,” IEEE Transactions on Automatic
+Control, vol. 68, no. 1, pp. 556–563, 2023.
+[13] B. Thananjeyan, A. Balakrishna, U. Rosolia, J. E. Gonzalez, A. Ames,
+and K. Goldberg, “ABC-LMPC: Safe sample-based learning mpc for
+stochastic nonlinear dynamical systems with adjustable boundary con-
+ditions,” in Algorithmic Foundations of Robotics XIV, S. M. LaValle,
+M. Lin, T. Ojala, D. Shell, and J. Yu, Eds. Cham: Springer International
+Publishing, 2021, pp. 1–17.
+[14] W. Hashimoto, K. Hashimoto, M. Kishida, and S. Takai, “Robust
+learning-based iterative model predictive control for unknown non-linear
+systems,” IET Control Theory & Applications, vol. 18, no. 18, pp. 2540–
+2554, 2024.
+[15] Y. R. St¨urz, E. L. Zhu, U. Rosolia, K. H. Johansson, and F. Borrelli,
+“Distributed learning model predictive control for linear systems,” in
+2020 59th IEEE Conference on Decision and Control (CDC), 2020, pp.
+4366–4373.
+[16] W. Hashimoto, K. Hashimoto, M. Kishida, and S. Takai, “Reference-
+free iterative learning model predictive control with neural certificates,”
+2025, arXiv:2507.14025.
+[17] F. Moreno-Mora, L. Beckenbach, and S. Streif, “Predictive control with
+learning-based terminal costs using approximate value iteration,” IFAC-
+PapersOnLine, vol. 56, no. 2, pp. 3874–3879, 2023.
+[18] M. Lin, Y. Xia, Z. Sun, and L. Dai, “Learning-based model predictive
+control under value iteration with finite approximation errors,” Inter-
+national Journal of Robust and Nonlinear Control, vol. 34, no. 4, pp.
+2946–2971, 2024.
+[19] J. Cui, J. Gao, X. Liu, Y. Liu, and S. Yu, “A characterization method of
+terminal ingredients for nonlinear MPC using value-based reinforcement
+learning,” Automatica, vol. 183, p. 112574, 2026.
+[20] J. Berberich, J. K¨ohler, M. A. M¨uller, and F. Allg¨ower, “On the design of
+terminal ingredients for data-driven MPC,” IFAC-PapersOnLine, vol. 54,
+no. 6, pp. 257–263, 2021.
+[21] F. B. Kopp and F. Borrelli, “Data-driven multi-modal learning model
+predictive control,” 2024.
+[22] C. R¨osmann, F. Hoffmann, and T. Bertram, “Integrated online trajec-
+tory planning and optimization in distinctive topologies,” Robotics and
+Autonomous Systems, vol. 88, pp. 142–153, 2017.
+[23] O. de Groot, L. Ferranti, D. M. Gavrila, and J. Alonso-Mora, “Topology-
+driven parallel trajectory optimization in dynamic environments,” IEEE
+Transactions on Robotics, vol. 41, pp. 110–126, 2025.
+[24] V. K. Adajania, A. Sharma, A. Gupta, H. Masnavi, K. M. Krishna,
+and A. K. Singh, “Multi-modal model predictive control through batch
+non-holonomic trajectory optimization: Application to highway driving,”
+IEEE Robotics and Automation Letters, vol. 7, no. 2, pp. 4220–4227,
+2022.
+[25] W. Hashimoto and K. Hashimoto, “MM-LMPC: Multi-modal learning
+model predictive control via bandit-based mode selection,” in Proceed-
+ings of the American Control Conference, 2026, pp. 4472–4479.
+[26] A. A. Bushra and G. Yi, “Comparative analysis review of pioneering db-
+scan and successive density-based clustering algorithms,” IEEE Access,
+vol. 9, pp. 87 918–87 935, 2021.
+[27] D. Reynolds, Gaussian Mixture Models.
+Boston, MA: Springer US,
+2009, pp. 659–663.
+[28] T. Lattimore and C. Szepesv´ari, Bandit Algorithms.
+Cambridge
+University Press, 2020.
+[29] S. Agrawal and N. Goyal, “Analysis of thompson sampling for the multi-
+armed bandit problem,” in Proceedings of the 25th Annual Conference
+on Learning Theory, ser. Proceedings of Machine Learning Research,
+S. Mannor, N. Srebro, and R. C. Williamson, Eds., vol. 23.
+Edinburgh,
+Scotland: PMLR, 25–27 Jun 2012, pp. 39.1–39.26.
+[30] U. Rosolia, X. Zhang, and F. Borrelli, “Robust learning model predictive
+control for iterative tasks: Learning from experience,” in 2017 IEEE 56th
+Annual Conference on Decision and Control (CDC), 2017, pp. 1157–
+1162.
+[31] J. A. E. Andersson, J. Gillis, G. Horn, J. B. Rawlings, and M. Diehl,
+“CasADi – A software framework for nonlinear optimization and opti-
+mal control,” Mathematical Programming Computation, vol. 11, no. 1,
+pp. 1–36, 2019.
+
+
+13
+[32] U. Rosolia, “LMPC Examples,” GitHub repository, [Online]. Available:
+https://github.com/urosolia/LMPC. Accessed: Aug. 3, 2026.

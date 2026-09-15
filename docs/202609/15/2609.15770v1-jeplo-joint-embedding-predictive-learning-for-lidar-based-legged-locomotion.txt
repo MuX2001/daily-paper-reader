@@ -1,0 +1,965 @@
+JEPLO: Joint-Embedding Predictive Learning for
+LiDAR-Based Legged Locomotion
+Qihao Yuan, Yixuan Qiu, Ziyu Cao, Ming Cao, and Kailai Li
+Abstract— Light detection and ranging (LiDAR) remains less
+explored than RGB-D sensing for perceptive legged locomotion,
+and existing LiDAR-based approaches often rely on explicit
+mapping. We present JEPLO (Joint-Embedding Predictive
+learning for legged LOcomotion), a single-stage learning frame-
+work for mapping-free, LiDAR-based perceptive locomotion for
+legged robots. We introduce a proprio-exteroceptive JEPA (PE-
+JEPA) world model to learn predictive egocentric terrain rep-
+resentations from onboard observations, including raw LiDAR
+scans. A concurrent JEPA-teacher-student (CJTS) pipeline is
+further proposed to train a locomotion policy informed by JEPA
+latent representations in simulation using deep reinforcement
+learning with a simple reward formulation. The framework
+achieves successful sim-to-real transfer, enabling omnidirec-
+tional traversal of diverse terrains, including long staircases and
+high boxes, with lightweight onboard computation. Evaluations
+demonstrate greater robustness than existing perceptive loco-
+motion frameworks, particularly under degraded perception
+caused by occlusion, sparsity and noise. Further analysis
+validates JEPLO’s ability to retain task-relevant information
+under these challenging conditions. We open-source our imple-
+mentation, experimental datasets, and hardware setup designs
+at https://github.com/ASIG-X/JEPLO.
+I. INTRODUCTION
+Perceptive locomotion enables legged robots to navi-
+gate complex, unstructured environments, supporting a wide
+range of applications, including exploration, search and
+rescue, and industrial inspection [1]–[3]. Recent advances
+in deep reinforcement learning (RL) have substantially im-
+proved the ability of legged robots to traverse challenging
+terrain in real-world settings [4]–[6]. Such traversal relies on
+adaptive locomotion behaviors informed by egocentric per-
+ception. Learning task-relevant terrain representations from
+raw sensory observations is therefore particularly important
+for learning robust locomotion policies.
+RGB-D cameras have been widely adopted for legged
+perceptive locomotion because they provide direct and struc-
+tured depth measurements [4]–[7]. In this setting, a common
+approach to RL-based policy training of perceptive legged
+skills is teacher-student distillation: a teacher is first trained
+using privileged terrain information, typically a height map,
+and a student then learns to imitate the teacher using
+depth images and proprioceptive observations [4], [7]. This
+strategy also allows multiple specialized teacher policies to
+Qihao Yuan, Yixuan Qiu, and Ming Cao are with the Faculty of Science
+and Engineering, University of Groningen, The Netherlands. Ziyu Cao is
+with the Department of Electrical Engineering, Linköping University, Swe-
+den. Kailai Li was with the Faculty of Science and Engineering, University
+of Groningen, and is now with the Department of Electrical Engineering,
+Linköping University, Sweden. E-mails: {qihao.yuan, yixuan.qiu,
+m.cao}@rug.nl,{ziyu.cao, kailai.li}@liu.se
+(a) Indoor environment testing and hardware setup.
+(b) Outdoor environment testing.
+Fig. 1: JEPLO enables mapping-free LiDAR-based percep-
+tive locomotion onboard quadruped robots across diverse
+scenarios. Terrain height variations are 18 cm to 44 cm.
+be distilled into a single deployable policy [1]. However,
+conventional two-stage training fixes the teacher’s behavior
+without accounting for the student’s perceptual limitations
+during policy learning. The teacher may learn behaviors
+that are difficult to reproduce under the student’s sensing
+constraints, such as occlusion and field-of-view (FoV) limits,
+hindering reliable imitation from onboard observations. RL-
+based student fine-tuning can mitigate this mismatch by
+allowing the policy to adapt to its own sensing conditions,
+but adds training complexity and potential instability [1].
+To learn complex motor skills in a single-stage manner,
+concurrent teacher-student training was proposed to com-
+bine distillation with RL through encoder-level supervision,
+allowing teacher and student encoders to improve continu-
+ously [8]. Several methods similarly train perception modules
+and locomotion policies concurrently [5], [6]. The perception
+module learns through supervised or self-supervised objec-
+tives, providing explicit terrain estimates or latent features
+through height map reconstruction or world modeling [5],
+[6], [9]. Meanwhile, the policy learns through RL, allowing
+perception and control to evolve together as the policy adapts
+to the information available from its sensors.
+Despite these advances, RGB-D cameras are susceptible
+to substantial noise and missing data under challenging light
+arXiv:2609.15770v1  [cs.RO]  14 Sep 2026
+
+
+Fig. 2: JEPLO pipeline. Slashes denote stop-gradient.
+conditions such as darkness. LiDAR offers an alternative
+with accurate, wide-range spatial perception and greater
+robustness to lighting variations [10]. However, individual
+LiDAR scans can provide incomplete terrain coverage, while
+aggregating scans without compensating for sensor motion
+can introduce severe geometric distortion. Many compact
+LiDAR sensors used on mobile robots employ non-repetitive,
+irregular scan patterns with sparse per-frame coverage.
+LiDAR-based locomotion systems therefore often rely on
+explicit mapping using odometry or SLAM to construct
+structured terrain maps [2], [3], [11], [12]. Such systems
+incur additional computational overhead and system redun-
+dancy and can be sensitive to scene variations and perception
+degradation [1], [13]. These limitations motivate reactive
+perceptive locomotion via task-relevant terrain representation
+that remains robust to LiDAR-specific sensing artifacts.
+Latent-space predictive world models offer a promising
+approach to learning robust egocentric scene representations
+by capturing scene dynamics through prediction in an embed-
+ding space. In this context, Dreamer has been successfully
+combined with RL-based policy training for RGB-D-based
+perceptive locomotion [6], [14], reconstructing propriocep-
+tive and depth observations while predicting future latent
+states to support locomotion control. However, real-world
+perceptive locomotion needs to contend with sensor noise,
+failures, and, for many LiDARs, irregular observation struc-
+tures. Explicit scene reconstruction may force the model to
+reproduce these artifacts, consuming network capacity and
+increasing sensitivity to information irrelevant to control.
+Recently, JEPA has emerged as an approach to addressing
+this limitation by predicting in an embedding space without
+explicitly reconstructing observations, enabling abstraction
+from unnecessary pixel-level details [15], [16]. Its training
+objective allows representations to suppress unpredictable
+aspects of the input, such as random sensor artifacts. JEPA
+has demonstrated the ability to capture semantic and spatial
+structure in images, as well as physical state information and
+dynamics, with applications in video understanding, tabletop
+robotic manipulation, and quadrotor control [15], [17]–[19].
+However, to the best of our knowledge, joint-embedding
+predictive learning has not been investigated for perceptive
+locomotion in legged robots, where complex terrain contact
+interacts with evolving egocentric observations, particularly
+when using LiDARs with non-repetitive scan patterns.
+Contributions
+We propose JEPLO, a novel Joint-Embedding Predictive
+learning framework for mapping-free, LiDAR-based LO-
+comotion. A proprio-exteroceptive JEPA (PE-JEPA) world
+model is proposed for predictive modeling of egocentric
+terrain dynamics in embedding space for legged locomotion.
+The resulting latent features inform an RL-based locomotion
+policy trained in simulation through a single-stage concur-
+rent JEPA-teacher-student (CJTS) pipeline. JEPLO enables
+traversal across diverse terrains, including long staircases
+and high boxes, and demonstrates greater robustness to per-
+ception artifacts than state-of-the-art perceptive locomotion
+approaches. Our contributions are summarized as follows.
+• We develop PE-JEPA, the first JEPA-based framework for
+mapping-free perceptive locomotion using non-repetitive
+LiDARs, jointly trained with an RL-based locomotion
+policy through a single-stage CJTS pipeline. Successful
+sim-to-real transfer enables traversal of challenging terrain
+with low onboard computational demands.
+• Evaluations show that JEPLO outperforms state-of-the-art
+baselines under occlusion, sparsity and noise, despite ir-
+regular LiDAR scans. Latent analysis further validates that
+its representations retain task-relevant terrain information
+while reducing sensitivity to observation artifacts.
+• We open-source the complete training and deployment im-
+plementation, the MuJoCo validation environment, exper-
+imental datasets, and hardware setup designs, supporting
+lightweight and robust legged autonomy.
+II. SYSTEM PIPELINE
+As shown in Fig. 1-(a), a Livox Mid-360 is mounted
+upside down on the front of a Unitree Go2 robot for
+terrain observation. We crop its horizontal field of view
+(FoV) to a forward-facing 120◦sector and retain 50◦of its
+vertical FoV, thereby excluding the region occluded by the
+computer mounted on the robot’s back. The robot tracks the
+commanded planar velocity vcmd
+xy
+and yaw rate ωcmd
+z
+, given
+LiDAR scans typically acquired at 20 Hz [2]. We construct
+a depth image dt by accumulating the latest five raw scans
+(without motion undistortion) and projecting the points onto
+a spherical grid covering the active FoV. With an angular
+resolution of 2◦, the resulting 60 × 25 image stores the
+minimum point distance within each elevation-azimuth cell.
+As illustrated in Fig. 2, the proposed JEPLO combines
+proprio-exteroceptive JEPA (PE-JEPA) world modeling with
+RL-based policy training through a concurrent JEPA-teacher-
+student (CJTS) pipeline with separate optimization objec-
+tives. PPO optimizes the actor, critic, and privileged teacher
+encoders, while the student encoder learns to imitate the
+teacher’s embeddings. Concurrently, PE-JEPA learns pre-
+dictive scene representations in latent space from sensor
+observations, providing the student encoder with terrain
+information for perceptive locomotion.
+The JEPA encoders comprise an MLP that maps the
+proprioceptive history Ot to a latent zo
+t
+∈R32 and a
+Vision Transformer (ViT) that maps the depth history Dt
+
+
+(a) Rough
+(b) Discrete
+(c) Boxes
+(d) Steps
+(e) Pyramid
+(f) InvPyramid
+Fig. 3: Training terrains. Boxes reach 0.4 m in height. Steps have 0.1-0.5 m high increments. Stairs in (e-f) have 0.04-
+0.20 m rises and 0.25-0.35 m runs. Red and blue points show teacher height maps and student LiDAR scans, respectively.
+(a) Steps
+(b) InvPyramid
+Fig. 4: Random occlusion masks applied to LiDAR-derived
+depth images during training at time steps t and t + 1.
+to a latent zd
+t ∈R64 [20]. The history Ot comprises a
+window of proprioceptive observations ot ∈R45, each
+containing base roll-pitch rate ωxy, yaw rate ωz, projected
+gravity, velocity commands vcmd
+xy
+and ωcmd
+z
+, joint positions θ
+and velocities ˙θ, and the previous action at−1. The depth
+ViT uses 8 × 4 patches, six layers, four attention heads,
+and a 128-D embedding. The JEPA predictor includes a
+GRU with hidden state ht ∈R512 informing the student
+encoder. MLP prediction heads use this state and the policy
+action sequence to predict next-step latents. The MLP teacher
+encoder produces a 192-D embedding that serves as the
+imitation target for the MLP student encoder. All MLPs in
+JEPA and the teacher-student encoders have three layers with
+hidden dimensions of 512 and 256. JEPA runs at 10 Hz, while
+the policy runs at 50 Hz [6].
+III. JOINT-EMBEDDING PREDICTIVE LEARNING FOR
+PERCEPTIVE LEGGED LOCOMOTION
+A. Proprio-Exteroceptive JEPA (PE-JEPA) World Modeling
+As shown in Fig. 2, we introduce modality-specific en-
+coders, GRU memory, and two prediction heads within
+the JEPA architecture for legged perception, enabling joint
+prediction of future proprioceptive and LiDAR-derived depth
+embeddings. We collect proprioceptive observations ot and
+depth observations dt over windows of length Ho and Hd,
+respectively, forming the histories Ot := ot−Ho+1:t and
+Dt := dt−Hd+1:t [5]. We similarly define the action history
+as At := at−Ha+1:t. Given Ot, Dt, and At, we have
+Proprioception Encoder:
+zo
+t = MLP  Ot
+ ,
+Depth Encoder:
+zd
+t = ViT  Dt
+ ,
+Memory:
+ht = GRU  zo
+t, zd
+t, ht−1
+ ,
+Proprioception Pred. Head:
+ˆzo
+t+1 = MLP  ht, At
+ ,
+Depth Pred. Head:
+ˆzd
+t+1 = MLP  ht, At
+ .
+Here, the proprioceptive, exteroceptive, and action history
+lengths are Ho = 10, Hd = 2, and Ha = 5, respectively.
+Prediction loss: We train the proposed PE-JEPA world
+model using a single-step latent prediction loss defined as
+Lpred =
+1
+(TJEPA −1)Nenv
+TJEPA−1
+X
+t=1
+Nenv
+X
+n=1
+ ∥ˆzo
+t+1,n −zo
+t+1,n∥2
++ ∥ˆzd
+t+1,n −zd
+t+1,n∥2 .
+(1)
+Here, ∥· ∥denotes the Euclidean norm, TJEPA is the JEPA
+rollout length, and Nenv = 4096 is the number of parallel
+environments indexed by n.
+Sketched Isotropic Gaussian Regularization (SIGReg) loss:
+The prediction loss alone allows trivially predictable latent
+embeddings (e.g., constant values). To prevent representation
+collapse, we also apply the SIGReg loss to the proprioception
+and depth embeddings [17], [21]. For the proprioceptive and
+exteroceptive latents zo
+t and zd
+t ∈Rl, with l ∈{32, 64},
+we construct a rollout tensor for either embedding as Z ∈
+RTJEPA×Nenv×l. Its slice at time step t is denoted by Zt ∈
+RNenv×l. Further, we randomly sample M = 512 projection
+directions u(1), . . . , u(M) ∈Sl−1 on the unit hypersphere
+and project the embedding slice onto each direction, yielding
+q(m)
+t
+= Ztu(m) ∈RNenv ,
+with
+m = 1, . . . , M .
+This generates 1-D projections of the original embeddings
+along u(m). We evaluate the Epps-Pulley test statistic T (·)
+on the projected samples to measure their deviation from
+the standard Gaussian distribution N(0, 1) [22]. Minimizing
+this statistic across the sampled directions encourages the
+joint embedding distribution to approach an isotropic Gaus-
+sian [23]. Therefore, we optimize the sum of Epps-Pulley
+statistics over all M directions. Treating the time dimension
+TJEPA as the batch dimension, we define our SIGReg loss as
+SIGReg Z =
+1
+TJEPA · M
+TJEPA
+X
+t=1
+M
+X
+m=1
+T  q(m)
+t
+ .
+Final loss: We apply SIGReg to both the proprioceptive
+embeddings Zo and LiDAR-derived exteroceptive embed-
+dings Zd collected during rollout. Combining the prediction
+and SIGReg losses, the final JEPA loss is
+LJEPA = Lpred + λ SIGReg(Zo) + SIGReg(Zd) .
+(2)
+The SIGReg weight λ = 0.1. By jointly learning the
+encoders and predictor, the model can learn representations
+that are less sensitive to noise, occlusion, and distortion in
+depth images derived from irregular LiDAR scans.
+
+
+(a) Blob
+(b) Cross
+(c) Cut
+(d) Stripe
+(e) Masks of ratio 20%, 40%, 60%, and 80%.
+Fig. 5: LiDAR occlusion and mask patterns in evaluation.
+Fig. 6: Success rates across mask ratios for box heights.
+B. Concurrent JEPA-Teacher-Student (CJTS) Training
+Inspired by [8] in blind locomotion, we propose a concur-
+rent pipeline to jointly train PE-JEPA, a privileged teacher
+encoder, and a deployable student encoder, with both en-
+coders providing inputs to a shared actor π. This follows
+Teacher Encoder:
+ze
+t = MLP  Ot, mt, st
+ ,
+Student Encoder:
+ˆze
+t = MLP  Ot, sg(ht) ,
+Actor:
+at =
+®
+π ot, ze
+t
+ ,
+teacher env.
+π ot, sg(ˆze
+t) ,
+student env.
+Critic:
+V  Ot, mt, st
+ .
+Here, sg denotes the stop-gradient operator. The teacher
+embedding ze
+t is computed from the proprioceptive history
+Ot, local height scan mt, and privileged state st. The
+student embedding ˆze
+t is computed from inputs available
+at deployment, namely the JEPA hidden state ht and the
+same proprioceptive history, and is supervised by the teacher
+embedding. We train the actor, critic, and teacher encoder
+using standard PPO [24]. In student environments, the stu-
+dent encoder learns to imitate the teacher embedding by
+minimizing the MSE loss given by
+Ls =
+1
+T · N senv
+T
+X
+t=1
+Ns
+env
+X
+n=1
+ˆze
+t,n −sg(ze
+t,n)
+2 .
+Here, T denotes the policy rollout length. The student
+embedding ˆze
+t is detached at the actor input to prevent
+PPO gradients from reaching the student encoder. During
+CTS training, JEPA is optimized solely through LJEPA in
+(2), and its hidden state is detached at the student encoder
+input, preventing task gradients from affecting JEPA. At
+deployment, we discard the teacher encoder and use only
+the student encoder, with exteroceptive terrain information
+provided entirely through the JEPA hidden state ht.
+Rewards:
+Within
+the
+JEPA-informed
+teacher-student
+pipeline, we use a simple reward formulation, listed in Tab. I,
+similar to that of prior work for legged blind locomotion [25].
+It comprises velocity tracking rewards, regularization, and
+other common terms, including a foot regulation reward
+that encourages foot lifting. Compared with previous meth-
+ods [4], [6], our formulation includes neither terrain-specific
+foot placement terms nor motion references.
+TABLE I: Reward functions and weights.
+Reward
+Weight
+Linear velocity tracking: exp{−4∥vcmd
+xy
+−vxy∥2}
+2.0
+Angular velocity tracking: exp{−4(ωcmd
+z
+−ωz)2}
+1.0
+Linear velocity (z): v2
+z
+−2 × (1 −min(k/1500, 1))
+Angular velocity (xy): ∥ωxy∥2
+−0.05
+Joint acceleration: ∥¨θ∥2
+−1 × 10−7
+Joint power: |τ|⊤| ˙θ|
+−2 × 10−5
+Joint torques: ∥τ∥2
+−1 × 10−4
+Base height: (hb −h∗
+b )2
+−1 −9 × min(k/5000, 1)
+Action rate: ∥at −at−1∥2
+−0.01
+Action smoothness: ∥at −2at−1 + at−2∥2
+−0.01
+Undesired contacts: P
+b∈Bu 1[∥Fb∥> 5 N]
+−1.0
+Joint position limits: P[(θmin −θ)+ + (θ −θmax)+]
+−2.0
+Hip position: P |θhip −θhip,default|
+−0.05
+Thigh/calf position: P |θleg −θleg,default|
+−0.01
+Feet regulation: P
+f ∥vf
+xy∥2 exp{−hf/(0.025h∗
+b )}
+−0.05
+Symbol explanation: hb denotes the base height, with target h∗
+b = 0.38 m.
+For foot f, hf and vf
+xy denote its height and planar velocity, respectively.
+Fb denotes the contact-force vector for body b, and Bu is the set of bodies
+for which contact is undesired. 1[·] denotes the indicator function. Positive-
+part operator (·)+ acts elementwise. k indicates the training iteration index.
+C. Training setup
+We train the policy on the terrains shown in Fig. 3.
+For Rough, Discrete, Pyramid, and InvPyramid
+(inverted pyramid), we sample planar and yaw velocity
+commands independently. For Boxes and Steps, terrain-
+dependent waypoints determine the body-frame direction of
+vcmd
+xy , while the heading error relative to the next waypoint
+determines ωcmd
+z
+. During command resampling, we also ran-
+domly activate an in-place rotation mode to expose the policy
+to diverse rotational scenarios. More detailed command-
+generation parameters are summarized in Tab. III.
+We further apply domain randomization and sensor per-
+turbations using the parameters summarized in Tab. IV.
+Additionally, we independently sample 0 to 2 geometric
+occlusion masks (circles and rectangles) for each LiDAR-
+derived depth image randomly (Fig. 4), making these cor-
+ruptions temporally independent and unpredictable from pre-
+ceding frames. Under the latent prediction loss Lpred in (1),
+encoding such transient corruptions can increase prediction
+error, encouraging the encoder to preserve persistent scene
+geometry while suppressing corruption-specific features.
+As shown in Fig. 3, the teacher’s height map mt ∈R300
+covers a 2.0 m × 1.5 m area centered on the robot at a
+resolution of 0.1 m. The privileged state st ∈R50 comprises
+planar and vertical base velocities vxy and vz, foot heights hf
+and contact states, a terrain-type indicator, body-contact force
+vectors Fb indexed by b, joint torques τ, motor gains, ground
+
+
+Fig. 7: Locomotion across diverse terrains. (a) Omnidirectional stair traversal and in-place rotation on stairs with a 15 cm
+rise and 25 cm run. (b) Traversal of boxes up to 53 cm high, including angled approaches and consecutive climbs.
+friction and restitution, and payload. The policy outputs a
+12-D joint-position action at for the onboard PD controller.
+We allocate N s
+env = 1024 and N t
+env = 3072 environments
+to the student and teacher, respectively. To stabilize behavior
+learning together with the proposed PE-JEPA, we gradually
+introduce student environments through a curriculum. For
+training iterations k < 5000, all environments use the teacher
+branch for rollouts. From k = 5000 to k = 10000, we
+linearly increase N s
+env from 0 to 1024 and the weight of
+the student PPO surrogate-loss term from 0 to 1. Training
+is conducted in IsaacLab [26], with Livox Mid-360 LiDAR
+scans simulated following [10]. We use the PPO implemen-
+tation from RSL-RL [27], and the complete training process
+takes about 12 hours on an NVIDIA RTX 6000 Pro GPU.
+IV. EVALUATION IN SIMULATION
+A. Benchmark setup
+To evaluate JEPLO’s transfer beyond the training en-
+vironment, we develop a separate MuJoCo-based environ-
+ment [28] with simulated LiDAR and perception degradation
+scenarios. We consider two tasks, climbing a 0.5 m box
+and traversing stairs with a rise of 0.2 m and a run of
+0.3 m, corresponding to the highest terrain difficulty during
+training. For stair traversal, we challenge the robots with
+randomly sampled robot headings that require ascent in
+arbitrary directions. We evaluate four randomized occlusion
+patterns, shown in Fig. 5-(a-d). Stripe resembles occlusion
+caused by the sensor-cage pillars on the real robot (Fig. 1).
+We compare JEPLO with two ablations. No-Prop removes
+proprioception from the world model input, while No-Occ
+removes occlusion augmentation during training (Fig. 4).
+We also implement two baselines based on state-of-the-art
+perceptive locomotion approaches from prior work. (1) PIE:
+we replace PE-JEPA with an estimator from [5] that learns
+implicit-explicit features, reconstructs terrain height maps,
+and predicts proprioception. (2) WMP: we replace PE-JEPA
+with DreamerV3 [14] following [6], which reconstructs depth
+and proprioceptive observations and predicts future latent
+states. Both baselines follow the training setup in Sec. III-
+C. We retain CTS training across all methods to isolate the
+effect of world modeling and train each for 15000 iterations.
+B. Results and discussion
+Tab. II reports the mean and standard deviation of success
+rates over 500 trials per method and occlusion condition for
+each terrain, Stairs and Box. On stairs, JEPLO achieves
+the highest success rate under every condition, remaining
+close to its unoccluded (Standard) performance except
+under Cut. No-Prop is relatively insensitive to occlusion
+but performs worse overall, suggesting that proprioception
+contributes to task performance. In contrast, No-Occ deteri-
+orates sharply under all occlusion patterns, highlighting the
+contribution of occlusion augmentation to robustness. PIE
+and WMP also underperform JEPLO across all conditions,
+with their largest declines occurring under Cut. For boxes,
+JEPLO again achieves the highest success rate overall,
+reaching 100% without occlusion. No-Prop, No-Occ, and
+PIE deteriorate sharply under every tested occlusion pattern.
+Notably, WMP performs worse without occlusion than under
+any tested occlusion pattern. One possible explanation is
+that reconstructing random occlusion patterns during training
+makes it sensitive to the mismatch between clean evaluation
+inputs and the occlusion-augmented training distribution.
+TABLE II: Benchmark success rates. Bold and underlined
+values indicate the best and second-best results, respectively.
+Occlusion
+JEPLO
+No-Prop
+No-Occ
+PIE [5]
+WMP [6]
+Stairs (rise: 0.2 m, run: 0.3 m)
+Standard
+59.2 ± 8.3 34.2 ± 6.1 34.2 ± 6.5 54.8 ± 6.4 57.8 ± 6.6
+Blob
+59.8 ± 5.6 36.2 ± 7.8 13.0 ± 4.1 55.4 ± 6.0 50.2 ± 6.2
+Cross
+60.2 ± 5.5 42.8 ± 8.1 14.8 ± 4.4 49.6 ± 5.4 41.0 ± 7.1
+Cut
+39.6 ± 7.4 37.4 ± 7.0 16.4 ± 6.1 23.2 ± 5.3 31.4 ± 6.6
+Stripe
+62.6 ± 8.4 36.6 ± 4.7 11.0 ± 3.3 53.6 ± 5.9 52.4 ± 6.1
+Box (height: 0.5 m)
+Standard
+100 ± 0.0 99.4 ± 1.3 95.0 ± 1.4 56.2 ± 7.9
+7.8 ± 3.2
+Blob
+57.6 ± 9.1 8.8 ± 3.8
+12.2 ± 5.5
+6.0 ± 3.5
+33.6 ± 7.0
+Cross
+50.2 ± 9.6 7.4 ± 3.4
+5.8 ± 4.8
+4.0 ± 1.9
+30.8 ± 4.7
+Cut
+20.0 ± 5.3 11.4 ± 5.6
+3.4 ± 2.8
+1.2 ± 1.4
+15.0 ± 5.1
+Stripe
+63.4 ± 4.2 12.4 ± 4.8
+2.6 ± 1.6
+4.6 ± 3.0
+30.8 ± 4.8
+
+
+Fig. 8: Gait analysis for climbing a 53 cm-high box.
+Fig. 9: Box and stair climbing in darkness.
+Discussion: We further evaluate robustness to random
+scan masking at ratios from 20% to 80% in LiDAR-derived
+depth images, as depicted in Fig. 5-(e), using Box terrains
+of heights from 20 cm to 50 cm. As shown in Fig. 6, JEPLO
+exhibits the least performance degradation as the mask ratio
+increases, with a larger advantage over other methods for
+higher boxes. This trend is consistent with greater reliance
+on perception when climbing higher boxes.
+V. REAL-WORLD EXPERIMENTS
+As shown in Fig. 1-(a), we equip a Unitree Go2
+quadrupedal robot with an NVIDIA Jetson AGX Orin
+(64 GB) and a Livox Mid-360 LiDAR. A perception process
+receives point clouds from the Livox driver, accumulates
+typically five successive scans, and projects them into depth
+images for publication. Our MuJoCo-based evaluation envi-
+ronment uses the same pipeline, enabling seamless sim-to-
+sim validation and facilitating sim-to-real transfer. A separate
+control process receives these depth images and controls the
+robot, running the policy at 50 Hz and the JEPA module at
+10 Hz. We use ZeroMQ1 for inter-process communication
+and export the models to ONNX Runtime for TensorRT-
+accelerated onboard inference. No SLAM or odometry sys-
+tem is required during deployment in velocity tracking.
+As shown in Fig. 7-(a), JEPLO enables omnidirectional
+stair traversal at approximately 1 m/s and in-place rotation.
+Fig. 7-(b) further demonstrates climbing boxes up to 53 cm
+high, including consecutive and angled jumps. Fig. 8 visu-
+alizes the gait pattern during high-box climbing, showing
+natural gait coordination and transitions achieved with a
+simple reward formulation. JEPLO also enables LiDAR-
+based box and stair climbing in darkness, as shown in Fig. 9.
+In the environment shown in Fig. 1-(a), JEPLO completes
+five consecutive back-and-forth traversals over boxes and up
+and down stairs without failure. The system also adapts to
+1https://zeromq.org.
+Fig. 10: Robust locomotion under LiDAR occlusion.
+1 frame
+3 frames
+5 frames
+Fig. 11: Depth images of sparse LiDAR scans.
+outdoor environments, including long staircases (over 7.5 m)
+and steps of varying geometries.
+We further evaluate JEPLO’s robustness to real-world
+sensing degradation on the 34 cm-high box and the stairs
+shown in Fig. 7. For occlusion, we apply cross patterns
+using tape, as shown in Fig. 10. For sparsity, we reduce the
+number of accumulated LiDAR frames from the default five
+to one. Fig. 11 compares depth images generated from one,
+three, and five frames, illustrating how fewer accumulated
+frames reduce spatial coverage under the non-repetitive scan
+pattern. The robot successfully traverses both terrain types
+under these degraded sensing conditions.
+Runtime efficiency: We profile JEPLO on the robot’s Jet-
+son during a typical perceptive locomotion task, measuring
+average CPU utilization of 12.4% relative to a single core (12
+cores available), memory usage of 1.84 GB, and GPU utiliza-
+tion of 7.35%. These results highlight JEPLO’s lightweight
+architecture, enabling onboard perceptive locomotion with
+low computational and memory demands.
+JEPLO dataset: To support the legged robotics commu-
+nity, we publicly release a dataset recorded during our ex-
+periments comprising five indoor sequences and three mixed
+indoor-outdoor sequences, with complete proprioceptive and
+exteroceptive recordings. Indoor ground-truth 6-DoF poses
+are recorded at 100 Hz in a 10 m × 4 m test area using eight
+Qualisys Miqus M3 motion capture cameras.
+VI. LATENT ANALYSIS
+To quantify the sensitivity of the learned depth repre-
+sentations to perception degradation, we randomly sample
+1000 depth frames from each of Rough, Steps, Boxes,
+and InvPyramid (Fig. 3). For each frame, we vary the
+pixel mask ratio pmask ∈[0, 1] and compute the relative
+latent distance between the masked depth latent zd(pmask) ∈
+R64 and its unoccluded counterpart zd(0) as ∥zd(pmask) −
+zd(0)∥/∥zd(0)∥. Fig. 13 shows similar increases in rela-
+tive latent distance across all four terrains, suggesting that
+sensitivity to pixel masking is largely consistent across
+terrain types. For a representative frame, Fig. 14 illustrates
+latent representation variations induced by masking, with
+pronounced deviations from standard representation at 75%.
+To examine collective latent behavior under perception
+degradation, we visualize the depth latents zd
+t and JEPA
+
+
+Fig. 12: Imagined future depth images and height maps compared with ground truth over Box and Steps terrains.
+(a) Rough
+(b) Steps
+(c) Boxes
+(d) InvPyr.
+Fig. 13: Relative depth latent distances under increasing scan
+masking over diverse terrains.
+Fig. 14: Latent representations from unoccluded (red) and
+25%-100% masked (blue) scans in Steps.
+hidden states ht using t-SNE, mapping representations from
+degraded frames into reference embeddings constructed from
+clean observations [29]. At scan masking ratios pmask ∈
+{30%, 60%, 90%}, masked representations are positioned
+relative to their clean references while the reference coordi-
+nates remain fixed. For JEPA hidden states, we apply mask-
+ing from the start of each episode to account for the GRU’s
+recurrent memory. As shown in Fig. 15, masked samples
+largely remain near their clean neighborhoods at 30% and
+60% masking, while pronounced deviations emerge at 90%.
+These results provide qualitative evidence of representation
+robustness under perception degradation.
+Latent decoding: To examine the task-relevant information
+retained by the learned representations, we freeze the trained
+PE-JEPA world model and policy and train two separate
+Transformer decoders to reconstruct the 20×15 local height
+map from the JEPA hidden state ht and the input depth
+image from the depth latent zd
+t. Each decoder uses a 192-D
+embedding, three layers, and six attention heads. Starting
+from the hidden state at time t, we roll out the frozen
+PE-JEPA autoregressively using recorded policy actions and
+decode the predicted representations over 10 steps at 0.1 s
+intervals. As shown by the decoded depth and height maps
+in Fig. 12, PE-JEPA accurately predicts climbing timing and
+terrain interaction without further sensor input, demonstrat-
+ing its capacity to model task-relevant terrain dynamics.
+(a) Exteroceptive latents zd
+t
+(b) JEPA hidden states ht
+Fig. 15: t-SNE latent visualization under masks for Steps
+(purple), Rough (blue), and Stairs (green).
+VII. CONCLUSION
+We presented JEPLO, a framework for mapping-free,
+LiDAR-based
+perceptive
+locomotion
+that
+combines
+a
+proprio-exteroceptive JEPA (PE-JEPA) world model with
+RL-based policy learning through a single-stage concurrent
+JEPA-teacher-student (CJTS) pipeline. By predicting in em-
+bedding space without explicit observation reconstruction,
+PE-JEPA learns terrain representations that inform robust lo-
+comotion with a simple reward formulation. Simulation and
+real-world evaluations demonstrated omnidirectional traver-
+sal over diverse terrains and resilience to LiDAR occlusion
+and sparsity. Latent analysis further showed retention of task-
+relevant terrain information and predictive dynamics under
+degraded perception. These results support joint-embedding
+predictive learning as a promising approach to lightweight
+and resilient legged autonomy.
+APPENDIX
+A. Training settings and domain randomization
+We use three command modes. Direct mode samples
+velocity commands for Rough, Discrete, Pyramid, and
+InvPyramid, together with the in-place Rotation mode.
+Waypoint mode guides the robot through successive way-
+points on Boxes and Steps to encourage terrain inter-
+action. Parameters for command generation and domain
+randomizations are listed in Tab. III and Tab. IV, respectively.
+ACKNOWLEDGMENT
+This paper uses ChatGPT for editing and debugging code.
+
+
+TABLE III: Parameters for command generation.
+Mode
+Parameter
+Value
+All
+Resampling (Hz)
+0.25
+Direct
+vcmd
+x
+(m/s)
+[−1, −0.5] ∪[0.5, 1] , pnz = 0.9
+vcmd
+y
+(m/s)
+[−1, −0.5] ∪[0.5, 1] , pnz = 0.75
+ωcmd
+z
+(rad/s)
+[−2, 2] , pnz = 0.5
+Waypoint
+Speed (m/s)
+[0.5, 1] , pnz = 0.95
+Yaw rate clip (rad/s)
+[−1, 1]
+Distance threshold (m)
+0.5
+Rotation
+Sampling prob.
+0.2 (iteration ≥1000)
+vcmd
+xy
+(m/s)
+0
+ωcmd
+z
+(rad/s)
+[−2, 2]
+Commands are sampled uniformly over the specified ranges, with pnz
+denoting the sampling probability; otherwise, they are set to zero.
+TABLE IV: Parameters for domain randomization.
+Domain
+Parameter
+Range
+Dynamics
+Mass offset (kg)
+Base: [−2.0, 5.0]
+Base-CoM offset (m)
+x, y, z ∈[−0.03, 0.03]
+Friction
+[0, 2.0]
+Restitution
+[0, 0.5]
+Initial joint-pos. scale
+[0.5, 1.5]
+Linear & angular push (0.25 Hz)
+(m/s, rad/s)
+∆vxy ∈[−0.4, 0.4]2
+∆ωxy ∈[−0.6, 0.6]2
+∆ωz ∈[−0.6, 0.6]
+Motor
+Kp (N · m/rad)
+[21, 39]
+Kd (N · m · s/rad)
+[0.7, 1.3]
+Zero-position offset (rad)
+[−0.035, 0.035]
+Action delay (ms)
+0 −20
+Proprio.
+noise
+Angular velocity (rad/s)
+[−0.2, 0.2]
+Projected gravity
+[−0.05, 0.05]
+Joint-position (rad)
+[−0.01, 0.01]
+Joint-velocity (rad/s)
+[−0.2, 0.2]
+LiDAR
+Origin drift per axis (m)
+[−0.03, 0.03]
+Range noise (m)
+N(0, 0.0052)
+Depth delay (s)
+0.1
+REFERENCES
+[1] N. Rudin, J. He, J. Aurand, and M. Hutter, “Parkour in the wild:
+Learning a general and extensible agile locomotion policy using multi-
+expert distillation and RL fine-tuning,” The International Journal of
+Robotics Research, vol. 0, no. 0, p. 02783649261455067, 2026.
+[2] D. Hoeller, N. Rudin, D. Sako, and M. Hutter, “ANYmal parkour:
+Learning agile navigation for quadrupedal robots,” Science Robotics,
+vol. 9, no. 88, p. eadi7566, 2024.
+[3] T. Miki, J. Lee, J. Hwangbo, L. Wellhausen, V. Koltun, and M. Hutter,
+“Learning robust perceptive locomotion for quadrupedal robots in the
+wild,” Science Robotics, vol. 7, no. 62, p. eabk2822, 2022.
+[4] X. Cheng, K. Shi, A. Agarwal, and D. Pathak, “Extreme parkour with
+legged robots,” in 2024 IEEE International Conference on Robotics
+and Automation (ICRA), 2024, pp. 11 443–11 450.
+[5] S. Luo, S. Li, R. Yu, Z. Wang, J. Wu, and Q. Zhu, “PIE: Parkour with
+implicit-explicit learning framework for legged robots,” IEEE Robotics
+and Automation Letters, vol. 9, no. 11, pp. 9986–9993, 2024.
+[6] H. Lai, J. Cao, J. Xu, H. Wu, Y. Lin, T. Kong, Y. Yu, and W. Zhang,
+“World model-based perception for visual legged locomotion,” in 2025
+IEEE International Conference on Robotics and Automation (ICRA),
+2025, pp. 11 531–11 537.
+[7] A. Agarwal, A. Kumar, J. Malik, and D. Pathak, “Legged locomotion
+in challenging terrains using egocentric vision,” in Conference on
+Robot Learning (CoRL), 2023, pp. 403–415.
+[8] H. Wang, H. Luo, W. Zhang, and H. Chen, “CTS: Concurrent teacher-
+student reinforcement learning for legged locomotion,” IEEE Robotics
+and Automation Letters, vol. 9, no. 11, pp. 9191–9198, 2024.
+[9] R. Yu, Q. Wang, H. Li, Z. Jun, Z. Wang, J. Wu, and Q. Zhu,
+“START: Traversing sparse footholds with terrain reconstruction,”
+IEEE Robotics and Automation Letters, vol. 11, no. 2, pp. 2194–2201,
+2026.
+[10] Q. Yuan, Z. Cao, M. Cao, and K. Li, “REASAN: Learning reactive
+safe navigation for legged robots,” arXiv preprint arXiv:2512.09537,
+2025.
+[11] Y. Chen, J. Ma, Z. Luo, Y. Han, Y. Dong, B. Xu, and P. Lu, “Learning
+autonomous and safe quadruped traversal of complex terrains using
+multi-layer elevation maps,” IEEE Robotics and Automation Letters,
+vol. 10, no. 10, pp. 9606–9613, 2025.
+[12] Z. Cao, W. Talbot, and K. Li, “RESPLE: Recursive spline estimation
+for LiDAR-based odometry,” IEEE Robotics and Automation Letters,
+vol. 10, no. 10, pp. 10 666–10 673, 2025.
+[13] T. Miki, L. Wellhausen, R. Grandia, F. Jenelten, T. Homberger, and
+M. Hutter, “Elevation mapping for locomotion and navigation using
+GPU,” in 2022 IEEE/RSJ International Conference on Intelligent
+Robots and Systems, 2022, pp. 2273–2280.
+[14] D. Hafner, J. Pasukonis, J. Ba, and T. Lillicrap, “Mastering diverse
+control tasks through world models,” Nature, vol. 640, no. 8059, pp.
+647–653, 2025.
+[15] M. Assran, Q. Duval, I. Misra, P. Bojanowski, P. Vincent, M. Rabbat,
+Y. LeCun, and N. Ballas, “Self-supervised learning from images
+with a joint-embedding predictive architecture,” in 2023 IEEE/CVF
+Conference on Computer Vision and Pattern Recognition (CVPR),
+2023, pp. 15 619–15 629.
+[16] M. Assran, A. Bardes, D. Fan, Q. Garrido, R. Howes, M. Muckley,
+A. Rizvi, C. Roberts, K. Sinha, A. Zholus, et al., “V-JEPA 2:
+Self-supervised video models enable understanding, prediction and
+planning,” arXiv preprint arXiv:2506.09985, 2025.
+[17] L. Maes, Q. L. Lidec, D. Scieur, Y. LeCun, and R. Balestriero,
+“LeWorldModel: Stable end-to-end joint-embedding predictive archi-
+tecture from pixels,” arXiv preprint arXiv:2603.19312, 2026.
+[18] J. Sun, W. Zhang, Z. Qi, S. Ren, Z. Liu, H. Zhu, G. Sun, X. Jin, and
+Z. Chen, “VLA-JEPA: Enhancing vision-language-action model with
+latent world model,” arXiv preprint arXiv:2602.10098, 2026.
+[19] P. Rao, W. Zhang, R. Balestriero, Y. LeCun, and G. Loianno, “Sky-
+JEPA: Learning long-horizon world models for zero-shot sim-to-real
+control of quadrotors,” arXiv preprint arXiv:2606.23444, 2026.
+[20] A. Dosovitskiy, L. Beyer, A. Kolesnikov, D. Weissenborn, X. Zhai,
+T. Unterthiner, M. Dehghani, M. Minderer, G. Heigold, S. Gelly,
+J. Uszkoreit, and N. Houlsby, “An image is worth 16x16 words: Trans-
+formers for image recognition at scale,” in International Conference
+on Learning Representations, 2021.
+[21] R. Balestriero and Y. LeCun, “LeJEPA: Provable and scalable
+self-supervised
+learning
+without
+the
+heuristics,”
+arXiv
+preprint
+arXiv:2511.08544, 2025.
+[22] T. W. Epps and L. B. Pulley, “A test for normality based on the
+empirical characteristic function,” Biometrika, vol. 70, no. 3, pp. 723–
+726, 1983.
+[23] H. Cramér and H. Wold, “Some theorems on distribution functions,”
+Journal of the London Mathematical Society, vol. s1-11, no. 4, pp.
+290–294, 1936.
+[24] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov,
+“Proximal
+policy
+optimization
+algorithms,”
+arXiv
+preprint
+arXiv:1707.06347, 2017.
+[25] T. Wu, H. Guo, Y. Wang, J. Yang, X. Sui, J. Xie, X. Chen, Z. Liu,
+and X. Lan, “Toward reliable sim-to-real predictability for MoE-based
+robust quadrupedal locomotion,” in Proceedings of Robotics: Science
+and Systems, 2026.
+[26] M. Mittal, P. Roth, J. Tigue, A. Richard, O. Zhang, P. Du, A. Serrano-
+Munoz, X. Yao, R. Zurbrügg, N. Rudin, et al., “Isaac Lab: A gpu-
+accelerated simulation framework for multi-modal robot learning,”
+arXiv preprint arXiv:2511.04831, 2025.
+[27] C. Schwarke, M. Mittal, N. Rudin, D. Hoeller, and M. Hutter,
+“RSL-RL: A learning library for robotics research,” arXiv preprint
+arXiv:2509.10771, 2025.
+[28] E. Todorov, T. Erez, and Y. Tassa, “MuJoCo: A physics engine for
+model-based control,” in 2012 IEEE/RSJ International Conference on
+Intelligent Robots and Systems, 2012, pp. 5026–5033.
+[29] P. G. Poliˇcar, M. Stražar, and B. Zupan, “openTSNE: A modular
+python library for t-SNE dimensionality reduction and embedding,”
+Journal of Statistical Software, vol. 109, no. 3, p. 1–30, 2024.

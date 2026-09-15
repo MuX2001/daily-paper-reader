@@ -1,0 +1,2939 @@
+Learning Multi-Agent Task Assignment and Navigation in the
+Factory: from Simulation to Real Robots
+Abdalwhab Bakheet Mohamed Abdalwhab1, Giovanni Beltrame2, David St-Onge1
+Abstract—Reinforcement learning (RL) has shown consider-
+able promise for robotic decision-making, yet deploying multi-
+agent RL (MARL) on physical multi-robot systems in industrial
+environments remains challenging. This paper investigates the
+real-world applicability of decentralized MARL for multi-robot
+multi-machine tending. We propose Feature-fusion Multi-Agent
+Proximal Policy Optimization (FMAPPO), which fuses 2D LiDAR
+measurements with task-specific state information to enable safe
+decentralized multi-robot task assignment and navigation. A
+complete simulation-to-reality pipeline was developed using high-
+fidelity robotic simulation and ROS2 and deployed on physical
+mobile-manipulator platforms operating under realistic real-
+world conditions, with the robotic arms disabled during the
+experiments. We further investigate the sensitivity of the learned
+policy to command update frequency, an important consideration
+for real-world deployment. Comparative evaluation in simulation
+demonstrated that FMAPPO significantly outperformed state-of-
+the-art baselines with a large effect size, achieving improvements
+of 106% and 21% in parts delivery and 48% and 11% in parts
+collection over MAPPO and SMAPPO, respectively. FMAPPO
+also increased machine utilization by 31 and 10 percentage
+points, respectively, while reducing collisions by 18% and 15%
+and increasing the safety score by 14 and 6 percentage points
+compared with MAPPO and SMAPPO, respectively. Further-
+more, real-world experiments demonstrated that the learned
+decentralized policies can coordinate multiple robots to service
+multiple machines while maintaining safe operation under real-
+world sensing and control constraints. Videos of the real-world
+experiment are available online1.
+I. INTRODUCTION
+Recent advances in Multi-agent reinforcement learning
+(MARL) have demonstrated impressive capabilities in coordi-
+nation tasks, most notably in benchmark environments such as
+StarCraft II [1], Google Research Football [2], and the OpenAI
+Multi-Agent Particle Environment (MPE) [3].
+Combining MARL with robotics has the potential to help
+reduce the manpower shortage in the manufacturing sector
+by enabling more flexible automation. While recent studies
+have demonstrated the potential of MARL for many robotic
+domains such as exploration, navigation, transportation, and
+task allocation [4], the reliable deployment of those solutions
+remains a major challenge. In fact, very limited multi-robot
+navigation research has reached the step of validation in real
+robots, and mainly in lab settings [5].
+This project was funded by NSERC Alliance grant ALLRP 566182 - 21
+and NSERC CREATE CoRoM program.
+1
+INIT
+Robots
+Lab,
+École
+de
+technolo-
+gie
+supérieure,
+1100
+Notre-Dame
+W.,
+Canada
+abdalwhab-bakheet-mohamed.abdalwhab.1@ens.etsmtl.ca
+2 MISTLab, Department of Computer and Software Engineering, Polytech-
+nique Montréal, Canada
+1https://anonymouspapers123.github.io/FMAPPO/
+Machine tending is an excellent example of such a repeti-
+tive, labor-intensive task that autonomous robots can handle. A
+fleet of decentralized mobile manipulators can autonomously
+tend to a group of production machines, freeing human work-
+ers to focus on more cognitively demanding tasks. Robots
+can navigate between machines, feeding raw material and
+taking ready parts from machines to the designated storage
+areas. However, managing multiple robots that tend to multiple
+machines can be challenging because it requires coordination,
+task assignment, navigation, and collision avoidance on top of
+temporal reasoning [6].
+Few previous researchers have explored machine tending us-
+ing reinforcement learning, and often focus on single-robot [7],
+[8] or rely on highly simplified simulation setups that do not
+capture the complexity of real robotic systems [9], [10], [6].
+More work is needed to reduce the gap between simplified
+simulations and real-world complexity and to investigate the
+deployability of MARL solutions on real robotic platforms.
+To contribute to filling this gap, we present a decentralized
+MARL framework for multi-robot multi-machine tending and
+evaluate its performance in both simulation and physical
+deployment. To the best of our knowledge, this is the first
+work to investigate decentralized MARL for machine tending
+in a high-fidelity simulator using realistic mobile manipulator
+models handling both task allocation and navigation. It is
+also, to the best of our knowledge, the first to demonstrate
+successful deployment of that setup on physical robots using
+onboard sensing while operating under realistic constraints. In
+summary, the main contributions of this study are:
+• Framework contribution: A sensor-grounded decentral-
+ized MARL formulation enabling joint task assignment
+and continuous navigation to transfer zero-shot from
+simulation to physical multi-robot systems.
+• Methodological contribution: Feature-fusion representa-
+tion combining task semantics with local LiDAR geom-
+etry.
+• Physical robot-learning contribution: Demonstration and
+quantitative characterization of zero-shot transfer under
+real sensing, localization, communication, and actuation
+constraints.
+• Deployment insight: The learned policy is sensitive
+to command update frequency, with simulation and
+real-world performance exhibiting different frequency-
+dependent trends, highlighting the importance of evalu-
+ating update frequencies for real-world deployment.
+II. RELATED WORK
+High-fidelity simulators such as Isaac Sim [11] increasingly
+provide accurate representations of robot dynamics and en-
+arXiv:2609.14567v1  [cs.RO]  13 Sep 2026
+
+
+vironments, helping reduce the simulation-to-reality (sim-to-
+real) gap. Nevertheless, discrepancies in sensing and control,
+such as differences in observation and action delays, can
+remain between simulation and physical deployment. Several
+studies have therefore incorporated such effects into policy
+learning [12]. For example, Bouteiller et al. [13] augmented
+observations with sensing and action delays and action his-
+tory, and enhanced Soft Actor-Critic with a multi-step value
+estimator and partial trajectory resampling. Their approach
+was evaluated using a delay-augmented version of the Gym
+MuJoCo continuous control suite. Sandha et al. [14] instead
+augmented observations with execution time and sampling
+intervals and trained policies under varying delays, demon-
+strating sim-to-real transfer on a physical DeepRacer car. In
+contrast, our work does not explicitly model or compensate for
+these differences during training. Instead, we consider them
+as part of the sim-to-real gap and evaluate the robustness
+of the learned policy to them. The following subsections
+review related work on reinforcement learning with LiDAR
+observations for navigation and reinforcement learning for
+machine tending.
+A. RL with LiDAR Data for Navigation
+Previous work has incorporated LiDAR measurements, in-
+cluding both 2D scans [15], [16], [17], [18] and 3D point
+clouds [19], [20], [21], [22], [23], into reinforcement learning
+(RL) frameworks for navigation. Existing approaches gen-
+erally follow one of two architectural paradigms. The first
+employs a separate perception module that processes the
+LiDAR data into a compact intermediate representation before
+passing it to the RL policy [19], [22]. The second directly feeds
+the LiDAR observations, either alone [20], [15] or fused with
+additional sensor modalities and state information [21], [23],
+into the policy network for action prediction.
+Zhang et al. [19] proposed a graph-based perception frame-
+work for autonomous exploration that combines 3D LiDAR
+observations with the Soft Actor-Critic (SAC) algorithm. Their
+method converts raw point clouds into a sparse, informative
+graph representation using graph attention networks, and feeds
+it to the RL policy to predict exploration waypoints, while
+conventional path planning and low-level controllers generate
+the corresponding robot motions. Similarly, Li et al. [22]
+designed a dedicated perception pipeline that fuses camera,
+LiDAR, and IMU measurements to estimate road boundaries,
+semantic segments, and surrounding object poses. These high-
+level features are processed by a cross-domain attention mod-
+ule before being provided to a Deep Deterministic Policy
+Gradient (DDPG)-based policy for autonomous driving.
+On the other hand, other works perform end-to-end policy
+learning directly from LiDAR observations. Chen et al. [20]
+proposed a DDPG-based autonomous driving framework in
+which 3D LiDAR point clouds are processed using a PointNet
+architecture enhanced with self-attention, allowing the actor
+network to directly predict steering and acceleration com-
+mands. For aerial navigation, Xu et al. [21] employed PPO
+using 3D LiDAR together with IMU measurements and a local
+state estimator. Their framework extracts latent features from
+the LiDAR data and combines them with the estimated vehicle
+state before predicting the desired thrust and body rate. Liu
+et al. [23] also adopted a PPO-based architecture for UAV
+navigation, where convolutional neural networks encode the
+3D LiDAR observations before fusing them with the UAV
+state and handcrafted geometric features derived from both the
+LiDAR measurements and the goal position, such as obstacle
+clearance and goal-direction visibility. To further improve
+safety, they apply a shielding mechanism that suppresses
+motion commands directed toward nearby obstacles.
+LiDAR has also been successfully applied in RL for col-
+lision avoidance using only 2D range measurements. Lai
+et al. [15] proposed DARE, an enhanced SAC framework
+that learns a latent representation of the LiDAR observations
+through supervised learning auxiliary objectives, including
+collision-risk prediction, next-state prediction, and reward es-
+timation. The learned latent representation is combined with
+the raw LiDAR scan and waypoints generated by a global
+planner before being passed to the policy network, targeting
+navigation in cluttered environments.
+In general, previous LiDAR-based RL works have shown
+that incorporating LiDAR measurements can enhance navi-
+gation performance and collision avoidance. However, they
+mainly focus on single-robot setups where the policy needs
+to reason only about navigation and obstacle avoidance. In
+contrast, our model targets decentralized multi-robot task
+assignment and navigation, where the policy has to reason
+about task assignment, navigation, collision avoidance, and
+interaction with other robots, demanding consolidated task-
+specific representation learning.
+B. RL for Machine Tending
+Despite the success of reinforcement learning in many
+robotic applications [24], its investigation for machine tend-
+ing with mobile robots remains relatively limited. Iriondo et
+al. [7], [8] learn optimal positioning of the base of a mobile
+manipulator using feedback from the manipulator planner.
+Their approach evolved from DDPG and PPO to using TD3,
+reporting good results on a physical robot. However, the study
+was limited to a single part retrieval without considering part
+availability state, transporting the part to the drop-off locations.
+The increased complexity of multi-robot manufacturing
+has led most existing works to address only subsets of the
+overall problem or to rely on simplified assumptions. Li et
+al. [25] focused on raw material delivery and proposed a three-
+network architecture: one centralized task assignment policy,
+a waypoint selection policy, and a value estimation network.
+However, they relied on a simplified grid-based simulation
+environment for evaluation and assumed predetermined task
+execution times. In addition, their centralized task assignment
+limits the system scalability. Similarly, Ho et al. [26] formu-
+lated task assignment as a centralized DQN problem, also
+assuming fixed task durations.
+More holistic approaches have attempted to jointly opti-
+mize task allocation and navigation. The pioneering work of
+Agrawal et al. [9] developed a PPO-based framework that
+considers machine processing delays and failures during job
+
+
+scheduling and robot navigation. Nevertheless, their approach
+assumes unlimited robot carrying capacity and relies on a
+centralized communication architecture with marginal central-
+ized control. Siddiqua et al. [27] integrated PPO with an
+information-sharing mechanism that encodes the locations of
+robots, packages, and waste into separate occupancy grids.
+However, their formulation also assumes infinite onboard
+storage and does not evaluate collision avoidance or safety
+performance.
+Abdalwhab et al. [10] introduced an attention-based obser-
+vation encoder integrated with MAPPO to jointly learn task al-
+location and navigation for multi-machine tending without the
+assumption of infinite onboard storage. This architecture was
+subsequently extended to support varying numbers of robots,
+machines, and storage locations without requiring network
+modifications or retraining [6]. Although these works reduced
+the assumptions and demonstrated improved scalability, they
+were validated only in simplified simulation environments.
+In contrast, this work bridges the gap between multi-agent
+RL simulation and real-world deployment. To the best of our
+knowledge, it is the first study to investigate decentralized
+MARL for machine tending in a high-fidelity simulator us-
+ing realistic mobile manipulator models, handling joint task
+allocation and navigation, while also demonstrating successful
+deployment and experimental validation on physical robots.
+III. PROBLEM FORMULATION
+Similar to [10], we consider the problem of multi-agent,
+multi-machine tending, where a team of N autonomous mobile
+manipulators services a manufacturing facility containing M
+production machines and S storage locations. The objective
+of the robots is to maximize manufacturing throughput by
+collecting finished parts from machines and transporting them
+to the appropriate storage areas while ensuring safe operation.
+As machines complete processing asynchronously, robots
+must continuously make decentralized decisions regarding task
+selection, navigation, and execution. During operation, robots
+are required to avoid collisions with other robots, machines,
+and storage areas while efficiently reaching their assigned des-
+tinations. After a finished part is collected, the corresponding
+machine immediately starts processing the next workpiece, re-
+quiring a fixed processing time T before another part becomes
+available. In this work, we consider the case of two robots,
+two machines, and one storage area (N = 2, M = 2, S = 1),
+and focus on assessing the deployability of the solution.
+Reliable object pose estimation, grasp planning, and ob-
+ject placement are fundamental components of a complete
+machine-tending system. In this work, however, our primary
+objective is decentralized multi-robot coordination, task allo-
+cation, navigation, and event sequencing, with an emphasis
+on achieving robust and safe operation on physical robotic
+platforms. To isolate these challenges from manipulation-
+specific issues, we adopt the same assumptions as in [10],
+[6], namely that robots perform pick-and-place operations
+continuously without stopping and that the replenishment
+of raw materials is performed by an external process. This
+allows the proposed framework to concentrate exclusively on
+Fig. 1. Our Proposed Feature-Fusion Observation Encoder with the LiDAR
+processing branch.
+the coordination, navigation, and scheduling challenges that
+dominate large-scale autonomous manufacturing systems.
+IV. METHODS
+A. Feature Fusion MAPPO (FMAPPO)
+We use MAPPO [28] as our backbone. MAPPO is a multi-
+agent reinforcement learning algorithm that works in a paired
+actor-critic setup. The actor learns to take actions to maximize
+the reward, while the critic estimates the advantage of those
+actions to guide the actor’s learning. Following the centralized
+training with decentralized execution (CTDE) paradigm, the
+critic has access to the global state and is only used during
+training, whereas the policy is executed using local observa-
+tions alone.
+The policy must preserve the semantic structure of the task
+state while extracting local geometric information from sub-
+stantially higher-dimensional LiDAR observations. Directly
+treating these inputs as a homogeneous observation vector can
+obscure their different roles in decision-making. We therefore
+introduce a feature-fusion encoder in which geometric and
+task-semantic observations are processed independently before
+being combined. Building on the entity-based observation en-
+coder of [6], we introduce our observation encoder illustrated
+in Figure 1.
+The downsampled LiDAR scan is represented as a vector
+of distance measurements normalized between zero and one
+and processed independently from the remaining observation
+components. The LiDAR branch consists of three blocks of
+one-dimensional convolutional layers with ReLU activations
+and max-pooling operations to progressively extract local
+spatial features from the scan. The resulting feature map is
+then passed through a fully connected layer followed by a
+ReLU activation and layer normalization to produce a compact
+LiDAR embedding.
+
+
+Different semantic components of the observation are en-
+coded independently to allow the network to learn special-
+ized feature representations for each entity type. Each entity
+encoder consists of a fully connected layer followed by a
+ReLU activation and layer normalization. The LiDAR embed-
+ding is concatenated with the agent’s position and velocity
+before being processed by the agent encoder to generate the
+agent embedding. Likewise, the machines, storage areas, and
+neighboring robots’ observations are encoded independently
+in parallel.
+To aggregate information from multiple entities, a separate
+multi-head attention module is applied to each entity cate-
+gory. The agent embedding serves as the query, while the
+corresponding entity embeddings act as keys and values. This
+allows the network to selectively attend to the entities that
+are most relevant to the current robot state, producing a single
+context vector for the machines, storage areas, and neighboring
+robots, respectively. Finally, the agent embedding and the three
+context vectors are concatenated to form the final observation
+embedding.
+The actor network uses the observation encoder architecture
+to produce the observation embedding, then processes it using
+three fully connected blocks, each consisting of a linear layer,
+ReLU activation, and layer normalization. A final linear layer
+predicts the mean of the continuous action distribution, while
+the logarithm of the action standard deviation is maintained
+as a learnable parameter. During training, actions are sampled
+from the resulting Gaussian distribution to encourage explo-
+ration. During evaluation, the deterministic mean action is used
+directly.
+Unlike the actor, the centralized critic has access to the
+observations of all agents. Therefore, the observation encoder
+is applied independently to every agent in parallel to obtain a
+set of agent observation embeddings. A multi-head attention
+layer with a learnable query aggregates these embeddings into
+a fixed-length representation of the global state, followed by
+layer normalization. This state representation is then processed
+by three fully connected blocks with ReLU activations before
+a final linear layer estimates the state value.
+B. Observation, Reward, and Action
+Our observation design was inspired by the work [6],
+[10]. Similar to them, each robot observation included the
+following:
+• The robot’s global position, with a binary indicator spec-
+ifying whether it is carrying a part.
+• The relative locations of all machines, accompanied by
+their current part-availability status.
+• The relative position of the designated drop-off area.
+• The relative positions of the remaining robots in the fleet,
+along with binary indicators denoting whether each one
+is carrying a part.
+In addition to that, to enhance the model’s avoidance
+capability, we added the following to the observation:
+• The robot’s z-axis orientation and linear velocities.
+• The processed distance points from the robot’s two Li-
+DARs.
+• The relative orientation and linear velocities of the other
+robots.
+LiDAR points are processed by downsampling, resetting
+points beyond the LiDAR maximum detection distance to the
+LiDAR maximum detection distance, and then normalized to
+the range [0,1].
+Reward Function: Our reward formulation is based on the
+reward structure proposed in [6]. We retain and tuned the part
+collection reward (Rpi), part delivery reward (Rpl), distance-
+based shaping rewards, namely progress toward a machine
+(Rpm) and progress toward the drop-off area (Rps), as well
+as the time penalty term (Rt).
+To improve collision-avoidance learning, we modified the
+collision reward design introduced in [6]. Rather than as-
+signing the same penalty throughout a collision event, we
+distinguish between initiating a collision and remaining in
+contact. The motivation is that, for real-world deployment,
+preventing collisions is more critical than merely recovering
+from them after they occur. Consequently, the collision penalty
+is decomposed into two components: a new-collision penalty
+(Rnc), applied when a collision first occurs, and a collision-
+duration penalty (Rdc), applied at every timestep while the
+collision persists. The penalties are designed such that Rnc >
+Rdc, thereby strongly discouraging collision initiation.
+Furthermore, we refined the uncollected-parts penalty pro-
+posed in [6]. Instead of penalizing all robots equally, the
+penalty is applied only to robots that are not currently carrying
+a part. This modification encourages idle robots to service
+waiting machines while avoiding unnecessary penalties for
+robots already engaged in transportation tasks:
+Ru =
+(
+su ∗pun/M
+if the robot has no part
+0
+otherwise
+(1)
+where su is a scaling coefficient, pun denotes the total num-
+ber of uncollected parts, and M is the number of machines.
+The overall reward is obtained by summing all reward
+components:
+RT = Rpi + Rpl + Rnc + Rdc + Rpm + Rps + Ru + Rt. (2)
+Actions: The action space consists of continuous linear ve-
+locity commands along the robot’s (x)- and (y)-axes. Although
+continuous control increases the complexity of the learning
+problem compared to discrete action spaces used in [6], it more
+accurately reflects the kinematic capabilities of a holonomic
+mobile robot and enables smoother, more natural navigation
+behaviors.
+Although the action space excludes angular velocity com-
+mands, the robot’s orientation is included in the observation
+space. In both simulation and real-world experiments, we
+noticed that slight heading drift can occur during motion, and
+collisions in simulation may also alter the robot’s orientation.
+Including the heading enables the policy to account for these
+changes. Moreover, many mobile manipulation platforms re-
+quire a specific robot orientation for successful manipulation,
+making this information beneficial for generalization.
+
+
+Fig. 2.
+Example of a randomly generated layout in Isaac Sim. The envi-
+ronment contains two mobile manipulators (Rangen robots), a drop-off area
+(blue), and two machines (gray) with green indicators denoting available parts.
+The red points represent returns from the simulated safety LiDAR sensors
+mounted on the robots.
+C. Simulation
+NVIDIA Isaac Sim [11] was selected as the simulation plat-
+form due to its high-fidelity, GPU-accelerated physics engine,
+while Isaac Lab [29] was used for its comprehensive support
+for multi-agent reinforcement learning research and develop-
+ment. Building upon these frameworks, we developed a novel
+multi-robot, multi-machine tending reinforcement learning en-
+vironment in which a fleet of N mobile manipulators navigates
+among M machines to collect completed parts and transport
+them to a designated drop-off area.
+Similar to [6], the primary focus of this work is the
+integration of task allocation and navigation rather than manip-
+ulation. Therefore, manipulation actions are abstracted within
+the simulation: when a robot reaches a machine containing
+a completed part, the part is assumed to be successfully
+collected, and when the robot reaches the drop-off area, the
+part is assumed to be successfully delivered.
+Figure 2 illustrates the simulation environment in one of
+the randomly generated layouts. The figure shows two Rangen
+robots, each consisting of an AgileX Ranger Mini holonomic
+mobile base equipped with a Kinova Gen3 manipulator (the
+arm was not used in this work). The drop-off area is high-
+lighted in blue, while the machines are represented by gray
+boxes. A green indicator light above a machine denotes the
+availability of a completed part for collection. The red points
+correspond to returns from two simulated 270-degree ray-
+casting sensors, which emulate the safety LiDARs mounted
+on the physical robots.
+The workspace consists of a 6×6-meter arena. At the begin-
+ning of each episode, the robots, machines, and drop-off area
+are randomly initialized. To ensure sufficient spatial diversity
+while preventing excessively clustered configurations, all en-
+tities are placed such that the minimum distance between any
+pair of locations is 2.1 m. Furthermore, all sampled positions
+are constrained to lie within a 4.2×4.2 m region centered in
+the arena, ensuring both adequate separation and consistent
+interaction opportunities throughout training.
+Fig. 3. Our Mobile Manipulator (Rangen): AgileX Ranger Mini omnidirec-
+tional base equipped with a Kinova Gen 3 arm; this work doesn’t include arm
+control.
+D. Real Deployment Platform
+The real-world experiments were conducted using two
+Rangen mobile manipulation platforms (Figure 3). Each plat-
+form comprises an AgileX Ranger Mini omnidirectional mo-
+bile base equipped with a Kinova Gen3 robotic arm (the
+arm was not used in this work). To enable reliable omni-
+directional obstacle perception, two Hokuyo UAM-05LP 2D
+safety LiDARs are mounted diagonally, providing full 360°
+environmental coverage. Onboard computation is provided by
+an NVIDIA Jetson AGX and an Intel NUC, while an integrated
+network router connects all sensors, the Jetson, and the NUC to
+the local Wi-Fi network. In addition, the platform is equipped
+with a Phidgets IMU, a RoboSense Helios 16P 3D LiDAR,
+and an OAK-D Pro Wide RGB-D camera, supporting a wide
+range of perception and localization capabilities.
+E. Real Deployment Architecture
+Figure 4 illustrates the architecture used for the real-world
+deployment. The system is designed to be fully decentralized;
+each robot independently performs localization, communi-
+cation, and policy inference without relying on a central
+coordinator.
+For localization, each robot runs an Extended Kalman Filter
+(EKF) that fuses wheel odometry with Inertial Measurement
+Unit (IMU) measurements to estimate the robot pose in the
+odometry frame and continuously update the ROS TF tree.
+To further improve localization accuracy, the scans from
+the two 2D LiDARs are merged and processed by SLAM
+Toolbox [30], which performs simultaneous localization and
+mapping (SLAM) to estimate the robot pose in the world frame
+and update the TF tree accordingly. The Odom Publisher node
+then retrieves the latest robot pose in the world frame from the
+TF tree and combines it with the velocity estimates from the
+EKF, transformed into the world frame, to produce the final
+odometry message used by the control policy.
+
+
+Fig. 4. Real deployment setup.
+To isolate the software stack running on each robot, every
+robot operates within its own ROS Domain ID. Only the
+information required by the policy is exchanged between
+robots and machines, minimizing communication overhead
+and improving network scalability. Zenoh [31] is used as
+the communication middleware both within each robot and
+for communication among robots and machines due to its
+low communication overhead and flexible publish-subscribe
+architecture. Each robot and machine hosts its own Zenoh
+Router, forming a distributed communication network. A ROS
+Domain Bridge on each robot selectively imports only the
+required topics from the remote domains, namely the other
+robot’s odometry and has_part status, together with the
+is_collected and set_collected topics exchanged
+with each machine.
+The FMAPPO Wrapper encapsulates the trained FMAPPO
+policy and serves as the interface between the ROS ecosystem
+and the reinforcement learning model. It is responsible for
+loading the trained policy, collecting observations from the
+subscribed ROS topics, constructing the policy observation
+vector, executing model inference, and publishing the pre-
+dicted velocity commands to the robot low-level controller.
+All machines operate within a common ROS Domain ID. In
+the presented experiments, the two machines were simulated
+on a single ground-station laptop, while the mobile manipula-
+tors consisted of the physical Rangen platforms described in
+Section IV-D.
+F. Evaluation Metrics
+For our simulation, we built on the evaluation metrics
+introduced in [6]:
+• Task Throughput: Measured by the total number of parts
+collected and total parts delivered by all robots.
+• Safety: Measured by the total number of collision events
+across all robots. An overlap between a robot’s collision
+circle and another entity’s circle or the environment
+boundary is counted as one collision until the overlap
+ends. Each robot–robot circle overlap is counted as two
+collisions (one for each robot); details of the circles’ radii
+are in the additional materials.
+• Machine Utilization: Defined as the ratio of collected
+parts to the maximum achievable production:
+MU =
+Pc
+Pmax
+(3)
+where Pc represents the total number of parts collected
+from all machines, and Pmax is the theoretical maximum
+number of parts that could be produced by all machines under
+uninterrupted operation, assuming no delays caused by waiting
+for robots to collect completed parts.
+However, the total number of collisions alone does not fully
+reflect safety, as an agent may achieve fewer collisions simply
+by collecting or delivering fewer parts. To account for this
+trade-off, we additionally define the Safety Score (ST), which
+normalizes collisions by task completion:
+ST =
+1
+1 +
+CT
+Pc+Pd
+(4)
+where CT is the total number of collisions, and Pc and Pd
+are the total number of parts collected and the total number of
+parts delivered. A higher Safety Score indicates safer operation
+while maintaining higher task throughput.
+For the actual deployment, we still monitored the total
+parts collected and delivered, as in the simulation. In addition,
+we introduced two more measures, specifically for the real
+deployment:
+1) Inter-Robot Separation (d): measured as the minimum
+and mean distance between the robots, because the
+number of collisions can not be used as the comparison
+metric since the physical robots should not collide.
+2) Navigation quality: Expressed by path length (S),
+action smoothness (Ja) and trajectory smoothness (Jp).
+(Ja) is measured by the jerk based on the second deriva-
+tive of actions predicted by the policy, while (Ja) is
+measured by the jerk computed from the third derivative
+of the robots’ position updates during the navigation trip.
+V. EXPERIMENTS
+This section covers the main experiments, including perfor-
+mance comparison, a study on the sensitivity of the learned
+policy to command update frequency, an ablation study and
+real-world validation. Furthermore, we refer readers to the
+additional materials for more results analysis and additional
+experiments.
+A. Performance Comparison
+To evaluate the performance of the proposed FMAPPO
+against the baselines MAPPO and SMAPPO, all models were
+trained under identical conditions for 500K environment in-
+teraction steps using 256 parallel environments. Each episode
+
+
+consists of 300 environment steps, with a fixed processing
+latency of 150 steps introduced for part handling, allowing
+the two machines to produce a maximum of four parts per
+episode. Each environment step corresponds to six physics
+simulation steps, during which the same predicted commands
+are repeated.
+For evaluation, performance metrics were computed over
+the final 200 episodes of training, which are treated as the
+convergence phase of each run. To ensure statistical robustness
+and reproducibility, all experiments were repeated across seven
+independent runs, each initialized with a distinct random seed.
+Training was conducted on a high-performance workstation
+equipped with an NVIDIA GeForce RTX 5090 GPU (32 GB
+VRAM), 24 CPU cores, and 2×32 GB of system memory. Un-
+der this configuration, simultaneous execution of up to seven
+training runs required approximately 3.5 days to complete.
+Table I depicts the performance of the proposed FMAPPO
+vs MAPPO and SMAPPO, reporting the mean and standard
+deviation over the seven seeds.
+TABLE I
+PERFORMANCE COMPARISON OF FMAPPO VS MAPPO AND SMAPPO,
+WHEN TRAINED FOR 500K ENVIRONMENT STEPS USING 256 PARALLEL
+ENVIRONMENTS, WITH PERFORMANCE METRICS COMPUTED OVER THE
+FINAL 200 EPISODES, REPORTING THE MEAN (STD) OVER SEVEN
+DIFFERENT SEEDS.
+Metric
+MAPPO
+SMAPPO
+FMAPPO
+Collected
+2.50 (0.15)
+3.33 (0.21)
+3.71 (0.05)
+Delivered
+1.62 (0.21)
+2.77 (0.34)
+3.34 (0.07)
+Collisions
+2.06 (0.09)
+1.99 (0.13)
+1.69 (0.15)
+Safety Score
+0.67 (0.02)
+0.75 (0.01)
+0.81 (0.02)
+Utilization
+0.62 (0.04)
+0.83 (0.05)
+0.93 (0.01)
+FMAPPO consistently outperforms both MAPPO and
+SMAPPO across all evaluated metrics, achieving substantial
+gains in task efficiency and safety. Specifically, FMAPPO
+improves parts delivery by 106% compared with MAPPO
+and by 21% compared with SMAPPO. Similarly, it improves
+parts collection by 48% and 11%, respectively. FMAPPO also
+increases utilization by 31 and 10 percentage points compared
+with MAPPO and SMAPPO, respectively. From a safety per-
+spective, it reduces the number of collisions by 18% and 15%,
+respectively, while increasing the safety score by 14 and 6
+percentage points, respectively. As mentioned previously, each
+overlap between a robot’s collision circle and another entity is
+counted as a collision, even when no physical contact occurs.
+Robot-robot circle overlaps are counted as two collisions, one
+for each robot. Therefore, the reported collision counts provide
+a conservative estimate and are expected to overestimate the
+number of actual physical collisions. In addition, since layouts
+are generated randomly, some configurations may present
+more challenging navigation conditions than those expected
+in the real-world layout. To ensure the robustness of these
+findings, we first applied the Shapiro–Wilk test to verify the
+normality of the paired differences between the two methods
+across all metrics. This was followed by a paired-sample t-test,
+with Holm–Bonferroni correction for multiple comparisons
+(with a significance level of α=0.05) to assess statistical
+significance. Then, Cohen’s standardized mean difference was
+computed to quantify effect sizes. Across all metrics, the re-
+sults indicate statistically significant improvements with large
+effect sizes, confirming the superiority of FMAPPO over both
+MAPPO and SMAPPO. Due to space limitations, we included
+the details of the statistical analysis in the additional materials.
+Figure 5 illustrates the learning dynamics of FMAPPO
+compared to MAPPO and SMAPPO. The curves report the
+mean performance over seven random seeds (solid lines), with
+shaded regions indicating the 95% confidence intervals. From
+the earliest training episodes, FMAPPO demonstrates superior
+performance in parts collection, parts delivery, machine uti-
+lization, and total reward, with the performance gap steadily
+widening over time. Although FMAPPO initially exhibits a
+higher collision rate—likely due to more aggressive explo-
+ration and increased task engagement—it rapidly improves in
+safety performance and surpasses both MAPPO and SMAPPO
+in collision avoidance at around episode number 250, after
+which the margin continues to grow.
+Moreover, FMAPPO exhibits markedly better sample ef-
+ficiency and faster learning across all task components. For
+instance, in parts delivery, it surpasses both MAPPO and
+SMAPPO’s final converged performance in fewer than 100
+episodes and reaches 90% of its own final performance within
+196 episodes, demonstrating significantly improved sample ef-
+ficiency and convergence speed. More about sample efficiency
+is in the additional materials.
+B. Sensitivity to Command Update Frequency
+This experiment provides a comprehensive evaluation of the
+sensitivity of the learned policy to command update frequency,
+which is impractical to perform extensively on the physical
+robots due to the time required for real-world experiments. The
+same two scenarios of the real deployment were reproduced in
+Isaac Lab to evaluate the trained policy robustness to command
+update frequency change and sensor noises. To closely match
+the real deployment conditions, the simulation incorporated
+the same system constraints, including a LiDAR update rate
+of 34.2 Hz and a maximum linear velocity of 0.5 m/s, which
+was imposed for safety in the real robot’s experiments.
+To further reduce the sim-to-real gap, realistic sensor and
+state-estimation noise were incorporated into the simulation.
+Zero-mean Gaussian noise with a standard deviation of σ = 10
+cm was applied to the robot position estimates, reflecting the
+typical localization accuracy reported for systems such as the
+Loco Positioning System [32]. Likewise, zero-mean Gaussian
+noise was added to the estimated linear velocities with σ = 10
+cm/s. To account for perception uncertainty, Gaussian noise
+with σ = 1 cm was injected into the LiDAR range measure-
+ments, consistent with the measurement accuracy specified
+in the Hokuyo UAM-05LP manual [33]. Finally, Gaussian
+perturbations with σ = 5 cm were applied to the robots’ initial
+positions to emulate small errors in the starting position.
+For each scenario, the same policy that was trained with
+a command update frequency of 20 Hz was re-evaluated at
+update frequencies of 10, 20, 40, 60, and 120 Hz, with sensor
+noise and velocity guard. Each experiment was repeated 10
+times using different random seeds. To compare the tested
+policy frequencies, we followed the same general procedure
+
+
+Fig. 5. Learning curves for FMAPPO vs MAPPO and SMAPPO
+Fig. 6. Frequency sensitivity analysis of the simulation study showing dimen-
+sionless metrics (Minimum inner robot separation d∗, trajectory smoothness
+J∗
+p , and path length S∗) for each scenario and tested frequency as medians
+with interquartile ranges, in addition to the average number of collisions (if
+any)
+as the real-world validation experiment, treating frequency as
+a categorical factor, and analyzing the balanced 2 × 5 subset
+comprising both scenarios at 10, 20, 40, 60, and 120 Hz
+(n = 100). Metrics were also made dimensionless using
+the same methodology. Figure 6 shows the dimensionless
+metrics for each scenario and tested frequency as medians
+with interquartile ranges, in addition to the average number
+of collisions for the cases that had any.
+Similarly, a two-factor Freedman-Lane residual-permutation
+ANOVA tested frequency, scenario, and their interaction. Holm
+correction was applied separately to each effect family across
+all metrics. Frequency significantly affected mean inter-robot
+distance (F(4, 90) = 3.56, pperm = 0.0016, pHolm = 0.0048,
+η2
+p = 0.137) and navigation path length (F(4, 90) = 2.84,
+pperm < 0.001, pHolm < 0.001, η2
+p = 0.112), but not min-
+imum inter-robot distance (F(4, 90) = 1.35, pHolm = 0.52)
+nor the trajectory smoothness (F(4, 90) = 0.08, pHolm = 1).
+Scenario affected minimum inner-robot distance (F(1, 90) =
+824.4, pHolm < 0.001), path length (F(1, 90) = 14.24,
+pHolm < 0.001), and trajectory smoothness (F(1, 90) = 259.7,
+pHolm < 0.001), while the frequency×scenario interaction
+affected path length (F(4, 90) = 2.396, pHolm < 0.001)
+and mean inner-robot distance (F(4, 90) = 3.1226, pHolm <
+0.0102). We further refer readers to the additional materials
+for more details, including performance metrics at the whole
+task level.
+Secondly, we report the whole-task level performance
+metrics.
+Fig.
+7
+and
+Fig.
+8
+present
+the
+average
+task
+throughput,
+task
+completion
+cost
+(Cost
+=
+TravelDistancetotal/(partscollected
++
+partsdelivered)),
+mean inter-robot distance, and number of collisions (if any)
+for Scenarios 1 and 2, respectively.
+In Scenario 1, which is considerably less complex than
+Scenario 2, varying the command update frequency did not
+affect the throughput. However, a consistent reduction in the
+task completion cost was observed as the command frequency
+increased. Similarly, the mean distance between the two
+robots generally increased with higher command frequencies,
+indicating safer behavior, except in the 60 Hz case, which
+showed a slight decrease. No collisions occurred at any of
+the evaluated frequencies, indicating that the task remained
+sufficiently simple for the learned policy to maintain safe
+operation despite the added noise and changes in the control
+rate.
+In contrast, Scenario 2 exhibited a much stronger depen-
+dence on the command update frequency. Higher command
+frequencies resulted in increased throughput accompanied by
+lower performance variance across evaluation runs. Moreover,
+the mean inter-robot distance generally increased while the
+completion cost consistently decreased as the command fre-
+quency was raised. Since the policy was trained in a noise-free
+simulation, introducing realistic sensor and state-estimation
+
+
+Fig. 7. Sensitivity to command update frequency in simulation: overall task
+performance metrics: Scenario 1 results, reporting average and std.
+Fig. 8. Sensitivity to command update frequency in simulation: overall task
+performance metrics: Scenario 2 results, reporting average and std
+noise occasionally led to collisions at lower command fre-
+quencies. As the command frequency approached the training
+frequency, the number of collisions decreased substantially,
+and when operated at frequencies higher than those used
+during training, the policy successfully avoided collisions in
+all evaluation runs.
+We also performed a statistical analysis to evaluate the
+significance and effect size of the performance differences
+between command update frequencies of 10 Hz and 120
+Hz, with p-value correction for multiple comparisons in each
+scenario, details of the analysis results are shown in the
+additional materials. In Scenario 1, the task completion cost
+exhibited statistically significant differences with large effect
+sizes. In Scenario 2, the number of collected and delivered
+parts, as well as the task completion cost and mean inner-
+robot distance, showed statistically significant improvements
+with large effect sizes. The remaining metrics did not exhibit
+statistically significant differences under the evaluated experi-
+mental conditions.
+C. Ablation Study
+This experiment evaluates the design choices made in
+FMAPPO. To assess the contribution of each component, we
+compare FMAPPO with four variants: FMAPPO without Li-
+DAR information (NoLID), FMAPPO without velocity infor-
+mation (NoVel), and FMAPPO without orientation information
+(NoOrient). Table II presents the results of this ablation study.
+TABLE II
+ABLATION STUDY: FINAL PERFORMANCE COMPARISON (FMAPPO,
+NOLID, NOVEL, NOORIENT) MEAN (STD)
+Metric
+FMAPPO
+NoLID
+NoVel
+NoOrient
+Collected
+3.71 (0.05)
+3.60 (0.07)
+3.70 (0.06)
+3.73 (0.07)
+Delivered
+3.34 (0.07)
+3.17 (0.10)
+3.38 (0.08)
+3.37 (0.11)
+Collisions
+1.69 (0.15)
+2.04 (0.15)
+1.91 (0.18)
+1.75 (0.21)
+Safety Score
+0.81 (0.02)
+0.77 (0.01)
+0.79 (0.02)
+0.80 (0.02)
+Utilization
+0.93 (0.01)
+0.90 (0.02)
+0.92 (0.01)
+0.93 (0.02)
+The results indicate that including LiDAR information had
+a positive impact, enhancing the model’s performance in all
+measured metrics. Furthermore, both LiDAR and velocity
+information have a considerable impact on collision avoidance,
+as removing them leads to an increase in the number of colli-
+sions by 21% and 13%, respectively. In contrast, incorporating
+the robots’ orientation information provides only a marginal
+benefit in this setup.
+D. Real-World Validation
+For real-world validation, we deployed the same FMAPPO
+model trained in simulation directly on two real robots in two
+different factory-floor layouts. We also wanted to validate the
+model’s robustness and sensitivity to changes in command
+update frequency. Since, in the physical system, policy infer-
+ence and command publication are not synchronized with all
+sensing processes. In particular, the safety LiDARs provide
+measurements at 34.2 Hz, whereas the learned policy was
+trained with an action-update rate of 20 Hz and is evaluated
+here between 20 and 120 Hz. Consequently, at evaluation
+rates above the LiDAR acquisition frequency, multiple policy
+command updates may occur between successive range obser-
+vations. This experiment therefore assesses not only sensitivity
+to the policy command update rate, but also robustness to
+the difference in frequencies between sensing and action
+execution.
+To evaluate different policy update frequencies while keep-
+ing the robot command interface unchanged, the base com-
+mand rate was fixed at 120 Hz, and each policy output
+was repeated for multiple consecutive command cycles before
+a new action was computed. For both scenarios, the arena
+measured 6×6 m. The robots were initialized at fixed starting
+
+
+Fig. 9.
+Real deployment first layout: the two brown boxes on the right
+represent the machines, and the black box in the back represents the drop
+area.
+Fig. 10. Real deployment second scenario: the two brown boxes on a diagonal
+represent the machines, and the black box in the bottom right corner represents
+the drop area.
+positions r1 and r2 and operated for 7200 command cycles,
+corresponding to one minute, during which they attempted to
+collect and deliver as many parts as possible.
+Figure 9 depicts the first layout with the two robots ini-
+tialized in the middle of the room, two meters apart from
+each other. In this layout, while the model was trained with a
+command update frequency of 20 Hz, we tested once at each
+of four command update frequencies (20,40,60, and 120 Hz),
+allowing the two robots to do as many collection and delivery
+trips as they can in the 7200 timesteps.
+For the second layout (figure 10), robots were placed to
+have the same distance from the two machines, so that it is
+not obvious which machine each robot should go to. Following
+the same evaluation procedures used in the first layout, we
+reevaluated the three best-performing frequencies (20, 40, and
+60 Hz) one time each.
+To compare the tested policy frequencies, we treated fre-
+quency as a categorical factor and analyzed the balanced
+2 × 3 subset comprising both scenarios at 20, 40, and 60 Hz
+(n = 63 navigation trips). Metrics were made dimensionless
+using the robot characteristic length Lc = 0.5 m and the
+policy training time step duration as the characteristic time,
+Tc = 1/ftrain = 1/20 = 0.05 s., accordingly, minimum inner
+robot distance d∗= d/Lc, action smoothness J∗
+a = Ja ∗T 2
+c ,
+and trajectory smoothness J∗
+p
+= Jp ∗T 3
+c /Lc. Using the
+fixed training timescale avoids introducing the tested execution
+frequency directly into the normalization. Figure 11 shows the
+Fig. 11.
+Frequency sensitivity analysis of the real deployment experiment
+showing dimensionless metrics (Minimum inner robot separation d∗, action
+smoothness J∗
+a, and trajectory smoothness J∗
+p ) for each scenario and tested
+frequency as medians with interquartile ranges
+dimensionless metrics for each scenario and tested frequency
+as medians with interquartile ranges.
+A two-factor Freedman-Lane residual-permutation ANOVA
+tested frequency, scenario, and their interaction. Holm cor-
+rection was applied separately to each effect family across
+the three primary metrics. Frequency significantly affected
+minimum inter-robot distance (F(2, 57) = 4.59, pperm =
+0.0133, pHolm = 0.0266, η2
+p = 0.139) and trajectory smooth-
+ness (F(2, 57) = 14.47, pperm < 0.001, pHolm < 0.001,
+η2
+p = 0.337), but not action smoothness (F(2, 57) = 2.23,
+pHolm
+= 0.116). Scenario affected minimum inner-robot
+distance (F(1, 57) = 5.97, pHolm = 0.0356) and trajectory
+smoothness (F(1, 57) = 7.37, pHolm = 0.0336), while no
+frequency×scenario interaction was detected (all pHolm ≥
+0.353). Path length and mean neighbor distance showed no
+frequency effect and are omitted from the figure. 120 Hz
+runs were also conducted, but showed a large decrease in
+task performance metrics and thus were not sampled enough
+to be included in the factorial analyses. We further refer
+readers to the additional materials for more details, including
+performance metrics at the whole task level.
+These results reveal a temporal component of the sim-to-
+real gap. Increasing the policy command update frequency
+improves performance in simulation, as seen by a shorter
+navigation path, while maintaining safe inner-robot distance
+with no collisions, leading to direct improvement in the
+overall machine tending task performance. However, the same
+trend does not transfer to the physical system. In particular,
+policy command updates above the sensing rate can repeatedly
+act on unchanged or asynchronously updated observations,
+while communication, state estimation, and low-level control
+introduce additional delays that are absent or idealized in sim-
+ulation. Thus, command update frequency cannot be treated as
+
+
+Fig. 12.
+The full trajectories from the actual real-world deployment for scenario 1 and scenario 2 for the case of command update frequency of 40 Hz;
+showing the robots going for multiple trips of collection and delivery.
+an implementation parameter independent of the sensing and
+control stack when transferring learned policies to physical
+robots. Additional experiments investigating the sensitivity to
+command update frequency are available in the additional
+materials.
+Figure 12 depicts the actual trajectories for the two robots
+in the real deployment for Scenario 1 (left side) and Scenario
+2 (right side). Here we show the case where the model was
+tested with a command update frequency of 40 Hz. We can see
+that Scenario 2 is more challenging, requiring the two robots
+to navigate in proximity to each other because the dropping
+area is in the corner. We refer readers to check the videos for
+the real-world validation experiment online.
+VI. CONCLUSION
+This paper investigated the application of decentralized
+multi-agent reinforcement learning for multi-robot multi-
+machine tending, addressing the challenges of coordination,
+task assignment, navigation, and safe operation in industrial
+setups. We introduced FMAPPO, a decentralized MARL
+framework that enables multiple mobile robots to collabora-
+tively service multiple production machines. To the best of our
+knowledge, this is the first work to study MARL for combined
+task assignment and navigation for decentralized multi-robot
+multi-machine tending with actual physical mobile robots.
+The proposed model integrates 2D LiDAR measurements with
+task-related observations to learn a compact representation for
+decision-making. The experimental results demonstrate that
+the learned MARL policies can successfully zero-shot transfer
+from simulation to real robotic platforms while operating
+under realistic constraints, including onboard sensing, commu-
+nication, and real-time onboard control. Moreover, this work
+also studies the sensitivity of the learned policy to command
+update frequency.
+These results serve as a step toward the adoption of MARL-
+based solutions for real-world industrial applications. Future
+work can investigate including the object manipulation part
+and further improvements in robustness in more complex
+industrial settings.
+REFERENCES
+[1] O. Vinyals, I. Babuschkin, W. M. Czarnecki, M. Mathieu, A. Dudzik,
+J. Chung, D. H. Choi, R. Powell, T. Ewalds, P. Georgiev et al., “Grand-
+master level in starcraft ii using multi-agent reinforcement learning,”
+nature, vol. 575, no. 7782, pp. 350–354, 2019.
+[2] K. Kurach, A. Raichuk, P. Sta´nczyk, M. Zaj ˛ac, O. Bachem, L. Espeholt,
+C. Riquelme, D. Vincent, M. Michalski, O. Bousquet et al., “Google
+research football: A novel reinforcement learning environment,” in
+Proceedings of the AAAI conference on artificial intelligence, vol. 34,
+no. 04, 2020, pp. 4501–4510.
+[3] R. Lowe, Y. I. Wu, A. Tamar, J. Harb, O. Pieter Abbeel, and I. Mordatch,
+“Multi-agent actor-critic for mixed cooperative-competitive environ-
+ments,” Advances in neural information processing systems, vol. 30,
+2017.
+[4] J. Orr and A. Dutta, “Multi-agent deep reinforcement learning for multi-
+robot applications: A survey,” Sensors, vol. 23, no. 7, p. 3625, 2023.
+[5] C. Tang, B. Abbatematteo, J. Hu, R. Chandra, R. Martín-Martín, and
+P. Stone, “Deep reinforcement learning for robotics: A survey of real-
+world successes,” Annual Review of Control, Robotics, and Autonomous
+Systems, vol. 8, no. 1, pp. 153–188, 2025.
+[6] A. B. M. Abdalwhab, G. Beltrame, and D. St-Onge, “Scalable multi-
+agent reinforcement learning framework for multi-machine tending,”
+IEEE Robotics and Automation Letters, vol. 11, no. 3, pp. 3135–3142,
+2026.
+[7] A. Iriondo, E. Lazkano, L. Susperregi, J. Urain, A. Fernandez, and
+J. Molina, “Pick and place operations in logistics using a mobile manip-
+ulator controlled with deep reinforcement learning,” Applied Sciences,
+vol. 9, no. 2, p. 348, 2019.
+[8] A. Iriondo, E. Lazkano, A. Ansuategi, A. Rivera, I. Lluvia, and C. Tubío,
+“Learning positioning policies for mobile manipulation operations with
+deep reinforcement learning,” International journal of machine learning
+and cybernetics, vol. 14, no. 9, pp. 3003–3023, 2023.
+[9] A. Agrawal, S. J. Won, T. Sharma, M. Deshpande, and C. McComb,
+“A multi-agent reinforcement learning framework for intelligent manu-
+facturing with autonomous mobile robots,” Proceedings of the Design
+Society, vol. 1, pp. 161–170, 2021.
+
+
+[10] A. B. M. Abdalwhab, G. Beltrame, S. E. Kahou, and D. St-Onge,
+“Attention-based multi-agent rl for multi-machine tending using mobile
+robots,” AI, vol. 6, no. 10, p. 252, 2025.
+[11] S. Gao, M. Pagnucco, T. Bednarz, and Y. Song, “Nvidia isaac sim: En-
+abling scalable, gpu-accelerated simulation for robotics,” arXiv preprint
+arXiv:2606.03551, 2026.
+[12] A. A. Neto, “Reinforcement learning for control systems with time
+delays: A comprehensive survey,” IEEE Access, 2026.
+[13] Y. Bouteiller, S. Ramstedt, G. Beltrame, C. J. Pal, and J. Binas,
+“Reinforcement learning with random delays,” in ICLR, 2021.
+[14] S. S. Sandha, L. Garcia, B. Balaji, F. Anwar, and M. Srivastava,
+“Sim2real transfer for deep reinforcement learning with stochastic state
+transition delays,” in Conference on robot learning.
+PMLR, 2021, pp.
+1066–1083.
+[15] J. Lai, Z. Jiang, and Y. Liu, “Dare to navigate: Spatiotemporal dy-
+namic augmented lidar encoder for obstacle detection and avoidance in
+crowded environments,” IEEE Robotics and Automation Letters, vol. 11,
+no. 2, pp. 1930–1937, 2025.
+[16] J. de Heuvel, X. Zeng, W. Shi, T. Sethuraman, and M. Bennewitz, “Spa-
+tiotemporal attention enhances lidar-based robot navigation in dynamic
+environments,” IEEE Robotics and Automation Letters, vol. 9, no. 5, pp.
+4202–4209, 2024.
+[17] Ambuj, H. Nagar, A. Paul, R. Machavaram, and P. Soni, “Reinforcement
+learning particle swarm optimization based trajectory planning of
+autonomous ground vehicle using 2d lidar point cloud,” Robotics and
+Autonomous Systems, vol. 178, p. 104723, 2024. [Online]. Available:
+https://www.sciencedirect.com/science/article/pii/S0921889024001064
+[18] N. Abdalmanan, K. Kamarudin, M. A. A. Bakar, M. H. F. Rahiman,
+A. Zakaria, S. M. Mamduh, and L. M. Kamarudin, “2d lidar based
+reinforcement learning for multi-target path planning in unknown envi-
+ronment,” IEEE Access, vol. 11, pp. 35 541–35 555, 2023.
+[19] C. Zhang, M. Chen, Y. Lin, H. Cheng, G. Wang, K. Li, J. Tang, Z. Li,
+L. Shen, and Q. Wang, “Lidar-based autonomous exploration method
+of mobile robot using deep reinforcement learning in unknown envi-
+ronments,” IEEE Transactions on Instrumentation and Measurement,
+vol. 74, pp. 1–16, 2025.
+[20] Y. Chen, C. T. Lam, G. Pau, and W. Ke, “From virtual to reality: A
+deep reinforcement learning solution to implement autonomous driving
+with 3d-lidar,” Applied Sciences, vol. 15, no. 3, p. 1423, 2025.
+[21] G. Xu, T. Wu, Z. Wang, Q. Wang, and F. Gao, “Flying on point
+clouds with reinforcement learning,” in 2025 IEEE/RSJ International
+Conference on Intelligent Robots and Systems (IROS).
+IEEE, 2025, pp.
+7231–7238.
+[22] Z. Li, T. Shang, and P. Xu, “Multi-modal attention perception for
+intelligent vehicle navigation using deep reinforcement learning,” IEEE
+Transactions on Intelligent Transportation Systems, vol. 26, no. 6, pp.
+8657–8669, 2025.
+[23] C. Liu and S. Wang, “Temporally-aware deep reinforcement learning
+for dynamic obstacle avoidance in uavs,” Drones, vol. 10, no. 7, p. 505,
+2026.
+[24] B. Singh, R. Kumar, and V. P. Singh, “Reinforcement learning in robotic
+applications: a comprehensive survey,” Artificial Intelligence Review, pp.
+1–46, 2022.
+[25] Y. Li, X. Guo, Y. Han, and R. Y. Zhong, “Self-coordinating multi-agv
+scheduling in self-organizing manufacturing shop floor via multi-agent
+reinforcement learning,” in 2025 IEEE 21st International Conference on
+Automation Science and Engineering (CASE).
+IEEE, 2025, pp. 3379–
+3384.
+[26] G. Ho, Y. M. Tang, E. K. Leung, and P. Tong, “Integrated reinforcement
+learning of automated guided vehicles dynamic path planning for smart
+logistics and operations,” Transportation Research Part E: Logistics and
+Transportation Review, vol. 196, p. 104008, 2025.
+[27] A. Siddiqua, S. Liu, R. Iqbal, L. Ross, B. Zweerink, and R. Eskridge,
+“Information sharing for cooperative robots via multi-agent reinforce-
+ment learning,” in 2024 IEEE International Symposium on Robotic and
+Sensors Environments (ROSE).
+IEEE, 2024, pp. 1–7.
+[28] C. Yu, A. Velu, E. Vinitsky, J. Gao, Y. Wang, A. Bayen, and Y. Wu,
+“The surprising effectiveness of ppo in cooperative multi-agent games,”
+Advances in neural information processing systems, vol. 35, pp. 24 611–
+24 624, 2022.
+[29] M.
+Mittal,
+P.
+Roth,
+J.
+Tigue,
+A.
+Richard,
+O.
+Zhang,
+P.
+Du,
+A. Serrano-Muñoz, X. Yao, R. Zurbrügg, Nikita et al., “Isaac
+lab: A gpu-accelerated simulation framework for multi-modal robot
+learning,” arXiv preprint arXiv:2511.04831, 2025. [Online]. Available:
+https://arxiv.org/abs/2511.04831
+[30] S. Macenski and I. Jambrecic, “Slam toolbox: Slam for the dynamic
+world,” Journal of Open Source Software, vol. 6, no. 61, p. 2783,
+2021. [Online]. Available: https://doi.org/10.21105/joss.02783
+[31] A. Corsaro, L. Cominardi, O. Hecart, G. Baldoni, J. E. P. Avital,
+J. Loudet, C. Guimares, M. Ilyin, and D. Bannov, “Zenoh: Unifying
+communication, storage and computation from the cloud to the mi-
+crocontroller,” in 2023 26th Euromicro Conference on Digital System
+Design (DSD).
+IEEE, 2023, pp. 422–428.
+[32] Bitcraze
+AB,
+“Loco
+positioning
+system,”
+https://www.bitcraze.io/
+documentation/system/positioning/loco-positioning-system/, 2026, on-
+line; accessed August 3, 2026.
+[33] Hokuyo Automatic Co., Ltd., “Uam-05lp-t301/t301c: Safety laser scan-
+ner,” https://www.hokuyo-aut.jp/search/single.php?serial=174, 2026, on-
+line; accessed August 3, 2026.
+[34] A. Serrano-Muñoz, D. Chrysostomou, S. Bøgh, and N. Arana-
+Arexolaleiba, “skrl: Modular and flexible library for reinforcement
+learning,” Journal of Machine Learning Research, vol. 24, no. 254, pp.
+1–9, 2023. [Online]. Available: http://jmlr.org/papers/v24/23-0112.html
+
+
+Fig. 13. Full FMAPPO Actor Architecture: during training, the policy samples
+from a normal distribution using the predicted mean and log stds, while in
+evaluation mode the means are used directly as the action
+Fig. 14.
+Full FMAPPO Critic Architecture with learnable parameters used
+as the query vector for the multi-head attention
+This part provides the additional materials for the paper
+Learning Multi-Agent Task Assignment and Navigation in the
+Factory: from Simulation to Real Robots. We still recommend
+that readers check the website2 for videos of the real-world
+validation experiments.
+VII. SETUP PARAMETERS
+A. SMAPPO Implementation
+To evaluate against SMAPPO, we implemented its obser-
+vation encoder using the same MAPPO implementation from
+the SKRL library [34] that we used as the backbone for our
+FMAPPO implementation.
+VIII. ADDITIONAL RESULTS
+In this section, we provide more insights into experiments
+described in the paper.
+A. Statistical Analysis of the Main Comparison Experiment
+Here we provide the statistical analysis of the results of the
+comparison experiment mentioned in the paper. Results are
+shown in Table VI.
+2https://anonymouspapers123.github.io/FMAPPO/#Real
+TABLE III
+MODEL PARAMETERS.
+Parameter
+Value
+Lidar Processing Branch
+LiDAR downsampled size
+270 (540 for the 2 lidars)
+Conv1d layers kernal size
+[3,3,3]
+Conv1d layers channels num
+[8,8,8]
+MaxPool1d layers size
+[4,4,4]
+Lidar embed. dim. (FC size)
+8
+Actor Parameters
+Agent Enc. FC Size
+16
+Machines Enc. FC Size
+16
+Storages Enc. FC Size
+16
+Other Enc. FC Size
+16
+Atten. embed. dim.
+16
+Atten. heads
+2
+Critic Parameters
+Agent Enc. FC size
+18
+Machines Enc. FC size
+18
+Storages Enc. FC size
+18
+Other Enc. FC size
+18
+Atten. embed. dim.
+18
+Atten. heads
+3
+State Atten. embed. dim.
+64
+Remaining Model Parameters
+Rollouts
+24
+Learning epochs
+5
+Mini batches
+6
+Discount factor
+0.99
+Lambda
+0.95
+Optimizer
+Adam
+Learning rate
+3e-4
+Learning rate scheduler
+KLAdaptiveRL
+Learning rate scheduler kl_threshold
+0.008
+Learning starts
+0
+Grad norm clip
+1.0
+Ratio clip
+0.2
+Value clip
+0.2
+Entropy loss scale
+0.001
+Value loss scale
+1.0
+State preprocessor
+RunningStandardScaler
+Shared_state_preprocessor
+RunningStandardScaler
+Value_preprocessor
+RunningStandardScaler
+Rewards_shaper
+None
+Time_limit_bootstrap
+False
+Mixed precision
+False
+Write interval
+180
+Checkpoint interval
+1800
+Base MAPPO implementation
+Skrl Library
+B. Command Update Frequency Simulation Experiment
+This section provides further results and analysis of the
+experiment reported in the paper about the effect of command
+update frequency change in simulation.
+First, we start by providing the results of the statistical anal-
+ysis described in the paper. Table VII shows the results of the
+permutation factorial ANOVA of frequency sensitivity (Holm–
+Bonferroni-corrected p-values on primary metrics; partial η2
+effect size).
+Table VIII presents the statistical comparison of the 120Hz
+vs 10Hz performance (paired over 10 seeds; normality-selected
+test; effect size; Holm-Bonferroni-corrected p-values per sce-
+nario), where t-test refers to a paired t-test, Wilcox: Wilcoxon
+test, cost: Cost per part; Min. dist.: Min inter-robot distance;
+Min inter-robot distance; Mean dist.: Mean inter-robot dis-
+tance.
+
+
+TABLE IV
+TRAINING PARAMETERS.
+Parameter
+Value
+LiDAR range
+40 meters
+Physics step size
+1/120 second
+Decimation
+6
+Render Interval
+6
+Episode Length
+15 Seconds
+Entites init. position
+Random from uniform distribution
+Entites init. position Range
+(-2.1,+2.1)
+Entites init. min. distance
+robot radius + storage radius + 1.0
+LiDAR Sim.
+MultiMeshRayCaster
+LiDAR freq. in Sim.
+120 Hz
+Num. Vertical channels
+1
+LiDAR Horizontal Range
+[-135, 135]
+LiDAR Horizontal resolution
+0.25
+Limit velocity
+False
+Reset on collision
+False
+Robot collision radius
+50 cm
+Machine collision radius
+44 cm
+Storage collision radius
+60 cm
+Margin to collect or drop
+25 cm
+TABLE V
+REWARD PARAMETERS.
+Parameter
+Value
+Collect reward
+15.0
+Deliver reward
+30.0
+Collision duration penalty
+-1.0
+New collisions penalty
+-25.0
+Uncollected part penalty
+-0.1
+Dist reward scale
+20
+Time penalty
+-0.01
+C. Ablation Study
+All models were trained for 500K environment interac-
+tion steps using 256 parallel environments, with the fi-
+nal 200 episodes used for evaluation, and each experi-
+ment was repeated seven times with different randomization
+seeds. Table IX shows the statistical significance testing of
+FMAPPO performance vs. the other models in the ablation
+study (normality-selected test; effect size; Holm-Bonferroni-
+corrected p-values with a significance level of α=0.05). We
+also compared our model performance without all the added
+observation components to verify their combined effect and
+report the results in Table X and the statistical analysis of
+the results of this comparison in Table XI. We can see that
+the performance drops significantly with a large effect size
+in all evaluation metrics. In fact, this drop in performance is
+larger than the one created from just removing the LiDAR
+information (as in the ablation study in the main paper),
+indicating a significant combined benefit from including all
+of them.
+D. Real Deployment Experiment
+Frequency sensitivity analysis: To study the effect of the
+policy command update frequency in the real deployment, we
+focused on the navigation aspect. Since each run involved
+multiple collections and deliveries by the two robots, we di-
+vided each run by the trips, measured navigation performance
+Fig. 15.
+Real Deployment first layout results: showing (a) task throughput
+(total collected parts, total delivered parts), (b) efficiency as collection cost,
+and (c) minimum distance between the two robots.
+metrics for each trip, and then aggregated them over the entire
+run. We did not include the first collection trip because it starts
+from the initial robot position and not from the drop location.
+Also, we eliminated the first delivery trip because it can start
+on a slightly different side compared to the other trips.
+Selected navigation metrics were minimum and mean inter-
+robot distance, action smoothness (measured from the jerk
+based on the second derivative of actions predicted by the
+policy), trajectory smoothness measured by the jerk computed
+from the third derivative of the robots’ position logs during
+navigation, and path length of the trip. Then all metrics were
+made dimensionless as explained in the paper. Table XII shows
+the statistical analysis results.
+Overall task Performance: During the real deployment
+experiment, we also monitored the total number of col-
+lected parts, delivered parts, and cost per part, as (CC =
+TraveledDistancetotal/(Collected + Delivered)), and the
+minimum inner-robot distance at each single frequency run.
+Figures 15 and 16 show the results for scenario one and two,
+respectively.
+In the first scenario, the model performed the task suc-
+cessfully and safely with no collisions at the different tested
+frequencies, except for a minor side touch for one box at
+120 Hz. It showed an increase in throughput and a drop in
+cost when doubling the command update frequency, but it goes
+down as the testing frequency increases. In terms of safety, the
+minimum distance between the two robots goes down as the
+frequency of command updates increases, except at 120 Hz,
+where the distance goes up again, but at the cost of reducing
+throughput. Even though, at the large task (machine tending)
+level, it is a single run per frequency and can not be used to
+establish a statistical trend, it was useful for initial insights
+and to remove the 120 Hz frequency from further tests.
+In the second scenario, again, the model successfully and
+
+
+TABLE VI
+MAIN COMPARISON EXPERIMENT IN THE PAPER: STATISTICAL SIGNIFICANCE TESTING FMAPPO VS MAPPO AND SMAPPO (NORMALITY-SELECTED
+TEST; EFFECT SIZE; HOLM-BONFERRONI-CORRECTED P-VALUES)
+Model
+Metric
+M. Mean
+Ours Mean
+n
+Diff
+Shapiro-p
+Normal
+Test
+p
+p (Holm)
+Sig (Holm)
+Effect
+E. Size
+MAPPO
+Collected
+2.50
+3.71
+7
+1.22
+0.327
+Yes
+t-test
+6.1e-07
+6.0e-06
+Yes
+8.24
+large
+MAPPO
+Delivered
+1.62
+3.34
+7
+1.72
+0.280
+Yes
+t-test
+6.0e-07
+6.0e-06
+Yes
+8.27
+large
+MAPPO
+Collisions
+2.06
+1.69
+7
+-0.36
+0.107
+Yes
+t-test
+0.002
+0.009
+Yes
+-2.03
+large
+MAPPO
+S. Score
+0.67
+0.81
+7
+0.14
+0.407
+Yes
+t-test
+9.3e-06
+6.5e-05
+Yes
+5.18
+large
+MAPPO
+Utilization
+0.62
+0.93
+7
+0.30
+0.327
+Yes
+t-test
+6.1e-07
+6.0e-06
+Yes
+8.24
+large
+SMAPPO
+Collected
+3.33
+3.71
+7
+0.39
+0.092
+Yes
+t-test
+0.004
+0.014
+Yes
+1.75
+large
+SMAPPO
+Delivered
+2.77
+3.34
+7
+0.57
+0.195
+Yes
+t-test
+0.006
+0.014
+Yes
+1.57
+large
+SMAPPO
+Collisions
+1.99
+1.69
+7
+-0.29
+0.409
+Yes
+t-test
+0.010
+0.014
+Yes
+-1.42
+large
+SMAPPO
+S. Score
+0.75
+0.81
+7
+0.05
+0.842
+Yes
+t-test
+2.5e-04
+0.002
+Yes
+2.91
+large
+SMAPPO
+Utilization
+0.83
+0.93
+7
+0.10
+0.092
+Yes
+t-test
+0.004
+0.014
+Yes
+1.75
+large
+TABLE VII
+COMMAND FREQUENCY UPDATE EXPERIMENT IN SIMULATION: PERMUTATION FACTORIAL ANOVA OF FREQUENCY SENSITIVITY
+(HOLM–BONFERRONI-CORRECTED p-VALUES ON PRIMARY METRICS; PARTIAL η2 EFFECT SIZE)
+Metric
+Effect
+F
+dfe
+dferr
+p
+η2
+p
+p (Holm)
+Sig (Holm)
+Min. distance
+Frequency
+1.35
+4
+90
+0.2602
+0.057
+0.5204
+No
+Min. distance
+Scenario
+824.40
+1
+90
+0.0001
+0.902
+0.0004
+Yes
+Min. distance
+Freq. × Scen.
+0.97
+4
+90
+0.4363
+0.041
+0.8726
+No
+Position smoothness
+Frequency
+0.08
+4
+90
+0.9997
+0.004
+0.9997
+No
+Position smoothness
+Scenario
+259.71
+1
+90
+0.0001
+0.743
+0.0004
+Yes
+Position smoothness
+Freq. × Scen.
+0.64
+4
+90
+0.8089
+0.028
+0.8726
+No
+Path length
+Frequency
+2.84
+4
+90
+0.0002
+0.112
+0.0008
+Yes
+Path length
+Scenario
+14.24
+1
+90
+0.0001
+0.137
+0.0004
+Yes
+Path length
+Freq. × Scen.
+2.40
+4
+90
+0.0010
+0.096
+0.0040
+Yes
+Mean distance
+Frequency
+3.56
+4
+90
+0.0016
+0.137
+0.0048
+Yes
+Mean distance
+Scenario
+0.09
+1
+90
+0.8080
+0.001
+0.8080
+No
+Mean distance
+Freq. × Scen.
+3.12
+4
+90
+0.0034
+0.122
+0.0102
+Yes
+TABLE VIII
+COMMAND FREQUENCY UPDATE EXPERIMENT IN SIMULATION: STATISTICAL COMPARISON OF 120HZ VS 10HZ PERFORMANCE (PAIRED OVER 10
+SEEDS; NORMALITY-SELECTED TEST; EFFECT SIZE; HOLM-BONFERRONI-CORRECTED P-VALUES PER SCENARIO); T-TEST: PAIRED T-TEST, WILCOX:
+WILCOXON, COST: COST PER PART; MIN. DIST.: MIN INTER-ROBOT DISTANCE; MEAN DIST.: MEAN INTER-ROBOT DISTANCE
+Scenario
+Metric
+µ10Hz
+µ120Hz
+n
+Diff
+Shapiro-p
+Normal
+Test
+p
+p (Holm)
+Sig
+SigHolm
+Effect
+E. Size
+S1
+Collected
+14.00
+14.00
+10
+0.00
+–
+–
+–
+1.000
+1.000
+No
+No
+0.00
+neglig.
+S1
+Delivered
+12.00
+12.00
+10
+0.00
+–
+–
+–
+1.000
+1.000
+No
+No
+0.00
+neglig.
+S1
+Collisions
+0.00
+0.00
+10
+0.00
+–
+–
+–
+1.000
+1.000
+No
+No
+0.00
+neglig.
+S1
+Cost
+2.35
+2.31
+10
+-0.05
+0.542
+Yes
+t-test
+6.2e-07
+3.7e-06
+Yes
+Yes
+-3.89
+large
+S1
+Min. dist.
+1.94
+1.96
+10
+0.02
+0.554
+Yes
+t-test
+0.029
+0.147
+Yes
+No
+0.82
+large
+S1
+Mean dist.
+2.57
+2.58
+10
+0.01
+0.670
+Yes
+t-test
+0.588
+1.000
+No
+No
+0.18
+neglig.
+S2
+Collected
+8.90
+11.00
+10
+2.10
+0.001
+No
+Wilcox.
+0.007
+0.026
+Yes
+Yes
+1.00
+large
+S2
+Delivered
+8.00
+9.90
+10
+1.90
+8.4e-05
+No
+Wilcox.
+0.006
+0.026
+Yes
+Yes
+1.00
+large
+S2
+Collisions
+0.40
+0.00
+10
+-0.40
+4.7e-06
+No
+Wilcox.
+0.157
+0.315
+No
+No
+-1.00
+large
+S2
+Cost
+3.13
+2.48
+10
+-0.65
+2.7e-05
+No
+Wilcox.
+0.002
+0.012
+Yes
+Yes
+-1.00
+large
+S2
+Min. dist.
+1.13
+1.24
+10
+0.10
+0.652
+Yes
+t-test
+0.274
+0.315
+No
+No
+0.37
+small
+S2
+Mean dist.
+2.40
+2.65
+10
+0.25
+1.3e-05
+No
+Wilcox.
+0.002
+0.012
+Yes
+Yes
+1.00
+large
+safely performed the task without collision and showed a slight
+drop in throughput and minimum distance with an increase in
+the collection cost as the testing command update frequency
+increased more and more from the original training frequency.
+IX. ADDITIONAL EXPERIMENTS
+A. Sample Efficiency
+Here we compare FMAPPO against MAPPO and SMAPPO
+in terms of sample efficiency, given a limited budget of
+training. So we compared the performance of the three models
+with 10%, 50%, and 90% of the full training time and report
+the mean and standard deviation over seven seeds in Figure 17,
+and the statistical significance of the results is analyzed in
+Table XIII.
+B. Random Part Processing Time
+Here we compare FMAPPO with MAPPO under random
+part processing time. This aims to show the robustness of
+FMAPPO under random processing delays. The processing
+time of each part is randomly sampled from a uniform distri-
+bution between 60 and 900 environment steps. Each model is
+trained for 500K environment steps, with the results shown
+below. The models are trained with the LiDAR frequency
+limited to 34Hz to better reflect the real-world deployment.
+In this experiment, the utilization metric can not be calculated
+under random processing time, since the maximum number
+of parts that can be processed per episode is not fixed, and
+the utilization metric is defined based on that. Table XIV
+reports the results, while Figure 18 presents the learning curves
+
+
+TABLE IX
+ABLATION STUDY ON EACH COMPONENT: STATISTICAL SIGNIFICANCE TESTING VS FMAPPO (NORMALITY-SELECTED TEST; EFFECT SIZE;
+HOLM-BONFERRONI-CORRECTED P-VALUES WITH A SIGNIFICANCE LEVEL OF α=0.05)
+Model
+Metric
+M. Mean
+Ours Mean
+n
+Diff
+Shapiro-p
+Normal
+Test
+p
+p(Holm)
+Sig
+Sig(Holm)
+Effect
+E. Size
+NoLID
+Collected
+3.60
+3.71
+7
+0.12
+0.788
+Yes
+t-test
+0.002
+0.037
+Yes
+Yes
+1.88
+large
+NoLID
+Delivered
+3.17
+3.34
+7
+0.17
+0.668
+Yes
+t-test
+0.007
+0.090
+Yes
+No
+1.49
+large
+NoLID
+Collisions
+2.04
+1.69
+7
+-0.35
+0.492
+Yes
+t-test
+0.012
+0.133
+Yes
+No
+-1.34
+large
+NoLID
+S. Score
+0.77
+0.81
+7
+0.04
+0.493
+Yes
+t-test
+0.005
+0.070
+Yes
+No
+1.61
+large
+NoLID
+Utilization
+0.90
+0.93
+7
+0.03
+0.788
+Yes
+t-test
+0.002
+0.037
+Yes
+Yes
+1.88
+large
+NoVel
+Collected
+3.70
+3.71
+7
+0.02
+0.307
+Yes
+t-test
+0.304
+1.000
+No
+No
+0.43
+small
+NoVel
+Delivered
+3.38
+3.34
+7
+-0.05
+0.397
+Yes
+t-test
+0.082
+0.825
+No
+No
+-0.79
+medium
+NoVel
+Collisions
+1.91
+1.69
+7
+-0.21
+0.638
+Yes
+t-test
+0.090
+0.825
+No
+No
+-0.76
+medium
+NoVel
+S. Score
+0.79
+0.81
+7
+0.02
+0.611
+Yes
+t-test
+0.090
+0.825
+No
+No
+0.76
+medium
+NoVel
+Utilization
+0.92
+0.93
+7
+3.8e-03
+0.307
+Yes
+t-test
+0.304
+1.000
+No
+No
+0.43
+small
+NoOrient
+Collected
+3.73
+3.71
+7
+-0.02
+0.456
+Yes
+t-test
+0.460
+1.000
+No
+No
+-0.30
+small
+NoOrient
+Delivered
+3.37
+3.34
+7
+-0.04
+0.818
+Yes
+t-test
+0.473
+1.000
+No
+No
+-0.29
+small
+NoOrient
+Collisions
+1.75
+1.69
+7
+-0.06
+0.693
+Yes
+t-test
+0.433
+1.000
+No
+No
+-0.32
+small
+NoOrient
+S. Score
+0.80
+0.81
+7
+4.0e-03
+0.767
+Yes
+t-test
+0.618
+1.000
+No
+No
+0.20
+neglig.
+NoOrient
+Utilization
+0.93
+0.93
+7
+-4.9e-03
+0.456
+Yes
+t-test
+0.460
+1.000
+No
+No
+-0.30
+small
+TABLE X
+ABLATION STUDY FINAL PERFORMANCE COMPARISON (FMAPPO,
+NOLVORIENT (FMAPPO WITH NO LIDAR, VELOCITY, OR ORIENTATION
+INFORMATION INCLUDED)) MEAN (STD)
+Metric
+FMAPPO
+NoLvOrient
+Collected
+3.71 (0.05)
+3.51 (0.06)
+Delivered
+3.34 (0.07)
+3.00 (0.12)
+Collisions
+1.69 (0.15)
+2.33 (0.42)
+Safety Score
+0.81 (0.02)
+0.74 (0.04)
+Utilization
+0.93 (0.01)
+0.88 (0.01)
+Fig. 16. Real Deployment second layout results: showing (a) task throughput
+(total collected parts, total delivered parts), (b) efficiency as collection cost,
+and (c) minimum distance between the two robots.
+and Table XV reports the statistical analysis with normality-
+selected test, effect size, and Holm-Bonferroni-corrected p-
+values, and Figure 19 presents the sample efficiency; the sta-
+tistical analysis of the significance of the sample efficiency is
+reported in Table XVI. FMAPPO outperforms both SMAPPO
+and MAPPO with a statistically significant large effect size in
+Fig. 17.
+Sample efficiency: FMAPPO vs MAPPO and SMAPPO achieved
+performance at 10%, 50%, 90% of the training budget, mean (std) over 7
+seeds (per-seed trailing 10-episode window) with fixed part processing time
+of 150 steps
+parts collection, delivery, and safety score.
+C. More Command Update Frequency Experiments
+Here we provide the results of more experiments to in-
+vestigate the effect of command update frequency on the
+performance under different noises level. It serves as a com-
+plementary experiment to the one presented in the paper,
+but also shows the robustness of FMAPPO under varying
+conditions. Zero-mean Gaussian noise was added to position
+and velocity estimations, LiDAR readings, action commands,
+and the robots’ initial positions. Figures 20,21 22 report the
+results at different noise levels.
+
+
+TABLE XI
+ABLATION STUDY STATISTICAL SIGNIFICANCE TESTING FMAPPO VS NOLVORIENT (FMAPPO WITH NO LIDAR, VELOCITY, OR ORIENTATION
+INFORMATION INCLUDED) (NORMALITY-SELECTED TEST; EFFECT SIZE; HOLM-BONFERRONI-CORRECTED P-VALUES)
+Model
+Metric
+µmodel
+µOurs
+n
+Diff
+Shapiro-p
+Normal
+Test
+p
+p (Holm)
+Sig
+Sig (Holm)
+Effect
+E. Size
+NoLvOrient
+Collected
+3.51
+3.71
+7
+0.20
+0.381
+Yes
+t-test
+3.8e-05
+1.9e-04
+Yes
+Yes
+4.07
+large
+NoLvOrient
+Delivered
+3.00
+3.34
+7
+0.34
+0.516
+Yes
+t-test
+4.3e-04
+0.001
+Yes
+Yes
+2.63
+large
+NoLvOrient
+Collisions
+2.33
+1.69
+7
+-0.63
+0.068
+Yes
+t-test
+0.002
+0.005
+Yes
+Yes
+-1.90
+large
+NoLvOrient
+S. Score
+0.74
+0.81
+7
+0.07
+0.050
+No
+Wilcoxon
+0.016
+0.016
+Yes
+Yes
+1.00
+large
+NoLvOrient
+Utilization
+0.88
+0.93
+7
+0.05
+0.381
+Yes
+t-test
+3.8e-05
+1.9e-04
+Yes
+Yes
+4.07
+large
+TABLE XII
+REAL DEPLOYMENT EXPERIMENT: PERMUTATION FACTORIAL ANOVA OF FREQUENCY SENSITIVITY (HOLM–BONFERRONI-CORRECTED p-VALUES ON
+PRIMARY METRICS; PARTIAL η2 EFFECT SIZE)
+Metric
+Effect
+F
+dfe
+dferr
+p
+η2
+p
+p (Holm)
+Sig (Holm)
+Min. distance
+Frequency
+4.59
+2
+57
+0.0133
+0.139
+0.0266
+Yes
+Min. distance
+Scenario
+5.97
+1
+57
+0.0178
+0.095
+0.0356
+Yes
+Min. distance
+Freq. × Scen.
+0.54
+2
+57
+0.5811
+0.019
+1.0
+No
+Action smoothness
+Frequency
+2.23
+2
+57
+0.1156
+0.073
+0.1156
+No
+Action smoothness
+Scenario
+0.25
+1
+57
+0.6192
+0.004
+0.6192
+No
+Action smoothness
+Freq. × Scen.
+2.19
+2
+57
+0.1178
+0.071
+0.3534
+No
+Position smoothness
+Frequency
+14.47
+2
+57
+0.0001
+0.337
+0.0003
+Yes
+Position smoothness
+Scenario
+7.37
+1
+57
+0.0112
+0.114
+0.0336
+Yes
+Position smoothness
+Freq. × Scen.
+0.03
+2
+57
+0.976
+0.001
+1.0
+No
+Path length
+Frequency
+0.48
+2
+57
+0.627
+0.017
+–
+–
+Path length
+Scenario
+1.53
+1
+57
+0.2263
+0.026
+–
+–
+Path length
+Freq. × Scen.
+1.70
+2
+57
+0.2039
+0.056
+–
+–
+Mean distance
+Frequency
+1.72
+2
+57
+0.1859
+0.057
+–
+–
+Mean distance
+Scenario
+4.78
+1
+57
+0.0336
+0.077
+–
+–
+Mean distance
+Freq. × Scen.
+0.53
+2
+57
+0.5909
+0.018
+–
+–
+TABLE XIII
+SAMPLE EFFICIENCY: STATISTICAL SIGNIFICANCE OF PERFORMANCE AT 50% OF TRAINING VS FMAPPO (NORMALITY-SELECTED TEST; EFFECT SIZE;
+HOLM-BONFERRONI-CORRECTED P-VALUES) WITH FIXED PART PROCESSING TIME OF 150 STEPS
+Model
+Metric
+µmodel
+µours
+n
+Diff
+Shapiro-p
+Normal
+Test
+p
+pHolm
+Sig
+SigHolm
+Effect
+E. Size
+MAPPO
+Collected
+2.42
+3.69
+7
+1.27
+0.394
+Yes
+t-test
+6.2e-07
+4.3e-06
+Yes
+Yes
+8.22
+large
+MAPPO
+Delivered
+1.50
+3.28
+7
+1.78
+0.630
+Yes
+t-test
+4.8e-07
+3.8e-06
+Yes
+Yes
+8.58
+large
+MAPPO
+S. Score
+0.65
+0.80
+7
+0.15
+0.987
+Yes
+t-test
+2.3e-05
+1.2e-04
+Yes
+Yes
+4.43
+large
+MAPPO
+Utilization
+0.60
+0.92
+7
+0.32
+0.394
+Yes
+t-test
+6.2e-07
+4.3e-06
+Yes
+Yes
+8.22
+large
+SMAPPO
+Collected
+3.32
+3.69
+7
+0.37
+0.143
+Yes
+t-test
+0.009
+0.028
+Yes
+Yes
+1.42
+large
+SMAPPO
+Delivered
+2.76
+3.28
+7
+0.53
+0.067
+Yes
+t-test
+0.013
+0.028
+Yes
+Yes
+1.33
+large
+SMAPPO
+S. Score
+0.75
+0.80
+7
+0.04
+0.211
+Yes
+t-test
+0.003
+0.012
+Yes
+Yes
+1.81
+large
+SMAPPO
+Utilization
+0.83
+0.92
+7
+0.09
+0.143
+Yes
+t-test
+0.009
+0.028
+Yes
+Yes
+1.42
+large
+TABLE XIV
+RANDOM PART PROCESSING TIME: FINAL PERFORMANCE COMPARISON (FMAPPO, MAPPO, SMAPPO) MEAN (STD)
+Metric
+FMAPPO
+MAPPO
+Imp. vs MAPPO
+SMAPPO
+Imp. vs SMAPPO
+Collected
+5.71 (0.18)
+3.30 (0.23)
+73.03%
+4.23 (0.32)
+34.99%
+Delivered
+4.98 (0.19)
+2.26 (0.26)
+120.35%
+3.26 (0.38)
+52.76%
+Collisions
+2.02 (0.14)
+2.39 (0.17)
+−15.48%
+2.26 (0.19)
+−10.62%
+Safety Score
+0.84 (0.01)
+0.70 (0.02)
+0.14
+0.77 (0.02)
+0.07
+TABLE XV
+RANDOM PARTS PROCESSING TIME: STATISTICAL SIGNIFICANCE TESTING VS FMAPPO (NORMALITY-SELECTED TEST; EFFECT SIZE;
+HOLM-BONFERRONI-CORRECTED P-VALUES)
+Model
+Metric
+µmodel
+µours
+n
+Diff
+Shapiro-p
+Normal
+Test
+p
+p (Holm)
+Sig
+Sig (Holm)
+Effect
+E. Size
+MAPPO
+Collected
+3.30
+5.71
+10
+2.41
+0.257
+Yes
+t-test
+5.6e-09
+3.4e-08
+Yes
+Yes
+6.68
+large
+MAPPO
+Delivered
+2.26
+4.98
+10
+2.72
+0.251
+Yes
+t-test
+4.2e-09
+3.4e-08
+Yes
+Yes
+6.89
+large
+MAPPO
+Collisions
+2.39
+2.02
+10
+-0.37
+0.228
+Yes
+t-test
+4.4e-04
+8.8e-04
+Yes
+Yes
+-1.70
+large
+MAPPO
+S. Score
+0.70
+0.84
+10
+0.14
+0.377
+Yes
+t-test
+4.2e-09
+3.4e-08
+Yes
+Yes
+6.90
+large
+SMAPPO
+Collected
+4.23
+5.71
+10
+1.48
+0.520
+Yes
+t-test
+1.2e-06
+3.8e-06
+Yes
+Yes
+3.62
+large
+SMAPPO
+Delivered
+3.26
+4.98
+10
+1.72
+0.390
+Yes
+t-test
+9.6e-07
+3.8e-06
+Yes
+Yes
+3.70
+large
+SMAPPO
+Collisions
+2.26
+2.02
+10
+-0.23
+0.855
+Yes
+t-test
+0.009
+0.009
+Yes
+Yes
+-1.05
+large
+SMAPPO
+S. Score
+0.77
+0.84
+10
+0.07
+0.634
+Yes
+t-test
+7.1e-07
+3.5e-06
+Yes
+Yes
+3.83
+large
+
+
+Fig. 18. Random Part Processing Time Learning curves overview over 10 seeds
+TABLE XVI
+RANDOM PARTS PROCESSING TIME: STATISTICAL SIGNIFICANCE OF PERFORMANCE AT 50% OF TRAINING VS FMAPPO (NORMALITY-SELECTED TEST;
+EFFECT SIZE; HOLM-BONFERRONI-CORRECTED P-VALUES)
+Model
+Metric
+µmodel
+µours
+n
+Diff
+Shapiro-p
+Normal
+Test
+p
+p (Holm)
+Sig
+Sig (Holm)
+Effect
+E. Size
+MAPPO
+Collected
+3.18
+5.60
+10
+2.42
+0.748
+Yes
+t-test
+2.2e-09
+1.1e-08
+Yes
+Yes
+7.43
+large
+MAPPO
+Delivered
+2.11
+4.87
+10
+2.76
+0.787
+Yes
+t-test
+1.8e-09
+1.1e-08
+Yes
+Yes
+7.61
+large
+MAPPO
+S. Score
+0.69
+0.83
+10
+0.14
+0.868
+Yes
+t-test
+1.0e-08
+4.1e-08
+Yes
+Yes
+6.24
+large
+SMAPPO
+Collected
+4.23
+5.60
+10
+1.37
+0.928
+Yes
+t-test
+1.8e-06
+3.6e-06
+Yes
+Yes
+3.44
+large
+SMAPPO
+Delivered
+3.28
+4.87
+10
+1.59
+0.989
+Yes
+t-test
+8.2e-07
+2.5e-06
+Yes
+Yes
+3.77
+large
+SMAPPO
+S. Score
+0.77
+0.83
+10
+0.06
+0.662
+Yes
+t-test
+7.1e-06
+7.1e-06
+Yes
+Yes
+2.91
+large
+
+
+Fig. 19.
+Sample efficiency: achieved performance at 10%, 50%, 90% of
+the training budget, mean (std) over 10 seeds (per-seed trailing 10-episode
+window) with random part processing time between 60 and 900 environment
+steps
+
+
+Fig. 20. Position (σ 2 cm), velocity (σ 2 cm/s), LiDAR (σ 1 cm), action (σ 1 cm/s), and initial positions (σ 10 cm), in the left Scenario 1, and in the right
+Scenario 2
+Fig. 21. Position (σ 20 cm), velocity (σ 20 cm/s), LiDAR (σ 1 cm), action (σ 1 cm/s), and initial positions (σ 20 cm), in the left Scenario 1, and in the
+right Scenario 2
+
+
+Fig. 22. Position (σ 10 cm), velocity (σ 20 cm/s), LiDAR (σ 1 cm), action (σ 1 cm/s), and initial positions (σ 20 cm), in the left Scenario 1 and in the
+right Scenario 2
