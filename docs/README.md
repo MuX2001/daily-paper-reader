@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-15</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-16</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 33 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 21 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>20</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>8</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-15 22:21:51 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-16 21:57:18 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>2026-09-15 日报完成33篇论文筛选，精读20篇、速读13篇，重点聚焦人形导航与记忆驱动规划。最值得看的是两篇9.0分工作：TANGO用全身视觉-语言-动作模型做杂乱环境人形导航，Memory as Plans把记忆作为规划基础做世界-动作建模；速读中还可留意VLA后训练数据筛选、长程操作记忆引导与机器人世界模型失败信号。普通读者可优先读这两篇高分精读，再按兴趣从速读里挑数据、记忆或失败诊断方向跟进。</p>
+<p>2026-09-16 日报精选 21 篇 VLA 与机器人研究，精读 8 篇、速读 13 篇。最值得关注 DeCAL 的接触感知物理落地思路和 RoboDrop 的 VLA 后训练数据筛选方法，两者均获 9.0 分。普通读者可先读这两篇精读，再按兴趣浏览 TANGO、Show-Harness 等速读文章。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">20 篇</strong>
+    <strong class="dpr-home-dashboard-count">8 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="TANGO: Humanoid Navigation in Cluttered Environments with a Whole-Body Vision-Language-Action Model">TANGO: Humanoid Navigation in Cluttered Environments with a Whole-Body Vision-Language-Action Model</span></li><li><span class="dpr-home-dashboard-paper-title" title="Memory as Plans: World-Action Modeling with Memory-Grounded Planning">Memory as Plans: World-Action Modeling with Memory-Grounded Planning</span></li><li><span class="dpr-home-dashboard-paper-title" title="DATAFARM: Distribution-Aligned Task and Motion Planning for Fine-Tuning Vision-Language-Action Models">DATAFARM: Distribution-Aligned Task and Motion Planning for Fine-Tuning Vision-Language-Action Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="DeCAL: Towards Physically-Grounded Dexterous Vision-Language-Action Models via Contact-Aware Latent Co-Imagination">DeCAL: Towards Physically-Grounded Dexterous Vision-Language-Action Models via Contact-Aware Latent Co-Imagination</span></li><li><span class="dpr-home-dashboard-paper-title" title="RoboDrop: Curating VLA Post-Training Data via Local Gradient Compatibility">RoboDrop: Curating VLA Post-Training Data via Local Gradient Compatibility</span></li><li><span class="dpr-home-dashboard-paper-title" title="Dynin-Robotics: Omnimodal Unified Diffusion Vision-Language-Action Model">Dynin-Robotics: Omnimodal Unified Diffusion Vision-Language-Action Model</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>7</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>5</strong></span><span class="dpr-home-dashboard-tag">control <strong>4</strong></span><span class="dpr-home-dashboard-tag">vla <strong>4</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>4</strong></span><span class="dpr-home-dashboard-tag">control <strong>2</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>2</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -87,9 +87,9 @@
     <strong class="dpr-home-dashboard-count">13 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="RoboDrop: Curating VLA Post-Training Data via Local Gradient Compatibility">RoboDrop: Curating VLA Post-Training Data via Local Gradient Compatibility</span></li><li><span class="dpr-home-dashboard-paper-title" title="2AM: Grounding Agent-Side Memory as Guidance for Steerable Action Models in Long-Horizon Manipulation">2AM: Grounding Agent-Side Memory as Guidance for Steerable Action Models in Long-Horizon Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="FARM: Reading Failure Signals from the Internal Predictive States of a Frozen Robotic World Model">FARM: Reading Failure Signals from the Internal Predictive States of a Frozen Robotic World Model</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="TANGO: Humanoid Navigation in Cluttered Environments with a Whole-Body Vision-Language-Action Model">TANGO: Humanoid Navigation in Cluttered Environments with a Whole-Body Vision-Language-Action Model</span></li><li><span class="dpr-home-dashboard-paper-title" title="Show-Harness: Just a VLM Agent Can Play Robots">Show-Harness: Just a VLM Agent Can Play Robots</span></li><li><span class="dpr-home-dashboard-paper-title" title="ActSafeGuard: Differentiable and Training-Aligned Constraint Enforcement for Flow-Matching Policies">ActSafeGuard: Differentiable and Training-Aligned Constraint Enforcement for Flow-Matching Policies</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">control <strong>6</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>3</strong></span><span class="dpr-home-dashboard-tag">vla <strong>3</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>5</strong></span><span class="dpr-home-dashboard-tag">vla <strong>5</strong></span><span class="dpr-home-dashboard-tag">control <strong>2</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>1</strong></span></div>
 </section>
 </div>
 

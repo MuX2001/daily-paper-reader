@@ -1,0 +1,861 @@
+Title: Constraint-Grounded Reinforcement Learning for Variable Impedance Control in Contact-Rich Robotic Insertion
+
+URL Source: https://arxiv.org/pdf/2609.13516v1
+
+Published Time: Tue, 15 Sep 2026 00:17:53 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+> 1
+
+# Constraint-Grounded Reinforcement Learning for Variable Impedance Control in Contact-Rich Robotic Insertion 
+
+Lin He and Min Deng ∗
+
+Abstract —In robotic insertion under uncertain contact, the axial force limit and the appropriate controller gain vary across tasks. As a result, a single fixed gain is unlikely to remain suitable across different task conditions, making conventional impedance controllers reliant on manual retuning. To eliminate manual retuning, we propose Constraint-Grounded Reinforce-ment Learning (CG-RL), a variable impedance framework for online gain adaptation. Conditioned on the force limit and contact feedback, the policy outputs a residual motion, an insertion rate, and a requested gain. The controller projects this gain into the admissible range without exposing the range itself to the policy. This separation allows a single policy to operate under different force limits without retraining or manual retuning. We evaluate CG-RL on simulated oblique insertion across five training seeds. CG-RL achieves an 85 .8 ± 7.7% (mean ± SD) success rate of insertions without violating the force limit, while keeping the applied gain within the admissible range. As a comparison, a fixed-gain baseline using the midpoint gain achieves a success rate of 50 .1% . The policy adapts its insertion rate continuously to the specified force limit and further generalizes to more permissive force limits above the training range. In contrast, the same actor without force-limit input does not exhibit this adaptation. The applied gain is guaranteed to remain within the admissible range, while force-limit satisfaction is validated empirically rather than guaranteed formally. 
+
+Index Terms —Contact-rich manipulation, reinforcement learn-ing, variable impedance control, force-aware control, robotic insertion 
+
+I. Introduction Robotic manipulation is increasingly used in construction and manufacturing to address labor shortages, improve preci-sion, and perform tasks in unsafe or ergonomically demanding settings [1]–[4]. Yet contact-rich manipulation remains a cen-tral challenge, because robots must coordinate motion, force, and compliance in constrained or uncertain environments [5], [6]. Insertion is a canonical contact-rich task underlying connector mating, press fitting, fastening, and component assembly [7]. Oblique insertion is particularly relevant to load-bearing connections. In timber fastening, for example, inclined screws exploit the axial withdrawal resistance of the fastener and can carry greater loads than perpendicular screws [8]. This mechanical advantage, however, comes with a more difficult insertion process. The inclined contact geometry generates substantial lateral forces and moments and makes the insertion 
+
+> ∗
+
+Corresponding author: Min Deng. The authors are with the Department of Civil and Environmental Engi-neering, The University of Tennessee, Knoxville, TN 37996 USA (e-mail: lynnhe@utk.edu; mindeng@utk.edu). 
+
+more sensitive to misalignment and friction. As a result, the insertion becomes more prone to jamming and to damaging the inserted component or the surrounding workpiece [9]. In practice, contact conditions also vary with material, thickness, support, clamping, and interface friction [10]. Even for the same nominal material, these factors can change both the contact response and the load that the joint can tolerate [11], [12]. As a result, a controller tuned for one task may apply excessive load in another. A conservative controller may instead move too slowly or fail to overcome the contact resistance. Selecting a controller gain and advance rate manually for every task is impractical, especially when interface friction is unknown before execution. We therefore seek a single policy that accepts the prescribed operating requirements and adjusts its motion, gain, and advance rate online. The policy should operate under fixture pose variation and unobserved contact variation without retraining or manual retuning. Existing studies address separate aspects of this problem. Force-feedback and variable impedance controllers can regu-late interaction forces and adjust compliance during execution. However, their force references, gain schedules, and adaptation rules are typically designed for a particular task or contact con-dition [13], [14]. Learning-based variable impedance methods allow the robot to select motion and impedance online, but the available gain range is usually fixed when the controller is designed rather than specified for each task [15]–[18]. Domain randomization improves robustness to unobserved variation in physical properties and controller parameters, but it treats these quantities as disturbances rather than as requirements supplied to the policy [19], [20]. Context-conditioned policies can adapt across tasks, yet the task variables or latent representations they rely on do not necessarily correspond to physical force or gain limits that the controller can enforce directly [21]. FORGE [22] is closest to our setting in that it conditions an assembly policy on a maximum allowable force; however, it treats the controller gains as randomized dynamics parameters rather than as actions selected by the policy within a task-specified gain range. Existing methods therefore do not provide a single policy that selects its motion and gain online under an allowable force limit and an admissible gain set supplied independently for each task. Two difficulties arise in this setting. The first concerns enforcement: reward shaping alone cannot guarantee that the applied gain stays within the specified range, so the range is enforced at the controller instead. The second concerns arXiv:2609.13516v1 [cs.RO] 11 Sep 2026 2  
+
+> Fig. 1. Overview of CG-RL. A single actor responds to the supplied force limit, while the execution layer independently enforces the admissible gain set across varying contact tasks.
+
+attribution: once the controller projects and rate-limits the requested gain, the applied gain can change even when the raw policy request does not. A change in behavior can therefore be attributed to the policy only if the task specification, raw policy request, applied gain, and resulting contact response are recorded separately. These difficulties lead to the following research questions:  
+
+> •
+
+RQ1: How can a single learned policy select a suitable gain and advance rate online under a task-prescribed force limit, while the gain is kept within a task-prescribed admissible range, without retraining or retuning for each task?  
+
+> •
+
+RQ2: Does such a policy change its insertion behavior with the prescribed force limit, beyond the behavior that controller enforcement alone produces? To address these questions, we propose Constraint-Grounded Reinforcement Learning (CG-RL), a framework for learning variable impedance control policies for robotic insertion under explicitly specified contact requirements (Fig. 1). Each task supplies an allowable axial force limit and an admissible gain set, which may vary independently, while interface friction remains hidden from the policy. Constraint grounding refers to the explicit role assigned to each requirement. The force limit is observed by the actor and shapes its learning objective. The gain set, in contrast, is never observed by the actor; it is enforced by an execution layer that projects every requested gain into the admissible set before application. Gain-set membership is therefore guaranteed by construction, whereas compliance with the force limit is a learned property that we evaluate empirically rather than guarantee formally. The main contributions of this paper are as follows. 1) We formulate contact-rich robotic insertion as aconstraint-grounded control problem in which an allow-able axial force limit and an admissible controller gain set are specified independently, while interface friction remains unobserved. The formulation treats the permitted contact load and the available controller authority as dis-tinct requirements with distinct enforcement mechanisms. 2) We develop CG-RL, in which a single actor observes the force limit and interaction feedback and jointly selects a residual motion, an operational-space gain request, and an axial advance rate, while an execution layer projects and rate-limits the requested gain within the independently supplied gain set. 3) We design an evaluation protocol that records the task specification, raw policy output, projected controller com-mand, and physical response as separate signals, so that learned adaptation can be distinguished from controller enforcement. Using this protocol, we validate CG-RL across independent training seeds, paired interventions, dense force-limit sweeps, multiple gain sets, hidden friction conditions, and observation shifts, and identify the operating range within which the method remains effective. The remainder of this paper is organized as follows. Section II reviews related work. Section III formulates the constraint-grounded insertion problem, and Section IV presents the CG-RL framework. Section V reports the experimental evaluation. Sec-tion VI discusses the findings and limitations, and Section VII concludes the paper. II. Related Work 
+
+A. Compliant and Variable-Impedance Control 
+
+Compliant control provides a structured basis for regulat-ing physical interaction. Khatib [23] formulated manipulator dynamics directly in task space, unifying end-effector motion control and active force control in a single framework. Ott et al. [24] subsequently developed a hybrid framework that spans impedance and admittance control, so that their complementary interaction characteristics can be combined within a common formulation. These works established the model-based foun-dation of physical interaction control. The resulting behavior, 3
+
+however, still depends on controller parameters that must be selected for each task. Variable-impedance control relaxes this dependence by ad-justing stiffness and damping during execution, but it raises the question of how to select suitable parameters as the interaction evolves [13], [25]. Learning-based approaches address this question using sensory feedback, demonstrations, or interaction experience. For example, Luo et al. [15] combined reinforce-ment learning with force/torque feedback and an operational-space controller and demonstrated high-precision assembly of a tight-fit gear system. Mart´ ın-Mart´ ın et al. [16] introduced variable impedance in end-effector space as an action repre-sentation for reinforcement learning, which improved sample efficiency, energy consumption, and transfer across contact-rich tasks. Other studies have learned force, trajectory, and impedance profiles for contact-sensitive manipulation, human-robot collaboration, and peg-in-hole assembly [14], [17], [18], [26]–[28]. More recently, Zhou et al. [25] learned variable impedance from RGB-D and force/torque observations and demonstrated transfer to an industrial peg-in-hole task. These results establish the value of learning impedance parameters online. In these methods, however, the learned gains remain within a range that is fixed when the controller is designed. The admissible gain set is not treated as a task-level requirement that can be specified before execution and enforced by the controller. 
+
+B. Learning-Based Contact-Rich Manipulation 
+
+Learning-based methods acquire contact behaviors from demonstrations or interaction data when contact dynamics are difficult to model analytically [29]. Demonstration-based ap-proaches have learned complex manipulation skills through be-havioral cloning, implicit policy representations, and diffusion models [30]–[32]. Diffusion Policy, for example, represented multimodal action distributions and improved performance across a diverse set of manipulation benchmarks [32]. Other studies have incorporated tactile feedback, visual interaction cues, and multimodal object representations into policy learn-ing [33]–[35]. In particular, Lee et al. [33] showed that a shared representation of vision and touch improved the sample efficiency of peg-in-hole policy learning and generalized across changes in geometry, configuration, and clearance. These results demonstrate that demonstrations and multimodal sensing can support complex contact behavior without a complete analytical model. Reinforcement learning instead acquires contact strategies through interaction. Schoettler et al. [36] trained a policy across simulated insertion tasks and adapted it to real tasks with fewer than 20 physical trials. Luo et al. [37] combined reinforcement learning, demonstrations, and multimodal observations, and re-ported greater speed and reliability than an engineered industrial baseline on an assembly benchmark. Policies whose actions include impedance or stiffness parameters further allow motion and compliance to be adjusted online during insertion [27], [28]. Together, these studies establish that learned policies can perform contact-rich insertion and assembly under substantial uncertainty. In both families of methods, however, the primary objective is skill acquisition from data. These methods do not provide a deployment-time interface through which an allowable force limit or an admissible controller gain set can be specified and enforced. Moreover, when the allowable force and gain range can change independently, task success alone does not establish that the policy has responded to the active specification. It remains unclear whether explicit task requirements can command contact behavior predictably. This work addresses that question. 
+
+C. Policy Learning under Task and Contact Variation 
+
+Prior work on changing contact conditions differs mainly in how the variation is presented to the policy: as an explicit safety constraint, as task context, or as an unobserved disturbance. The first line of work, safe and constrained reinforcement learning, formulates requirements through cost limits, state or action constraints, safety filters, and control barrier functions [38]– [42]. Yao et al. [43] proposed constraint-conditioned policy optimization, which trains a single policy across cost thresholds and adapts to unseen thresholds without retraining. Sootla et al. [44] introduced Saut´ e RL, which augments the state with the remaining safety budget and targets almost-sure constraint satis-faction. More recently, Zhang et al. [45] combined a safety critic and a recovery policy with online variable-stiffness control, and reported an improved trade-off between task completion and safety as well as transfer to a physical robot. These methods establish that safety thresholds and learned stiffness can be incorporated into policy learning. Their objective, however, is to satisfy a safety or risk criterion, and the admissible controller gain set is not treated as an independent requirement. The second line of work, context-conditioned policies, adapts behavior using goals, task variables, or learned latent represen-tations. Schaul et al. [46] introduced universal value function approximators for goal-conditioned learning, and Rakelly et al. [21] learned latent task representations for rapid adaptation. Multi-task robotic learning has subsequently scaled policy training across larger task collections [47], and AutoMate [48] demonstrated specialist and generalist assembly policies across diverse geometries with zero-shot transfer to physical systems. These results show that policy conditioning supports task gener-alization. The conditioning variables, however, usually identify a goal, task, or geometry rather than prescribe controller-level interaction limits. FORGE [22] provides a closer comparison by conditioning an assembly policy on a maximum allowable force. Its controller gains, however, are randomized as unobserved dynamics parameters rather than provided as task requirements or selected online by the policy. The third line of work, domain randomization, addresses variation that is never revealed to the policy. It improves robust-ness by exposing policies to randomized physical parameters during training [19], [20], [49]. Factory and IndustReal applied this strategy to contact-rich industrial assembly by randomizing geometry, friction, dynamics, and sensing conditions [50], [51], and FORGE additionally randomized controller parameters to support robust force-aware assembly [22]. At deployment, these randomized quantities remain unobserved disturbances rather than requirements that specify how the task should be executed. 4
+
+In summary, explicit conditioning and domain randomization serve complementary roles: the former communicates the requested operating condition, whereas the latter builds robust-ness to hidden physical variation. Nevertheless, none of the representative methods above jointly addresses independently specified force and gain requirements together with adaptation to unobserved contact variation. This gap motivates the problem formulation in Section III. III. Problem Formulation We consider oblique peg insertion along a nominal approach trajectory with variations in fixture pose and unobserved contact conditions. The force limit and admissible gain range are specified independently for each task. The actor observes pose perturbations through changes in the relative geometry, while variations in interface friction affect the contact dynamics but remain unobserved. 
+
+A. Task Specification and Requirements 
+
+Each insertion task is associated with two independently specified requirements: an allowable axial force limit and an admissible controller gain set. We represent them by 
+
+𝑐 = (𝐹 max , K) , K = [𝐾 min , 𝐾 max ] , (1) where 𝐹 max > 0 is the allowable axial force limit and K is the admissible interval for the scalar gain of the operational-space controller. To define the physical quantity bounded by 𝐹 max , let ˆ d denote the unit vector along the insertion axis in the world frame. Let 
+
+fcont  
+
+> 𝑡
+
+denote the net contact reaction at time step 𝑡 . The magnitude of the axial contact reaction is 
+
+𝐹 ax  
+
+> 𝑡
+
+= ˆd⊤fcont  
+
+> 𝑡
+
+. (2) The force limit applies to this axial component rather than to the magnitude of the full contact force vector. Let F ⊂ R>0 denote the set of allowable force limits, and let 
+
+Ksys = 𝐾 min sys , 𝐾 max sys 
+
+ ⊂ R>0 (3) denote the system gain range of the controller. A gain set is admissible when 0 < 𝐾 min < 𝐾 max and K ⊆ K sys . The task specification space is therefore 
+
+C = (𝐹 max , K) 𝐹 max ∈ F , 0 < 𝐾 min < 𝐾 max , K ⊆ K sys .
+
+(4) During training, the force limit and gain set are sampled independently: 
+
+𝑝 C (𝑐 ) = 𝑝 𝐹 (𝐹 max ) 𝑝 K (K) . (5) This factorization allows the same force limit to be paired with different gain sets, and vice versa. The two components of 𝑐 play different roles. The force limit specifies the contact load permitted by the task. The gain set specifies the range of gains the controller is permitted to apply during execution, which we refer to as the controller authority. Although changing the scalar gain modulates the closed-loop stiffness, 𝐾 min and 𝐾 max are controller gain settings rather than estimates of material stiffness. The specification is assumed to be available before execution, for example from task design requirements or prior character-ization. Estimating the force limit or gain set online is outside the scope of this work. An insertion is successful if the peg reaches a prescribed terminal set Xgoal , representing the required insertion depth and pose accuracy, within a finite horizon 𝑇 . Beyond completion, execution should be efficient and should limit exceedance of the axial force limit. We define the instantaneous force exceedance as 
+
+𝑣 𝐹 𝑡 = 𝐹 ax  
+
+> 𝑡
+
+− 𝐹 max 
+
+ 
+
+> +
+
+, (6) where [𝑧 ]+ = max (𝑧, 0). The applied controller gain, by contrast, is required to satisfy 
+
+𝐾 𝑡 ∈ K , ∀𝑡 ∈ { 0, . . . , 𝑇 − 1}. (7) The two requirements have different enforcement mecha-nisms. The gain requirement (7) can be enforced exactly at the controller interface. The force requirement is not enforced directly at the controller interface in this work, because the axial force is a closed-loop physical response that depends on pose error, contact state, friction, and the selected control actions. Satisfaction of the force limit is therefore learned and evaluated empirically rather than formally guaranteed. 
+
+B. Decision Problem under Task Specifications 
+
+Let 𝑥 𝑡 ∈ X denote the underlying state of the robot and contact system, and let 𝑧 𝑡 ∈ Z denote the physical information available to the policy. This information includes relative geometry, robot motion, contact feedback, and controller state. The policy observation is 
+
+𝑜 𝑡 =
+
+
+
+𝑧 𝑡 , e𝐹 max 
+
+
+
+, (8) where e𝐹 max is the normalized force-limit coordinate. The gain set K is not part of the observation; it is supplied directly to the execution layer, which enforces set membership by projection. We denote the unobserved contact condition by 𝜂 . In this work, 𝜂 corresponds to interface friction and affects the transition dynamics: 
+
+𝑥 𝑡 +1 ∼ P 𝜂 (· | 𝑥 𝑡 , 𝑢 𝑡 , 𝐾 𝑡 ) , (9) where 𝑢 𝑡 is the command applied to the robot. The policy does not observe 𝜂 and can respond only to its effects on the observed motion and contact feedback. The policy is given by 
+
+𝑎 𝑡 ∼ 𝜋 𝜃 (· | 𝑜 𝑡 ) . (10) Its normalized action is 
+
+𝑎 𝑡 =   𝑎 res 
+
+> 𝑡
+
+⊤ , 𝑎 𝐾 𝑡 , 𝑎 𝑣 𝑡 
+
+⊤ ∈ [− 1, 1]8, (11) where 𝑎 res  
+
+> 𝑡
+
+∈ [− 1, 1]6 is the residual pose action, 𝑎 𝐾 𝑡 ∈ [− 1, 1]
+
+is the scalar gain action, and 𝑎 𝑣 𝑡 ∈ [− 1, 1] is the advance-rate action. Let ℎ𝑡 denote the internal state of the execution layer, including the current primitive phase and the previously applied gain. An execution map converts the policy action and task specification into the command applied to the robot: 
+
+(𝑢 𝑡 , 𝐾 𝑡 , ℎ 𝑡 +1) = G ( 𝑎 𝑡 , 𝑐, 𝑧 𝑡 , ℎ 𝑡 ) . (12) 5
+
+The execution map is required to produce an applied gain that satisfies (7). Note that G receives the complete task specification 
+
+𝑐 , whereas the actor receives only 𝐹 max ; this is the formal counterpart of the constraint grounding described in Section I. The formulation also keeps the raw policy action 𝑎 𝑡 , the applied command (𝑢 𝑡 , 𝐾 𝑡 ), and the resulting physical response as separate quantities. This is necessary because controller enforcement can change 𝐾 𝑡 even when 𝑎 𝐾 𝑡 is unchanged. This separation underlies the evaluation protocol in Section V. 
+
+C. Learning Objective 
+
+At the beginning of each episode, a task specification 
+
+𝑐 ∼ 𝑝 C and a hidden contact condition 𝜂 ∼ 𝑝 𝜂 are sampled independently and remain fixed throughout the episode. Their joint distribution satisfies 
+
+𝑝 (𝑐, 𝜂 ) = 𝑝 C (𝑐 ) 𝑝 𝜂 (𝜂 ). (13) Let 𝜉 ∼ 𝑝 𝜃 (· | 𝑐, 𝜂 ) denote the trajectory induced by the policy under specification 𝑐 and hidden condition 𝜂 . The learning objective is 
+
+𝜃 ∗ = arg max 
+
+> 𝜃
+
+E𝑐 ∼ 𝑝 C , 𝜂 ∼ 𝑝 𝜂 ,𝜉 ∼ 𝑝 𝜃 (· | 𝑐, 𝜂 )
+
+"𝑇 −1∑︁ 
+
+> 𝑡 =0
+
+𝛾 𝑡 𝑟 (𝑥 𝑡 , 𝑎 𝑡 , 𝑐 )
+
+#
+
+, (14) where 𝛾 ∈ ( 0, 1] is the discount factor, subject to 
+
+𝐾 𝑡 ∈ K , ∀𝑡 ∈ { 0, . . . , 𝑇 − 1}. (15) The reward captures insertion progress, task completion, execution efficiency, and exceedance of the allowable axial force limit; its complete definition is given in Section IV. The gain constraint (15) is enforced by the execution map rather than through the reward. The solution sought is therefore a single actor, coupled to a fixed execution map, that is optimized across force limits and hidden contact conditions. The actor should respond continuously to the prescribed 𝐹 max and, through interaction feedback, to the hidden contact condition 𝜂 .IV. Method 
+
+A. Method Overview 
+
+Constraint-Grounded Reinforcement Learning (CG-RL) im-plements the formulation in Section III using four components: a learned actor, a geometric insertion primitive, a gain execution layer, and a variable-gain operational-space controller. At each policy step, the actor observes the robot and contact state 𝑧 𝑡 
+
+together with the normalized force limit e𝐹 max . The actor outputs a bounded pose residual, an advance-rate action, and a gain request. The admissible gain set K is not included in the actor observation. Instead, the execution layer receives K directly and projects the requested gain into this set before application. The force limit 𝐹 max also appears in the force-dependent reward terms. Interface friction is not observed directly and affects the actor only through interaction feedback. Section IV-B describes the policy observation, and Section IV-C defines the nominal primitive and policy actions. Sections IV-D and IV-E present gain execution and reward design, respectively. Sec-tion IV-F describes training and deployment. 
+
+B. Policy Observation 
+
+The actor receives a 35-dimensional observation. The ob-servation contains 28 kinematic and geometric quantities: the hand position relative to the fixture (3), a canonical hand quaternion (4), hand linear and angular velocity (6), a primitive state summary (8), the peg position relative to the hole (3), and a canonical peg quaternion (4). Seven additional quantities describe interaction and control: the axial contact reaction (1), a contact moment proxy (3), the binary contact state (1), the applied gain normalized by the system gain range Ksys (1), and the normalized force limit (1). The force limit is provided to the actor through the normalized scalar 
+
+e𝐹 max = 𝐹 max 
+
+¯𝐹 , ¯𝐹 = 9.0 N . (16) Two quantities are deliberately excluded from the observation. The gain set endpoints 𝐾 min and 𝐾 max are supplied directly to the execution layer. The interface friction coefficient is varied independently of the task specification during training, and its effects reach the actor only through the observed motion and contact response. The actor can therefore respond to the realized interaction without observing or identifying the underlying friction value. 
+
+C. Nominal Primitive and Policy Actions 
+
+The policy action is the eight-dimensional vector defined in (11). Its first six coordinates, 𝑎 res  
+
+> 𝑡
+
+, specify translational and rotational pose residuals, 𝑎 𝐾 𝑡 is the raw normalized gain action, and 𝑎 𝑣 𝑡 is the raw normalized advance-rate action. A CAD-defined geometric primitive supplies the nominal insertion sequence, which consists of five phases: alignment, precontact insertion, contact ramp and hold, recentering, and final insertion. The primitive is registered using the current fixture transform obtained directly from the simulator state. The method therefore assumes access to the ground-truth fixture pose and does not model fixture perception or pose estimation. During training, fixture pose perturbations are introduced progressively through a success-gated curriculum. Let Tprim  
+
+> 𝑡
+
+denote the registered primitive pose and let 
+
+ΔTres  
+
+> 𝑡
+
+(𝑎 res  
+
+> 𝑡
+
+) denote the bounded pose correction generated from the policy action. The desired pose is 
+
+T𝑑 𝑡 = Tprim  
+
+> 𝑡
+
+◦ ΔTres 
+
+> 𝑡
+
+ 𝑎 res 
+
+> 𝑡
+
+ , (17) where ◦ denotes pose composition. Each translational residual coordinate is bounded by ±2 mm and each rotational (axis-angle) coordinate by ±3◦. The execution layer scales these residuals by 0.25, which gives effective per-coordinate bounds of ±0.5 mm and ±0.75 ◦, respectively. The residual is an absolute bounded offset around the primitive rather than an incremental command that accumulates over time. During the contact ramp and hold phase, the learned pose residual is set to zero. This creates a standardized contact interval in which the effects of the gain and advance rate are not confounded by simultaneous policy-driven pose corrections. The advance-rate action is mapped to a positive, dimension-less rate multiplier: 
+
+𝑠 𝑣 𝑡 = 𝑠 min + clip (𝑎 𝑣 𝑡 , −1, 1) + 12 (𝑠 max − 𝑠 min ) , (18) 6
+
+where 0 < 𝑠 min < 𝑠 max . We use 𝑠 min = 0.5 and 𝑠 max = 1.5; the remaining fixed constants are summarized in Table III. During the precontact and final insertion phases, 𝑠 𝑣 𝑡 scales the nominal axial increment of 0 .25 mm per policy step. The contact ramp follows a fixed probing motion so that contact responses are measured under a common excitation. Note that the rate action controls how fast the desired insertion depth advances; it does not directly command force or end-effector velocity. The resulting motion and axial reaction depend jointly on this advance, the applied controller gain, the current pose error, and the contact dynamics. 
+
+D. Gain Selection and Controller Execution 
+
+The gain execution path maps the raw gain action to the applied gain in three stages: the requested gain, the projected gain, and the applied gain. Each stage is recorded as a separate signal. Let 
+
+Ksys = [𝐾 min sys , 𝐾 max sys ]
+
+denote the system gain range of the controller defined in (3). The raw gain action is first mapped into this fixed range and then projected into the gain set specified for the current task: 
+
+𝐾 req  
+
+> 𝑡
+
+= 𝐾 min sys + clip (𝑎 𝐾 𝑡 , −1, 1) + 12
+
+
+
+𝐾 max sys − 𝐾 min sys 
+
+
+
+, (19) 
+
+𝐾 proj  
+
+> 𝑡
+
+= Π K
+
+ 𝐾 req 
+
+> 𝑡
+
+ = clip  𝐾 req  
+
+> 𝑡
+
+, 𝐾 min , 𝐾 max 
+
+ . (20) Because (19) is independent of K, a given raw action corre-sponds to the same requested gain in every task. Consequently, changes in 𝑎 𝐾 𝑡 can be interpreted independently of the changes introduced by projection. The projected gain is then passed through a first-order rate limiter. Let ¤𝐾 cmd max denote the maximum gain-change rate and let 
+
+Δ𝑡 be the policy interval. The applied gain is 
+
+𝐾 𝑡 = Π K
+
+h
+
+𝐾 𝑡 −1 + clip  𝐾 proj  
+
+> 𝑡
+
+− 𝐾 𝑡 −1,
+
+− ¤ 𝐾 cmd max Δ𝑡, ¤𝐾 cmd max Δ𝑡 i
+
+.
+
+(21) The final projection ensures that 𝐾 𝑡 ∈ K at every execution step, including immediately after a new task specification is assigned. The applied scalar gain is replicated across the six operational-space axes, yielding K𝑡 = 𝐾 𝑡 I6. Let x𝑑 𝑡 and ¤x𝑑 𝑡 denote the desired task pose and velocity, and let x𝑡 and ¤x𝑡 denote their measured counterparts. The controller first forms the task-space acceleration command 
+
+¥xcmd  
+
+> 𝑡
+
+= K𝑡 
+
+
+
+x𝑑 𝑡 − x𝑡 
+
+
+
++ D𝑡 
+
+
+
+¤x𝑑 𝑡 − ¤ x𝑡 
+
+
+
+, (22) where D𝑡 = 2𝜁 K1/2 
+
+> 𝑡
+
+with 𝜁 = 1. The desired velocity is zero within each low-level control interval, and motion is generated by updating the desired pose through the insertion primitive. The damping gain is recomputed from the applied proportional gain with a fixed damping ratio, so changing 𝐾 𝑡 does not introduce an independently selected damping action. With inertial decoupling, the commanded task-space wrench and joint torque are 
+
+fcmd  
+
+> 𝑡
+
+= 𝚲 𝑡 ¥xcmd  
+
+> 𝑡
+
+, 𝝉 𝑡 = J⊤ 
+
+> 𝑡
+
+fcmd  
+
+> 𝑡
+
++ 𝝉 𝑔 𝑡 , (23) where 𝚲 𝑡 is the operational-space inertia, J𝑡 is the task Jacobian, and 𝝉 𝑔 𝑡 is the gravity-compensation term. Equations (22) and (23) are evaluated at the 120 Hz physics rate, whereas the actor produces a new action every second physics step, that is, at 60 Hz; the applied gain and the desired pose are held constant between policy steps. Controller and joint-torque rate limits are subsequently applied as described in Section V-A. Equations (22) and (23) preserve the spring-damper interpre-tation of variable impedance while matching the implemented controller. In particular, 𝐾 𝑡 is an acceleration-domain propor-tional gain: it modulates the closed-loop stiffness of the robot but should not be interpreted as a calibrated Cartesian spring constant in N /m. 
+
+E. Constraint-Grounded Reward 
+
+All force-dependent terms use a common peg–hole contact signal. At each physics substep, the pair-filtered normal and friction resultants are summed and projected onto the insertion axis ˆ d to implement (2). Filtering by the peg–hole pair excludes forces generated by the robot grasp. The resulting quantity is a simulation estimate of the axial fixture reaction rather than a wrist-wrench measurement. The reward combines task progress, force regulation, advance-rate adaptation, action regularization, and terminal outcome: 
+
+𝑟 𝑡 = 𝑟 task  
+
+> 𝑡
+
+− 𝑤 𝐹 ℓ𝐹 𝑡 − 𝑤 rb ℓrb 
+
+> 𝑡
+
+− 𝑤 proj ℓproj  
+
+> 𝑡
+
+− 𝑤 res ℓres  
+
+> 𝑡
+
++ 𝑟 term  
+
+> 𝑡
+
+, (24) where the nonnegative weights are fixed across the complete training distribution. The task term is based on a bounded geometric potential Φ𝑡 ∈[0, 1] that combines lateral alignment, angular alignment, and insertion depth. Its temporal change rewards geometric progress, and a stage cost discourages unnecessary delay and hovering away from the goal: 
+
+𝑟 task  
+
+> 𝑡
+
+= 𝑤 ΔΦ (Φ𝑡 − Φ𝑡 −1) − 𝑤 stage (1 − Φ𝑡 ) , (25) where 𝑤 ΔΦ and 𝑤 stage are fixed across all task specifications. The geometric potential does not depend on 𝐹 max or K.Let 𝐹 ax  
+
+> 𝑡 , 𝑗
+
+denote the axial reaction at physics substep 𝑗 ∈{1, . . . , 𝐷 } within policy interval 𝑡 .A normalized squared hinge provides a smooth penalty as the contact reaction approaches the force limit: 
+
+ℓ𝐹 𝑡 = 1
+
+𝐷 
+
+> 𝐷
+
+∑︁ 
+
+> 𝑗 =1
+
+" 𝐹 ax  
+
+> 𝑡 , 𝑗
+
+− ( 1 − 𝜌 𝐹 )𝐹 max 
+
+𝐹 max 
+
+#2
+
+> +
+
+, (26) where 𝜌 𝐹 ∈ ( 0, 1) defines the margin below the limit at which the penalty becomes active. Normalization by 𝐹 max expresses the penalty relative to the force limit of the current task. 7
+
+To regulate the insertion tempo, we compute the root-mean-square (RMS) force utilization over the same policy interval and define a force-limit-conditioned rate target: 
+
+𝐹 𝑡 =
+
+vut 1
+
+𝐷 
+
+> 𝐷
+
+∑︁ 
+
+> 𝑗 =1
+
+
+
+𝐹 ax 
+
+> 𝑡 , 𝑗
+
+2
+
+, 𝜒 𝑡 = clip 𝐹 𝑡 
+
+𝐹 max 
+
+, 0, 1
+
+!
+
+,𝑏 (𝐹 max ) = 2 𝐹 max − 𝐹 min 
+
+> F
+
+𝐹 max  
+
+> F
+
+− 𝐹 min 
+
+> F
+
+− 1,𝑎 𝑣, ∗ 
+
+> 𝑡
+
+= clip (1 − 𝜆 𝑢 𝜒 𝑡 + 𝜆 𝑏 𝑏 (𝐹 max ), −1, 1) , (27) where 𝐹 min  
+
+> F
+
+and 𝐹 max  
+
+> F
+
+delimit the training range of the force limit. The utilization term lowers the target rate as the axial reaction approaches 𝐹 max , whereas the force-limit coordinate 𝑏 (𝐹 max )
+
+partially offsets that reduction when a larger load is allowed. The target only specifies the intended direction of rate adaptation; whether the trained actor actually exhibits this response in closed loop is examined in Section V-D. The rate-tracking term is active only in policy intervals in which the axial reaction exceeds 𝜖 𝐹 and is combined with a physics-substep penalty near the force limit: 
+
+ℓrb  
+
+> 𝑡
+
+= I
+
+
+
+max  
+
+> 𝑗
+
+𝐹 ax  
+
+> 𝑡 , 𝑗
+
+> 𝜖 𝐹 
+
+ 12
+
+ 𝑎 𝑣 𝑡 − 𝑎 𝑣, ∗
+
+> 𝑡
+
+2
+
+2
+
++ 𝜆 bar 
+
+1
+
+𝐷 
+
+> 𝐷
+
+∑︁ 
+
+> 𝑗 =1
+
+" 𝐹 ax  
+
+> 𝑡 , 𝑗
+
+/𝐹 max − 𝛼 𝐹 
+
+1 − 𝛼 𝐹 
+
+#2
+
+> +
+
+,
+
+(28) where I[·] is the indicator function, 𝜖 𝐹 is the contact threshold, and 𝛼 𝐹 ∈ (0, 1) is the utilization at which the near-limit penalty begins. Although the second term is barrier-shaped, it is a soft penalty rather than a control barrier function and does not by itself guarantee 𝐹 ax  
+
+> 𝑡 , 𝑗
+
+≤ 𝐹 max . The two force terms play complementary roles: the margin term ℓ𝐹 𝑡 provides broad shaping before the prescribed limit is reached, whereas the second term in ℓrb  
+
+> 𝑡
+
+penalizes short, high-utilization transients close to the limit. The force margin, rate target, barrier, and reward coefficients used in (24)–(29) are listed in Table III. The projection penalty is 
+
+ℓproj  
+
+> 𝑡
+
+= 𝐾 req  
+
+> 𝑡
+
+− 𝐾 proj 
+
+> 𝑡
+
+𝐾 max sys − 𝐾 min sys 
+
+!2
+
+. (29) This penalty does not reveal the gain-set endpoints to the actor; it only discourages raw requests that are repeatedly clipped under the sampled training tasks. Because the actor observes the applied gain and the contact response, it can adjust its subsequent requests through interaction feedback. No midpoint reference, phase-dependent gain schedule, or force-derived gain target is provided. The gain request is instead learned from the task reward, force response, and the consequences of projec-tion. Finally, successful insertion receives a positive terminal impulse, whereas timeout, numerical failure, or termination by a fixed physical guard receives a negative terminal impulse. The physical guard is independent of the task-specific force limit and only prevents unreasonable simulation states; it is not counted as enforcement of 𝐹 max .The residual action penalty regularizes the learned pose residual, 
+
+ℓres  
+
+> 𝑡
+
+= 𝑎 res  
+
+> 𝑡
+> 22
+
+, (30) which discourages large corrections to the nominal primitive without constraining their direction. 
+
+F. Training and Deployment 
+
+At the beginning of each training episode, the force limit, the admissible gain set, and the friction condition are sampled independently and held fixed for the episode. A single actor is trained with proximal policy optimization (PPO) across the re-sulting distribution of task specifications and contact conditions. Section V-A describes the task sampling distributions. Table III summarizes the fixed controller, reward, and PPO constants. Table II reports the network architecture and training budget. At deployment, 𝐹 max and K are supplied as task requirements, and no other controller parameters are changed. The actor runs without online gradient updates, friction estimation, or material-specific policy selection; its response to unobserved friction arises solely through interaction feedback. For analysis, the implementation records the raw gain and advance-rate actions, the requested gain 𝐾 req  
+
+> 𝑡
+
+, the projected gain 
+
+𝐾 proj  
+
+> 𝑡
+
+, the applied gain 𝐾 𝑡 , and the resulting force, motion, and task outcome. These signals support three types of tests. Varying 
+
+𝐹 max while holding K fixed tests the response to the permitted contact load. Varying K at fixed 𝐹 max tests the response to the available controller authority. Varying friction at a fixed task specification tests the closed-loop response to the hidden contact condition. V. Experimental Evaluation The evaluation comprises four studies, summarized in Table I. Study I compares CG-RL with controlled ablations and a fixed-gain baseline. Study II evaluates the robustness of CG-RL to unobserved contact variation and sensing perturbations. Study III examines whether the actor responds continuously to the prescribed force limit. Study IV evaluates generalization beyond the force-limit range used during training. Across these studies, policy behavior, gain enforcement, and contact response are analyzed separately. 
+
+A. Experimental Setup 1) Task and Simulator: The experiment is motivated by oblique fastening and constrained assembly, where geometric misalignment and inclined contact can generate substantial lateral and axial reactions. As shown in Fig. 2(a), the task is implemented in Isaac Lab using a Franka Research 3 robot and Isaac Sim contact dynamics. The robot inserts a peg into a bore tilted by approximately 17 ◦. A short compliant sleeve inside the bore produces a repeatable contact load; it serves as a simulation contact proxy rather than as a constitutive model of a particular material. A trial is geometrically successful when the peg reaches an insertion depth of 30 mm and remains within the terminal pose tolerance for five consecutive policy steps. Each episode represents one insertion attempt and terminates upon success, failure, or timeout. Table II summarizes the task geometry, simulation rates, episode horizon, and training perturbations. 8
+
+TABLE I 
+
+Evaluation protocol and episode accounting for the four studies.                                        
+
+> Study Evaluation conditions Methods Primary evidence Episodes Study I 3 force limits ×3 gain sets ×4 friction values ( 𝜇 𝑠 ∈ { 0.60 ,0.85 ,0.95 ,1.10 })All methods in Table IV Constraint-compliant success and task efficiency 28,800 Study II 7 contact and observation shifts ×3 force limits ×3 gain sets All methods in Table IV Robustness and operating boundaries 50,400 Study III 11 force limits from 6 .5 to 9 .0 N, with friction and gain set fixed CG-RL, No 𝐹 max input, and 𝐾 -conditioned Raw advance-action slope 5,280 Study IV 6 force limits sampled from [5.5,6.25 ] ∪ [ 9.25 ,10 .0]NCG-RL Extrapolation and failure boundary 960
+
+(a) Oblique insertion task       
+
+> axial advance
+> 17 ∘compliant sleeve
+> 1400 1550 1700
+> Fixed scalar OSC gain (controller units)
+> 6.5 7.0 7.5 8.0 8.5 9.0
+> Episode peak axial reaction (N)
+> 6.77 7.74 8.07
+> Fmax training range
+> empirical q0.95 of episode peaks
+
+(b) Fixed-gain calibration            
+
+> Force limit Fmax (N)
+> 6.50 9.00
+> continuous training range
+> 7.25 7.50 confirmatory points
+> Admissible gain set 
+> 1400–1500 1500–1600 1600–1700
+> 3 force limits × 3 gain sets = 9 specifications
+> Fmax and specified independently
+
+(c) Independent task specifications 
+
+Fig. 2. Task, calibration, and specifications. (a) The 17 ◦ oblique insertion geometry and an illustrative simulation view; the material samples are shown for context. (b) Empirical 95th percentile of episode peak axial reaction from 21 successful calibration trials at each fixed gain; the dashed bounds mark the force-limit training range. (c) Confirmatory force limits and three admissible gain sets, varied independently. The task schematic is not drawn to scale. TABLE II Key simulation, training, and evaluation settings. Setting Value Robot Franka Research 3 Simulation / policy rate 120 / 60 Hz ( 𝐷 = 2 physics substeps per policy step) Simulator Isaac Sim 5.0.0, Isaac Lab 2.2.1 PhysX solver TGS; 8 position iterations and 1 velocity iteration for the robot, 192 position iterations and 1 velocity iteration for the peg and bore Episode horizon 25 s Target insertion depth 30 mm Force limit sampling U [ 6.5, 7.0] ( 𝑝 = 0.4), U [ 7.0, 8.0] ( 𝑝 =
+
+0.3), U [ 8.0, 9.0] ( 𝑝 = 0.3) N Gain sets [1400 , 1500 ], [1500 , 1600 ], [1600 , 1700 ]
+
+Static friction sampling U [ 0.60 , 0.85 ] ( 𝑝 = 0.4), U [ 0.85 , 1.10 ]
+
+( 𝑝 = 0.6) Parallel environments 512 Training algorithm Proximal policy optimization (PPO) Training iterations 600 Actor and critic network Multilayer perceptron (MLP), [512 , 128 , 64 ]
+
+Hidden activation Exponential linear unit (ELU) Independent training seeds 5
+
+2) Operating Range Calibration: The force limits and gain ranges used in training and evaluation were determined by a fixed-controller calibration performed before any learned method was compared. The operating range was therefore defined from measured contact responses rather than from policy results. Calibration used the three fixed scalar gains shown in Fig. 2(b) and crossed the prescribed pose and friction conditions, giving 21 trials at each gain. All perturbations remained within the training range. The requested and applied gains were held constant from the first control step, while the nominal motion primitive and all other controller settings remained unchanged. For each trial, we recorded the maximum axial reaction over the complete episode and summarized the trial-level maxima by their empirical 0.95 quantile. All calibration trials completed successfully. As shown in Fig. 2(b), this upper-tail statistic increased by 1.30 N from the lowest to the highest gain, whereas the median changed little. These measurements are used only to select the operating range for the subsequent experiments and are not interpreted as precise probabilistic force boundaries. The gain interval [1400 , 1700 ] was selected as a stable operating window for the present task. All three calibration gains completed the prescribed conditions while producing a measurable change in controller authority and contact loading. The interval is not unique, and its endpoints are not mechanical limits of the robot. The same measurements were used to set the force-limit training range to 𝐹 max ∈ [6.5, 9.0] N. This interval spans restrictive and permissive conditions relative to the calibrated upper-tail reactions. During training, the force limit and friction are sampled independently from the nonuniform mixtures in Table II. The three confirmatory limits shown in Fig. 2(c) probe restrictive, transitional, and permissive behavior. A separate development pilot verified this coverage; its episodes are not included in the confirmatory results. For the factorial study, the controller interval is divided into the three adjacent equal-width gain sets shown in Fig. 2(c). This partition provides ordered, balanced controller conditions while preserving continuous coverage of the calibrated interval. The force limit and gain set are specified independently. 
+
+3) Training and Compared Methods: All learned methods use the same task, action space, controller, PPO implementation, training distribution, network architecture, and optimization 9                                                                                                            
+
+> TABLE III
+> Fixed controller, reward, and PPO constants. Reward coefficients are reported as nonnegative magnitudes; their signs follow (24)–(29). All learned methods use the same values unless stated otherwise. Parameter Value Parameter Value Advance rate bounds (𝑠 min , 𝑠 max )(0.5,1.5)System gain range Ksys [1400 ,1700 ]
+> Maximum gain rate ¤𝐾 cmd max 2800 controller units/s Fixed physical guard 75 N Force margin 𝜌 𝐹 0.10 Contact threshold 𝜖 𝐹 0.5 N Rate target coefficient 𝜆 𝑢 2.0Force limit coefficient 𝜆 𝑏 0.75 Barrier onset 𝛼 𝐹 0.80 Barrier scale 𝜆 bar 0.20 Force limit range (𝐹 min
+> F, 𝐹 max
+> F)(6.5,9.0)NProgress and stage weights (𝑤 ΔΦ , 𝑤 stage )(5,1)
+> Force and rate weights (𝑤 𝐹 , 𝑤 rb )(100 ,5)Projection and residual weights (𝑤 proj , 𝑤 res )(25 ,1)
+> Terminal impulses (success, failure) (+ 5,−1)Discount factor 𝛾 0.999 Generalized advantage estimation (GAE) parameter 𝜆 GAE 0.95 Learning rate 3×10 −4, fixed PPO clip parameter 0.20 Entropy coefficient 0Critic coefficient 2.0Gradient norm limit 1.0Rollout length 128 steps Minibatch size 512 PPO epochs per iteration 4Action clipping [− 1,1]
+> TABLE IV Methods included in the main comparison. Role Method Task input to actor Obs. dim. Gain execution Proposed CG-RL 𝐹 max 35 Set projection Controlled ablation No 𝐹 max input None 34 Set projection Learned comparator Margin barrier 𝐹 max , 𝐾 min , 𝐾 max 37 Set projection Descriptive comparator 𝐾 -conditioned 𝐾 min , 𝐾 max 36 Set projection Fixed baseline Fixed midpoint controller None –Fixed midpoint controller
+
+budget. Each method is trained from random initialization under five independent seeds using the settings in Tables II and III. No intermediate checkpoint selection is performed; all evaluations use the final checkpoint after 600 iterations. CG-RL supplies 𝐹 max to the actor, while the gain set is pro-vided separately to the execution layer. The controlled ablation removes 𝐹 max from the actor observation while preserving the policy architecture, reward, controller, training distribution, and gain set projection. Margin barrier replaces the proposed force regulation ob-jective with a physics step margin penalty. It also observes the complete task descriptor and is therefore treated as an alternative learned comparator rather than a controlled ablation. The fixed midpoint controller is a deterministic baseline that applies the midpoint of the supplied gain set throughout the episode. 
+
+4) Evaluation Protocol: All evaluations use frozen check-points and fresh episode banks that were not used for train-ing, checkpoint selection, or method selection. Within each condition, all methods receive the same reset geometry, task specification, and contact parameters at each episode index. The initial conditions therefore remain paired across methods, even though the resulting trajectories differ. For each learned method, every seed and condition cell contains 32 episodes. Each condition cell for a fixed-baseline evaluation block also contains 32 episodes. The primary metric is constraint-compliant success (CCS). A trial counts as a constraint-compliant success only if the insertion is geometrically completed, the axial reaction satisfies 
+
+𝐹 ax  
+
+> 𝑡
+
+≤ 𝐹 max at every physics step, and the applied gain remains inside the supplied set throughout the episode. For the projected methods, gain-set membership is enforced by the execution layer, so CCS evaluates the complete actor–controller system rather than treating gain membership as a learned property. Two further definitions are used throughout. The prespecified stress subset contains the conditions with 𝐹 max ≤ 7.50 N and 
+
+𝜇 𝑠 ≥ 0.85. Failure-aware completion time assigns the full 25 s horizon to every episode that is not a constraint-compliant success. This prevents methods with many early failures from appearing artificially fast. An episode that completes the insertion but violates the force limit is also censored at the horizon. The metric is therefore horizon-censored rather than a conventional completion time and remains comparable because every method uses the same horizon. For learned methods, the five training seeds are the statis-tical units; individual episodes are not treated as independent samples. We report the mean, sample standard deviation, and two-sided 95% Student’s 𝑡 confidence interval. Paired 𝑡 tests are primary, with exact two-sided sign-flip tests used as small-sample checks; Holm correction is applied to the paired-𝑡 𝑝 
+
+values within each family. Learned methods are paired by seed. For the fixed baseline, each CG-RL seed is paired with a matched evaluation-bank block; these five blocks are not independent training replications. The locked Study I family contains four stress-subset CCS contrasts: CG-RL versus No 𝐹 max input, Margin barrier, 
+
+𝐾 -conditioned, and the fixed midpoint controller. The 𝐾 -conditioned comparator remains in this family but is interpreted descriptively because it changes both descriptor visibility and observation dimension. The initial Study III sweep used 𝐾 -conditioned; the No 𝐹 max sweep reported here was added with frozen checkpoints and matched banks as a controlled conditioning analysis. 
+
+B. Task Performance and Ablations 
+
+Study I compares the five methods in Table IV under the training distribution and then isolates the contribution of online gain selection through two paired interventions. 
+
+1) Task Performance Comparison: Table V and Fig. 3 report the Study I results. For each learned method, the metrics are computed separately for the five training seeds and then summarized across seeds. The fixed midpoint controller is summarized over five paired evaluation-bank blocks. 10 
+
+TABLE V 
+
+Task performance under the training distribution. 
+
+Role Method Overall CCS [%] Stress-subset CCS [%] Geometric success [%] Peak axial reaction [N] Completion time [s] Proposed CG-RL 85.78 ± 7.73 72.33 ± 15.28 96.53 ± 1.51 6.691 ± 0.162 12.08 ± 1.11 Controlled ablation No 𝐹 max input 82.43 ± 6.71 66.63 ± 14.03 95.09 ± 2.23 6.756 ± 0.089 12.79 ± 0.96 Learned comparator Margin barrier 73.58 ± 11.73 51.25 ± 21.03 93.82 ± 3.00 6.946 ± 0.208 14.16 ± 1.81 Descriptive comparator 𝐾 -conditioned 89.34 ± 2.45 80.52 ± 4.02 95.28 ± 3.59 6.559 ± 0.179 11.71 ± 0.51 Fixed baseline Fixed midpoint controller 50.10 ± 0.96 19.34 ± 1.49 69.72 ± 0.32 7.144 ± 0.008 18.18 ± 0.11 CG-RL Proposed No Fmax 
+
+> Ablation Margin barrier Comparator Fixed Baseline
+> 020 40 60 80 100
+> Constraint-compliant success (%)
+
+(a) Constraint-compliant success  
+
+> Overall Stress subset
+> CG-RL Proposed No Fmax
+> Ablation Margin barrier Comparator Fixed Baseline
+> 60 70 80 90 100
+> Geometric success (%)
+
+(b) Geometric completion  
+
+> CG-RL Proposed No Fmax
+> Ablation Margin barrier Comparator Fixed Baseline
+> 12 14 16 18
+> Failure-aware time (s)
+
+(c) Failure-aware completion time  
+
+> CG-RL Proposed No Fmax
+> Ablation Margin barrier Comparator Fixed Baseline
+> 6.5 6.6 6.7 6.8 6.9 7.0 7.1 7.2
+> Peak axial reaction (N)
+
+(d) Contact loading 
+
+Fig. 3. Task performance under the training distribution. CG-RL is the proposed method. The light blue entry is the controlled force limit ablation, the purple entry is the learned objective comparator, and the gray entry is the fixed midpoint controller. Error bars show 95% confidence intervals across five independent training seeds for the learned methods and five paired evaluation-bank blocks for the fixed baseline. 
+
+Relative to the fixed midpoint controller, CG-RL raises stress-subset CCS from 19.3% to 72.3%, a 53-percentage-point improvement (Holm-adjusted paired 𝑡 test, 𝑝 = 0.0075). The exact sign-flip test gives its minimum possible two-sided value with five pairs but does not reach 0.05. CG-RL also achieves higher geometric completion and shorter failure-aware completion time. Removing 𝐹 max produces modest mean declines in overall and stress-subset CCS. Margin barrier declines further, whereas 𝐾 -conditioned has the highest aggregate CCS. None of the learned comparators differs significantly from CG-RL after correction. Aggregate metrics alone therefore cannot establish whether the actor responds to the prescribed force limit. Study I therefore yields two findings. CG-RL substantially outperforms the fixed midpoint controller, whereas differences among the learned methods remain inconclusive. Whether the actor actually changes its behavior with 𝐹 max is examined directly in Section V-D. Figure 4 shows one successful stress-subset episode and its axial-force response. 
+
+2) Online Gain Selection and Gain Set Enforcement: We next examine the gain channel through two paired interventions. In the standard mode, the actor updates its gain request throughout the episode while also commanding the residual pose and advance rate. In both interventions, these motion commands continue to be computed from the current observation, and only the gain request is replaced. The first intervention fixes the gain at the midpoint of the supplied set for the complete episode, 
+
+𝐾 𝑡 = 𝐾 mid , 𝑡 = 0, . . . , 𝑇 − 1.
+
+This intervention removes online gain adjustment as well as any variation of the gain within a set. The standard and intervened executions use the same policy checkpoints and paired episode banks. The second intervention provides a more tightly controlled comparison. It replaces the actor request with the constant value 1550 but retains the same set projection and 11 0.0 s                  
+
+> (a) Approach
+> 2.6 s
+> (b) Initial contact
+> 6.2 s
+> (c) Insertion
+> 8.9 s
+> (d) Completion
+> 02468
+> Time (s)
+> 02468
+> F ax
+> t (N)
+> Fmax = 7.5 N
+> peak 6.22 N
+> (e) Axial reaction
+> Fig. 4. Representative CG-RL rollout. A successful stress-subset episode at 𝐹 max =7.5 N, K=[1500 ,1600 ], and 𝜇 𝑠 =0.85.
+
+gain rate limit used by CG-RL: 
+
+𝐾 req  
+
+> 𝑡
+
+= 1550 , 𝐾 proj  
+
+> 𝑡
+
+= Π K (1550 ).
+
+Consequently, the request is projected to the nearest boundary for the low and high sets but remains unchanged for the middle set. This intervention removes feedback-based gain selection while preserving the response of the execution layer to the supplied gain set. Fig. 5 reports both interventions together with the gain execution path under standard CG-RL. Each intervention uses a separate paired episode bank, with standard and intervened executions matched episode by episode. The reference values for standard CG-RL therefore differ slightly across banks and from Table V. These differences are small relative to the seed-to-seed variation and do not affect the paired interpretation. Fixing the gain at the midpoint reduces stress-subset CCS by 14.31 percentage points (95% confidence interval [2.52 , 26 .09 ]
+
+percentage points). Failure-aware completion time and peak axial reaction also increase, as shown in Fig. 5. Because the policy weights, episode conditions, residual pose commands, and advance-rate commands remain unchanged, the decline can be attributed to replacing the online gain command with 𝐾 mid .The constant-request intervention produces smaller changes. Fixing the request at 1550 before projection slightly reduces stress-subset CCS and increases completion time, normalized overshoot, and violation duration. Here, maximum normalized overshoot is the episode peak of 𝑣 𝐹 𝑡 in (6), divided by 𝐹 max . None of the paired differences is statistically significant across the five training seeds. A constant request combined with set projection therefore recovers most, but not all, of the performance of online gain selection. Fig. 5(d) shows how the execution layer treats the actor requests. The mean request shifts only modestly with the supplied set and stays within a narrow band around 1550. For the low and high sets this request lies outside the set, so projection is active during most contact-phase steps and the applied gain sits at the nearer set boundary. For the middle set the request lies inside the set and projection rarely intervenes. At the set boundaries, the supplied set rather than the actor request determines the applied gain. The two interventions isolate the roles of online gain selection and set projection. The midpoint intervention shows that a constant gain at the center of each set does not reproduce the performance of online gain selection. The constant-request in-tervention shows that projecting a common request accounts for much of the response to the supplied gain set. The actor adjusts its gain request using contact feedback, while the execution layer keeps the applied gain within the supplied set. However, these experiments do not show that online gain selection outperforms every fixed request combined with projection. 
+
+C. Robustness and Operating Boundaries 
+
+Study II examines two forms of robustness. We first trace the response of CG-RL across a continuous range of friction coeffi-cients and then compare all methods under separate changes in friction, contact properties, fixture pose, and observations. 
+
+1) Response to Friction Variation: Because the friction coefficient is not part of the actor observation, this experiment measures how the frozen CG-RL policies respond through interaction feedback when the contact resistance changes. Results at each friction value are averaged over the full factorial set of confirmatory force limits and gain sets. Static friction is varied while the dynamic-to-static ratio and all other conditions remain fixed. As shown in Fig. 6, CCS remains above 72% throughout the training range, while geometric success is nearly saturated over most of this interval. Completion time generally increases as contact resistance becomes more severe, although CCS is not strictly monotonic within the training range. Performance remains high at the lower extrapolation point. At the upper point, 𝜇 𝑠 = 1.25, CCS falls to 14.9% and completion time approaches the episode horizon. This condition marks a high-resistance operating boundary characterized by slower and less reliable insertion under increased contact loading. 
+
+2) Contact and Observation Shifts: We next compare all methods under the seven prespecified shifts in Table VI. The friction columns reuse the extrapolation endpoints in Fig. 6; the remaining columns vary contact compliance, fixture pose, or sensor noise. The combined condition applies the most demanding shifts simultaneously. CG-RL retains more than 84% CCS under soft contact, increased fixture pose variation, and bounded sensor noise. Performance drops sharply under stiff contact and high friction, identifying these conditions as the dominant stressors. The learned comparators exhibit the same general pattern, with relatively small differences under several individual shifts. We therefore use these tests primarily to identify the operating range of the learned controllers rather than to rank them. 12 Online gain Set midpoint 
+
+> 40 60 80
+> Stress-subset CCS (%)
+
+(a) Stress-subset CCS  
+
+> Online gain Set midpoint
+> 12 14 16 18
+> Failure-aware time (s)
+
+(b) Completion (stress subset)  
+
+> Online gain Set midpoint
+> 6.4 6.6 6.8 7.0 7.2 7.4
+> Peak axial reaction (N)
+
+(c) Peak reaction (stress subset) 
+
+> Low 94.6% Middle 8.7% High 87.5%
+> Gain set / projected steps
+> 1400 1500 1600 1700
+> Gain (controller units)
+
+(d) Gain execution    
+
+> Requested Projected Applied
+> Online gain Request 1550 + projection
+> 40 60 80
+> Stress-subset CCS (%)
+
+(e) Stress-subset CCS  
+
+> Online gain Request 1550 + projection
+> 12 14 16 18
+> Failure-aware time (s)
+
+(f) Completion (stress subset)  
+
+> Online gain Request 1550 + projection
+> 0123
+> Max overshoot /  Fmax  (%)
+
+(g) Overshoot magnitude  
+
+> Online gain Request 1550 + projection
+> 0510
+> Violation duration (ms)
+
+(h) Overshoot duration 
+
+> Set midpoint intervention Fixed request with set projection
+
+Fig. 5. Online gain selection and gain set enforcement. Panels (a)–(c) evaluate the set midpoint intervention, panel (d) reports requested, projected, and applied gains, and panels (e)–(h) evaluate a fixed gain request of 1550 under set projection. Percentages in panel (d) indicate the fraction of contact steps modified by projection. Each gray line connects the paired results for one training seed; black diamonds and error bars show the mean and two-sided 95% confidence interval across five seeds. TABLE VI 
+
+Constraint-compliant success under contact and observation shifts, reported as mean ± sample standard deviation (%). 
+
+Role Method Low friction High friction Soft contact Stiff contact Fixture pose variation Sensor noise Combined 
+
+𝜇 𝑠 = 0.45 𝜇 𝑠 = 1.25 ×0.75 ×1.25 2× nominal reset range Bounded All shifts Proposed CG-RL 100.00 ± 0.00 14.86 ± 4.91 94.79 ± 6.07 32.50 ± 7.50 84.58 ± 7.71 94.44 ± 6.76 0.00 ± 0.00 Controlled ablation No 𝐹 max input 100.00 ± 0.00 15.83 ± 1.46 92.71 ± 8.02 29.31 ± 5.38 82.57 ± 4.49 91.53 ± 5.67 0.00 ± 0.00 Learned comparator Margin barrier 100.00 ± 0.00 14.79 ± 3.62 91.25 ± 7.57 26.04 ± 4.03 71.67 ± 12.54 78.82 ± 15.86 0.00 ± 0.00 Descriptive comparator 𝐾 -conditioned 100.00 ± 0.00 14.17 ± 6.22 93.68 ± 10.03 30.00 ± 14.93 85.00 ± 4.41 94.65 ± 3.43 0.00 ± 0.00 Fixed baseline Fixed midpoint controller 100.00 ± 0.00 0.00 ± 0.00 34.58 ± 3.26 0.69 ± 0.43 32.57 ± 2.06 34.58 ± 1.46 0.00 ± 0.00 
+
+The fixed midpoint controller is substantially less tolerant of the individual shifts: its CCS remains below 35% under soft contact, fixture pose variation, and sensor noise, and it nearly fails under stiff contact. The learned closed-loop controllers therefore retain useful performance over a broader range of individual changes than the fixed controller. When all shifts are applied simultaneously, however, every method records zero CCS. This common failure marks a boundary of the current task, controller, and training distribution rather than a limitation unique to CG-RL. Tables V and VI also report the 𝐾 -conditioned comparator, whose actor observes 𝐾 min and 𝐾 max but not 𝐹 max . Because it changes both descriptor visibility and observation dimension, it is reported descriptively rather than as a controlled ablation. It attains 89.3% overall CCS in Study I, but its raw advance request remains essentially invariant over the Study III force-limit sweep. This result further shows that aggregate task performance and an explicit policy response to the prescribed force limit are distinct properties. 
+
+D. Continuous Response to the Force Limit 
+
+Study III examines whether the actor changes its behavior in response to the prescribed force limit. Aggregate success alone cannot establish this property, because a fixed policy may achieve a higher measured CCS simply because the evaluation limit is relaxed. We therefore evaluate CG-RL, the No 𝐹 max 
+
+input ablation, and the 𝐾 -conditioned comparator at eleven force limits spanning the training range. All policies are frozen, with 
+
+𝜇 𝑠 = 0.85 and K = [1500 , 1600 ]. Fig. 7 reports the sweep; Table I provides the episode accounting. The raw advance action is recorded before controller pro-jection. Its dependence on 𝐹 max is summarized by an ordinary 13 0.45 0.60 0.85 1.10 1.25 
+
+Static friction μs
+
+020 40 60 80 100 
+
+> Success (%)
+
+(a) Task success 
+
+> CCS Geometric
+> 0.45 0.60 0.85 1.10 1.25
+
+Static friction μs
+
+10 15 20 25 
+
+> Failure-aware time (s)
+> training range
+
+(b) Failure-aware completion time 
+
+> 0.45 0.60 0.85 1.10 1.25
+
+Static friction μs
+
+5678
+
+> Peak axial reaction (N)
+
+(c) Contact loading 
+
+Fig. 6. Response of CG-RL to static friction. The shaded interval denotes the friction range used during training. The panels report constraint-compliant and geometric success, failure-aware completion time, and mean episode peak axial reaction. Each friction value summarizes three force limits, three gain sets, and 32 paired episodes in each factorial cell. Curves and bands show the mean and two-sided 95% confidence interval across five independent training seeds. −0.4 −0.2 0.0 0.2 0.4 0.6 0.8               
+
+> Raw advance action
+> training range
+> (a) Force-limit conditioning
+> CG-RL No Fmax input
+> 020 40 60 80 100
+> Constraint-compliant success (%)
+> (b) Constraint-compliant success
+> 678910
+> Force limit Fmax (N)
+> 10 15 20 25
+> Completion time (s)
+> (c) Failure-aware completion time
+> 678910
+> Force limit Fmax (N)
+> 3456789
+> Peak axial reaction (N)
+> (d) Contact loading
+
+Fig. 7. Continuous response to the force limit and extrapolation beyond the training range. The shaded interval denotes the force-limit range used during training. Panel (a) compares the contact-phase raw advance action of CG-RL with that of the No 𝐹 max input ablation. Panels (b)–(d) report the constraint-compliant success, failure-aware completion time, and peak axial reaction of CG-RL. Curves and bands show the mean and two-sided 95% confidence interval across five independent training seeds. TABLE VII 
+
+Raw advance action sensitivity to the force limit within the training range. 
+
+Method Mean slope [action/N] Seed range [action/N] CG-RL 0.282 [0.203 , 0.368 ]
+
+No 𝐹 max input 0.000143 [− 0.000422 , 0.000597 ]
+
+least-squares slope, fitted over the eleven force limits within the training range and computed separately for each training seed. Table VII lists the resulting slopes. As shown in Fig. 7(a), the raw advance action of CG-RL increases consistently with 𝐹 max ,whereas the No 𝐹 max input actor remains nearly invariant. The mean CG-RL slope is 0 .282 action/N, three orders of magnitude larger than that of the ablation. These slopes are least-squares fits over the full training-range sweep rather than differences between its endpoints. The paired slope difference is 0 .282 action/N (95% confi-dence interval [0.195 , 0.369 ]; paired-𝑡 𝑝 = 0.000833), with the same direction across all five seeds. The exact sign-flip test reaches its minimum two-sided value for five pairs but not 0.05. The effect size and consistent seed-level trend provide direct evidence that access to 𝐹 max changes the learned advance request. 14 
+
+The practical effect is also visible at the tightest training limit. CG-RL achieves 36.9% CCS, compared with 3.1% for the No 𝐹 max input ablation, while both methods still complete the insertion geometrically. The ablation can therefore complete the task, but it does not adjust its behavior sufficiently to satisfy the tighter force limit. As 𝐹 max increases, failure-aware completion time decreases while peak axial reaction rises. Much of the time reduction follows from the higher CCS; completion time among geomet-rically successful trials and the mean applied gain change only marginally. The clearest learned response is therefore the change in raw advance action and the resulting use of the permitted contact force, rather than large changes in mean applied gain or successful-trial completion time. The No 𝐹 max input policy remains competitive in aggregate task performance, but it does not change its raw advance action with the supplied force limit. Its measured CCS can still increase when 𝐹 max is relaxed, because the same contact trajectory is then evaluated against a less restrictive threshold. This comparison answers RQ2 by separating task success from an explicit policy response to the force limit. 
+
+E. Extrapolation Beyond the Training Range 
+
+Study IV examines the response of the frozen CG-RL policies outside the force-limit range used during training. The unshaded regions of Fig. 7 cover force limits below 6.5 N and above 9.0 N. The normalized force-limit observation is not clipped, no retraining or controller retuning is performed, and all other evaluation conditions remain identical to those in Study III. Above the training range, CG-RL maintains more than 98% CCS with complete geometric success. Its raw advance action continues to increase while failure-aware completion time decreases. The policy response therefore extends smoothly across the tested upper range without retraining or controller retuning. The lower side reveals a different boundary. CCS reaches zero at 5.5 N even though most episodes still complete geometrically. The raw advance action continues in the expected conservative direction. The actor therefore still responds to the prescribed limit, but the insertion cannot be completed reliably while satisfying the most restrictive force requirements. The observed extrapolation is thus asymmetric. CG-RL remains effective above the training range, whereas force limits below approximately 6.25 N expose a repeatable feasibility boundary for the present task and controller. These results provide simulation evidence of extrapolation above the training range over the tested force limits, but they do not establish compliance with arbitrary force limits outside the training distribution. VI. Discussion The experiments show that CG-RL changes its insertion behavior with the prescribed force limit, while the controller enforces the independently specified gain set. CG-RL also adapts to unobserved friction through interaction feedback. Four results clarify the origin of this behavior and identify the range over which it remains effective. First, the gain channel is factorized as intended. Set projection accounts for most of the response to the supplied gain set, whereas online gain selection becomes valuable when contact resistance is high. Fixing the gain at the set midpoint has little effect at low friction but causes a consistent decline under high contact resistance. The actor does not observe the gain-set endpoints. However, the applied gain is part of its observation and provides indirect information about the active set. This feedback explains why the mean gain request shifts with the supplied set. Second, aggregate task performance and an explicit response to the force limit are distinct properties. As the limit is relaxed across the Study III sweep, CG-RL uses more of the permitted load. The No 𝐹 max input ablation produces a nearly unchanged force trace, so its CCS improves only because the threshold is relaxed. The 𝐾 -conditioned comparator reaches the highest overall CCS by being uniformly conservative rather than by responding to the specification. Recording the policy request, controller command, and physical response separately makes these differences visible. Third, the operating boundaries found in Studies II and IV are strongly influenced by the mechanics of the present task and contact model. Below the training range, CG-RL continues to reduce its contact force, but the most restrictive limit cannot be satisfied reliably. At high friction, the policy slows down rather than pushing harder; this strategy remains effective within the training range but breaks down at the highest tested resistance. Fourth, the statistical comparison is clear for the fixed controller but inconclusive among the learned methods. CG-RL substantially improves stress-subset CCS over the fixed midpoint controller, whereas the smaller differences among learned methods are not statistically significant. Direct evidence of force-limit conditioning comes from the Study III sweep, where every seed shows the same trend. Beyond the simulated task, the specification interface of CG-RL matches how contact requirements arise in practice. In timber fastening, the allowable axial load of a joint follows from its design [8], [12], and the admissible gain set follows from controller commissioning. Both are known before execution, whereas friction is not. A task-level planner can therefore issue both requirements per component without retraining the insertion policy. The present study has two limitations. First, CG-RL assumes that a suitable force limit 𝐹 max is specified before execution. This setup allows us to isolate how the policy responds to the prescribed requirement, but the limit must still be calibrated for the target material. Second, the evaluation uses rigid peg and fixture geometry with a repeatable compliant sleeve. This setup provides controlled contact conditions for comparing methods, but it does not represent deformation of the peg or workpiece. VII. Conclusion This paper presented CG-RL, a variable impedance frame-work for robotic insertion with a prescribed axial force limit and an independently specified controller gain set. The actor observes the force limit and contact feedback and produces a residual motion, an advance rate, and a gain request; an 15 
+
+execution layer projects the gain request into the supplied set before execution. In a representative oblique insertion task, CG-RL achieves an overall constraint-compliant success rate of 85 .8 ± 7.7% across five training seeds, compared with 50 .1 ± 1.0% for the fixed midpoint controller. It adjusts its advance rate continuously with the prescribed force limit and generalizes to more permissive force limits above the training range. The force limit and gain set therefore serve different roles: the force limit conditions the policy, whereas the gain set constrains the controller. Future work will pursue two directions. First, we will evaluate CG-RL using real construction materials and calibrate suitable force limits 𝐹 max from their measured contact responses. These results can be organized into a material database for selecting task-specific force limits for different materials. Second, we will extend CG-RL to insertion tasks with deformable components, such as compliant pegs. The observation and constraint models will account for changes in contact geometry and force caused by deformation. References 
+
+[1] J. M. Davila Delgado, L. Oyedele, A. Ajayi, L. Akanbi, O. Akinade, M. Bilal, and H. Owolabi, “Robotics and automated systems in construc-tion: Understanding industry-specific challenges for adoption,” Journal of Building Engineering , vol. 26, p. 100868, 2019. [2] M. Deng, B. Fu, L. Li, and X. Wang, “Integrating LLMs and digital twins for adaptive multi-robot task allocation in construction,” IEEE Transactions on Automation Science and Engineering , 2026. [3] L. He, S. Kanagaratnam, L. A. Zanandreis, and M. Deng, “Llm-driven robotic indoor air quality monitoring: Advances in natural language interaction and decision-making,” in 2025 IEEE International Conference on Robotics & Automation (ICRA) Workshop , 2025. [4] Y. Chen and M. Deng, “From perception to symbolic task planning: Vision-language guided human-robot collaborative structured assembly,” 
+
+arXiv preprint arXiv:2601.00978 , 2026. [5] M. Suomalainen, Y. Karayiannidis, and V. Kyrki, “A survey of robot manipulation in contact,” Robotics and Autonomous Systems , vol. 156, p. 104224, 2022. [6] N. Hogan, “Impedance control: An approach to manipulation: Part i—theory, part ii—implementation, part iii—applications,” Journal of Dynamic Systems, Measurement, and Control , vol. 107, no. 1, pp. 1–24, 1985. [7] D. E. Whitney, “Quasi-static assembly of compliantly supported rigid parts,” Journal of Dynamic Systems, Measurement, and Control , vol. 104, no. 1, pp. 65–77, 1982. [8] I. Bejtka and H. J. Blaß, “Joints with inclined screws,” in CIB W18 Meeting , Kyoto, Japan, 2002. [9] A. A. Apolinarska, M. Pacher, H. Li, N. Cote, R. Pastrana, F. Gramazio, and M. Kohler, “Robotic assembly of timber joints using reinforcement learning,” Automation in Construction , vol. 125, p. 103569, 2021. [10] T. Bock, “The future of construction automation: Technological disruption and the upcoming ubiquity of robotics,” Automation in Construction ,vol. 59, pp. 113–121, 2015. [11] Y. Yang et al. , “Learning diffusion policies for robotic manipula-tion of timber joinery under fabrication uncertainty,” arXiv preprint arXiv:2511.17774 , 2025. [12] Z. Wang et al. , “Cyclic behavior of glulam connections with inclined self-tapping screws,” Journal of Asian Architecture and Building Engineering ,2025. [13] F. J. Abu-Dakka and M. Saveriano, “Variable impedance control and learning—a review,” Frontiers in Robotics and AI , vol. 7, p. 590681, 2020. [14] Y. Li, G. Ganesh, N. Jarrass´ e, S. Haddadin, A. Albu-Schaeffer, and E. Burdet, “Force, impedance, and trajectory learning for contact tooling and haptic identification,” IEEE Transactions on Robotics , vol. 34, no. 5, pp. 1170–1182, 2018. [15] J. Luo, E. Solowjow, C. Wen, J. A. Ojea, and A. M. Agogino, “Rein-forcement learning on variable impedance controller for high-precision robotic assembly,” in 2019 International Conference on Robotics and Automation (ICRA) . IEEE, 2019, pp. 3080–3087. [16] R. Mart´ ın-Mart´ ın, M. A. Lee, R. Gardner, S. Savarese, J. Bohg, and A. Garg, “Variable impedance control in end-effector space: An action space for reinforcement learning in contact-rich tasks,” in 2019 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) .IEEE, 2019, pp. 1010–1017. [17] C. C. Beltran-Hernandez, D. Petit, I. G. Ramirez-Alpizar, and K. Harada, “Variable compliance control for robotic peg-in-hole assembly: A deep-reinforcement-learning approach,” Applied Sciences , vol. 10, no. 19, p. 6923, 2020. [18] M. Bogdanovic, M. Khadiv, and L. Righetti, “Learning variable impedance control for contact sensitive tasks,” IEEE Robotics and Automation Letters , vol. 5, no. 4, pp. 6129–6136, 2020. [19] J. Tobin, R. Fong, A. Ray, J. Schneider, W. Zaremba, and P. Abbeel, “Domain randomization for transferring deep neural networks from simulation to the real world,” in 2017 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) . IEEE, 2017, pp. 23–30. [20] M. Andrychowicz, B. Baker, M. Chociej, R. Jozefowicz, B. McGrew, J. Pachocki, A. Petron, M. Plappert, G. Powell, A. Ray et al. , “Learning dexterous in-hand manipulation,” The International Journal of Robotics Research , vol. 39, no. 1, pp. 3–20, 2020. [21] K. Rakelly, A. Zhou, C. Finn, S. Levine, and D. Quillen, “Efficient off-policy meta-reinforcement learning via probabilistic context variables,” in 
+
+International conference on machine learning (ICML) . PMLR, 2019, pp. 5331–5340. [22] M. Noseworthy, B. Tang, B. Wen, A. Handa, C. Kessens, N. Roy, D. Fox, F. Ramos, Y. Narang, and I. Akinola, “FORGE: Force-guided exploration for robust contact-rich manipulation under uncertainty,” IEEE Robotics and Automation Letters , vol. 10, no. 5, pp. 4436–4443, 2025. [23] O. Khatib, “A unified approach for motion and force control of robot manipulators: The operational space formulation,” IEEE Journal on Robotics and Automation , vol. 3, no. 1, pp. 43–53, 1987. [24] C. Ott, R. Mukherjee, and Y. Nakamura, “A hybrid system framework for unified impedance and admittance control,” Journal of Intelligent & Robotic Systems , vol. 78, no. 3, pp. 359–375, 2015. [25] Z. Zhou, X. Yang, and X. Zhang, “Variable impedance control on contact-rich manipulation of a collaborative industrial mobile manipulator: An imitation learning approach,” Robotics and Computer-Integrated Manufacturing , vol. 92, p. 102896, 2025. [26] L. Roveda, D. Piga, and M. Ruggeri, “Model-based reinforcement learning variable impedance control for human-robot collaboration,” IEEE Transactions on Robotics , 2020. [27] Q. Yang, A. D¨ urr, E. A. Topp, J. A. Stork, and T. Stoyanov, “Variable impedance skill learning for contact-rich manipulation,” IEEE Robotics and Automation Letters , vol. 7, no. 3, pp. 8391–8398, 2022. [28] S. Kozlovsky, E. Newman, and M. Zacksenhouse, “Reinforcement learn-ing of impedance policies for peg-in-hole tasks: Role of asymmetric matrices,” IEEE Robotics and Automation Letters , vol. 7, no. 4, pp. 11 956–11 963, 2022. [29] ´I. Elguea-Aguinaco, A. Serrano-Mu˜ noz, D. Chrysostomou, I. Inziarte-Hidalgo, S. Bøgh, and N. Arana-Arexolaleiba, “A review on reinforcement learning for contact-rich robotic manipulation tasks,” Robotics and Computer-Integrated Manufacturing , vol. 81, p. 102517, 2023. [30] T. Z. Zhao, V. Kumar, S. Levine, and C. Finn, “Learning fine-grained bimanual manipulation with low-cost hardware,” in Robotics: Science and Systems (RSS) , 2023. [31] P. Florence, C. Lynch, A. Zeng, O. Ramirez, A. Wahid, L. Downs, A. Adrian, and J. Tompson, “Implicit behavioral cloning,” in Conference on Robot Learning (CoRL) , 2022. [32] C. Chi, S. Feng, Y. Du, Z. Xu, E. Cousineau, B. Burchfiel, and S. Song, “Diffusion policy: Visuomotor policy learning via action diffusion,” in 
+
+Robotics: Science and Systems (RSS) , 2023. [33] M. A. Lee, Y. Zhu, K. Srinivasan, P. Shah, S. Savarese, L. Fei-Fei, A. Garg, and J. Bohg, “Making sense of vision and touch: Self-supervised learning of multimodal representations for contact-rich tasks,” in IEEE International Conference on Robotics and Automation (ICRA) , 2019, pp. 5571–5582. [34] N. Fazeli, M. Oller, J. Wu, Z. Wu, J. B. Tenenbaum, and A. Rodriguez, “See, feel, act: Hierarchical learning for complex manipulation skills with multisensory fusion,” Science Robotics , vol. 4, no. 26, 2019. [35] R. Gao, Z. Si, Y.-Y. Chang, S. Clarke, J. Bohg, L. Fei-Fei, W. Yuan, and J. Wu, “ObjectFolder 2.0: A multisensory object dataset for Sim2Real transfer,” in Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , Jun. 2022, pp. 10 598–10 608. [36] G. Schoettler, A. Nair, J. Luo, J. A. Ojea, E. Solowjow, and S. Levine, “Meta-reinforcement learning for robotic industrial insertion tasks,” in 
+
+Proceedings of the IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , 2020. 16 
+
+[37] J. Luo, O. Sushkov, R. Pevceviciute, W. Lian, C. Su, M. Vecerik, N. Ye, S. Schaal, and J. Scholz, “Robust multi-modal policies for industrial assembly via reinforcement learning and demonstrations: A large-scale study,” in Robotics: Science and Systems (RSS) , 2021. [38] L. Brunke, M. Greeff, A. W. Hall, Z. Yuan, S. Zhou, J. Panerati, and A. P. Schoellig, “Safe learning in robotics: From learning-based control to safe reinforcement learning,” Annual Review of Control, Robotics, and Autonomous Systems , vol. 5, pp. 411–444, 2022. [39] A. Wachi, X. Shen, and Y. Sui, “A survey of constraint formulations in safe reinforcement learning,” in Proceedings of the Thirty-Third International Joint Conference on Artificial Intelligence , 2024, pp. 8262–8271. [40] R. Cheng, G. Orosz, R. M. Murray, and J. W. Burdick, “End-to-end safe reinforcement learning through barrier functions for safety-critical continuous control tasks,” in Proceedings of the AAAI Conference on Artificial Intelligence , 2019. [41] A. D. Ames, X. Xu, J. W. Grizzle, and P. Tabuada, “Control barrier function based quadratic programs for safety critical systems,” IEEE Transactions on Automatic Control , vol. 62, no. 8, pp. 3861–3876, 2017. [42] J. F. Fisac, A. K. Akametalu, M. N. Zeilinger, S. Kaynama, J. H. Gillula, and C. J. Tomlin, “A general safety framework for learning-based control in uncertain robotic systems,” IEEE Transactions on Automatic Control ,vol. 64, no. 7, pp. 2737–2752, 2019. [43] Y. Yao, Z. Liu, Z. Cen, J. Zhu, W. Yu, T. Zhang, and D. Zhao, “Constraint-conditioned policy optimization for versatile safe reinforcement learning,” in Advances in Neural Information Processing Systems (NeurIPS) ,vol. 36, 2023. [44] A. Sootla, A. I. Cowen-Rivers, T. Jafferjee, Z. Wang, D. H. Mguni, J. Wang, and H. Ammar, “Saut´ e RL: Almost surely safe reinforcement learning using state augmentation,” in Proceedings of the 39th International Conference on Machine Learning , ser. Proceedings of Machine Learning Research, vol. 162. PMLR, Jul. 2022, pp. 20 423–20 443. [45] H. Zhang, G. Solak, G. J. G. Lahr, and A. Ajoudani, “SRL-VIC: A variable stiffness-based safe reinforcement learning for contact-rich robotic tasks,” 
+
+IEEE Robotics and Automation Letters , vol. 9, no. 6, pp. 5631–5638, 2024. [46] T. Schaul, D. Horgan, K. Gregor, and D. Silver, “Universal value function approximators,” in Proceedings of the International Conference on Machine Learning (ICML) , 2015. [47] D. Kalashnikov, J. Varley, Y. Chebotar, B. Swanson, R. Jonschkowski, C. Finn, S. Levine, and K. Hausman, “MT-Opt: Continuous multi-task robotic reinforcement learning at scale,” in Conference on Robot Learning (CoRL) , 2021. [48] B. Tang, I. Akinola, J. Xu, B. Wen, A. Handa, K. V. Wyk, D. Fox, G. S. Sukhatme, F. Ramos, and Y. Narang, “AutoMate: Specialist and generalist assembly policies over diverse geometries,” in Robotics: Science and Systems (RSS) , 2024. [49] X. B. Peng, M. Andrychowicz, W. Zaremba, and P. Abbeel, “Sim-to-real transfer of robotic control with dynamics randomization,” in 2018 IEEE international conference on robotics and automation (ICRA) . IEEE, 2018, pp. 3803–3810. [50] Y. Narang, K. Storey, I. Akinola, M. Macklin, P. Reist, L. Wawrzyniak, Y. Guo, A. Moravanszky, G. State, M. Lu, A. Handa, and D. Fox, “Factory: Fast contact for robotic assembly,” in Robotics: Science and Systems (RSS) , 2022. [51] B. Tang, M. A. Lin, I. Akinola, A. Handa, G. S. Sukhatme, F. Ramos, D. Fox, and Y. Narang, “IndustReal: Transferring contact-rich assembly tasks from simulation to reality,” in Robotics: Science and Systems (RSS) ,2023.
