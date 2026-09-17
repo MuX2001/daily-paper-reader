@@ -1,0 +1,748 @@
+Title: Arborist: Algorithm-Hardware Co-Design for Fast and Efficient Motion Planning
+
+URL Source: https://arxiv.org/pdf/2609.13420v1
+
+Published Time: Tue, 15 Sep 2026 00:11:51 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# Arborist: Algorithm-Hardware Co-Design for Fast and Efficient Motion Planning 
+
+Yaotian Liu ∗, Lingyi Huang †, Zishen Wan ‡, Bo Yuan †, Cheng Tan ∗§ , and Jeff (Jun) Zhang ∗∗Arizona State University, Tempe, AZ, USA 
+
+> †
+
+Rutgers University, Piscataway, NJ, USA 
+
+> ‡
+
+Columbia University, New York, NY, USA 
+
+> §
+
+Google, Mountain View, CA, USA 
+
+yaotian_liu@asu.edu , lingyi.huang@rutgers.edu , zishen.wan@columbia.edu ,
+
+bo.yuan@soe.rutgers.edu , chengtan@google.com , jeffzhang@asu.edu 
+
+Abstract —Real-time motion planning must execute under strict latency and energy constraints on resource-limited platforms. This paper presents Arborist, an algorithm–hardware co-design framework that accelerates Fast Marching Tree (FMT*) motion planning through synergistic algorithmic and architectural inno-vations. At the algorithm level, Arborist introduces safe multi-tree expansion with global competition management and cross-tree optimality checking to expose inter-tree parallelism while preserving path quality. At the architecture level, our proposed ArboristAccel integrates an Arborist Toolbox that provides hardware support for inter-tree parallelism; a KD-tree Subsys-tem for high-throughput near-neighbor search; a Parallel-Query Retrieval module that balances multi-bank memory accesses to alleviate system-level memory bandwidth bottlenecks; and a Look-ahead Planning Engine that exploits intra-tree parallelism while preserving path quality by in-order commit. Synthesized in 16 nm and operating at 500 MHz, ArboristAccel sustains more than 10 3× speedup over CPU across all workloads (peaking at 
+
+2.8 × 10 3× on 2D-Maze), and delivers geomean improvements of 8.8× speedup, 4.6× area efficiency, and 3.1× power effi-ciency over an FMT* ASIC baseline. The corresponding factors relative to a state-of-the-art RRT*-based MOPED accelerator are 8.6×/1.0×/1.8×, at comparable path cost. To the best of our knowledge, ArboristAccel is the first dedicated hardware accelerator for FMT*-based motion planning. 
+
+Index Terms —motion planning, hardware acceleration, algorithm–hardware co-design, Fast Marching Tree, specialized architecture 
+
+I. Introduction Motion planning is a critical workload in robotics [1], [2], autonomous systems [3], [4], embodied AI [5]–[8], humanoid control [9], and manufacturing [10], enabling real-time decision making in high-dimensional and unknown environments. Mo-tion planning seeks to compute a feasible and efficient trajectory from a start configuration to a goal configuration while avoiding collisions with obstacles. High-quality, low-latency planning is essential for reliable robotic navigation and safe autonomous operation. However, integrating state-of-the-art motion planning into real systems remains challenging. First, achieving high success rates and path quality in high-dimensional configuration spaces requires exploring many sampled nodes, incurring substantial computational overhead. Second, real-time planning must exe-cute locally: although cloud offloading can accelerate computa-tion [11], unpredictable network latency makes it unsuitable for safety-critical applications such as self-driving vehicles or agile drones [8], [12]. Third, stringent device-level constraints (such as limited battery capacity and compact form factors) restrict on-device computational resources [13], further exacerbating the challenge. Among state-of-the-art motion-planning solutions, sampling-based planners [14]–[18] have emerged as promising candidates for real-time deployment because they explore complex, high-dimensional configuration spaces efficiently and include asymp-totically optimal variants. In particular, Fast Marching Tree (FMT*)-based motion planning [18]–[22] stands out because (1) its dynamic-programming wavefront expansion yields near-optimal path quality [14], and (2) its lazy collision checking significantly reduces collision-test overhead. Unfortunately, despite these algorithmic advantages, FMT*-powered motion planners still suffer from the high computational cost of searching the nearest neighbors in high-dimensional real-world environments [23]. In parallel, hardware acceleration has emerged as a promis-ing approach to real-time motion planning. For instance, RACOD [24] massively parallelizes collision checks and in-troduces speculative exploration mechanisms that effectively accelerate search-based motion planners such as A* [25]. MOPED [26] uses custom hardware with restructured neighbor-search and speculative pipelines for sampling-based Rapidly-exploring Random Trees (RRT*) [17], improving motion-planning throughput and energy efficiency in unknown environ-ments. Nevertheless, existing hardware solutions overlook the algorithmic advantages of FMT*-based motion planning, moti-vating approaches that can deliver high real-time performance while maintaining path quality. This work presents Arborist, a novel algorithm-hardware co-design framework for hardware-accelerated parallel FMT* execution. Importantly, ArboristAccel is not hard-wired to a single planner: by separating a fixed execution substrate from a reconfigurable control layer, the same hardware retargets across the FMT*-family without redesigning the underlying datapath. Across 2D/3D (city, maze, drone) and high-DoF (5D/7D arm) benchmarks, ArboristAccel delivers geomean improvements of 8 .8× speedup, 4 .6× area efficiency, and 3 .1× power efficiency arXiv:2609.13420v1 [cs.AR] 11 Sep 2026 over an FMT* ASIC baseline. The corresponding factors relative to a state-of-the-art RRT*-based MOPED accelerator [26] are 8.6×/1 .0×/1 .8×, at comparable path cost. Our contributions can be summarized as follows:  
+
+> •
+
+We present ArboristAccel, the first dedicated hardware accelerator for FMT*-based motion planning, targeting the dominant bottlenecks in nearest-neighbor search, tree expan-sion, and speculative look-ahead planning.  
+
+> •
+
+We develop the Arborist algorithm, a multi-FMT* mo-tion planner whose tree splitting, cross-tree overriding, and competition management expose inter-tree parallelism while preserving path optimality via an admissible cross-tree optimality check.  
+
+> •
+
+We design the ArboristAccel architecture: an Arborist Toolbox for inter-tree control, a KD-tree Subsystem with an exactly balanced constructor for dynamic replanning, a Parallel-Query Retrieval engine balancing multi-bank mem-ory accesses, and a Look-ahead Planning Engine for intra-tree speculation with in-order commit.  
+
+> •
+
+ArboristAccel is a programmable substrate for the FMT* family: reconfiguring only the control layer adapts the datap-ath to FMT*, BFMT*, IAFMT*, and IABFMT*, achieving a 294 .6× geometric-mean CPU speedup. The on-chip construc-tor adds 3 .3–8 .0× end-to-end speedup over CPU-side tree reconstruction for the iterative IAFMT*/IABFMT* variants under dynamic replanning.  
+
+> •
+
+Our evaluation shows that Arborist preserves path quality and sustains more than 10 3× CPU speedup across all work-loads, with geomean 8 .8×/4 .6×/3 .1× speedup/area/power gains over an FMT* ASIC baseline. The corresponding factors relative to the RRT*-based MOPED accelerator [26] are 8 .6×/1 .0×/1 .8×.II. Background and Motivation This section reviews motion-planning algorithms and prior hardware accelerators. 
+
+A. Motion Planning 
+
+Motion planning is the computational process of determining a robot’s trajectory from an initial to a goal configuration while avoiding obstacles in the environment. It involves computing a feasible, collision-free path that satisfies geometric, kinematic, and dynamic constraints [27]. Classical formulations include ge-ometric path planning (e.g., the “piano mover’s problem”) [28], kinodynamic planning that accounts for system dynamics and actuation limits [29], and optimal motion planning, which seeks to minimize a cost functional such as path length or energy consumption [17]. Over the past four decades, the field has evolved through several major paradigms — from early com-binatorial approaches with exponential-time guarantees [30], to potential field methods [31], and, more recently, to sampling-based motion planning (SBMP) algorithms [14], which scale more efficiently to high-dimensional configuration spaces. SBMP algorithms such as Probabilistic Roadmaps (PRM) [15] and Rapidly-exploring Random Trees (RRT) [16] generate feasible solutions by incrementally exploring the 𝑉 !"#$       
+
+> (wavefront)
+> 𝑉 %&!'#(
+> (settled) Obstacles
+> 𝑉 )$*+'+,#(
+> 1234675
+> (a)
+> 𝑟
+> 1234675
+> (b)
+> 1234675
+> (c)
+> Fig. 1. Example of one FMT* iteration. (a) Select the minimum-cost node in 𝑉 𝑜 𝑝𝑒𝑛 (i.e., node
+
+1 ) and identify its unvisited neighbors within radius 𝑟  
+
+> (nodes
+
+4 and 5 ). (b) For each unvisited neighbor, consider candidate parents in 𝑉 𝑜 𝑝𝑒𝑛 within radius 𝑟 (dashed lines), and minimize the parent’s cost-to-come plus the connecting edge cost ( 4 → 1 and 5 → 2 , highlighted by red dashed lines). (c) Perform collision checking only for these selected connections and add the valid edges (only 5 → 2 succeeds). Finally, move 1 to 𝑉 𝑐𝑙𝑜𝑠𝑒𝑑  
+
+> and insert
+
+5 into 𝑉 𝑜 𝑝𝑒𝑛 . For clarity, we will refer to 𝑉 closed as “settled points” and 𝑉 open as “wavefront points” in the rest of the paper. 
+
+configuration space through random sampling. These methods provide probabilistic completeness , ensuring eventual success if a feasible path does exist. Subsequent advancements in-troduced asymptotically optimal variants such as PRM* [17] and RRT* [17], which converge toward cost-optimal solutions as the number of samples increases. Building on this line of work, the Fast Marching Tree (FMT*) algorithm [18] integrates dynamic programming principles with sampling-based search to achieve faster convergence and fewer collision checks, offering improved scalability in complex environments. Today, these algorithms underpin a wide range of applications, including robotic manipulation [32], autonomous driving [33], and multi-robot coordination [34], where efficient and reliable planning is essential for real-time operation. 
+
+B. Fast Marching Tree (FMT*) Family 
+
+The Fast Marching Tree (FMT*) algorithm [18] grows a single tree via a lazy dynamic-programming recursion over an implicit random geometric graph, expanding outward in cost-to-come “wavefront” (akin to Fast Marching) while constructing and searching the graph simultaneously. It is asymptotically optimal under standard robustness assumptions with a proven convergence-rate bound, and runs in expected 𝑂 (𝑛 log 𝑛 ) time with 𝑂 (𝑛 ) collision checks. Since its introduction, FMT* has inspired a broad range of derivative algorithms that extend its wavefront expansion principle to various settings. Bidirectional FMT* (BFMT*) [19] grows two trees simultaneously from the start and goal to accelerate convergence. Group Marching Tree (GMT*) [20] extends FMT* to parallel architectures by employing group updates and approximate dynamic programming, enabling effi-cient execution on GPUs. Informed Anytime Fast Marching Tree (IAFMT*) [21] augments FMT* with an anytime mechanism that alternates incremental search and dynamic optimal search to keep improving a found path. Kino-FMT* [35] applies FMT* to generic kinodynamic problems by handling directed connections and two-point BVP/steering. Many of these FMT*-based planners have been integrated into the Open Motion Planning Library (OMPL) [36] as standard planning methods, Fig. 2. (a) Comparison of sampling-based motion planners. Shaded regions indicate minimum–maximum ranges; percentages indicate success rates below 100%. (b) Runtime breakdown. Unlike RRT*, FMT* spends most of its runtime on neighbor search. We select PRM* [17] as a classic baseline, RRT* [17] as a ubiquitous single-query tree with rewiring, BIT* [37] as the seminal informed-tree planner, and FMT* [18] as the seminal wavefront dynamic-programming planner. Success rates are measured over 10 runs. FMT* uses 5k–30k samples; the other planners use time limits of 5–160 s. Experiments use OMPL [36] on an AMD Ryzen Threadripper 3960X CPU at 3.8 GHz. 
+
+underscoring the prominence of FMT* as a foundational algorithm in modern motion planning. 
+
+Why FMT*? Figure 1 illustrates one iteration of FMT*. It offers two key advantages: (i) it reduces reliance on costly collision checks by adopting lazy edge validation, deferring collision evaluation until necessary, and (ii) each minimum-cost frontier expansion can connect multiple unvisited neighbors. As a result, FMT* achieves faster convergence toward high-quality solutions than RRT* and PRM*, particularly in high-dimensional or cluttered environments. Empirical evaluations [14] demonstrate that FMT* consistently delivers competitive success rates and lower path costs across diverse planning benchmarks. Our profiling in Figure 2(a) shows that FMT* achieves the shortest average path length with the lowest computation time among alternative sampling-based planners, confirming that it offers an excellent trade-off between path quality and runtime. Figure 2(b) breaks down the runtime and shows that FMT* spends only a small fraction of its work on collision checking, whereas other planners are dominated by this cost. Since collision checking is well known to be the primary bottleneck in sampling-based motion planning [24], [38]–[40], an algorithm that structurally minimizes collision checks is particularly attractive for on-device accelerators. Thus, FMT* not only provides strong algorithmic performance, but also a more hardware-friendly cost profile for our accelerator design. 
+
+C. Motivation for Hardware-accelerated Motion Planning 
+
+Real-time, Power, and End-to-End Latency Requirements. 
+
+Real-time responsiveness at sub-second, often millisecond, scales is essential for safe deployment in safety-critical en-vironments [41]: industrial robots must react to obstacles or human motion within tightly bounded windows, making worst-case timing a first-class constraint. Concretely, agile aerial robots run MPCC controllers at 100 Hz with online replanning every step [42], and topological replanning is constrained to 5–7 ms of search plus 10 ms of optimization [41]. At the same time, battery-powered platforms such as nano-drones (10 cm, 27 g) [43] impose stringent power and form-factor budgets. Because total response latency composes perception, planning, and control, delays in any stage propagate through the closed loop and degrade overall responsiveness [44], an especially dangerous failure mode in safety-critical scenarios. 
+
+Motion Planning is the Computational Bottleneck. With perception and control already heavily optimized [5], [45], motion planning has emerged as the dominant bottleneck of perception–planning–control pipelines [6], [7]. As shown in Figure 2, even optimized planners take tens of seconds on 6-DoF scenes; GPU implementations still need tens of seconds for a Kuka 7-DoF arm [46]; on a NVIDIA Jetson TX-2, planning runs 3 .5–8× slower than perception+control on MAVBench workloads [47]; and ARM Cortex-class CPUs spend ∼5 s and ∼1 W per indoor-navigation query, while typical mobile micro-robots demand 10 × lower power and 100 × higher throughput [48]. These large gaps motivate specialized hardware for motion planning. 
+
+Hardware Acceleration Challenges. From a computational perspective, SBMP (such as FMT*) is fundamentally different from conventional AI or vision workloads: it features irregular, data-dependent computation with poor spatial/temporal locality and high control-flow divergence, while runtime is dominated by latency-variable nearest-neighbor and collision queries over large spatial structures. Moreover, its parallelism is largely unstructured because the active node set evolves dynamically, preventing efficient load balancing on GPUs. Together, these characteristics render motion planning a highly irregular, memory-intensive, and latency-sensitive work-load, demanding novel architectural mechanisms that can effi-ciently handle data-dependent computation, dynamic memory access, and real-time responsiveness. This paper presents Ar-borist, an algorithm-hardware co-design framework integrated with a set of novel optimizations (as shown in Figure 3) for fast and efficient FMT* motion planning accelerator design. III. Arborist Algorithm This section introduces the Arborist algorithm framework, which exploits environmental context to unlock novel paral-lelism opportunities in the otherwise sequential FMT* algo-rithm without sacrificing path quality. As illustrated in Figure 3, baseline FMT* is inherently sequential due to its recursive tree traversal, while Arborist enables both inter-tree (safe tree-splitting) and intra-tree (look-ahead planning) parallelism, yielding faster computation at identical path quality. An overview of the Arborist algorithm framework is shown in Figure 4; the four steps are detailed in the following subsections. Pending DONE! 
+
+?             
+
+> Start Target Path Found Points from different trees
+> (a) Baseline FMT* (b) Arborist FMT*
+> Baseline FMT*
+> Neighbor Search C.D. Aux.
+> +O.2
+> KD-tree Subsys. 5 x +O.3
+> Parallel Query Retrieval +O.4
+> Look-ahead Planning +O.1
+> Arborist Toolbox 2 x 4 ~ 6 x
+> 2.5 ~ 4 x
+> …
+> Time Fig. 3. Arborist vs. baseline FMT*. Baseline FMT* is inherently sequential due to its dynamic-programming wavefront recursion, leaving compute resources underutilized. Arborist unlocks both inter-tree parallelism (via safe tree-splitting with global competition management) and intra-tree parallelism (via look-ahead planning), achieving substantially faster computation at identical path quality.
+
+A. Step 1: Tree Splitting 
+
+Intuition. Sampling nodes in the FMT* propagating wavefront (i.e., 𝑉 open in Figure 1) are naturally partitioned into clusters by environmental contexts such as obstacles. Arborist leverages this property to enable opportunities for simultaneous multi-tree expansion (i.e., inter-tree parallelism). As shown in Figure 4 (a) (Step 1), Arborist exploits this clustering behavior in 𝑉 open to enable parallel multi-tree growth. A straightforward approach would construct the minimum spanning tree (MST) [49] of sampled nodes and detect large edge outliers as natural cluster boundaries. However, this method incurs 𝑂 (𝑛 2 𝐷 ) complexity for pairwise distance computation and an additional 𝑂 (𝑛 2) for MST construction, making it unsuitable for real-time planning. Therefore, in our approach, for each state dimension 𝑑 , it projects nodes onto coordinate 𝑥 [𝑑 ], sorts the projected values ( 𝑂 (𝑛 log 𝑛 )), and computes the largest adjacent projected-coordinate gap 𝐺 𝑑 
+
+(𝑂 (𝑛 )). This gap is purely geometric and is not based on path cost or heuristic values. As shown in Figure 5 (a), we project the current wavefront onto 𝑥 and 𝑦 . While the 𝑦 projection is evenly distributed, the 𝑥 projection shows a clear gap, indicating a possible splitting opportunity. If max 𝑑 𝐺 𝑑 ≥ 𝛽𝑟 𝑛 ,Arborist partitions the tree at the midpoint of the largest qualifying gap, where 𝑟 𝑛 is the FMT* neighborhood radius and 
+
+𝛽 controls split aggressiveness. The split enables independent sub-tree expansion. This approach provides a simple yet efficient approximation of high-dimensional clustering, avoiding the heavy cost of MST computation. One potential issue with a naive, greedy tree-splitting strategy is that it might result in suboptimal path planning. In FMT*, tree expansion rate is determined by the number of nodes updated per wavefront rather than the cumulative path cost. As a result, trees expand faster in sparse regions than dense ones. In Figure 4 (a) (Step 1), the orange branch in a narrow passage advances rapidly and consumes nearby samples before the blue branch arrives, preventing the latter—despite representing the optimal path—from reaching the goal. This imbalance highlights a key limitation of naive splitting: while it improves parallelism, it can degrade solution quality due to uncoordinated competition among trees. 
+
+B. Step 2: Tree Overriding 
+
+To mitigate the quality degradation from Step 1, Arborist introduces Step 2, a tree-overriding mechanism that dynamically prioritizes trees based on path cost and allows a slower tree to reclaim nodes from a faster one when doing so improves the global solution. When a tree attempts to connect to a node, it first checks whether that node has already been claimed by another tree. If so, the connection with the lower path cost ( 𝑔 (·) ) takes precedence, overriding the previous assignment. For example, in Figure 4 (a) (Step 2), the green path has a lower path cost than the red one, prompting the conflicting red node to be overridden. This tree overriding mechanism enforces global path optimality by ensuring that only the most cost-efficient connections persist. 
+
+Handling Descendants of Overridden Nodes. When an override occurs, we do not immediately update its descendants. Instead, propagation updates nodes as the wavefront passes through them again; if a better cost is found, the node is updated. This approach requires each node to have only a single parent pointer to maintain the tree structure, rather than multiple pointers to all its descendants. As shown in Figure 5 (b), a shortcut from the green tree to the orange tree at point 1 is first discovered, triggering an override that assigns point 1 to the green tree. Subsequently, the green tree follows the growth procedure, which simultaneously performs descendant overrides (points 2 and 3) and normal growth (points 4, 5, and 6). Therefore, tree overriding inevitably introduces additional computational overhead because the overriding wavefront passes through previously connected nodes again. Further-more, suboptimal trees continue to grow, generating additional branches that must later be overridden and further increasing computational overhead. 
+
+C. Step 3: Global Competition Management 
+
+When a connection override occurs from Step 2, the affected (victim) tree enters a hibernation state. During hibernation, the tree suspends expansion but remains visible to other trees, allowing further overrides if a better connection emerges. A hibernating tree is reactivated once its wavefront cost drops below that of the overriding tree, indicating that the com-peting tree can no longer yield a superior path. Meanwhile, computational resources (e.g., for neighbor search and collision checking) from hibernating trees are dynamically reallocated to active ones. This mechanism effectively eliminates unnecessary computation from Step 2 (tree overriding) and improves overall efficiency. 
+
+Hibernation vs. Purging. Hibernation differs from purging 
+
+(permanent deactivation) in that it preserves potentially optimal subtree structures: even when a single suboptimal connection triggers tree-wide suspension, other portions may still be optimal and can later reactivate once the tree’s wavefront cost Original 
+
+> Baseline
+
+Step 1: 
+
+> Split tree to parallel Tree Build Procedure
+
+< 
+
+> Override Baseline
+> ...  ...
+> ...
+> ...
+> ...
+> ...
+> Baseline
+> ...
+> ...
+> Short latency
+
+Step 2: 
+
+> Introducing Overriding among trees
+
+Step 3: Global Competition Management     
+
+> Limited Tree Growth
+> time time time time
+> Speedup Speedup
+> Speedup
+
+Proposed Arborist Algorithm             
+
+> Worse Path Quality
+> Short latency
+> Extra Computation
+> Standard Path Quality Short Latency Standard Path Quality
+> Sequential Tree Building Procedure
+> →NO Parallel Opportunity
+> →Long Planning Latency
+> KD Tree Search Query Attempt Starting Point Goal Point Tree Point Overrided Tree Point Final Path
+> Tree Edge Cancelled Tree Edge Unnecessary KD Tree Search Planning Start
+> Planning Finish Tree Competition Start
+
+Original 
+
+> Baseline
+
+Step 1: 
+
+> Split tree to parallel Tree Build Procedure
+
+< 
+
+> Override Baseline
+> ...  ...
+> ...
+> ...
+> ...
+> ...
+> Baseline
+> ...
+> ...
+> Short latency
+
+Step 2: 
+
+> Introducing Overriding among trees
+
+Step 3: Global Competition Management     
+
+> Limited Tree Growth
+> time time time time
+> Speedup Speedup
+> Speedup
+
+Proposed Arborist Algorithm             
+
+> Worse Path Quality
+> Short latency
+> Extra Computation
+> Standard Path Quality Short Latency Standard Path Quality
+> Sequential Tree Building Procedure
+> →NO Parallel Opportunity
+> →Long Planning Latency
+> KD Tree Search Query Attempt Starting Point Goal Point Tree Point Overrided Tree Point Final Path
+> Tree Edge Cancelled Tree Edge Unnecessary KD Tree Search Planning Start
+> Planning Finish Tree Competition Start
+> Wavefront points Settled points Obstacles Unvisited points
+
+𝑔(#) : Cost-to-come. 
+
+𝑐(𝑎, 𝑏) : Path cost from 𝑎 to 𝑏 .
+
+ℎ 𝑎, 𝑏 :heuristic cost, 
+
+≔ 𝑏 − 𝑎 !
+
+𝜙 "(𝑏) :cost of 𝑏 via 𝑎 ,
+
+≔ 𝑔 𝑎 + 𝑐(𝑎, 𝑏) 
+
+(a) (b) 
+
+> 𝑔(𝒢)
+
+⋯
+
+> Goal
+> 𝓖
+> ⋯ 𝑝 ℎ(𝑝, 𝒢) 𝑐(𝑝, 𝒢)
+> Start
+> ⋯
+> 𝑞 𝜙 !(𝒢)
+
+Fig. 4. (a) Tree splitting, overriding, and global competition management enable parallel multi-tree execution while preserving path quality. (b) Cross-tree optimality check prunes trees that cannot improve the current goal cost, enabling correct termination. 𝑥 𝑦 
+
+3421
+
+gap 
+
+132short-cut discovered 13245 6descendants override normal growth 456
+
+(a) Tree splitting (b) Tree overriding 
+
+Fig. 5. (a) Tree-splitting detection by finding the gap along each axis. (b) Tree overriding: when a shortcut is discovered, its descendants are overridden in the same process of tree growth, alongside normal growth. 
+
+becomes favorable. As shown in Step 3 of Figure 4 (a), the light-blue branch resumes growth precisely because it was hibernated rather than purged. 
+
+Algorithm. Arborist Competition Management is enabled by two functions: 
+
+• PropagatingPoints( 𝑧 ): find possible points to propagate. Atree may grow to a node 𝑛 if 𝑛 ∈ 𝑉 unvisited or 𝑛 belongs to another tree. To eliminate futile competition, we propagate only when 𝑔 (𝑛 ) > 𝑔 (𝑧 ), where 𝑔 (·) is the cost, with 
+
+𝑔 (𝑉 unvisited ) = +∞ .
+
+• ResolveClaim( 𝑥 ): resolves ownership (claim vs. override) and triggers hibernation if needed. Insert node 𝑥 normally if 𝑥 ∈ 𝑉 unvisited . Otherwise, if 𝑥 ∈ 𝑉 open ∪ 𝑉 closed , update 𝑔 (𝑥 )
+
+and its parent only when the new cost is lower; if 𝑥 ’s original tree remains active, place it in hibernation .
+
+D. Step 4: Cross-tree Optimality Check 
+
+Motivation. Because tree propagation speed in FMT* is not directly correlated with path cost, the first tree to reach the goal may not produce the optimal solution. Simply adopting the original FMT* termination rule [18], i.e., stopping once the goal point is selected, often yields suboptimal paths. To address this, Arborist introduces a termination logic (TL) tailored for multi-tree execution, termed the Cross-tree Optimality Check (Figure 4 (b)). When the goal G is first reached with cost 𝑔 (G) , Arborist evaluates every active tree T and its wavefront nodes 𝑥 , checking whether 𝜙 𝑥 (G) ≡ 𝑔 (𝑥 ) + 𝑐 (𝑥, G) ≥ 
+
+𝑔 (𝑥 ) + ℎ(𝑥, G) ≥ 𝑔 (G) . If so, no path through 𝑥 can improve the current solution, since ℎ(𝑥, G) is an admissible heuristic, a lower bound on the true cost 𝑐 (𝑥, G) . Thus, tree T can be pruned safely. For example, in Figure 4 (b), the left tree containing point 𝑝 is discarded, whereas the middle tree containing point 𝑞 is retained since it may still yield a shorter path. The planner terminates once the goal G is reached and all other trees have been pruned. This procedure guarantees global optimality while minimizing redundant computation, as only trees with a provable potential for improvement are maintained. Our experimental results in Section VI-B validate this design. 
+
+E. Putting it Together 
+
+Algorithm 1 Arborist Motion Planning Algorithm 
+
+Require: samples in X𝑓 𝑟 𝑒𝑒 , start 𝑥 𝑖𝑛𝑖𝑡 , goal 𝑥 𝑔𝑜𝑎𝑙 , max trees 𝑁 
+
+1: Initialize: 𝑉 𝑢𝑛𝑣𝑖𝑠𝑖𝑡𝑒𝑑 ← all samples; create tree T0 rooted at 
+
+𝑥 𝑖𝑛𝑖𝑡 in manager M; 𝑟𝑒𝑎𝑐ℎ𝑒𝑑 ← false 
+
+2: while true do 
+
+3: Z ← lowest-cost wavefront nodes across all active trees 
+
+4: if Z = ∅ then return success if 𝑟𝑒𝑎𝑐ℎ𝑒𝑑 else fail 
+
+5: for each 𝑧 ∈ Z (with home tree T ) do 
+
+6: if 𝑧 = 𝑥 𝑔𝑜𝑎𝑙 then 𝑟𝑒𝑎𝑐ℎ𝑒𝑑 ← true 
+
+7: if 𝑟𝑒𝑎𝑐ℎ𝑒𝑑 and CrossTreeOptCheck then return 
+
+success 
+
+8: Expand 𝑧 : for each 𝑥 ∈ PropagatingPoints( 𝑧 ), select the minimum-cost candidate parent from eligible OPEN neighbors; if its edge to 𝑥 is collision-free, apply ResolveClaim( 𝑥 ) and move newly connected 𝑥 to T .𝑉 𝑜 𝑝𝑒𝑛 
+
+9: Move 𝑧 from 𝑉 𝑜 𝑝𝑒𝑛 to 𝑉 𝑐𝑙𝑜𝑠𝑒𝑑 
+
+10: if |M| < 𝑁 then attempt split on T
+
+Algorithm 1 summarizes the complete workflow of the proposed Arborist algorithm in Figure 4. Arborist breaks the inherently sequential execution of baseline FMT* by en-abling concurrent multi-tree expansion. Through its coordinated mechanisms (tree overriding, global competition management, and cross-tree optimality checking), Arborist preserves the dynamic-programming semantics of baseline FMT* and guar-antees the same optimal path cost while significantly improving computational efficiency. 
+
+Correctness intuition. Arborist preserves FMT* correctness because all introduced parallelism is schedule-only . Lower-cost claims always override higher-cost ones, hibernation defers but never discards potentially optimal work, and termination removes only trees whose admissible lower bound cannot improve the incumbent solution. Taken together, these properties make Arborist equivalent to a reordered sequential execution of FMT*. Figures 14 and 17 provide empirical support for this intuition. 
+
+Correctness invariant. Consider the fixed sampled roadmap 
+
+𝐺 = (𝑉, 𝐸 ) with deterministic edge validity and weights. Each node 𝑣 maintains a label 𝑔 (𝑣 ), parent 𝑝 (𝑣 ), and owner tree. A tree expansion only generates relaxation claims of the form (𝑥, 𝑔 (𝑦 ) + 𝑤 (𝑦, 𝑥 ), 𝑦, 𝑡𝑟𝑒𝑒 𝑖𝑑 ) for collision-free edges 
+
+(𝑦, 𝑥 ). These claims are committed through a hardware Commit Arbiter: for each node 𝑥 , the arbiter selects the minimum-cost claim, with a deterministic tie-breaker, and updates the Node Table only if the claim improves 𝑔 (𝑥 ). Since this operation is an atomic min over valid relaxations, simultaneous claims to the same node are serializable and equivalent to a deterministic sequential order. Tree splitting only partitions the OPEN frontier. Tree override occurs only after a lower-cost claim wins and preserves the victim frontier under the winning owner. Therefore, by induction over committed relaxations, the parallel algorithm preserves the sequential relaxation semantics and converges to the same node labels; equal-cost ties can change only the selected parent, not the path cost. To evaluate Arborist on a conventional platform, we implement a multi-threaded C++ version and run it on a multiprocessor CPU. As shown in Table II, four CPU threads provide 2 .3× speedup on 2D-City and 1 .3× on 2D-Maze relative to one thread. This limited gain suggests that general-purpose processors cannot effectively capture inter-tree paral-lelism, largely due to thread synchronization overhead, irregular execution, and memory bottlenecks in neighbor search. These observations motivate a domain-specialized architecture for Arborist. Accordingly, Section IV presents ArboristAccel, a hardware design that enables Arborist to better exploit both its inter-tree parallelism and additional architectural optimization opportunities for higher power, performance, and area (PPA) efficiency. IV. Arborist Hardware Architecture In this section, we present ArboristAccel, our hardware ar-chitecture that implements Arborist, as illustrated in Figure 6. ArboristAccel is organized into four key components: (1) the 
+
+Arborist Toolbox (Section IV-A), which provides hardware support for inter-tree parallelism described in Section III; (2) a KD-tree Subsystem (Section IV-B) for high-throughput Tree 0   
+
+> …
+> Split Det.
+> ID & Life Cycle Heap State Competition Manage LPE Speculation
+> Tree State Table Tree Heap Reorder Buffer Goal Check Cross-tree Opt. Check
+> 𝑧 !
+> 𝑧 "
+> Input Config ID & Life Cycle Tree Summary Split Interface
+> Manager State Table Tree 𝑁
+> Query Identifier Balance FIFO Neighbor Cache Query Filter KD Tree Construction Top Tree Units Bucket Units
+> IV. A Arborist Toolbox
+> Multi-Bank Point Memory
+> Coll. Det.
+> IV. C
+> Parallel-Query Retrieval
+> IV. D
+> Look-ahead Planning
+> IV. B
+> KD Tree Subsys.
+> Hierarchical Query Distributor
+> Fig. 6. Overview of ArboristAccel. The architecture is organized into four components: the Arborist Toolbox for multi-tree control, the KD-tree subsystem for neighbor search and construction, the Parallel-Query Retrieval path for balanced memory access and query generation, and the Look-ahead Planning path for speculative execution. These components interact through the multi-bank point memory to exploit both inter-tree and intra-tree parallelism.
+
+near-neighbor search and dynamic replanning support; (3) a 
+
+Parallel-Query Retrieval (PQR) module (Section IV-C) that balances multi-bank memory accesses to alleviate system-level memory bandwidth bottlenecks; and (4) a Look-ahead Planning Engine (LPE) (Section IV-D) that exploits intra-tree parallelism while preserving path quality by in-order commit. We further discuss the programmability and extensibility in Section IV-E. 
+
+A. Arborist Toolbox 
+
+As shown in Figure 6, the Arborist Toolbox is the control substrate that realizes the inter-tree parallelism introduced in Section III. Rather than accelerating nearest-neighbor search directly, it manages the lifecycle of multiple concurrent FMT-style trees and enforces the control rules needed to preserve correctness under parallel expansion. Concretely, the toolbox consists of a global Arborist Manager, a Split Detector, Tree Units, and a collision detector. 
+
+Arborist Manager. The Arborist Manager is a lightweight global controller that maintains a manager state table and compact per-tree summaries, including tree identity, lifecycle state, and status signals needed for competition management and termination. It is responsible for selecting active trees, issuing split commands, coordinating node migration between trees, and arbitrating events such as override, hibernation, reactivation, and goal detection. 
+
+Split Detector. The Split Detector is the hardware realization of the Step-1 gap test. Instead of sorting projected coordinates, it constructs a fixed-bin histogram for each examined dimension, converts non-empty bins into an occupancy bitset, and identifies the Longest Zero Run (LZR). A zero run of length LZR corresponds to an empty coordinate interval of approximately LZR · 𝑤 bin . The detector uses the threshold 𝑇 ℎ := 𝛽 𝑟 𝑛 /𝑤 bin 
+
+and triggers when LZR ≥ 𝑇 ℎ, where 𝑤 bin is the bin width, 𝑟 𝑛 is FMT*’s neighbor radius, and 𝛽 is a tunable hyperparameter. This approximates the software condition 𝐺 𝑑 ≥ 𝛽𝑟 𝑛 . The lightweight detector enables real-time identification of separable clusters with minimal computational overhead. Tree Units. Each active tree unit is backed by a dedicated heap that stores its open-set wavefront as an independent priority queue. These heaps are paired with per-tree state tables that record local execution metadata, such as heap status and tree-level bookkeeping needed by the manager. Each tree unit also has a reorder buffer to support LPE speculation mentioned in Section IV-D. 
+
+Collision Detector. ArboristAccel exposes collision checking through a fixed edge-validity request/response interface rather than a universal rule language. The FMT* datapath issues a request containing the candidate edge endpoints and receives a binary valid/collision response. For 2D/3D workloads, the checker performs occupancy-grid or voxel-grid traversal over map memory. For 5D/7D arm workloads, it performs fixed-DoF forward kinematics and rasterizes each link against a 2D occupancy map. Because FMT* performs lazy edge validation and collision checking is a small fraction of the profiled runtime, ArboristAccel focuses on the shared FMT substrate; retar-geting binds the same interface to the appropriate benchmark-specific checker. 
+
+B. KD-Tree Subsystem with Dynamic Planning Support 
+
+As shown in Figure 6, ArboristAccel combines a two-stage KD-tree Subsystem [50]–[54] for near-neighbor queries with an exact-balanced KD-tree constructor for dynamic-environment support. 
+
+KD-Tree Search. ArboristAccel’s KD-tree search engine builds on Tigris [54], employing a two-stage pipeline: (1) multiple front-end Top-Tree Units (TTUs) that exploit query-level parallelism, and (2) multiple back-end Bucket Units (BUs) that provide node-level parallelism. 
+
+Exactly Balanced Two-Stage KD-Tree Constructor for Fast Tree Build and Dynamic Planning. In software im-plementations, KD-tree construction accounts for only about 0.6–6.3% of the total time, since tens of thousands of KD-tree searches dominate. Under the ArboristAccel optimization it exceeds 50%, creating a need for an on-chip KD-tree constructor. Unlike Tigris [54], ArboristAccel integrates an on-chip KD-tree constructor that supports rapid re-sampling and balanced top-tree reconstruction. The constructor uses a hardware-optimized Quickselect algorithm [55] to identify the exact median in expected 𝑂 (𝑛 ) time without sorting all samples. This design maintains balanced KD-trees across planning iter-ations, thereby preserving high neighbor-search throughput and predictable latency under dynamic workloads. It also enables the deployment for IAFMT*/IABFMT* on ArboristAccel as they need iterative planning (Section IV-E). 
+
+C. Parallel-Query Retrieval 
+
+The Parallel Query Retrieval (PQR) subsystem in Arboris-tAccel optimizes query throughput, memory bandwidth, and access locality through three tightly integrated components: (1) a Ring-buffer Neighbor Cache for high-reuse query data, (2) a high-throughput query identifier coupled with a multi-banked point memory for concurrent access, and (3) a Balance FIFO for data layout optimization. Together, these modules sustain Balance FIFO KD Tree Subsys.  
+
+> addr  % N
+> Neighbor Cache
+> HT
+> …
+> Neighbor Addr Write
+> Multi-bank Point Memory
+> B0
+> ………
+> B1 B2
+> Neighbor Access
+> Query Identifier
+> 𝑛 in another tree
+> 𝑛
+> valid?
+> Query Distribution
+> Query Identification
+> Fig. 7. Parallel-Query Retrieval design. Neighbor addresses from the KD-tree subsystem are balanced across FIFO lanes, cached, used to access the multi-bank Point Memory, and filtered by the Query Identifier to generate valid downstream queries. Circles denote addresses, squares denote node entries, and H and T denote the head and tail of the ring buffer.
+
+high utilization of the KD-tree subsystem and alleviate the memory bottlenecks that typically limit nearest-neighbor search performance. As illustrated in Figure 7, ArboristAccel employs a
+
+Neighbor Cache to store each returned neighbor’s address together with the edge cost computed during KD-tree radius search. Caching the cost allows downstream stages to reuse the neighbor list without refetching point coordinates for distance recomputation. The cache is implemented as a ring buffer to efficiently accommodate variable-length neighbor lists produced during each motion planning iteration. A Query Identifier then fetches the corresponding neighbor points from the on-chip 
+
+Multi-bank Point Memory in response to neighbor cache reads. Points that pass the PropagatingPoints check (Section III-C) are marked as valid queries and dispatched to the next stage. 
+
+Multi-banked Point Memory. To sustain sufficient throughput, ArboristAccel employs a multi-banked Point Memory design that provides high read bandwidth and ensures an adequate number of valid queries per cycle. This architecture significantly improves KD-tree TTU utilization. 
+
+Balance FIFO for Data Layout Optimization. However, simply increasing the number of point-memory banks does not guarantee full throughput because neighbor counts vary across query nodes, producing a nonuniform data layout across banks. To address this, we insert a lightweight Balance FIFO (BF), inspired by [56], into the neighbor-cache write stage. It dynamically equalizes per-bank load before neighbor addresses are enqueued in the Neighbor Cache. Each BF lane is aligned with a Point Memory bank. In practice, BF delivers substantial speedups by redistributing neighbor addresses and balancing traffic to the Point Memory subsystem (see Section VI-B). 
+
+D. Look-ahead Planning 
+
+ArboristAccel supports intra-tree parallelism through a speculative execution strategy that breaks the inherent data dependencies across iterations in FMT*, realized by the Look-ahead Planning Engine (LPE). 
+
+Intuition. FMT* expansion is inherently sequential: each wavefront of nodes must be fully processed before the next can begin. This strict ordering limits hardware utilization, as many compute units remain idle while waiting for dependencies to resolve. However, most node expansions in practice are ...      
+
+> ...
+> ①②③①②③
+> (a) Finish i-1 th Update (d) Predict Minimum at time i+1
+> ...
+> ①②③
+> ...
+> ①②③
+
+time 
+
+Proposed Original 
+
+Speed Up        
+
+> Settled Point Tree Edge
+> xYtime cost xYtime cost Lower Cost Higher Cost
+> (b) Get Minimum at time i
+> (b) Get Minimum at time i
+> Wavefront Propagation:
+> Earlier nodes tend to have lower costs.
+> Our Strategy: Predict Second Minimal at time i
+> as Minimal at time i+1
+> Process & Update
+> ...
+> ...
+> ②③④
+> (c) Get Minimum at time i+1
+
+time 
+
+> ...
+> Unvisited Point
+> Wavefront Point Obstacle Batch Selected Batch With Minimal Cost
+> Process & Update
+> Process & Update
+> ...
+> Process & Update
+
+Fig. 8. Example of Look-ahead Planning ( 𝐿 = 1). In the baseline pipeline (top), steps (a), (b), and (c) execute sequentially: in (b), the algorithm selects the minimum-cost wavefront point at time 𝑖 , and only after processing and updating it can the minimum for time 𝑖 +1 be determined. The proposed scheme (bottom) predicts that earlier-generated wavefront nodes tend to have lower costs, as shown in the bottom-left inset [57]. It can therefore process the minimum at time 𝑖 in (b) and the predicted minimum at time 𝑖 +1 in (d) in parallel. Mark READY     
+
+> Tree heap
+> state z_id seq
+> h_seq t_seq
+> Reorder Buffer
+> Head
+> …
+> Tail
+> allocate
+> Q. ID. Q. Dist. + Q. Filter KD Tree Subsys.
+> Neighbor Cache Validation Head is READY
+> Mismatch Handling
+> ✔
+> ✖
+> Collision Detection
+> Write
+> to Point Memory
+> t_seq-h_seq<L
+> Issue Execution Complete Commit
+
+Fig. 9. LPE architecture. A per-tree reorder buffer (ROB) enables speculative look-ahead execution of future wavefront nodes while preserving sequential FMT* semantics through in-order commit. 
+
+independent; their outcomes do not affect each other’s feasibility or cost evaluation within the same iteration. 
+
+Design. As shown in Figure 8, the Look-ahead Planning Engine (LPE) speculatively advances future wavefront expansions, i.e., up to 𝐿 look-ahead steps, before the current iteration is fully committed. To preserve path quality and correctness under spec-ulation, each tree unit is equipped with a lightweight Reorder Buffer (ROB) that enforces in-order commit of valid wavefront queries, thereby preserving the semantics of sequential FMT* execution. The physical ROB storage is implemented as a circular buffer indexed by the sequence number modulo the ROB capacity, with head and tail counters used for commit and allocation. The LPE microarchitecture is illustrated in Figure 9. Similar to a conventional out-of-order processor, it is organized into four stages: issue , execution , complete , and commit , all centered around the ROB. During the issue stage, a new wavefront node 
+
+𝑧 can be issued from the tree heap and allocated into the ROB whenever the speculation window is not full, i.e., when t_seq - h_seq < L . Here, h_seq and t_seq denote the sequence numbers of the ROB head and tail, respectively. In the execution stage, the issued node passes through the Query Identifier, Query Distributor, and Query Filter and then enters the KD-tree subsystem to retrieve its neighbor information. In the complete stage, the retrieved neighbor list is written into the Neighbor Cache, and the corresponding ROB entry is marked READY . Once the head entry becomes READY ,it proceeds to the commit stage. At commit time, the ROB validates whether the speculative result is still consistent with the current tree state. Specifically, when committing 𝑧 𝑗 , for each candidate 𝑥 produced during speculation, we recompute its best parent using the current open set: 
+
+𝑦 ∗ (𝑥 ) ∈ arg min       
+
+> 𝑦 ∈𝑉 (𝑗 −1)
+> open ∩Near (𝑥 )
+
+𝜙 𝑦 (𝑥 ), (1) where 𝜙 𝑦 (𝑥 ) := 𝑔 (𝑦 ) + 𝑐 (𝑦, 𝑥 ) is the candidate cost-to-come through 𝑦 , and 𝑐 (𝑦, 𝑥 ) is the connecting edge cost. ROB validation reuses the cached neighbor entries generated during speculative execution. For each cached neighbor 𝑦 , the valida-tion stage reads the corresponding node-state entry from the per-tree Tree State Table to obtain current OPEN membership and cost-to-come 𝑔 (𝑦 ), filters non-OPEN nodes, and reduces 
+
+𝜙 𝑦 (𝑥 ) := 𝑔 (𝑦 ) + 𝑐 (𝑦, 𝑥 ) using the cached edge weight. This avoids scanning the OPEN heap, scanning the Tree State Table, rerunning KD-tree search, or refetching full point coordinates during commit validation. We then perform collision checking and update the tree state only at commit. In this way, speculation is allowed to compute read-only intermediate results early, but it is not allowed to modify the global planning state before validation. If earlier commits have changed the wavefront such that the speculative choice is no longer optimal or feasible, i.e., Equation (1) fails, the Mismatch Handling module is triggered. It flushes all younger ROB entries according to their seq numbers, reinserts the flushed 𝑧 nodes back into the tree heap, and restarts execution from the corrected state. 
+
+Hierarchical Query Distributor with Query Filter. With ArboristAccel’s Look-Ahead Planning and Tree-Splitting mechanisms, the KD-tree subsystem must sustain a substantially higher query rate. Supporting both inter-tree and intra-tree parallelism requires issuing multiple queries per cycle, making query dispatch a key bottleneck. To address this challenge, ArboristAccel employs a Hierarchical Query Distributor with Query Filter (HQD-QF), shown in Figure 10, which partitions the Top Tree Units (TTUs) into independent sets and performs scalable query dispatch with early duplicate suppression. The HQD-QF is organized into three stages. First, incoming queries are buffered in multiple Query FIFOs (QFs). Second, a set of lightweight arbiters selects valid queries from these QFs and forwards them to their assigned TTU set. Third, before issue, each query is checked against a lightweight per-set Query History structure that records recently issued queries. If a match is found, the query is discarded; otherwise, it is inserted into the Top Tree Unit           
+
+> Queries  QF QF QF
+> Arb Arb Query History
+> Any Match?
+> Yes, then discard
+> No, save to QH & issue
+> Top Tree Unit
+> ⋮⋮
+> Query Distributor Query Filter
+> Write Read
+> Issuer
+> Query Issue
+> valid bits Fig. 10. Hierarchical Query Distributor with Query Filter. Queries are buffered in Query FIFOs (QFs), selected by lightweight arbiters, checked against a per-set query-history structure, and then issued to available Top Tree Units. Duplicate queries are discarded before issue, reducing redundant speculative KD-tree lookups. AT PQR LPE KD-Tree
+> KD-Const Tree Init Tree Growth Tree Split Opt. Check
+> Start Done
+> Arborist FMT* BFMT* IAFMT* IABFMT*
+> Goal Get Two Trees Trees Meet
+> Fig. 11. Configurable ArboristAccel organization for FMT-family planners. All variants reuse the PQR/LPE/KD-tree execution kernel, while planner-specific behavior is realized by reconfiguring the control layer. Modules with same color are same config directly reuse. Striped modules denote intended control changes and the red path denotes iterative planning feedback.
+
+query history and forwarded to a local issuer, which dispatches it to an available TTU according to the returned valid bits. 
+
+E. Programmability and Extensibility 
+
+FMT-Family Support. Although ArboristAccel is built from specialized functional units, it is not hard-wired to a single planner. Its flexibility comes from a clean separation between a fixed execution substrate (the KD-tree pipeline, PQR, and LPE, which together implement the kernels shared by FMT-family planners: neighbor retrieval, candidate-parent evaluation, lazy edge validation, and ordered commit) and a configurable control layer exposed via the Arborist Toolbox (active-tree count, root initialization, split threshold, goal/meeting logic, override/hibernation, pruning, and look-ahead depth). Future algorithmic changes that preserve the FMT-style wavefront expansion can therefore be realized by reconfiguring control policies while reusing the same datapath. Figure 11 illustrates this decomposition: the upper row repre-sents planner-specific control behavior, while the lower row rep-resents the shared PQR/LPE/KD-tree module. FMT*, BFMT*, IAFMT*, and IABFMT* exercise different software control paths; Arborist enables tree splitting, overriding/hibernation, and cross-tree optimality checking. As a result, the same silicon retargets across the FMT*-family without redesigning the core neighbor-search, memory, or tree-expansion datapath. 
+
+Arbitrary Dimension Support. We support multidimensional states using a fixed-width vector datapath and hardware time-multiplexing. The datapath processes four dimensions (D) per cycle. If 𝐷 > 4, ArboristAccel reuses the datapath across multiple cycles. V. Evaluation Setup This section details Arborist’s implementation, together with the workloads, baselines, and metrics used for our eval-uation. 
+
+A. Arborist Implementation 
+
+We implement both the original FMT* and Arborist algo-rithm in C++. ArboristAccel is written in SystemVerilog and synthesized with Synopsys Design Compiler on a commercial 16nm technology process, with a target frequency of 500 MHz. All memory modules are implemented with foundry-provided SRAM macros. 
+
+Hardware Configuration. For the Arborist Toolbox, we instantiate one Arborist Manager, one Split Detector, and eight per-tree heaps (each with a 2 kB SRAM). The KD-tree subsystem includes 64 TTUs and 64 BUs, backed by a 2 kB top-tree cache and a 1 kB bucket cache. The LPE uses a 128 B reorder buffer. The PQR subsystem comprises a 32-bank Point Memory (256 kB total) and a 16 kB Neighbor Cache; the Balance FIFO threshold is set to 8 entries, with a total size of 768 B. The design has eight Min. Connect Units and eight Collision Detection Units. 
+
+Accelerator Power and Area. The total power and area of ArboristAccel are 379 .6 mW and 1 .22 mm 2, respectively. 
+
+Latency. The latency numbers are from our cycle-accurate ArboristAccel simulator. It explicitly accounts for dynamic effects including speculation success/failure, false-speculation recovery through the LPE mismatch-handling path, tree overrid-ing/hibernation, variable neighbor-list lengths, and multi-bank memory conflicts. 
+
+B. Workloads 
+
+Arborist is evaluated on RTRBench [58], a standardized motion-planning benchmark suite that is also used by prior path-planning accelerators such as RACOD [24] and MOPED [26]. We use a set of five representative workloads that span different application domains and planning dimensionalities. For 2D navigation, we select city and maze maps from the widely used benchmark suite of [59], covering urban driving–like scenarios as well as highly cluttered maze environments. For 3D planning, we adopt volumetric maps from OctoMap [60], representative of UAV and aerial-robot workloads. To evaluate high-DoF manipulation, we follow RTRBench and use its 5D robot arm and an extended 7D arm configuration. 
+
+C. Hardware Baselines 
+
+We compare Arborist against four baselines:  
+
+> •
+
+CPU Arborist : a multi-thread C++ implementation of Arborist compiled with -O3 , measured on an AMD Ryzen Threadripper 3960X (3.8 GHz, 768 GB RAM). Area/power are reported on 4 cores (50 mm 2, 40 W).  
+
+> •
+
+GPU GMT* [20]: a GPU implementation of FMT* with a 10% path-quality drop; included as a high-performance baseline. Performance is taken from the reported NVIDIA GTX 980 results (398 mm 2, 165 W TDP). • ASIC w/ Tigris [54]: Our baseline FMT* ASIC design based on Tigris-style KD-tree. We synthesize it with 500 MHz on the same 16nm node for a fair comparison (0.635 mm 2,134.5 mW).  
+
+> •
+
+MOPED [26]: a state-of-the-art motion planning accelerator based on RRT* [17]. The results are scaled to 14 nm using Deep-ScaleTool [61], since 16 nm is not directly supported; 14 nm is a favorable scaling to MOPED and therefore conservative with respect to our claimed improvement. The original metrics at 28 nm are 0.62 mm 2 and 137.5 mW. The latency is obtained by running RRT* on same test cases until the path costs match our results with FMT*/Arborist, then scale to MOPED using the speedup factor ( ∼ 3000 ×) reported in [26]. Unless stated otherwise, Table I lists the Arborist evaluation settings. 𝑁 is the number of samples; 𝛽 controls the LZR Split Detector; MAX_TREE is the maximum number of trees; and 𝐿 
+
+is the number of look-ahead steps.                                
+
+> TABLE I Evaluation Settings. Scene Dim 𝑁 𝛽 MAX_TREE LPE Step 𝐿
+> 2D-City 220k 0.75 852D-Maze 220k 0.50 853D-Drone 320k 0.50 810 5D-Arm 510k 0.50 857D-Arm 710k 0.25 810
+
+VI. Evaluation We first evaluate Arborist’s system-level benefits and then examine the impact of each architectural decision on Arboris-tAccel performance. 
+
+Efficiency Definition. We define power and area efficiency as 
+
+𝐸 = speedup × ( 𝑉 𝑏𝑎𝑠𝑒𝑙𝑖𝑛𝑒 /𝑉 ), where 𝑉 represents the reported or modeled power or area, and speedup is relative to the four-thread CPU baseline. This metric penalizes designs that achieve speedup through disproportionate increases in power or area. 
+
+A. System-level Benefits 
+
+Power, Performance, and Area (PPA) Comparison. Fig-ure 12 compares ArboristAccel against CPU, GPU, ASIC w/ Tigris, and MOPED across five workloads using the perfor-mance model. In speedup , GPUs are around 10 2, while ASIC w/ Tigris and MOPED peak at 6 .4 × 10 2 and 3 .5 × 10 2, respec-tively. ArboristAccel is the best performer overall , reaching 2.8 × 10 3 on 2D-Maze and sustaining more than 10 3 speedup across all workloads. Its area and power efficiency (normalized to 4T CPU) reach 1 .1×10 5 and 2 .9×10 5, respectively. Averaged across workloads (geomean), ArboristAccel improves over ASIC w/ Tigris by 8 .8× in speedup, 4 .6× in area efficiency, and 3.1× in power efficiency. Relative to MOPED, the corresponding factors are 8 .6×, 1 .0×, and 1 .8×, respectively. The end-to-end energy per planning query remains below 1 .2 mJ across all workloads on ArboristAccel. Specifically, ArboristAccel consumes 0 .590 mJ on 2D-City, 1 .175 mJ on 2D-Maze, 0 .763                                                   
+
+> Fig. 12. System PPA comparison. Annotated values are normalized to ASIC w/ Tigris; the y-axis is normalized to the four-thread CPU baseline. TABLE II Latency comparison (ms); T denotes CPU threads.
+> CPU GPU ASIC w/ Scene 1T 2T 4T 24T GMT* Tigris MOPED Ours
+> 2D-City 4,466 2,550 1,951 2,009 44.66 23.322 15.00 1.555
+> 2D-Maze 11,298 8,044 8,668 7,831 112.98 46.276 37.95 3.096
+> 3D-Drone 4,025 3,695 3,275 3,026 40.25 28.261 14.88 2.009
+> 5D-Arm 3,083 2,765 2,294 2,133 30.83 4.120 7.14 1.054
+> 7D-Arm 5,010 5,461 4,441 4,509 50.10 6.951 12.80 1.660
+
+mJ on 3D-Drone, 0 .400 mJ on 5D-Arm, and 0 .630 mJ on 7D-Arm. The execution latencies are shown in Table II. We profile CPU Arborist using up to 24 threads. Due to multithreaded synchronization overhead, CPU speedup largely saturates at four threads when processing parallel trees. 
+
+Ablation Study. Figure 13 reports an ablation study that quantifies the incremental contributions of ArboristAccel’s key innovations, i.e., Parallel Query Retrieval, Arborist Tool-box, and Look-ahead Planning, to overall system efficiency. Starting from the ASIC w/ Tigris baseline, adding Parallel Query Retrieval yields 1 .2–2 .4× speedup and area efficiency up to 1 .3×, but area efficiency falls below 1 × in 5D/7D. Incorporating the Arborist Toolbox reaches 6 .3× speedup and 3 .3× area efficiency, but only 1 .4–1 .6× speedup in 5D/7D. Finally, enabling Look-ahead Planning (LPE) delivers the largest benefit, with the optimal depth varying by scene (see Table I): speedup reaches 15 .0× in 2D-City, 14 .9× in 2D-Maze, 14 .1× in 3D-Drone, and 3 .9–4 .2× in 5D/7D-Arm. Area efficiency peaks at 7 .8× in 2D-City and is 2 .0–2 .2× in 5D/7D. Power efficiency reaches 5 .3× in 2D-City and 2D-Maze and 1 .4– 1.5× in 5D/7D. Across all workloads (geomean), the best look-ahead configuration achieves 8 .8× speedup, 4 .6× area efficiency, and 3 .1× power efficiency over the ASIC w/ Tigris starting point. These results indicate that while each optimization contributes individually, they can all be integrated to achieve compounding PPA benefits. 
+
+Path Planning Quality. Figure 14 compares the path planning quality of Arborist against the baseline FMT*, and a naive split scheme without Arborist Toolbox (or global competition management). While the naive split scheme also exploits parallel processing to reduce latency, it significantly degrades path quality by increasing the path length, on all evaluated maps. In Fig. 13. Ablation study on ArboristAccel. 
+
+> Fig. 14. Path Planning Quality.
+
+contrast, Arborist design (both in algorithm and on hardware) preserves the same optimal path cost as the original FMT*, and therefore achieves identical path quality while enabling high speedup, power and area efficiency. This requirement is strict in practice, because path quality directly determines the operating time and energy consumption required for the whole robot system, rather than the motion planning computation alone. 
+
+B. Sensitivity Study 
+
+Maximum Number of Trees (MAX_TREE ). Figure 15(a) sweeps MAX_TREE and TTU count on Boston city and a Maze map [59]. Both saturate beyond 6–8 trees, since the exploitable parallelism is ultimately bounded by obstacle structure. Boston (frequent wavefront reconvergence) incurs competition-management overhead when TTUs are scarce, but benefits substantially once enough TTUs are provisioned; Maze (diverging wavefronts) shows negligible overhead throughout. Higher-dimensional workloads follow the Boston trend, so picking MAX_TREE according to obstacle density (typically 4–8) balances competition overhead against parallelism. 
+
+Effect of TTU Count on System Speedup. Figure 15(b) reports end-to-end speedup vs. total TTU count with look-ahead planning enabled to exploit intra-tree parallelism. Compared to inter-tree parallelism alone (which saturates around 16–32 TTUs in (a)), look-ahead pushes near-saturation out to roughly 128 total TTUs. However, increasing the count from 64 to 128 yields only 2 .1–30 .9% additional speedup across these workloads despite doubling the TTUs. The additional traversal and buffering resources increase area and power cost, motivating our choice of 64 TTUs as the default configuration. 
+
+𝛽 sensitivity for LZR Split Detector. Figure 16 shows average parallelism (bars) and the hardware speedup (line) versus the Boston Maze     
+
+> (a) (b)
+> Fig. 15. (a) Effect of MAX_TREE ; (b) Number of TTUs on System Speedup.
+> Fig. 16. 𝛽 sensitivity for the LZR Split Detector.
+
+split threshold 𝛽 . Lower thresholds split more aggressively, yielding higher parallelism and speedup, though speedup grows sub-linearly due to memory-bandwidth contention on Point Memory and issue-width limits of the Hierarchical Query Distributor. Across workloads, parallelism reaches 1 .75–5 .6×
+
+and speedup 1 .5–3 .0×, with 2D-City peaking at 𝛽 =0.5. The best operating point lies where the speedup curve flattens: 
+
+𝛽 ∈ [ 0.5, 1.0] captures most of the achievable gain across all workloads. 
+
+Effectiveness of Cross-tree Optimality Check. As shown in Figure 17, omitting the proposed termination logic (TL) in Arborist leads to up to 3.3% additional path cost. In contrast, with TL enabled, all cases achieve the optimal path, demonstrating that our termination logic guarantees path quality. We also evaluate the benefit of incorporating a heuristic function 
+
+ℎ(·) for pruning, as described in Section III-D and illustrated in the right-hand figure. Using a simple ℓ2-norm heuristic as a lower bound on path cost reduces additional runtime by 45.5% in the worst case and by 35.2% on average, showing that our termination logic not only preserves optimality but also maximizes efficiency. 
+
+Balance FIFO. The detailed results are shown in Figure 18. Balance FIFO (BF) increases retrieval throughput by 90.2% on average and by 116.7% with 16 banks. When integrated into the full system (Figure 18), higher retrieval speeds gradually shift the bottleneck away from memory, leading to diminishing overall gains. Nonetheless, a 16-bank Balance FIFO achieves a 2.12 × system speedup over the baseline. 
+
+Hierarchical Query Distributor. Figure 19(a) sweeps (𝑁, 𝑀 )
+
+configurations with 128 total TTUs and a 64-entry Query Filter (𝑁 sets of 𝑀 TTUs, with a 64 /𝑁 -entry cache per set). The Fig. 17. Termination Logic (TL) ablation. ℎ(·) denotes the heuristic used for cost estimation; one 3D no-TL point is 3.3% above optimal. 
+
+> Fig. 18. Parallel Query Retrieval Speedup.
+
+blue frequency curve is compared with the gray 500 MHz target line. Larger 𝑁 eases timing and issues more parallel queries, but splitting the cache raises area/power with diminishing returns. The highlighted (8, 16 ) point is 35 .3% faster than 𝑁 =1 and only 1.8% slower than 𝑁 =16 at acceptable overhead. 
+
+Impact of Look-ahead Planning and Discard Mechanism. 
+
+Figure 19 (b) shows the system speedup under different look-ahead depth 𝐿 . With 𝐿 = 1, we achieve nearly 2 × speedup with almost no additional computation, since looking one step ahead is highly likely to succeed. As 𝐿 increases, speedup continues to grow but not linearly, because of the increase of false speculation causing redundant computation. We also evaluate the effectiveness of the discard mechanism provided by the Query Filter (Section IV-D). As shown in the figure, discard substantially reduces redundant computation, allowing the system to achieve consistently higher speedup at the same 𝐿 .
+
+C. Programmability and Extensibility 
+
+To evaluate ArboristAccel’s programmability, we replay four representative FMT*-family planners FMT* , BFMT* ,
+
+IAFMT* , and IABFMT* on the same datapath with KD-tree, PQR, and LPE modules, and reconfigure only the control layer described in Section IV-E (Figure 11). Table III reports the per-stage latency breakdown on 2D-City with 10k samples. Across all four planners, ArboristAccel delivers end-to-end speedups ranging from 126 .7× (BFMT*) to 470 .7× (IAFMT*), with a 294 .6× geometric mean over the CPU baseline. The on-chip KD-tree constructor accelerates tree building by up to 8 ×,which is critical for the iterative variants (IAFMT*/IABFMT*) that must repeatedly rebuild the tree under anytime refinement and would otherwise be dominated by setup cost. To isolate the constructor’s end-to-end benefit, we replace accelerator construction with CPU-side build while keeping the neighbor search on ArboristAccel, yielding 7 .28 ×/8 .03 ×/3 .27 ×/3 .58 ×
+
+speedups for FMT*/BFMT*/IAFMT*/IABFMT* respectively, confirming that on-chip building is essential under dynamic                                      
+
+> Fig. 19. (a) PPA trade-offs under different Hierarchical Query Distributor settings. (b) Look-ahead Planning, where “discard” is whether to incorporate the Query Filter to discard repeated queries. TABLE III Latency breakdown (ms) for FMT*-family algorithms on CPU and ArboristAccel, using 2D-City with 10k samples. Speedups use unrounded timings.
+> CPU ArboristAccel
+> Planner Build Search Total Build Search Total Speedup FMT* 3.04 119.96 123.0 0.373 0.052 0.425 289.6 ×
+> BFMT* 3.11 46.22 49.3 0.373 0.016 0.389 126.7 ×
+> IAFMT* 9.34 1555.66 1565.0 1.800 1.525 3.325 470.7 ×
+> IABFMT* 10.00 1376.00 1386.0 1.800 1.377 3.178 436.2 ×
+
+replanning where the tree must be rebuilt frequently. The shared neighbor-search backend accelerates the CPU search stage by approximately three orders of magnitude across all planners, confirming that the PQR/LPE/KD-tree kernel remains effective regardless of the planner-specific control policy. These results show that ArboristAccel is not hard-wired to the Arborist algorithm: the same silicon serves as a configurable substrate for the broader FMT*-family at uniformly high efficiency. VII. Related Work 
+
+Motion Planning Accelerators. Prior accelerators target mo-tion planning end-to-end or its key subroutines [23], [38], [39], [53], [54], [62]–[65]. Early systems target PRM [15], [62]; MOPED [26] co-designs algorithm and hardware for RRT* [17] to reduce both collision-check frequency and cost; RACOD [24] pairs a collision-detection accelerator with run-ahead search for grid-based A* [25]; and MPAccel [63] eliminates redundant collision checks via spatially aware early-exit scheduling. 
+
+Wavefront-Style Planning (FMT*). FMT* [18] expands an implicit random geometric graph as a cost-to-come “wavefront” via lazy dynamic-programming recursion, reducing collision checks and shifting the bottleneck toward neighbor search [18], [66]. A broad family of derivatives extends this principle [19]– [22], [35], [36], underscoring FMT*’s role as a foundational sampling-based planner and motivating accelerators that explic-itly target wavefront expansion and high-rate nearest-neighbor queries. 
+
+KD-tree Acceleration for Point Cloud Nearest-Neighbor Search. A complementary line of work accelerates KD-tree [55] nearest-neighbor (NN) search, a core primitive in 3D point-cloud processing where NN queries dominate runtime [23], [53], [54], [67]. These efforts exploit parallelism across queries and along the traversal, with memory-aware data layouts to mitigate bandwidth and locality bottlenecks [23], [53], [54]; GPU-oriented techniques additionally support fast KD-tree (re)construction for dynamic point sets [51]. VIII. Conclusion This work presents Arborist, an algorithm–hardware co-design framework that exposes both inter- and intra-tree par-allelism in the traditionally sequential FMT* algorithm via parallel multi-tree expansion, competition management, and look-ahead planning. Synthesized in 16 nm technology node and operating at 500 MHz, ArboristAccel sustains more than 10 3× speedup over CPU and gives geomean improvements of 8.8× speedup, 4 .6× area efficiency, and 3 .1× power efficiency over an FMT* ASIC baseline. The corresponding factors relative to a state-of-the-art RRT*-based MOPED accelerator are 8 .6×/1 .0×/1 .8×, at comparable path cost. Acknowledgments We sincerely thank the anonymous reviewers for their in-sightful feedback, which greatly improved the quality of this paper. This work was supported in part by the National Science Foundation (NSF) under Grant No. 2403409, No. 2239945, and the ASU Center for Semiconductor Microelectronics (ACME). Any opinions, findings, or recommendations expressed in this material are those of the authors and do not necessarily reflect the views of the funding agencies. Appendix A Artifact Appendix 
+
+A. Abstract 
+
+This appendix summarizes the artifact evaluation for Ar-borist and ArboristAccel. The artifact contains the motion-planning implementations and workloads, cycle-level simulator, analysis scripts, and reference outputs used in this work. Release v1.1.4 provides a Docker-based top-level workflow that builds and runs the package, regenerates the selected figures and tables, validates the outputs, and reports a single pass or failure. Detailed instructions are included in the archive. 
+
+B. Artifact check-list (meta-information)                                         
+
+> •Algorithm: FMT*, Arborist, BFMT*, IAFMT*, and IABFMT*.
+> •Program: C++ planners and Python simulation/analysis scripts.
+> •Compilation: Docker (recommended), or GNU Make, GCC/G++ with C++17 support, and Boost headers for a native run.
+> •Data set: Packaged 2D-City, 2D-Maze, 3D-Drone, 5D-Arm, and 7D-Arm workloads.
+> •Run-time environment: x86-64 Linux with Docker; Python 3.10 or newer is required only for a native run.
+> •Hardware: Four logical CPUs and 8 GiB RAM are recom-mended; no accelerator is required.
+> •Metrics: Path cost, latency, cycles, speedup, area, power, and energy.
+> •Output: Eight PDF figures, 17 CSV tables, logs, and a summary report.
+> •Disk space required (approximately): 5 GiB.
+> •Preparation time (approximately): Under ten minutes when the Docker image or native dependencies are available.
+> •Experiment time (approximately): About five minutes for the default workflow.
+> •Publicly available?: Yes, at https://doi.org/10.5281/zenodo. 22313402.
+> •Code license: MIT for author-created code; third-party notices are included.
+> •Archived (DOI): https://doi.org/10.5281/zenodo.22313402.
+
+C. Description 1) How to access: We released v1.1.4 with a Docker-based workflow: download it from https://doi.org/10.5281/zenodo. 22313402 and run ./run-docker.sh . The archive is self-contained; no Git checkout, submodule, private account, or data download is required. 
+
+2) Hardware dependencies: The default workflow runs on a standard x86-64 Linux machine. Four logical CPUs, 8 GiB RAM, and 5 GiB free disk are recommended. A GPU, FPGA, RTL simulator, and commercial EDA tools are not required. 
+
+3) Software dependencies: The recommended workflow requires Docker on an x86-64 Linux host. Its first image build requires Internet access to retrieve the base image and packaged dependencies; the evaluator container then runs without network access. For the optional native workflow, compatible versions are GCC/G++ 11 or newer, GNU Make 4 or newer, and Python 3.10 or newer, together with Boost Container and Boost Math headers. The native workflow verifies the complete plotting dependency closure at exact pinned versions and creates 
+
+.venv-ae when the active Python environment does not match. 
+
+4) Data sets: All five workload inputs are included in the archive. Their sources, licenses, and checksums are listed in 
+
+artifact/DATA.md .
+
+5) Hardware artifacts: The hardware/ directory provides 11 selected RTL files (eight report-matched components and three shared dependencies) together with eight sanitized com-ponent synthesis summaries. 
+
+D. Installation 
+
+After downloading the artifact, run: 
+
+sha256sum -c arborist-ae-1.1.4.tar.gz.sha256 tar -xzf arborist-ae-1.1.4.tar.gz cd arborist-ae-1.1.4 ./run-docker.sh 
+
+The Docker wrapper checks the package, builds the image, runs the experiments in an isolated container, and validates the generated results. The native ./run.sh workflow re-mains available for compatible host environments. Manual installation and troubleshooting instructions are provided in 
+
+artifact/INSTALL.md .
+
+E. Suggested Experiment workflow 
+
+The command ./run-docker.sh is the recommended evaluator workflow. It runs the portable experiment set and regenerates the selected figures and tables. The key steps are:  
+
+> •
+
+run ./run-docker.sh from the extracted archive root; • confirm the final AE PASS and 21/21 stage summary;  
+
+> •
+
+inspect results/docker-ae/REPRODUCTION_ REPORT.md ; and  
+
+> •
+
+inspect the generated PDFs in 
+
+results/docker-ae/figures/ and CSVs in 
+
+results/docker-ae/tables/ .The native workflow instead writes to results/ae/ . The archive names the eight experimental PDFs to match Figures 12– 19 and regenerates Table III from the retained four-planner traces. Fixed/model comparisons and separate sensitivity con-figurations remain identified in the generated reports. The optional paper-sample workflow is: 
+
+python3 artifact/reproduce.py \--mode full --jobs 24 \--output-dir results/full 
+
+Commercial re-synthesis and fresh execution of external baselines are outside this workflow. Packaged fixed or modeled inputs remain identified in the generated report. 
+
+F. Evaluation and expected results 
+
+A successful default run ends with: 
+
+AE PASS Workflow stages: 21/21 passed Generated figures: 8Generated tables: 17 
+
+This confirms that the released software builds and runs end-to-end, the five FMT*/software-Arborist workload pairs satisfy the registered path-cost check, and the selected figures, tables, and machine-readable outputs pass validation. 
+
+G. Experiment customization 
+
+The map, sample count, tree count, split threshold, look-ahead depth, simulator settings, and output directory can be changed. See artifact/CUSTOMIZATION.md and 
+
+artifact/REUSE.md for examples. 
+
+H. Methodology 
+
+Submission, reviewing, and badging methodology:  
+
+> •
+
+https://www.acm.org/publications/policies/ artifact-review-and-badging-current  
+
+> •
+
+https://cTuning.org/ae References 
+
+[1] J. Wang, T. Zhang, N. Ma, Z. Li, H. Ma, F. Meng, and M. Q.-H. Meng, “A survey of learning-based robot motion planning,” IET Cyber-Systems and Robotics , vol. 3, no. 4, pp. 302–314, 2021. [2] C. Zhou, B. Huang, and P. Fr¨ anti, “A review of motion planning algorithms for intelligent robots,” Journal of Intelligent Manufacturing , vol. 33, no. 2, pp. 387–424, 2022. [3] W. Schwarting, J. Alonso-Mora, and D. Rus, “Planning and decision-making for autonomous vehicles,” Annual Review of Control, Robotics, and Autonomous Systems , vol. 1, no. 1, pp. 187–210, 2018. [4] S. Teng, X. Hu, P. Deng, B. Li, Y. Li, Y. Ai, D. Yang, L. Li, Z. Xuanyuan, F. Zhu et al. , “Motion planning for autonomous driving: The state of the art and future perspectives,” IEEE Transactions on Intelligent Vehicles ,vol. 8, no. 6, pp. 3692–3711, 2023. [5] S. Kim, R. Hsiao, B. Nikolic, J. Demmel, and Y. S. Shao, “Supernova: Algorithm-hardware co-design for resource-aware slam,” in Proceedings of the 30th ACM International Conference on Architectural Support for Programming Languages and Operating Systems, Volume 1 , 2025, pp. 1035–1051. [6] Z. Wan, Y. Du, M. Ibrahim, J. Qian, J. Jabbour, Y. Zhao, T. Krishna, A. Raychowdhury, and V. J. Reddi, “Reca: Integrated acceleration for real-time and efficient cooperative embodied autonomous agents,” in 
+
+Proceedings of the 30th ACM International Conference on Architectural Support for Programming Languages and Operating Systems, Volume 2 ,2025, pp. 982–997. [7] Y. Huang, Y. Hao, B. Yu, F. Yan, Y. Yang, F. Min, Y. Han, L. Ma, S. Liu, Q. Liu et al. , “Dadu-corki: Algorithm-architecture co-design for embodied ai-powered robotic manipulation,” in Proceedings of the 52nd Annual International Symposium on Computer Architecture , 2025, pp. 327–343. [8] B. Yu, W. Hu, L. Xu, J. Tang, S. Liu, and Y. Zhu, “Building the computing system for autonomous micromobility vehicles: Design constraints and ar-chitectural optimizations,” in 2020 53rd Annual IEEE/ACM International Symposium on Microarchitecture (MICRO) , 2020, pp. 1067–1081. [9] C. R. de Lima, S. G. Khan, M. Tufail, S. H. Shah, and M. R. Maximo, “Humanoid robot motion planning approaches: a survey,” Journal of Intelligent & Robotic Systems , vol. 110, no. 2, p. 86, 2024. [10] M. Ghafarian Tamizi, M. Yaghoubi, and H. Najjaran, “A review of recent trend in motion planning of industrial robots,” International Journal of Intelligent Robotics and Applications , vol. 7, pp. 253–274, Feb. 2023. [11] S. K. Moore. (2022, Aug.) 3 new chips to help robots find their way around. [Online]. Available: https://spectrum.ieee.org/ 3-new-chips-to-help-robots-find-their-way-around [12] J. M. Levin, M. Nahon, and A. A. Paranjape, “Real-time motion planning with a fixed-wing uav using an agile maneuver space,” Autonomous Robots , vol. 43, no. 8, pp. 2111–2130, Dec. 2019. [13] S. Murray, W. Floyd-Jones, Y. Qi, D. J. Sorin, and G. D. Konidaris, “Robot motion planning on a chip.” in Robotics: Science and Systems ,vol. 6, 2016. [14] A. Orthey, C. Chamzas, and L. E. Kavraki, “Sampling-based motion planning: A comparative review,” Annual Review of Control, Robotics, and Autonomous Systems , vol. 7, pp. 285–310, 2024. [Online]. Available: https://www.annualreviews.org/content/journals/10. 1146/annurev-control-061623-094742 [15] L. Kavraki, P. Svestka, J.-C. Latombe, and M. Overmars, “Probabilistic roadmaps for path planning in high-dimensional configuration spaces,” 
+
+IEEE Transactions on Robotics and Automation , vol. 12, no. 4, pp. 566– 580, 1996. [16] S. M. LaValle, “Rapidly-exploring random trees: A new tool for path planning,” Department of Computer Science, Iowa State University, Tech. Rep. 98-11, Oct. 1998. [Online]. Available: https://lavalle.pl/rrtpubs.html [17] S. Karaman and E. Frazzoli, “Sampling-based algorithms for optimal motion planning,” The international journal of robotics research , vol. 30, no. 7, pp. 846–894, 2011. [18] L. Janson, E. Schmerling, A. Clark, and M. Pavone, “Fast marching tree: A fast marching sampling-based method for optimal motion planning in many dimensions,” The International Journal of Robotics Research ,vol. 34, no. 7, pp. 883–921, 2015. [19] J. A. Starek, J. V. Gomez, E. Schmerling, L. Janson, L. Moreno, and M. Pavone, “An asymptotically-optimal sampling-based algorithm for bi-directional motion planning,” in 2015 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) . IEEE, 2015, pp. 2072–2078. [20] B. Ichter, E. Schmerling, and M. Pavone, “Group marching tree: Sampling-based approximately optimal motion planning on gpus,” in 2017 First IEEE International Conference on Robotic Computing (IRC) , 2017, pp. 219–226. [21] J. Xu, K. Song, D. Zhang, H. Dong, Y. Yan, and Q. Meng, “Informed anytime fast marching tree for asymptotically optimal motion planning,” 
+
+IEEE Transactions on Industrial Electronics , vol. 68, no. 6, pp. 5068– 5077, 2020. [22] K. Wang, J. Xu, K. Song, Y. Yan, and Y. Peng, “Informed anytime bi-directional fast marching tree for optimal motion planning in complex cluttered environments,” Expert Systems with Applications , vol. 215, p. 119263, 2023. [23] P. H. Exenberger Becker, F. Silfa, J. M. Arnau, and A. Gonzalez, “Caravan: A hardware/software co-design for efficient simd neighbor search on point clouds,” in Proceedings of the 52nd Annual International Symposium on Computer Architecture , 2025, pp. 1079–1092. [24] M. Bakhshalipour, S. B. Ehsani, M. Qadri, D. Guri, M. Likhachev, and P. B. Gibbons, “Racod: algorithm/hardware co-design for mobile robot path planning,” in Proceedings of the 49th Annual International Symposium on Computer Architecture , 2022, pp. 597–609. [25] P. E. Hart, N. J. Nilsson, and B. Raphael, “A formal basis for the heuristic determination of minimum cost paths,” IEEE transactions on Systems Science and Cybernetics , vol. 4, no. 2, pp. 100–107, 1968. [26] L. Huang, Y. Gong, Y. Sui, X. Zang, and B. Yuan, “Moped: Efficient motion planning engine with flexible dimension support,” in 2024 IEEE International Symposium on High-Performance Computer Architecture (HPCA) . IEEE, 2024, pp. 483–497. [27] J.-C. Latombe, Robot motion planning . Springer Science & Business Media, 2012, vol. 124. [28] T. Lozano-Perez, “Spatial planning: A configuration space approach,” 
+
+IEEE Transactions on Computers , vol. C-32, no. 2, pp. 108–120, 1983. [29] B. Donald, P. Xavier, J. Canny, and J. Reif, “Kinodynamic motion planning,” J. ACM , vol. 40, no. 5, p. 1048–1066, Nov. 1993. [Online]. Available: https://doi.org/10.1145/174147.174150 [30] J. F. Canny, The complexity of robot motion planning . Cambridge, MA, USA: MIT Press, 1988. [31] O. Khatib, “Real-time obstacle avoidance for manipulators and mo-bile robots,” in Proceedings. 1985 IEEE International Conference on Robotics and Automation , vol. 2, 1985, pp. 500–505. [32] D. Berenson, S. S. Srinivasa, D. Ferguson, and J. J. Kuffner, “Manip-ulation planning on constraint manifolds,” in 2009 IEEE International Conference on Robotics and Automation , 2009, pp. 625–632. [33] Y. Kuwata, J. Teo, G. Fiore, S. Karaman, E. Frazzoli, and J. P. How, “Real-time motion planning with applications to autonomous urban driving,” 
+
+IEEE Transactions on Control Systems Technology , vol. 17, no. 5, pp. 1105–1118, 2009. [34] M. Turpin, N. Michael, and V. Kumar, “Concurrent assignment and planning of trajectories for large teams of interchangeable robots,” in 2013 IEEE International Conference on Robotics and Automation , 2013, pp. 842–848. [35] R. Allen and M. Pavone, “Toward a real-time framework for solving the kinodynamic motion planning problem,” in 2015 IEEE international conference on robotics and automation (ICRA) . IEEE, 2015, pp. 928– 934. [36] I. A. S ¸ ucan, M. Moll, and L. E. Kavraki, “The Open Motion Planning Library,” IEEE Robotics & Automation Magazine , vol. 19, no. 4, pp. 72–82, December 2012, https://ompl.kavrakilab.org. [37] J. D. Gammell, S. S. Srinivasa, and T. D. Barfoot, “Batch informed trees (bit*): Sampling-based optimal planning via the heuristically guided search of implicit random geometric graphs,” in 2015 IEEE International Conference on Robotics and Automation (ICRA) , 2015, pp. 3067–3074. [38] S. Murray, W. Floyd-Jones, G. Konidaris, and D. J. Sorin, “A pro-grammable architecture for robot motion planning acceleration,” in 2019 IEEE 30th International Conference on Application-specific Systems, Architectures and Processors (ASAP) , vol. 2160. IEEE, 2019, pp. 185– 188. [39] S. Lian, Y. Han, X. Chen, Y. Wang, and H. Xiao, “Dadu-p: A scalable accelerator for robot motion planning in a dynamic environment,” in 
+
+Proceedings of the 55th Annual Design Automation Conference , 2018, pp. 1–6. [40] J. Li, Z. Chen, D. Harabor, P. J. Stuckey, and S. Koenig, “Anytime multi-agent path finding via large neighborhood search,” in International Joint Conference on Artificial Intelligence 2021 . Association for the Advancement of Artificial Intelligence (AAAI), 2021, pp. 4127–4135. [41] B. Zhou, F. Gao, J. Pan, and S. Shen, “Robust real-time uav replanning using guided gradient-based optimization and topological paths,” in 
+
+2020 IEEE international conference on robotics and automation (ICRA) .IEEE, 2020, pp. 1208–1214. [42] A. Romero, R. Penicka, and D. Scaramuzza, “Time-optimal online replanning for agile quadrotor flight,” IEEE Robotics and Automation Letters , vol. 7, no. 3, pp. 7730–7737, 2022. [43] D. Palossi, “On the autonomous navigation of nano-uavs,” Ph.D. disserta-tion, ETH Zurich, 2019. [44] S. D. Pendleton, H. Andersen, X. Du, X. Shen, M. Meghjani, Y. H. Eng, D. Rus, and M. H. Ang Jr, “Perception, planning, control, and coordination for autonomous vehicles,” Machines , vol. 5, no. 1, p. 6, 2017. [45] L. Huang, C. Yang, Y. Gong, Y. Sui, X. Zang, A. Goeckner, Q. Zhu, and B. Yuan, “Algorithm and hardware co-design for energy-efficient neural slam,” in Proceedings of the 61st ACM/IEEE Design Automation Conference , 2024, pp. 1–4. [46] C. Yu and S. Gao, “Reducing collision checking for sampling-based motion planning using graph neural networks,” Advances in Neural Information Processing Systems , vol. 34, pp. 4274–4289, 2021. [47] B. Boroujerdian, H. Genc, S. Krishnan, W. Cui, A. Faust, and V. Reddi, “Mavbench: Micro aerial vehicle benchmarking,” in 2018 51st annual IEEE/ACM international symposium on microarchitecture (MICRO) .IEEE, 2018, pp. 894–907. [48] Y. Kim, D. Shin, J. Lee, Y. Lee, and H.-J. Yoo, “A 0.55 v 1.1 mw artificial intelligence processor with on-chip pvt compensation for autonomous mobile robots,” IEEE Transactions on Circuits and Systems I: Regular Papers , vol. 65, no. 2, pp. 567–580, 2018. [49] Wikipedia contributors, “Minimum spanning tree — Wikipedia, the free encyclopedia,” https://en.wikipedia.org/w/index.php?title= Minimum spanning tree&oldid=1317796852, 2025, [Online; accessed 14-November-2025]. [50] C. Eastman, “Optimal bucket size for nearest neighbor searching in k-d trees,” Information Processing Letters , vol. 12, no. 4, pp. 165–167, 1981. [Online]. Available: https://www.sciencedirect.com/science/article/ pii/0020019081900922 [51] K. Zhou, Q. Hou, R. Wang, and B. Guo, “Real-time kd-tree construction on graphics hardware,” ACM Transactions on Graphics (TOG) , vol. 27, no. 5, pp. 1–11, 2008. [52] M. de Berg, O. Cheong, M. van Kreveld, and M. Overmars, 
+
+Orthogonal Range Searching . Berlin, Heidelberg: Springer Berlin Heidelberg, 2008, pp. 95–120. [Online]. Available: https://doi.org/10. 1007/978-3-540-77974-2 5[53] R. Pinkham, S. Zeng, and Z. Zhang, “QuickNN: Memory and Performance Optimization of k-d Tree Based Nearest Neighbor Search for 3D Point Clouds,” in 2020 IEEE International Symposium on High Performance Computer Architecture (HPCA) ,Feb. 2020, pp. 180–192, iSSN: 2378-203X. [Online]. Available: https://ieeexplore.ieee.org/abstract/document/9065602 [54] T. Xu, B. Tian, and Y. Zhu, “Tigris: Architecture and algorithms for 3d perception in point clouds,” in Proceedings of the 52nd Annual IEEE/ACM International Symposium on Microarchitecture . ACM, 2019, pp. 629–642. [55] J. L. Bentley, Programming Pearls , 2nd ed. Reading, MA: Addison-Wesley Professional, 1999. [56] R. Ausavarungnirun, K. K.-W. Chang, L. Subramanian, G. H. Loh, and O. Mutlu, “Staged memory scheduling: Achieving high performance and scalability in heterogeneous systems,” ACM SIGARCH Computer Architecture News , vol. 40, no. 3, pp. 416–427, 2012. [57] J. A. Sethian, “Fast marching methods: A boundary-value formulation,” Online educational material, 2006, accessed: 2025-11-17. [Online]. Available: https://math.berkeley.edu/ ∼sethian/2006/ Explanations/fast marching explain.html [58] M. Bakhshalipour, M. Likhachev, and P. B. Gibbons, “Rtrbench: A benchmark suite for real-time robotics,” in 2022 IEEE International Symposium on Performance Analysis of Systems and Software (ISPASS) ,2022, pp. 175–186. [59] N. Sturtevant, “Benchmarks for grid-based pathfinding,” Transactions on Computational Intelligence and AI in Games , vol. 4, no. 2, pp. 144 – 148, 2012. [Online]. Available: http://web.cs.du.edu/ ∼sturtevant/papers/ benchmarks.pdf [60] A. Hornung, K. M. Wurm, M. Bennewitz, C. Stachniss, and W. Burgard, “Octomap: an efficient probabilistic 3d mapping framework based on octrees,” Auton. Robots , vol. 34, no. 3, p. 189–206, Apr. 2013. [Online]. Available: https://doi.org/10.1007/s10514-012-9321-0 [61] S. Sarangi and B. Baas, “Deepscaletool: A tool for the accurate estimation of technology scaling in the deep-submicron era,” in 2021 IEEE Inter-national Symposium on Circuits and Systems (ISCAS) . Ieee, 2021, pp. 1–5. [62] S. Murray, W. Floyd-Jones, Y. Qi, G. Konidaris, and D. J. Sorin, “The mi-croarchitecture of a real-time robot motion planning accelerator,” in 2016 49th Annual IEEE/ACM International Symposium on Microarchitecture (MICRO) . IEEE, 2016, pp. 1–12. [63] D. Shah, N. Yang, and T. M. Aamodt, “Energy-efficient realtime motion planning,” in Proceedings of the 50th Annual International Symposium on Computer Architecture , 2023, pp. 1–17. [64] Y. Hao, Y. Gan, B. Yu, Q. Liu, S.-S. Liu, and Y. Zhu, “Blitzcrank: Factor graph accelerator for motion planning,” in 2023 60th ACM/IEEE Design Automation Conference (DAC) . IEEE, 2023, pp. 1–6. [65] Y. Yang, X. Chen, and Y. Han, “Dadu-cd: Fast and efficient processing-in-memory accelerator for collision detection,” in 2020 57th ACM/IEEE Design Automation Conference (DAC) . IEEE, 2020, pp. 1–6. [66] J. A. Sethian, “A fast marching level set method for monotonically advancing fronts.” Proceedings of the National Academy of Sciences of the United States of America , vol. 93, no. 4, pp. 1591–1595, 1996. [67] Y. Feng, G. Hammonds, Y. Gan, and Y. Zhu, “Crescent: taming memory irregularities for accelerating deep point cloud analytics,” in Proceedings of the 49th Annual International Symposium on Computer Architecture ,2022, pp. 962–977.

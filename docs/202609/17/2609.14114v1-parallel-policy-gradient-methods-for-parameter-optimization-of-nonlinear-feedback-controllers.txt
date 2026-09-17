@@ -1,0 +1,1262 @@
+Title: Parallel Policy-Gradient Methods for Parameter Optimization of Nonlinear Feedback Controllers
+
+URL Source: https://arxiv.org/pdf/2609.14114v1
+
+Published Time: Tue, 15 Sep 2026 00:56:33 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+> 1
+
+# Parallel Policy-Gradient Methods for Parameter Optimization of Nonlinear Feedback Controllers 
+
+An Nguyen and Leilei Cui 
+
+Abstract — Structured feedback controllers provide rigorous stability guarantees, but their closed-loop performance often depends on manually tuned gains and design parameters. Policy-gradient methods offer a systematic approach to param-eter optimization; however, conventional gradient evaluation requires sequential forward state rollout and backward costate propagation. This letter develops a time-parallel policy-gradient framework for discrete-time nonlinear control-affine systems. We derive the policy-gradient expression and recover the standard discrete-time linear-quadratic regulator result as a special case. The state and costate rollouts required for policy-gradient evaluation are formulated as residual-minimization problems and solved using Gauss-Newton (GN) iterations with parallel associative scans. For closed-loop systems that are globally asymptotically stable and locally exponentially stable, we show that the residual-minimization problems satisfy a local Polyak-Łojasiewicz (PL) inequality and that the GN iterates converge locally at a quadratic rate. Moreover, the PL constant, the size of the convergence neighborhood, and the quadratic convergence bound are independent of the rollout horizon T .In addition, we establish global finite-step convergence of the GN state solver: for any finite rollout horizon T , the exact state trajectory is recovered in at most T iterations from any initial guess. Finally, an inertia-wheel pendulum example with interconnection and damping assignment passivity-based control (IDA-PBC) demonstrates improved closed-loop perfor-mance and the computational benefits of the proposed parallel policy-gradient framework. 
+
+Index Terms — Control-affine systems, nonlinear control, op-timal control, policy optimization, parallel computing, policy gradient. 
+
+I. I NTRODUCTION 
+
+Nonlinear control methods are designed around analytical structure of the system [1], [2], where they can provide stability guarantees while retaining physically meaningful controller structures. Their practical performance, however, often depends strongly on the selection of gains and other design parameters. These parameters are commonly cho-sen through trial and error or analytical guidelines, which becomes increasingly difficult for nonlinear systems with multiple coupled parameters. Policy-gradient methods offer an appealing alternative: rather than replacing the controller structure, they can optimize its parameters directly with respect to a performance objective [3], [4]. When opti-mization is restricted to a range of stabilizing controller               
+
+> This work is supported by the UNM School of Engineering faculty startup funds, the UNM Research Allocations Committee (RAC) grant, and the National Science Foundation under Award No. 2624522. An Nguyen and Leilei Cui are with the Learning and Control (LC) lab, Department of Mechanical Engineering, University of New Mex-ico, Albuquerque, NM 87110 USA (email: annguyen2303@unm.edu; lcui@unm.edu).
+
+parameters, the stability guarantees and physical structure of the original controller can be preserved. The success of policy-gradient methods in reinforcement learning and control further motivates their use as a systematic approach for tuning such structured feedback controllers [5], [6]. For linear-quadratic control, policy gradients admit ex-plicit forms with well-understood convergence and robust-ness properties [6], [7], whereas nonlinear systems generally require numerical gradient computation [8]. Conventionally, computing the policy gradient requires sequential forward rollout of the state trajectory and backward propagation of the costate over the horizon T . This inherently sequential procedure can become computationally expensive for long-horizon problems and constitutes a major bottleneck of policy-gradient methods. In this paper, we develop a time-parallel approach for evaluating the state and costate trajecto-ries required for policy-gradient computation, enabling sub-stantial acceleration over conventional sequential methods on parallel hardware such as GPUs. Recent work has explored time-parallel evaluation of nonlinear dynamical systems. DEER [9], [10] reformulates sequential trajectory evaluation as an optimization problem involving a residual-based merit function and applies a Gauss-Newton method, with the resulting computations parallelized using associative scans. DeepPCR [11] adopts a related formulation but employs parallel cyclic reduction to exploit temporal parallelism. The computational efficiency of this reformulation de-pends on the cost of each optimization step and the number of steps required for convergence. Associative scans provide 
+
+O(log T ) parallel computational depth per step [9], [10]. The iteration count also depends on the initialization and the conditioning of the merit function. Existing analyses relate this conditioning and the resulting convergence guarantees to contraction or predictability conditions expressed through bounds on Jacobian products [12]. Global asymptotic stabil-ity alone does not ensure such bounds, since trajectories may exhibit noncontractive transients or nonexponential decay. In this paper, we show that global asymptotic stability together with local exponential stability yields a horizon-independent bound on the inverse residual Jacobian near the exact trajectory, uniformly over a compact set of initial states for fixed controller parameters. The key observation is that global asymptotic stability ensures entry into a sufficiently small neighborhood of the equilibrium after a uniformly bounded number of steps, while local exponential stability provides contraction of the Jacobians there in an appropriate norm. Consequently, only a uniformly bounded initial portion of the trajectory may be noncontractive. Smoothness ensures arXiv:2609.14114v1 [eess.SY] 12 Sep 2026 2
+
+that the resulting Jacobian-product bounds also hold for nearby trajectory estimates. This establishes a local Polyak-Łojasiewicz (PL) inequality and local linear and quadratic convergence of the state solver, with constants and a neigh-borhood radius independent of the horizon. The main contributions of this letter are: 1) We derive a policy-gradient formula for discrete-time control-affine nonlinear systems that is consistent with the deterministic policy gradient in [13] and recovers the standard LQR policy gradient as a special case. 2) We develop a time-parallel method for optimizing nonlinear feedback-controller parameters by evaluating the state and costate trajectories using Gauss-Newton updates and associative scans that are amenable to GPU parallelization. 3) We establish local inverse-Jacobian and PL bounds under closed-loop global asymptotic stability and local exponential stability, yielding local linear and quadratic convergence with horizon-independent constants and basin radius. Separately, the causal residual structure ensures that the exact full-step state solver termi-nates within T iterations for any finite horizon T
+
+and arbitrary initialization, while the fixed-state costate problem is solved in one exact step. The proposed approach is evaluated on discrete-time LQR and the inertia-wheel pendulum. II. P OLICY OPTIMIZATION FOR NONLINEAR SYSTEMS 
+
+In this paper, we consider the discrete-time nonlinear system 
+
+xk+1 = f (xk) + g(xk)uk, k = 0 , 1, 2, . . . 
+
+where xk ∈ Rn denotes the state, uk ∈ Rm denotes the control input, and f : Rn → Rn and g : Rn → Rn×m are assumed to be smooth, with f (0) = 0 . The feedback policy is parameterized as uk = π(xk, θ ), where π : Rn × Rp →
+
+Rm is a smooth function and θ ∈ Rp denotes the controller parameter vector. Define the discrete-time trajectory as x(k, x 0, θ ), which is generated by the closed-loop dynamics starting from x0
+
+under the policy uk = π(xk, θ ). The cost functional is defined as 
+
+J (x0, θ ) = 
+
+> ∞
+
+X
+
+> k=0
+
+l(x(k, x 0, θ ), θ ),
+
+where 
+
+l(x, θ ) = q(x) + π(x, θ )⊤Rπ (x, θ ),q : Rn → R+ is a positive-definite state-cost function and 
+
+R ∈ Sm 
+
+> ++
+
+is the control cost matrix. For all k, the closed-loop dynamics is given by 
+
+xk+1 := F (xk, θ ) = f (xk) + g(xk)π(xk, θ ). (1) 
+
+Definition 2.1: A policy π(xk, θ ) is admissible if the closed-loop system (1) is globally asymptotically stable (GAS) and locally exponentially stable (LES) at the origin. We aim to develop a gradient-based method for solving 
+
+min 
+
+> θ∈Θ
+
+¯J (θ), ¯J (θ) := Ex0∼X [J (x0, θ )] ,
+
+where Θ denotes the set of admissible policy parameters associated with controllers designed using classical nonlinear control methods, and X is a distribution for initial states sup-ported on a compact set Ω. The policy gradient ∇θ J (x0, θ )
+
+is derived in the following theorem. 
+
+Theorem 2.1: Let π(x, θ ) be an admissible policy. Con-sider the following discrete-time Hamiltonian: 
+
+H(xk, λ k+1 , θ ) = l(xk, θ ) + λ⊤
+
+> k+1
+
+F (xk, θ ),
+
+with the discrete-time Hamiltonian dynamics given by: 
+
+xk+1 = ∂H(xk, λ k+1 , θ )
+
+∂λ k+1 
+
+, x0 ∈ Ω, (2a) 
+
+λk = ∂H(xk, λ k+1 , θ )
+
+∂x k
+
+, lim  
+
+> k→∞
+
+λk = 0 . (2b) The policy gradient of the cost functional J (x0, θ ) is 
+
+∇θ J (x0, θ )=
+
+> ∞
+
+X
+
+> k=0
+
+(∇θ π(xk, θ )) ⊤ 
+
+2R π (xk, θ ) + g(xk)⊤λk+1 
+
+
+
+. (3) 
+
+Proof: Define the sensitivity function as 
+
+S(k, x 0, θ ) = ∂x (k, x 0, θ )
+
+∂θ ∈ Rn×p.
+
+Taking the derivative of the closed-loop dynamics with respect to θ gives 
+
+S(k + 1 , x 0, θ ) = ∇xF (xk, θ )S(k, x 0, θ ) + ∇θ F (xk, θ ).
+
+(4) The costate dynamics in (2) can be rewritten as 
+
+λk := G(xk, λ k+1 , θ ) = ∇xl(xk, θ ) + ∇xF (xk, θ )⊤λk+1 .
+
+(5) Hence, by (4) and (5) we can compute 
+
+S(k + 1 , x 0, θ )⊤λk+1 = ∇θ F (xk, θ )⊤λk+1 + S(k, x 0, θ )⊤λk
+
+− S(k, x 0, θ )⊤∇xl(xk, θ ).
+
+Group the terms and define the forward difference: 
+
+∆( S(k, x 0, θ )⊤λk) = S(k+1 , x 0, θ )⊤λk+1 −S(k, x 0, θ )⊤λk.
+
+Therefore, it follows that 
+
+∆( S(k, x 0, θ )⊤λk)= −S(k, x 0, θ )⊤∇xl(xk, θ ) + ∇θ F (xk, θ )⊤λk+1 .
+
+Additionally, the derivative of the cost functional with respect to θ, is: 
+
+∇θ J (x0, θ ) = 
+
+> ∞
+
+X
+
+> k=0
+
+
+
+S(k, x 0, θ )⊤∇xl(xk, θ ) + ∇θ l(xk, θ )
+
+
+
+.
+
+Substituting the expression of ∆( S(k, x 0, θ )⊤λk) into the above equation gives 
+
+∇θ J (x0, θ ) = 
+
+> ∞
+
+X
+
+> k=0
+
+
+
+∇θ F (xk, θ )⊤λk+1 + ∇θ l(xk, θ )
+
+
+
+− lim 
+
+> k→∞
+
+(S(k, x 0, θ )⊤λk) + S(0 , x 0, θ )⊤λ0.3
+
+In the above equation, since lim k→∞ λk = 0 and 
+
+S(0 , x 0, θ ) = 0 , the boundary terms vanish. Hence, we have 
+
+∇θ J (x0, θ ) = 
+
+> ∞
+
+X
+
+> k=0
+
+
+
+∇θ F (xk, θ )⊤λk+1 + ∇θ l(xk, θ )
+
+
+
+.
+
+It follows from the closed-loop dynamic and the cost function that 
+
+∇θ F (xk, θ )⊤ = ∇θ π(xk, θ )⊤g(xk)⊤,
+
+∇θ l(xk, θ ) = 2 ∇θ π(xk, θ )⊤Rπ (xk, θ ),
+
+which, in turn, results in (3). 
+
+Remark 2.1: By the Bellman equation, the cost function satisfies 
+
+J (xk, θ ) = l(xk, θ ) + J (F (xk, θ ), θ ).
+
+Differentiating both sides with respect to xk gives 
+
+∇xJ (xk, θ ) = ∇xl(xk, θ ) + ∇xF (xk, θ )⊤∇xJ (xk+1 , θ ).
+
+Therefore, by comparing with (5), the costate admits the interpretation 
+
+λk = ∇xJ (xk, θ ).
+
+Remark 2.2: Define the state occupation measure induced by the policy π(·, θ ) and the initial-state distribution X as 
+
+ρθ (d x) := Ex0∼X 
+
+" ∞X
+
+> k=0
+
+δx(k,x 0,θ )(d x)
+
+#
+
+.
+
+Then, for any integrable function ϕ,
+
+Z
+
+> Rn
+
+ϕ(x)ρθ (d x) = Ex0∼X 
+
+" ∞X
+
+> k=0
+
+ϕ(x(k, x 0, θ )) 
+
+#
+
+.
+
+Using the Q-function 
+
+Q(x, u, θ ) := q(x) + u⊤Ru + J (f (x) + g(x)u, θ ) ,
+
+we have 
+
+∇uQ(x, u, θ ) = 2 Ru + g(x)⊤∇xJ (f (x) + g(x)u, θ ) .
+
+Therefore, by Remark 2.1, the policy gradient in Theorem 2.1 can be equivalently written as 
+
+∇θ ¯J (θ) = 
+
+Z
+
+> Rn
+
+(∇θ π(x, θ )) ⊤ ∇uQ(x, u, θ )|u=π(x,θ ) ρθ (d x).
+
+This expression has the same form as the deterministic policy gradient theorem in [13], with ρθ playing the role of the state visitation measure. For linear time-invariant (LTI) systems with quadratic costs, the policy-gradient expression in Theorem 2.1 reduces to the standard LQR policy gradient derived in [6]. 
+
+Corollary 2.1: Consider the LTI system with f (xk) = 
+
+Ax k and g(xk) = B, where A ∈ Rn×n and B ∈ Rn×m,together with the quadratic state cost q(xk) = x⊤ 
+
+> k
+
+Qx k,where Q ∈ Sn
+
+> ++
+
+. Then, for any stabilizing linear policy 
+
+uk = −Kx k, the policy gradient is given by 
+
+∇K J (x0, K ) = 2   R + B⊤PK B K − B⊤PK A ΣK ,
+
+where ΣK := P∞ 
+
+> k=0
+
+xkx⊤ 
+
+> k
+
+, and PK = P ⊤ 
+
+> K
+
+≻ 0 is the solution to 
+
+PK = ( A − BK )⊤PK (A − BK ) + Q + K⊤RK. 
+
+Proof: It follows from Theorem 2.1 that, for the LQR problem, 
+
+∇K J (x0, K ) = 
+
+> ∞
+
+X
+
+> k=0
+
+ 2RKx k − B⊤λk+1 
+
+ x⊤ 
+
+> k
+
+. (6) Since K is stabilizing, the corresponding value function is quadratic [14], i.e. J (xk, K ) = x⊤ 
+
+> k
+
+PK xk. Hence, by Remark 2.1, 
+
+λk+1 = ∇xk+1 J (xk+1 , K ) = 2 PK xk+1 = 2 PK (A−BK )xk.
+
+Substituting this expression into (6) yields 
+
+∇K J (x0, K ) = 2 RK − B⊤PK (A − BK ) ∞X
+
+> k=0
+
+xkx⊤
+
+> k
+
+= 2   R + B⊤PK B K − B⊤PK A ΣK ,
+
+which completes the proof. III. P ARALLELIZED MONTE CARLO APPROXIMATION OF THE POLICY GRADIENT 
+
+In this section, we employ a Monte Carlo method to ap-proximate ∇θ ¯J (θ) = Ex0∼X [∇θ J (x0, θ )] . Specifically, we draw N initial states {x0,j }Nj=1 independently and identically distributed (i.i.d.) from X with j is the index of the j-th sample, and approximate the policy gradient by 
+
+ˆ∇θ ¯J (θ) = 1
+
+N
+
+> N
+
+X
+
+> j=1
+
+∇θ J (x0,j , θ ). (7) Let x(k, x 0,j , θ ) and λ(k, x 0,j , θ ) denote the state and costate trajectories of (2), respectively, with x0 = x0,j 
+
+and lim k→∞ λ(k, x 0,j , θ ) = 0. Since θ ∈ Θ is an admissible parameter vector, the corresponding closed-loop trajectories satisfy lim k→∞ x(k, x 0,j , θ ) = 0 and 
+
+lim k→∞ λ(k, x 0,j , θ ) = 0 . Therefore, the tail contribution in the policy-gradient expression of Theorem 2.1 vanishes asymptotically, and the infinite-horizon policy gradient can be approximated using state and costate trajectories over a sufficiently large finite horizon T .It follows from Theorem 2.1 that computing ∇θ J (x0,j , θ )
+
+requires evaluating the Hamiltonian dynamics (2) over k =0, . . . , T . These recursions are inherently sequential and can become computationally expensive for long horizons. To alleviate this temporal bottleneck, we reformulate the sequential state and costate recursions as a root-finding optimization problem and exploit associative scans [15] to parallelize the trajectory evaluation across time. Consider the stacked state and costate estimates 
+
+sx,j = [ ξ⊤ 
+
+> 1
+
+, · · · , ξ ⊤ 
+
+> T
+
+]⊤ ∈ RnT ,sλ,j = [ ϕ⊤ 
+
+> T−1
+
+, · · · , ϕ ⊤ 
+
+> 0
+
+]⊤ ∈ RnT ,4
+
+which approximate the corresponding state and costate tra-jectories 
+
+s∗ 
+
+> x,j
+
+= [ x(1 , x 0,j , θ )⊤, · · · , x (T, x 0,j , θ )⊤]⊤ ∈ RnT ,s∗ 
+
+> λ,j
+
+= [ λ(T − 1, x 0,j , θ )⊤, · · · , λ (0 , x 0,j , θ )⊤]⊤ ∈ RnT ,
+
+respectively. Hereafter, the subscript j, and the policy pa-rameter θ are omitted for notational simplicity whenever no confusion arises. In particular, we write xk = x(k, x 0,j , θ )
+
+and λk = λ(k, x 0,j , θ ). The residuals associated with the stacked state and costate estimates are then defined as 
+
+rx(sx) = [ ξ⊤ 
+
+> 1
+
+− F (ξ0)⊤, · · · , ξ ⊤ 
+
+> T
+
+− F (ξT −1)⊤]⊤,rλ(sλ) = [ ϕ⊤  
+
+> T−1
+
+− G(xT −1, ϕ T )⊤, · · · , ϕ ⊤ 
+
+> 0
+
+− G(x0, ϕ 1)⊤]⊤.
+
+The two trajectories s∗ 
+
+> x
+
+and s∗ 
+
+> λ
+
+are evaluated using two separate Gauss-Newton passes. The first pass evaluates s∗
+
+> x
+
+from a given initial state ξ0 = x0,j . The resulting state trajectory is then held fixed, the terminal condition ϕT =
+
+∇xl(xT ) is evaluated, and the second pass evaluates s∗
+
+> λ
+
+backward in time through (5). In each pass, we solves the following residual-minimization problem for both the state and costate: 
+
+min 
+
+> sx∈RnT
+
+Lx(sx) = 12 ∥rx(sx)∥22 (8a) 
+
+min 
+
+> sλ∈RnT
+
+Lλ(sλ) = 12 ∥rλ(sλ)∥22 (8b) The residual Jacobian J(sx) = ∂r x(sx)/∂s x and J(sλ) = 
+
+∂r λ(sλ)/∂s λ are square and nonsingular. Consequently, the Gauss-Newton step for (8) is 
+
+s(i+1)  
+
+> x
+
+− s(i) 
+
+> x
+
+= ∆ s(i) 
+
+> x
+
+= −J(s(i) 
+
+> x
+
+)−1rx(s(i) 
+
+> x
+
+), (9a) 
+
+s(i+1)  
+
+> λ
+
+− s(i) 
+
+> λ
+
+= ∆ s(i) 
+
+> λ
+
+= −J(s(i) 
+
+> λ
+
+)−1rλ(s(i) 
+
+> λ
+
+). (9b) The Jacobian J(sx) has a block diagonal structure 
+
+J(sx) = 
+
+
+
+In 0 · · · 0 0
+
+−∇ xF (ξ0) In · · · 0 0
+
+... ... . . . ... ...
+
+0 0 · · · In 00 0 · · · −∇ xF (ξT −1) In
+
+
+
+.
+
+Similarly, J(sλ) is obtained by replacing ∇xF (ξk) in the above expression with ∇λG(xT −k−1, ϕ T −k). Since ∆ξ(i)0 =0, the state correction satisfies 
+
+∆ξ(i) 
+
+> k+1
+
+= ∇xF (ξ(i) 
+
+> k
+
+, θ )∆ ξ(i) 
+
+> k
+
+− r(i)
+
+> x,k +1
+
+, (10) where ∆ξ(i) 
+
+> k+1
+
+= ξ(i+1)  
+
+> k+1
+
+− ξ(i)
+
+> k+1
+
+. During the costate pass, the state trajectory and terminal costate are held fixed. Hence, 
+
+∆ϕ(i) 
+
+> T
+
+= 0 , ∆ϕ(i) 
+
+> k
+
+= ϕ(i+1)  
+
+> k
+
+− ϕ(i) 
+
+> k
+
+, and the costate correction satisfies 
+
+∆ϕ(i) 
+
+> k
+
+= ∇λG(xk, ϕ (i)
+
+> k+1
+
+, θ )∆ ϕ(i) 
+
+> k+1
+
+− r(i)
+
+> λ,k
+
+. (11)   
+
+> Fig. 1. Associative-scan evaluation example of the affine recursion for
+> T= 4 .
+
+A. Parallel evaluation by associative scan 
+
+Since the state and costate correction equations are affine, one can parallelize the root-finding problem using an as-sociative scan [10]. An illustration of associative scan is given in Figure 1. Consider an affine recursion of the form 
+
+zk+1 = Ekzk + Fk. Each update can be viewed as an affine map z 7 → Ekz + Fk, represented by the pair (Ek, F k). The composition of two affine maps is represented by the binary operator 
+
+(E2, F 2) ⊙ (E1, F 1) := ( E2E1, E 2F1 + F2) .
+
+This operator is associative because it corresponds directly to function composition. Consequently, the sequence of affine recursions can be evaluated through a parallel prefix scan, which computes all cumulative affine-map compositions si-multaneously. For the state pass, define a(i) 
+
+> xk
+
+:= ( ∇xF (ξ(i) 
+
+> k
+
+, θ ), −r(i)
+
+> x,k +1
+
+).Then all state corrections are recovered from the prefix scan 
+
+∆ξ(i) 
+
+> k+1
+
+=
+
+
+
+a(i) 
+
+> xk
+
+⊙ · · · ⊙ a(i)
+
+> x0
+
+
+
+[∆ ξ(i)0 ].
+
+Similarly, for the fixed-state costate pass, define a(i) 
+
+> ϕk
+
+:= (∇λG(xk, ϕ (i)
+
+> k+1
+
+), −r(i)
+
+> λ,k
+
+), the costate corrections are ob-tained from the suffix scan 
+
+∆ϕ(i) 
+
+> k
+
+=
+
+
+
+a(i) 
+
+> λk
+
+⊙ · · · ⊙ a(i) 
+
+> λT−1
+
+
+
+[∆ ϕ(i) 
+
+> T
+
+].
+
+At each Gauss-Newton iteration, residuals and Jacobian blocks are evaluated in parallel across time and combined by an associative scan, yielding O(log T ) parallel depth and 
+
+O(T ) total compositions. Algorithm 1 estimates ∇θ ¯J = Ex0 [∇θ J (x0, θ )] using Monte Carlo samples. For each initial condition, a forward Gauss-Newton pass computes the state trajectory and areverse pass computes the costate trajectory. The resulting gradients are averaged to update θ, while the projected gradient descent keeps θ in the admissible region Θ.
+
+B. Convergence Analysis of the Gauss-Newton Iterations 
+
+Fix θ ∈ Θ and omit it from F for simplicity. GAS and compactness of Ω imply uniform boundedness of the exact trajectories. Let K be a compact convex neighborhood of their closure. Define 
+
+∥v∥∞ := max  
+
+> k
+
+∥vk∥2, e(i) := s(i) 
+
+> x
+
+− s∗
+
+> x
+
+.5
+
+Algorithm 1 Monte Carlo Policy-Gradient Optimization 
+
+Require: Initial policy parameter θ, θ old ∈ Θ, horizon T ,number of Monte Carlo samples N , initial-state distribu-tion X , policy step sizes {ηℓ}, tolerance ϵD, and policy-gradient tolerance ϵPG 
+
+Ensure: Optimized policy parameter θ 
+
+> 1:
+
+ℓ ← 0 
+
+> 2:
+
+repeat  
+
+> 3:
+
+Sample N initial states {x0,j }Nj=1 i.i.d.
+
+∼ X 
+
+> 4:
+
+for all j = 1 , . . . , N in parallel do  
+
+> 5:
+
+Initialize sx,j ∈ RnT  
+
+> 6:
+
+repeat  
+
+> 7:
+
+Compute ∆sx,j from (10) by associative scan  
+
+> 8:
+
+sx,j ← sx,j + ∆ sx,j  
+
+> 9:
+
+until ∥∆sx,j ∥ ≤ ϵD 
+
+> 10:
+
+Initialize sλ,j ∈ RnT  
+
+> 11:
+
+repeat  
+
+> 12:
+
+Compute ∆sλ,j from (11) by associative scan  
+
+> 13:
+
+sλ,j ← sλ,j + ∆ sλ,j  
+
+> 14:
+
+until ∥∆sλ,j ∥ ≤ ϵD 
+
+> 15:
+
+Compute ∇θ J (x0,j , θ ) from (3), sx,j and sλ,j  
+
+> 16:
+
+end for  
+
+> 17:
+
+Compute ˆ∇θ ¯J (θ) from (7)  
+
+> 18:
+
+θold ← θ 
+
+> 19:
+
+θ ← Proj Θ
+
+
+
+θold − ηℓ ˆ∇θ ¯J (θold )
+
+ 
+
+> 20:
+
+ℓ ← ℓ + 1  
+
+> 21:
+
+until ∥θold − θ∥ ≤ ϵPG  
+
+> 22:
+
+return θ
+
+Lemma 3.1: Let L > 0 be a Lipschitz bound for ∇xF on 
+
+K, which exists by smoothness. Then 
+
+∥J(s1) − J(s2)∥2 ≤ L∥s1 − s2∥∞, s1, s 2 ∈ KT .
+
+Proof: For s1 = ( z1, . . . , z T ) and s2 = ( y1, . . . , y T ),the Jacobian difference has only the subdiagonal blocks 
+
+∇xF (yk) − ∇ xF (zk). Hence, for T ≥ 2,
+
+∥J(s1) − J(s2)∥2 = max  
+
+> 1≤k<T
+
+∥∇ xF (zk) − ∇ xF (yk)∥2
+
+≤ L∥s1 − s2∥∞.
+
+Lemma 3.2: There exist ηθ , M θ > 0, independent of T ,such that, 
+
+∥J(sx)−1∥2 ≤ Mθ . (12) for any sx ∈ RnT satisfying ∥sx − s∗
+
+> x
+
+∥∞ ≤ ηθ ,
+
+Proof: Smoothness and LES imply that ∇xF (0) is Schur stable. The discrete Lyapunov inequality and conti-nuity give O ≻ 0, c ∈ (0 , 1) , and ηθ > 0 such that 
+
+∥O∇xF (z)O−1∥2 ≤ c for ∥z∥2 ≤ 2ηθ .
+
+Shrink ηθ so that the corresponding neighborhoods of all exact trajectories lie in K. GAS and compactness of Ω give a uniform finite τ such that ∥x∗
+
+> k
+
+∥2 ≤ ηθ for all k ≥ τ .For ∥sx − s∗
+
+> x
+
+∥∞ ≤ ηθ , all ξk lie in K, and ∥ξk∥2 ≤ 2ηθ
+
+for k ≥ τ . Thus, each consecutive Jacobian product has at most τ factors outside the contracting neighborhood. Since 
+
+K is compact, define 
+
+α := max 
+
+
+
+1, max  
+
+> z∈K
+
+∥O∇xF (z)O−1∥2
+
+
+
+,Cθ := ∥O−1∥2∥O∥2
+
+ αc
+
+τ
+
+.
+
+Each product of ℓ consecutive Jacobians contains at most min {ℓ, τ } factors outside the contracting neighborhood. Since α ≥ 1 > c ,
+
+∥∇ xF (ξj+ℓ−1) · · · ∇ xF (ξj )∥2
+
+≤ ∥ O−1∥2∥O∥2 cℓ  αc
+
+min {ℓ,τ }
+
+≤ Cθ cℓ.
+
+(13) Write J = I − N . Since N T = 0 ,
+
+J−1 = 
+
+> T−1
+
+X
+
+> ℓ=0
+
+N ℓ.
+
+Each N ℓ is a block shift whose nonzero blocks are the products in (13). Consequently, 
+
+∥N ℓ∥2 ≤ Cθ cℓ, ∥N ℓv∥∞ ≤ Cθ cℓ∥v∥∞.
+
+Summing these gives (12) with Mθ = Cθ /(1 − c).As a direct consequence of Lemma 3.2, the following result establishes that the merit function Lx satisfies a local PL condition. 
+
+Corollary 3.1: For ∥sx − s∗
+
+> x
+
+∥∞ ≤ ηθ , the merit function satisfies 12 ∥∇L x(sx)∥22 ≥ M −2 
+
+> θ
+
+Lx(sx). (14) 
+
+Proof: Lemma 3.2 gives σmin (J(sx)) ≥ M −1 
+
+> θ
+
+. Since 
+
+∇L x(sx) = J(sx)⊤rx(sx),
+
+12 ∥∇L x(sx)∥22 ≥ 12M 2
+
+> θ
+
+∥rx(sx)∥22 = M −2 
+
+> θ
+
+Lx(sx).
+
+Theorem 3.1: Define 
+
+δθ := min 
+
+
+
+ηθ , 1
+
+LM θ
+
+
+
+. (15) If ∥e(0) ∥∞ ≤ δθ , the exact full-step Gauss-Newton iterates remain in this neighborhood and satisfy 
+
+∥e(i+1) ∥2 ≤ 12 ∥e(i)∥2. (16) 
+
+Proof: Suppose ∥e(i)∥∞ ≤ δθ . Applying the funda-mental theorem of calculus along the segment from s∗ 
+
+> x
+
+to 
+
+s(i) 
+
+> x
+
+gives 
+
+rx(s(i) 
+
+> x
+
+) = 
+
+Z 10
+
+J(s∗ 
+
+> x
+
++ te (i))e(i) dt, 
+
+where rx(s∗
+
+> x
+
+) = 0 was used. Subtracting s∗ 
+
+> x
+
+from the Gauss-Newton update and substituting this identity yields 
+
+e(i+1) = e(i) − J(s(i) 
+
+> x
+
+)−1rx(s(i) 
+
+> x
+
+)= J(s(i) 
+
+> x
+
+)−1
+
+Z 10
+
+h
+
+J(s(i) 
+
+> x
+
+) − J(s∗ 
+
+> x
+
++ te (i))
+
+i
+
+e(i) dt. 6
+
+By Lemma 3.1, 
+
+∥J(s(i) 
+
+> x
+
+) − J(s∗ 
+
+> x
+
++ te (i))∥2 ≤ L(1 − t)∥e(i)∥∞.
+
+Applying this estimate, its blockwise counterpart, and Lemma 3.2 gives 
+
+∥e(i+1) ∥∞ ≤ LM θ
+
+2 ∥e(i)∥2
+
+> ∞
+
+, (17) 
+
+∥e(i+1) ∥2 ≤ LM θ
+
+2 ∥e(i)∥∞∥e(i)∥2, (18) where R 10 (1 − t) dt = 1 /2. Since LM θ δθ ≤ 1, the first inequality preserves the neighborhood and the second proves (16). Induction completes the proof. 
+
+Corollary 3.2: The neighborhood ∥sx − s∗
+
+> x
+
+∥∞ ≤ δθ , with 
+
+δθ given by (15), is a horizon-independent basin of quadratic convergence. For any initialization in this neighborhood, 
+
+∥e(i+1) ∥2 ≤ LM θ
+
+2 ∥e(i)∥22,
+
+∥rx(s(i+1)  
+
+> x
+
+)∥2 ≤ LM 2
+
+> θ
+
+2 ∥rx(s(i) 
+
+> x
+
+)∥22.
+
+Proof: The error bound follows from (18) and ∥e∥∞ ≤∥e∥2. For h = −J(s)−1rx(s), we have rx(s) + J(s)h =0. Both iterations and their connecting segment remain in the neighborhood by Theorem 3.1. Taylor’s formula and Lemma 3.1 give 
+
+∥rx(s + h)∥2 ≤ L
+
+2 ∥h∥22 ≤ LM 2
+
+> θ
+
+2 ∥rx(s)∥22.
+
+Theorem 3.2: For any finite T and arbitrary initialization, the state iteration in (9a) terminates in at most T steps. Moreover, with the states and terminal costate fixed, the costate iteration in (9b) terminates in one exact step. 
+
+Proof: The state update satisfies 
+
+ξ(i+1)  
+
+> k+1
+
+= F (ξ(i) 
+
+> k
+
+) + ∇xF (ξ(i) 
+
+> k
+
+) ξ(i+1)  
+
+> k
+
+− ξ(i)
+
+> k
+
+.
+
+Since ξ(i)0 = x0, induction gives ξ(i) 
+
+> k
+
+= xk for k ≤
+
+min {i, T }. Thus s(i) 
+
+> x
+
+= s∗ 
+
+> x
+
+for all i ≥ T .The fixed-state costate residual is affine with a nonsingular Jacobian, so one exact step solves it. IV. N UMERICAL EXPERIMENTS 
+
+All experiments are run on a workstation equipped with an Intel Core Ultra 9 285K CPU, 128 GB of RAM, and an NVIDIA GeForce RTX 5090 GPU with 32 GB of memory. We use JAX [16] throughout the experiments and use the implementation of DEER given in [12] for the Gauss-Newton method. All details for reproducing the experiments are available at https://github.com/ lc-lab25/Parallel-Policy-Gradient.git .
+
+A. Discrete-time LQR 
+
+In this section, the LQR experiment is used to validate the policy-gradient expression and evaluate the computational scaling of the parallel trajectory solver. We consider arandomly generated system matrix A and choose an initial feedback controller u = −Kx such that the resulting   
+
+> Fig. 2. LQR validation and computational performance. A: Stability of LQR system under the controller during optimization. B: Difference between the optimized gain and analytic optimal gain through time. C: Trajectory errors through time with the initial, learned, and analytical gain. D: Performance speedup when using the method comparing to sequential roll out.
+> Fig. 3. Inertia wheel pendulum experiments. A: Baseline closed-loop state of the inertia-wheel pendulum. B: Optimized closed-loop state of the inertia-wheel pendulum. C: Comparing the baseline and policy-gradient controllers. D: Controller-parameter during policy-gradient optimization.
+
+closed-loop system is stable. The stage cost is taken as 
+
+l = x⊤x + u⊤u, and the controller is updated according to the policy-gradient expression in (6). The stability of the controller at each iteration of Algorithm 1 is verified and shown in Figure 2A. Figure 2B shows the convergence of the policy-gradient gain toward the analytical optimal LQR gain. Figure 2C reports the state-trajectory errors. Finally, Figure 2D compares the computational time of the parallel trajectory solver with conventional sequential rollout for sampled LQR trajectories on a CPU-based workstation. Each reported result is averaged over 20 independent runs. 
+
+B. Inertia Wheel Pendulum 1) System Description and IDA-PBC Controller Design: 
+
+We evaluate the proposed method on the nonlinear underac-tuated inertia-wheel pendulum. Since the open-loop system is unstable, we first restrict the policy to a stabilizing IDA-PBC class and then optimize its parameters using the proposed parallel policy gradient. 7
+
+The dynamics of the inertia-wheel pendulum are given in [17] as 
+
+I1 + I2 I2
+
+I2 I2
+
+  ¨ω1
+
+¨ω2
+
+
+
++
+
+−mgL sin ω1
+
+0
+
+
+
+=
+
+01
+
+
+
+u. (19) Here, ω1 denotes the pendulum angle, ω2 denotes the disk angle relative to the pendulum, and u denotes the motor torque. As shown in [17], a stabilizing controller can be constructed in the form 
+
+u = π(x, θ )= γ1 sin( q1) + kp(q2 + γ2q1) + kv k2( ˙ q2 + γ2 ˙q1). (20) Here, [q1, q 2]⊤ = [ ω1, ω 1 + ω2]⊤ and kp and kv are the proportional and damping-injection gains, respectively. The constants γ1, γ2 and k2 are determined by the components of the desired inertia matrix 
+
+Md =
+
+a1 a2
+
+a2 a3
+
+
+
+, k2 = −I a1 + a2
+
+a1a3 − a22
+
+,γ1 = a2
+
+a1 + a2
+
+mgL, γ2 = − I1
+
+I2
+
+a2 + a3
+
+a1 + a2
+
+.
+
+The controller parameters θ = [kp, k v , a 1, a 2, a 3]⊤ are required to satisfy the following constraints to ensure asymp-totic stability: 
+
+Θ := 
+
+
+
+θ ∈ R5 kp > 0, kv > 0, a1 > 0,a1a3 − a22 > 0, −(a1 + a2) > 0
+
+
+
+.
+
+(21) For any θ ∈ Θ, the origin of the closed-loop system is asymptotically stable, with a domain of attraction equal to the entire state space except for a set of Lebesgue measure zero. The following proposition further establishes that the closed-loop system is locally exponentially stable under the controller π(x, θ ) for any θ ∈ Θ. Therefore, Θ constitutes the admissible set of controller parameters. 
+
+Proposition 4.1: The inertia wheel system (19) under the controller given in (20) is locally exponentially stable at the origin. 
+
+Proof: Linearizing (19) and (20) at the origin gives 
+
+∇xF (0 , θ ) = 
+
+
+
+0 0 1 
+
+> I1
+
+00 0 0 1
+
+> I2
+
+mgL − γ1 − kpγ2 −kp − kv k2γ2 
+
+> I1
+
+− kv k2
+
+> I2
+
+γ1 + kpγ2 kp kv k2γ2 
+
+> I1
+> kvk2
+> I2
+
+ .
+
+Also, D > 0, S < 0, and E = S2+Da1 > 0, where 
+
+D = a1a3 − a22, S = a1 + a2, E = a1 + 2 a2 + a3.
+
+Using the expressions for γ1, γ 2, and k2, direct expansion gives det( λI − A) = b4λ4 + b3λ3 + b2λ2 + b1λ + b0, where 
+
+
+
+b4 = I1I2,b3 = kv I1I2ED ,b2 = − I2mgLa 1+kpI1ES ,b1 = − kv I2SmgL D , b 0 = kpmgL. 
+
+All coefficients are strictly positive. Moreover, 
+
+b3b2 − b4b1 = kv I1I2
+
+D(−S)
+
+ I2mgLD + kpI1E2 > 0,b3b2b1 − b4b21 − b23b0 = k2 
+
+> v
+
+I1I32 (mgL )2
+
+D > 0.
+
+Thus, all fourth-order Routh-Hurwitz conditions hold, and 
+
+∇xF (0 , θ ) is Hurwitz. Since the closed-loop vector field is continuously differentiable, x∗ is locally exponentially sta-ble. Therefore, there exists a forward-invariant neighborhood 
+
+N of x∗ in which exponential convergence holds. 
+
+2) Controller Parameter Optimization and Simulation Re-sults: We adopt the benchmark example in [17], using the same system parameters. The controller parameters reported therein are used as the initialization for the policy-gradient updates and also serve as the baseline for comparison: 
+
+I1 = 0 .1, I2 = 0 .2, mgL = 10 ,a1 = 1 , a2 = −1.5, a3 = 6 , kp = 3 .75 , kv = 10 .
+
+The projected gradient method is employed to ensure that the updated controller parameters remain within the feasible set defined in (21). For comparison, the state trajectory under the baseline controller from [17] is shown in Figure 3A, while the trajectory obtained using the controller optimized by Algorithm 1 is shown in Figure 3B. The optimized controller drives the system to steady state substantially faster than the baseline controller. The corresponding baseline and optimized control inputs are compared in Figure 3C, where the optimized controller achieves the desired performance with reduced control effort. Finally, the evolution of the controller parameters is shown in Figure 3D, demonstrating smooth convergence of the policy-gradient updates. Figure 4 shows the convergence of the Gauss-Newton iterations for the inertia-wheel pendulum across different trajectory horizons. The parallel state-trajectory solver con-verges for all tested horizons, consistent with Theorem 3.2. After several initial iterations, the error decreases rapidly, qualitatively supporting the local quadratic convergence es-tablished in Corollary 3.2. Nevertheless, longer horizons may require additional iterations before the iterates enter the local region in which quadratic convergence becomes dominant. V. CONCLUSIONS This letter develops a time-parallel policy-optimization framework for discrete-time nonlinear control-affine systems. The policy gradient is expressed in terms of forward state and backward costate trajectories, which are evaluated in parallel using Gauss-Newton iterations and associative scans. We es-tablish that the Gauss-Newton state solver converges locally at a horizon-independent linear rate, while also enjoying global finite-step convergence, with the worst-case number of iterations bounded by the rollout horizon T . Owing to its linear structure, the costate rollout is recovered exactly in a single Gauss-Newton iteration once the state trajectory is fixed. Numerical results for LQR and an inertia-wheel pendulum demonstrate the effectiveness and computational efficiency of the proposed approach. Future work will investi-gate continuous-time extensions and time-parallel sampling-based control methods. 8
+
+Fig. 4. Gauss-Newton convergence for the inertia-wheel pendulum across nine trajectory horizons ranging from (T = 100) to (T = 1000) .Each curve shows the maximum absolute trajectory error over 10 random seeds, measured against the sequential rollout. All tested horizons reach the 
+
+(10 −8) tolerance (dashed line). 
+
+REFERENCES [1] H. K. Khalil, Nonlinear Systems , 3rd ed. Upper Saddle River, NJ, US: Prentice Hall, 2002. [2] M. Krstic, P. V. Kokotovic, and I. Kanellakopoulos, Nonlinear and Adaptive Control Design . NJ, US: John Wiley & Sons, Inc., 1995. [3] S. Massaroli, M. Poli, F. Califano, J. Park, A. Yamashita, and H. Asama, “Optimal energy shaping via neural approximators,” SIAM Journal on Applied Dynamical Systems , vol. 21, no. 3, pp. 2126–2147, 2022. [4] D. Larby and F. Forni, “Optimal virtual model control for robotics: Design and tuning of passivity-based controllers,” IEEE Transactions on Robotics , vol. 42, pp. 439–454, 2026. [5] B. Hu, K. Zhang, N. Li, M. Mesbahi, M. Fazel, and T. Bas ¸ar, “Toward a theoretical foundation of policy optimization for learning control policies,” Annual Review of Control, Robotics, and Autonomous Sys-tems , vol. 6, no. 1, pp. 123–158, 2023. [6] M. Fazel, R. Ge, S. Kakade, and M. Mesbahi, “Global convergence of policy gradient methods for the linear quadratic regulator,” in 
+
+International conference on machine learning . PMLR, 2018, pp. 1467–1476. [7] L. Cui, Z.-P. Jiang, and E. D. Sontag, “Small-disturbance input-to-state stability of perturbed gradient flows: Applications to LQR problem,” 
+
+Systems & Control Letters , vol. 188, p. 105804, 2024. [8] W. Jin, Z. Wang, Z. Yang, and S. Mou, “Pontryagin differentiable pro-gramming: An end-to-end learning and control framework,” Advances in Neural Information Processing Systems , vol. 33, pp. 7979–7992, 2020. [9] Y. H. Lim, Q. Zhu, J. Selfridge, and M. Firmansyah, “Parallelizing non-linear sequential models over the sequence length,” in Interna-tional Conference on Learning Representations , vol. 2024, 2024, pp. 55 334–55 360. [10] G. E. Blelloch, “Prefix sums and their applications,” School of Computer Science, Carnegie Mellon University, Tech. Rep. CMU-CS-90-190, Nov. 1990. [11] F. Danieli, M. Sarabia, X. Suau Cuadros, P. Rodriguez, and L. Zap-pella, “DeepPCR: Parallelizing sequential operations in neural net-works,” Advances in Neural Information Processing Systems , vol. 36, pp. 47 598–47 625, 2023. [12] X. Gonzalez, L. Kozachkov, D. Zoltowski, K. Clarkson, and S. Lin-derman, “Predictability enables parallelization of nonlinear state space models,” Advances in Neural Information Processing Systems , vol. 38, pp. 19 101–19 147, 2025. [13] D. Silver, G. Lever, N. Heess, T. Degris, D. Wierstra, and M. Ried-miller, “Deterministic policy gradient algorithms,” in International conference on machine learning . Pmlr, 2014, pp. 387–395. [14] G. Hewer, “An iterative technique for the computation of the steady state gains for the discrete optimal regulator,” IEEE Transactions on Automatic Control , vol. 16, no. 4, pp. 382–384, 1971. [15] G. E. Blelloch, “Scans as primitive parallel operations,” IEEE Trans-actions on computers , vol. 38, no. 11, pp. 1526–1538, 1989. [16] J. Bradbury, R. Frostig, P. Hawkins, M. J. Johnson, Y. Katariya, C. Leary, D. Maclaurin, G. Necula, A. Paszke, J. VanderPlas, S. Wanderman-Milne, and Q. Zhang, “JAX: composable transformations of Python+NumPy programs,” 2018. [Online]. Available: http://github.com/jax-ml/jax [17] R. Ortega, M. W. Spong, F. G´ omez-Estern, and G. Blankenstein, “Stabilization of a class of underactuated mechanical systems via inter-connection and damping assignment,” IEEE transactions on automatic control , vol. 47, no. 8, pp. 1218–1233, 2002.

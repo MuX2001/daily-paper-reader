@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-16</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-17</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 21 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 33 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>8</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>20</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-16 21:57:18 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-17 22:18:58 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,10 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>2026-09-16 日报精选 21 篇 VLA 与机器人研究，精读 8 篇、速读 13 篇。最值得关注 DeCAL 的接触感知物理落地思路和 RoboDrop 的 VLA 后训练数据筛选方法，两者均获 9.0 分。普通读者可先读这两篇精读，再按兴趣浏览 TANGO、Show-Harness 等速读文章。</p>
+<p>今日共生成 33 篇推荐（精读 20 篇，速读 13 篇）</p>
+<p>精读：《UniMPA: A Unified Memory-Prediction-Action Model via Action-Grounded Transition Modeling》（9.0/10）, 《Driving Context-guided Model Predictive Planning and Control for Autonomous Car Racing at the Limit and Beyond》（9.0/10）</p>
+<p>速读：《ActSafeGuard: Differentiable and Training-Aligned Constraint Enforcement for Flow-Matching Policies》（8.0/10）, 《Conflict-Predictive Variable Horizons in Multi-Drone Distributed Model Predictive Control》（8.0/10）, 《Ergodic Control and Controlled Diffusion for Robot Learning: Review and Tutorial》（8.0/10）</p>
+<p>这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +74,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">8 篇</strong>
+    <strong class="dpr-home-dashboard-count">20 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="DeCAL: Towards Physically-Grounded Dexterous Vision-Language-Action Models via Contact-Aware Latent Co-Imagination">DeCAL: Towards Physically-Grounded Dexterous Vision-Language-Action Models via Contact-Aware Latent Co-Imagination</span></li><li><span class="dpr-home-dashboard-paper-title" title="RoboDrop: Curating VLA Post-Training Data via Local Gradient Compatibility">RoboDrop: Curating VLA Post-Training Data via Local Gradient Compatibility</span></li><li><span class="dpr-home-dashboard-paper-title" title="Dynin-Robotics: Omnimodal Unified Diffusion Vision-Language-Action Model">Dynin-Robotics: Omnimodal Unified Diffusion Vision-Language-Action Model</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="UniMPA: A Unified Memory-Prediction-Action Model via Action-Grounded Transition Modeling">UniMPA: A Unified Memory-Prediction-Action Model via Action-Grounded Transition Modeling</span></li><li><span class="dpr-home-dashboard-paper-title" title="Driving Context-guided Model Predictive Planning and Control for Autonomous Car Racing at the Limit and Beyond">Driving Context-guided Model Predictive Planning and Control for Autonomous Car Racing at the Limit and Beyond</span></li><li><span class="dpr-home-dashboard-paper-title" title="Dynin-Robotics: Omnimodal Unified Diffusion Vision-Language-Action Model">Dynin-Robotics: Omnimodal Unified Diffusion Vision-Language-Action Model</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>4</strong></span><span class="dpr-home-dashboard-tag">control <strong>2</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>9</strong></span><span class="dpr-home-dashboard-tag">vla <strong>5</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>4</strong></span><span class="dpr-home-dashboard-tag">control <strong>2</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -87,9 +90,9 @@
     <strong class="dpr-home-dashboard-count">13 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="TANGO: Humanoid Navigation in Cluttered Environments with a Whole-Body Vision-Language-Action Model">TANGO: Humanoid Navigation in Cluttered Environments with a Whole-Body Vision-Language-Action Model</span></li><li><span class="dpr-home-dashboard-paper-title" title="Show-Harness: Just a VLM Agent Can Play Robots">Show-Harness: Just a VLM Agent Can Play Robots</span></li><li><span class="dpr-home-dashboard-paper-title" title="ActSafeGuard: Differentiable and Training-Aligned Constraint Enforcement for Flow-Matching Policies">ActSafeGuard: Differentiable and Training-Aligned Constraint Enforcement for Flow-Matching Policies</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="ActSafeGuard: Differentiable and Training-Aligned Constraint Enforcement for Flow-Matching Policies">ActSafeGuard: Differentiable and Training-Aligned Constraint Enforcement for Flow-Matching Policies</span></li><li><span class="dpr-home-dashboard-paper-title" title="Conflict-Predictive Variable Horizons in Multi-Drone Distributed Model Predictive Control">Conflict-Predictive Variable Horizons in Multi-Drone Distributed Model Predictive Control</span></li><li><span class="dpr-home-dashboard-paper-title" title="Ergodic Control and Controlled Diffusion for Robot Learning: Review and Tutorial">Ergodic Control and Controlled Diffusion for Robot Learning: Review and Tutorial</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>5</strong></span><span class="dpr-home-dashboard-tag">vla <strong>5</strong></span><span class="dpr-home-dashboard-tag">control <strong>2</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">control <strong>5</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>5</strong></span><span class="dpr-home-dashboard-tag">vla <strong>2</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>1</strong></span></div>
 </section>
 </div>
 
