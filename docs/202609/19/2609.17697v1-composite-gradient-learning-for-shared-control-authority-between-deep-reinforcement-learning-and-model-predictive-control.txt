@@ -1,0 +1,476 @@
+Title: Composite-Gradient Learning for Shared Control Authority Between Deep Reinforcement Learning and Model Predictive Control
+
+URL Source: https://arxiv.org/pdf/2609.17697v1
+
+Published Time: Thu, 17 Sep 2026 00:06:34 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# Composite-Gradient Learning for Shared Control Authority Between Deep Reinforcement Learning and Model Predictive Control 
+
+Giray ¨ On¨ ur, Azita Dabiri and Bart De Schutter 
+
+Abstract — Integrated deep reinforcement learning (DRL) and model predictive control (MPC) methods are increasingly used to control autonomous systems by combining their com-plementary capabilities. DRL learns control policies through interaction with the environment. MPC uses a system model to optimize control inputs while accounting for constraints. In DRL-MPC frameworks with shared control authority, both the DRL agent and the MPC controller each determine part of the control inputs. However, common learning formulations treat MPC as part of the environment and therefore do not explicitly account for MPC’s contribution to control or its interaction with the DRL agent. This paper proposes a novel composite-gradient learning (CGL) method that integrates the MPC controller into the learning process by representing the DRL and MPC control inputs as a joint action and accounting for their interaction when updating the DRL agent during training. CGL is evaluated on two multi-class freeway traffic networks with different strengths of interaction between the DRL and MPC control inputs and it is compared with alternative methods that treat MPC as part of the environment or that only partially incorporate MPC into learning. The results show that CGL offers limited benefit under weak interaction, but learns higher-performing control policies than the alternative methods in a subset of training runs under strong interaction, although the average control-performance gains remain modest. 
+
+I. I NTRODUCTION 
+
+Model predictive control (MPC) and deep reinforcement learning (DRL) have become prominent approaches for controlling complex systems in applications ranging from industrial process control to robotics [1], [2]. Although both methods address sequential decision making, they employ different approaches. MPC [1] uses an explicit prediction model to forecast the system evolution over a finite horizon, optimizes a sequence of control inputs while explicitly accounting for system constraints, applies only the first control input of the optimized sequence, and repeats this procedure in a receding-horizon fashion. On the other hand, DRL [2] learns a control policy directly through interaction with the environment without requiring an explicit system model, allowing control policies to be obtained when model knowledge is limited or the system dynamics are uncer-tain. DRL also enables fast control input computation after training, since the trained policy network directly maps the current observation to an action through a single forward pass without requiring online optimization.            
+
+> This research has received funding from the European Research Council (ERC) under the European Union’s Horizon 2020 research and innovation programme (Grant agreement No. 101018826 - ERC Advanced Grant CLariNet). The authors are with the Delft Center for Systems and Control, Delft University of Technology, Delft, The Netherlands {
+
+g.oenuer, a.dabiri, b.deschutter }@tudelft.nl. 
+
+The complementary characteristics of DRL and MPC motivate hybrid frameworks that combine MPC’s built-in optimization and constraint-handling capabilities with DRL’s fast online computation and model independence [3]. Hierarchical DRL-MPC frameworks exploit this combina-tion by assigning different tasks and time scales to either method. Such frameworks improve control performance in automation applications such as traffic management [4] and microgrid energy management [5]. However, despite overall progress, integrating DRL and MPC remains a developing area with limited practical applications. The current paper considers a hierarchical DRL-MPC framework [6], in which the control authority and control inputs are divided between DRL and MPC to allow MPC to run at a low frequency for control measures whose slower up-date rate accommodates MPC’s high computation time, while DRL controls high-frequency control measures by leveraging its short deployment time. For example, high-frequency and low-frequency control inputs can correspond, respectively, to ramp metering rates and vehicle splitting rates in freeway networks [7], actuator commands and reference trajectories in robotic motion control [8], and semiconductor switching commands and motor-current references in power-electronic converter control [9]. The hierarchical DRL-MPC framework therefore reduces online computation relative to purely MPC-based control while preserving MPC’s optimization and constraint-handling capabilities at the upper level. In this hierarchical DRL-MPC framework [6], the MPC controller is considered part of the environment while train-ing the DRL agent, as treating the MPC controller as part of the environment is a common approach in such frame-works [3]. However, when the control authority and control inputs are divided between MPC and DRL, since the MPC controller requires future DRL actions to predict the system evolution over its optimization horizon, the DRL agent influences the computation of the MPC control input. When MPC is treated as part of the environment, this dependence is not explicitly incorporated into the learned assessment of control performance or into the update of the DRL agent, thereby leaving the learning formulation incomplete. This may limit performance when the control inputs of the MPC controller and the DRL agent are strongly coupled. For example, such coupling may arise in a freeway traffic control problem in which an MPC controller at the upper level uses route guidance to regulate the traffic flow directed toward a metered on-ramp, while a DRL agent at the lower level uses ramp metering to control vehicle entry onto the freeway mainline from that on-ramp. The high-level MPC arXiv:2609.17697v1 [cs.LG] 15 Sep 2026 control input determines the traffic demand arriving at the metered on-ramp and therefore the operating conditions faced by the lower-level DRL agent. Conversely, the pre-dicted DRL actions over the MPC horizon influence the route guidance control input of the MPC controller by shaping the predicted traffic evolution. Together, these interactions create bidirectional coupling between the MPC controller and the DRL agent. To incorporate this coupling into the learning process, we formulate the hierarchical control problem as a Markov decision process (MDP) in which the DRL action and the MPC control input form a joint action space. Based on this formulation, we propose a novel composite-gradient learning method that captures both the direct effect of the DRL action and its indirect effect through the MPC control input, thereby addressing the incomplete learning formulation that treats MPC as part of the environment [3]. The main contributions of this paper are as follows:  
+
+> •
+
+We formulate a hierarchical DRL-MPC control frame-work with shared control authority as an MDP in which the lower-level DRL action and the upper-level MPC control input form a joint action to capture the interaction between the two control levels.  
+
+> •
+
+We propose a novel composite-gradient learning method in which the learned assessment of control performance accounts for the joint action, and the update of the DRL agent captures both the direct effect of the DRL action and its indirect effect through the MPC control input.  
+
+> •
+
+We develop a hierarchy-aware data storage and sam-pling scheme that reduces the computational cost of the learning process by reusing MPC computations across the data collected between two consecutive MPC control input updates. The remainder of this paper is organized as follows. Sec-tion II describes the hierarchical DRL-MPC framework with shared control authority. Section III presents the proposed composite-gradient learning method. Section IV introduces the multi-class freeway traffic case studies and evaluates the proposed method under different DRL-MPC control input coupling conditions. Finally, Section V concludes the paper and outlines directions for future work. II. H IERARCHICAL DRL-MPC F RAMEWORK WITH 
+
+SHARED CONTROL AUTHORITY 
+
+The hierarchical DRL-MPC framework divides control authority and control inputs between DRL and MPC [6], where the MPC controller uses a copy of the trained DRL agent, whose policy is held fixed during deployment, to obtain high-frequency control inputs required by MPC for predicting the future states of the controlled system (see Figure 1(a)). This allows the MPC controller to predict the future states of the controlled system over its prediction window, even though the control input of the lower level is not determined by the MPC controller but by the DRL agent. Through this coupling, the DRL agent influences the MPC solution by affecting the state predictions used in the MPC optimization.  
+
+> Fig. 1. (a) Block diagram illustrating the proposed DRL-MPC framework that divides control inputs between the DRL agent and the MPC controller. (b) Time scales for the low-frequency control inputs of the high-level MPC controller and the high-frequency control inputs of the low-level DRL agent.
+
+Let x(k) ∈ X denote the state of the controlled system at sampling step k, where X is the state space of the system and 
+
+T is the length of the sampling time interval. The high- and low-level control inputs jointly determine the evolution of the controlled system according to the discrete-time dynamical model 
+
+x(k + 1) = f  x(k), ¯uh(k), ¯ul(k), d(k), (1) where f denotes the system dynamics, ¯uh(k) and ¯ul(k)
+
+denote the high- and low-level control inputs applied to the controlled system at sampling step k, respectively, and d(k)
+
+denotes the exogenous disturbances. Let kl represent the control step counter for the low-level DRL agent, whose control update interval has length Tl
+
+(see Figure 1(b)). The relationship between the low-level control interval and the sampling time interval is Tl =
+
+mlT , k = mlkl, ml ∈ N+, ml ≥ 1, where ml is the number of sampling intervals within one low-level control interval, k = mlkl identifies the sampling step corresponding to low-level update step kl, and N+ denotes the set of positive integers. At every low-level control step, the DRL agent receives the observation xrl (kl) ∈ X rl . Let ηrl (kl)
+
+denote auxiliary information available to the agent that is not necessarily contained in the current controlled-system state, such as exogenous measurements or previous states and control inputs. The DRL observation may combine selected or transformed components of the system state with this auxiliary information and is defined by the observation map 
+
+Hrl as 
+
+xrl (kl) = Hrl 
+
+ x(mlkl), ηrl (kl). (2) The DRL agent computes the high-frequency control in-puts every Tl time units as ul(kl) = πθ
+
+ xrl (kl), ul(kl) ∈Ul, where πθ is the deterministic DRL policy with parameters 
+
+θ, and Ul is the admissible low-level control-input set. Then, the low-level control inputs that are applied to the controlled system during the control interval [klTl, (kl + 1) Tl) are calculated as ¯ul(mlkl + s) = ul(kl), s ∈ Iml , where 
+
+Im = {0, 1, . . . , m − 1} for m ∈ N+. Hence, the control input ul(kl) is applied over an interval of Tl time units using a zero-order hold (ZOH) strategy. Let uh(kh) denote the high-level control input applied at high-level control step kh (see Figure 1(b)), and let uh,j |kh
+
+denote the high-level control input at high-level control step 
+
+kh+j calculated at high-level control step kh, where j ∈ INp .The MPC controller computes the control sequence 
+
+˜uh(kh) = 
+
+h
+
+u⊤ 
+
+> h,0|kh
+
+, u⊤ 
+
+> h,1|kh
+
+, . . . , u⊤
+
+> h,N p−1|kh
+
+i⊤
+
+over a prediction horizon of Np high-level time steps, each with a duration of Th time units, where Th = mhT , k =
+
+mhkh, mh = qm l, q ∈ N+. Here, q is the number of low-level control intervals within one high-level control interval, aligning the high-level and low-level control input updates (see Figure 1(b)). At coincident high-level and low-level update time instants, their step counters therefore satisfy 
+
+kl = qk h.At high-level control time step kh, let ˆxℓ|kh = ˆx(mhkh +
+
+ℓ) denote the predicted future state of the controlled system ℓ
+
+sampling steps ahead for ℓ ∈ ImhNp+1 . The predicted future states are stacked as 
+
+˜x(kh) = 
+
+h
+
+ˆx⊤ 
+
+> 1|kh
+
+, ˆx⊤ 
+
+> 2|kh
+
+, . . . , ˆx⊤
+
+> mhNp|kh
+
+i⊤
+
+.
+
+The states are predicted at the sampling steps to evaluate the objective function accurately, even though the high-level control inputs are updated only at the high-level control steps. The relative-index notation is extended analogously to the predicted high-level inputs, low-level inputs, and distur-bances, denoted by ˆuh,ℓ |kh , ˆul,ℓ |kh , and ˆdℓ|kh , respectively, for ℓ ∈ ImhNp . The disturbance forecasts ˆdℓ|kh are assumed to be available to the MPC controller. Let ul,i |kh and ˆxrl ,i |kh
+
+denote the predicted DRL action and the corresponding predicted DRL observation i low-level control steps ahead, respectively, where i ∈ IqN p . Let ˆηrl ,i |kh denote the auxiliary information associated with that predicted DRL observation, which is obtained as ˆxrl ,i |kh = Hrl 
+
+ ˆxmli|kh , ˆηrl ,i |kh
+
+, analo-gous to (2). The MPC controller computes the control inputs over the prediction horizon by solving the following optimization problem: 
+
+min 
+
+> ˜uh(kh),˜x(kh)
+
+X
+
+> ℓ∈ImhNp
+
+Lmpc 
+
+ ˆxℓ|kh , ˆuh,ℓ |kh , ˆul,ℓ |kh , ˆdℓ|kh
+
+
+
+s.t. ˆxℓ+1 |kh = ˆf  ˆxℓ|kh , ˆuh,ℓ |kh , ˆul,ℓ |kh , ˆdℓ|kh
+
+,
+
+for ℓ ∈ ImhNp ,
+
+ˆx0|kh = x(mhkh), (3a) 
+
+ˆuh,m hj+s|kh = uh,j |kh ,
+
+for s ∈ Imh , j ∈ INp , (3b) 
+
+ˆul,m li+s|kh = πθ
+
+ ˆxrl ,i |kh
+
+,
+
+for s ∈ Iml , i ∈ IqN p , (3c) 
+
+ˆxℓ|kh ∈ C x, ℓ ∈ ImhNp+1 \{ 0}, (3d) 
+
+uh,j |kh ∈ C uh , j ∈ INp . (3e) In (3), Lmpc denotes the stage-cost function, and ˆf denotes the prediction model for the controlled system. Constraint (3a) sets the initial condition of the predicted state trajectory to the measured state at the current high-level control step. Constraint (3b) maps the MPC control inputs from high-level control steps to sampling steps using a ZOH strategy. Constraint (3c) specifies that the low-level control inputs used in the prediction are generated by a copy of the DRL policy based on the predicted DRL observation (see Fig-ure 1(a)) and held over the corresponding low-level control interval using a ZOH strategy. During deployment, the policy parameters θ remain fixed, and the same policy is used both to generate the low-level control inputs applied to the controlled system and to generate their predictions within the MPC problem. Finally, (3d) and (3e) collect the state and high-level input constraints, respectively. Here, Cx ⊆ X 
+
+denotes the admissible state constraint set, and Cuh ⊆ U h
+
+denotes the high-level control-input constraint set imposed by the MPC controller, where Uh denotes the admissible high-level control-input set. The resulting high-level control input corresponds to the first element of the optimized control sequence, uh(kh) = 
+
+u⋆ 
+
+> h,0|kh
+
+, and can be expressed as 
+
+uh(kh) = πmpc 
+
+ x(mhkh), π θ , ηmpc (kh) , (4) where πmpc denotes the MPC control law obtained by solving (3), and ηmpc (kh) collects the time-varying auxiliary information required to solve the MPC problem that is not represented by the measured state or the DRL policy. Distur-bance forecasts ˆd and predicted DRL-observation auxiliary information ˆηrl are examples of this type of information. The high-level control input is applied to the controlled system using a ZOH strategy as ¯uh(mhkh + s) = uh(kh), s ∈ Imh .III. C OMPOSITE -G RADIENT LEARNING 
+
+This section formulates the hierarchical control problem as an MDP and presents CGL together with a hierarchy-aware data storage and sampling scheme. 
+
+A. MDP Formulation 
+
+Assuming Markov-sufficient observations, the learning problem is represented by the MDP tuple 
+
+(Xrl , U, P, r, γ ) , U = Ul × U h.
+
+Here, Xrl is the MDP state space formed by the DRL observations, U is the joint action space formed by the admissible low- and high-level control-input sets, P is the state-transition probability kernel, r : Xrl × U → R is the one-step reward, and γ is the discount factor. One MDP step corresponds to one low-level control interval. The MDP state is the DRL observation xrl (kl) ∈ X rl .The joint action u(kl) = [ u⊤ 
+
+> l
+
+(kl), u⊤
+
+> h|l
+
+(kl)] ⊤ ∈ U comprises the low- and high-level control inputs, both represented on the low-level time scale. Unlike the DRL input, which is recomputed at every low-level control step, the MPC input is updated once every q low-level control steps and held constant between updates. Accordingly, the high-level input represented on the low-level time scale is denoted by uh|l(kl)
+
+and defined as uh|l(kl) = uh (⌊kl/q ⌋) , where ⌊·⌋ denotes the floor operation, which returns the greatest integer less than or equal to its argument. The transition probability kernel P(· | xrl , u) gives the conditional probability distribution of the next MDP state, represented by the next DRL observation. For a current DRL observation xrl , a joint control input u, and any measurable set X +rl ⊆ Xrl of possible next observations x+rl (kl) =
+
+xrl (kl + 1) , the transition probability kernel is given by 
+
+P X +rl | xrl , u
+
+= Pr  Xrl (kl + 1) ∈ X +rl Xrl (kl) = xrl , U (kl) = u ,
+
+where Pr( · | · ) denotes the conditional probability operator and Xrl and U denote random variables with realized values 
+
+xrl and u, respectively. One transition covers the evolution of the controlled system and the auxiliary information from sampling step mlkl to sampling step ml(kl +1) . Accordingly, 
+
+P captures the controlled-system dynamics in (1) together with the evolution of the auxiliary information over this interval. The reward r evaluates the control performance associated with the MDP state and joint action over the ml sampling intervals that constitute the low-level control interval. 
+
+B. Learning Algorithm 
+
+We adopt Deep Deterministic Policy Gradient (DDPG) [10] as the base actor-critic algorithm for developing composite-gradient learning (CGL), motivated by the suc-cessful application of DDPG across a range of control bench-marks [2] and, in particular, within the considered DRL-MPC framework [6]. DDPG is suitable for the considered framework because its off-policy learning feature allows previously collected experience to be reused, reducing the repeated MPC computations required to collect new training experience. Building on DDPG, CGL learns a deterministic DRL pol-icy through an actor network πθ , parameterized by θ, which maps the observed state to a DRL action. A critic network 
+
+Qϕ, parameterized by ϕ, estimates the expected discounted return associated with a state-action pair under the current policy. To improve learning stability, CGL also maintains a target actor network πθ′ and a target critic network Qϕ′ ,whose parameters θ′ and ϕ′ are updated gradually relative to those of the main networks. Past experiences are stored in a replay buffer D, with the oldest experiences removed once the buffer reaches its capacity. At each network update, a mini-batch M comprising M stored experiences is sampled from D and used to calculate the actor and critic updates. For each low-level transition, CGL requires the MPC-initialization states associated with the current and next MDP states. The current MPC-initialization state is used to calculate the high-level control input and its contribution to the composite policy gradient (see (9) and (13)), whereas the next MPC-initialization state is used to construct the critic target (see (6) and (7)). At low-level control step kl, the MPC-initialization state is defined as 
+
+xmpc (kl) = x
+
+
+
+mh
+
+ kl
+
+q
+
+ 
+
+, (5) which is the measured controlled-system state used as an input to πmpc in (4) at the most recent MPC update. Consequently, xmpc (kl) remains unchanged over the q low-level control steps between two consecutive MPC updates. Let kl,i denote the low-level control step at which experi-ence i is collected. The MPC-initialization states associated with the current and next MDP states of experience i are denoted by 
+
+xmpc ,i = xmpc (kl,i ), x+mpc ,i = xmpc (kl,i + 1) ,
+
+respectively, and are identical unless the transition ends at a high-level control input update instant. CGL stores the aug-mented experience tuples (xmpc ,i , xrl ,i , ui, r i, x+mpc ,i , x+rl ,i ,δi) in the replay buffer D, where δi ∈ {0, 1} indicates whether the transition is terminal. For an experience i sampled from the replay buffer, the critic target is calculated as 
+
+yi = ri + γ(1 − δi)Qϕ′
+
+
+
+x+rl ,i , u+
+
+> θ′,i
+
+
+
+, (6) where 
+
+u+ 
+
+> θ′,i
+
+=
+
+" u+l,θ ′,i 
+
+u+h|l,θ ′,i 
+
+#
+
+is the joint control input of the target policy associated with the next MDP state. The low-level control input of the target policy is calculated using the target actor network as u+l,θ ′,i =
+
+πθ′ (x+rl ,i ). The high-level control input of the target policy, represented on the low-level time scale, is calculated as 
+
+u+h|l,θ ′,i = πmpc 
+
+ x+mpc ,i , π θ′ , η+mpc ,i 
+
+ , (7) where η+mpc ,i denotes the auxiliary information associated with the MPC update relevant to the next low-level control step. The loss for the critic network is calculated as 
+
+L(ϕ) = 1
+
+M
+
+> M
+
+X
+
+> i=1
+
+(yi − Qϕ (xrl ,i , ui)) 2 , (8) where i indexes the M experiences in the mini-batch M.The critic parameters ϕ are updated by minimizing (8) using a gradient-based optimizer, such as adaptive moment estimation (Adam) [11]. The actor parameters θ are subsequently updated by max-imizing the return estimated by the critic. For experience i,the joint control input induced by the current actor policy is defined as uθ,i = [ u⊤
+
+> l,θ,i
+
+, u⊤
+
+> h|l,θ,i
+
+]⊤. The low-level component is calculated as ul,θ,i = πθ (xrl ,i ). The corresponding high-level component is calculated as 
+
+uh|l,θ,i = πmpc 
+
+ xmpc ,i , π θ , ηmpc ,i 
+
+ . (9) Unlike the joint input ui stored in the replay buffer, uθ,i 
+
+is calculated using the current actor parameters. The actor objective is defined as 
+
+J(θ) = 1
+
+M
+
+> M
+
+X
+
+> i=1
+
+Qϕ (xrl ,i , uθ,i ) . (10) Based on (10), the composite policy gradient is decomposed as 
+
+∇θ J(θ) = grl + gmpc ,
+
+where grl and gmpc denote the DRL and MPC contributions to the composite policy gradient, respectively (see Figure 2). The DRL contribution is calculated as 
+
+grl = 1
+
+M
+
+> M
+
+X
+
+> i=1
+
+(∇θ ul,θ,i )⊤ ∇ul Qϕ (xrl ,i , uθ,i ) . (11) The sensitivity ∇θ ul,θ,i in (11) is obtained by differentiating the actor network with respect to the actor parameters θ as 
+
+∇θ ul,θ,i = ∇θ πθ (xrl ,i ) .
+
+The MPC contribution is calculated as 
+
+gmpc = 1
+
+M
+
+> M
+
+X
+
+> i=1
+
+ ∇θ uh|l,θ,i 
+
+⊤ ∇uh|l Qϕ (xrl ,i , uθ,i ) . (12) The sensitivity ∇θ uh|l,θ,i in (12) is obtained by differentiat-ing the MPC control law 1 as 
+
+∇θ uh|l,θ,i = ∇θ πmpc 
+
+ xmpc ,i , π θ , ηmpc ,i 
+
+ . (13) Here, ∇θ πmpc denotes the derivative of the MPC control input with respect to the actor parameters through the policy 
+
+πθ embedded in the MPC problem. It therefore accounts for the effect of the actor parameters on the predicted low-level control inputs in (3c) and, consequently, on the optimized high-level control input. Thus, the DRL contribution in (11) captures the direct effect of the DRL action on the estimated return, whereas the MPC contribution in (12) captures the indirect effect of the DRL policy through the MPC control input, as illustrated in Figure 2. The actor parameters are then updated using gradient ascent as 
+
+θ ← θ + αθ ∇θ J(θ), (14) where αθ > 0 denotes the actor learning rate. Following the critic and actor updates, the target-network parameters are updated using Polyak averaging as in [10] to improve learning stability as 
+
+θ′ ← τ θ + (1 − τ )θ′, ϕ′ ← τ ϕ + (1 − τ )ϕ′,
+
+where τ ∈ (0 , 1) is the smoothing factor. During experience collection, noise is added to the low-level DRL actions to encourage exploration. Before being applied to the controlled system, each resulting exploratory low-level action is projected into the admissible control-input set Ul.        
+
+> 1The MPC problem is assumed to admit a locally unique solution and to have a control law that is differentiable with respect to θat the sampled experiences.
+> Fig. 2. Computational graph of the direct DRL contribution grl and indirect MPC contribution gmpc within one group starting at i.
+
+C. Hierarchy-Aware Data Storage and Sampling Scheme 
+
+The critic target in (6) requires evaluating the MPC control law under the target actor policy according to (7). For the actor update in (14), the MPC contribution in (12) requires evaluating the control law under the current actor policy and calculating its sensitivity according to (13). For fixed actor parameters, MPC evaluations with the same MPC-initialization state and auxiliary information yield identical control inputs and sensitivities. Accordingly, the proposed data storage and sampling scheme groups transitions by their associated MPC updates to reuse these computations during training. Let j index the groups, each containing the q low-level transitions between two consecutive MPC updates. Let bj
+
+denote the index of the first experience in group j, so its experiences have indices bj + s for s ∈ Iq (see Figure 3). The transition-specific entries of the augmented experience tuple are denoted by ξi = ( xrl ,i , ui, r i, x+rl ,i , δ i). The replay buffer D stores these transitions in groups of the form Ej =(xmpc ,b j , {ξbj +s}s∈Iq ).Since the MPC-initialization state xmpc ,b j is shared by all transitions in group j, it is stored only once. Experiences and groups are indexed in collection order, with bj+1 = bj + q
+
+for consecutive groups within an episode. According to (5), the next MPC-initialization state associated with transition 
+
+ξbj +s is given by 
+
+x+mpc ,b j +s =
+
+(
+
+xmpc ,b j , s < q − 1,
+
+xmpc ,b j+1 , s = q − 1.
+
+For group j, the MPC control law in (4) is evaluated under either actor policy as 
+
+uh|l,ϑ,b j = πmpc 
+
+
+
+xmpc ,b j , π ϑ, ηmpc ,b j
+
+
+
+,
+
+where ϑ ∈ { θ, θ ′} and ηmpc ,b j denotes the auxiliary infor-mation associated with the MPC update of group j. The high-level control input of the current policy in (9) and its sensitivity in (13) are calculated once per group because their values are identical for all experiences in group j.Using the MPC control inputs evaluated for each group, the high-level control input of the target policy in (7) is obtained as 
+
+u+h|l,θ ′,b j +s =
+
+(
+
+uh|l,θ ′,b j , s < q − 1,
+
+uh|l,θ ′,b j+1 , s = q − 1.Fig. 3. Hierarchy-aware reuse of MPC evaluations under the target policy across consecutive experience groups. The red-hatched elements show the excluded final transition and its avoided additional MPC evaluation. 
+
+Consequently, the critic targets in (6) for the last transition of group j − 1 and the first q − 1 transitions of group j use the same high-level control input of the target policy (see Figure 3). At each network update, B sequences of Ne consecutive groups from the same episode are sampled uniformly from 
+
+D, with starting group indices j(r)0 , r ∈ { 1, . . . , B }. The final transition of each selected sequence is excluded to avoid evaluating (7) for the subsequent, unselected group, as illustrated in Figure 3. For tasks with a terminal condition, the final episode transition can instead be retained to learn that no future reward follows, using yi = ri. The mini-batch is defined as 
+
+M =
+
+> B
+
+]
+
+> r=1
+
+n
+
+ξi | bj(r)0
+
+≤ i < b j(r)0
+
++ qN e − 1
+
+o
+
+,
+
+where U denotes multiset union, preserving repeated transi-tions if sampled sequences overlap. The M = B(qN e − 1) 
+
+augmented experience tuples are reconstructed from the selected transitions and their group-level information, then relabeled with i ∈ { 1, . . . , M } for the critic loss in (8) and actor objective in (10). Each sequence requires Ne target-policy MPC evaluations for its qN e − 1 critic targets in (6). Likewise, Ne current-policy MPC evaluations and sensitivity calculations in (13) are reused across these transitions for the MPC gradient contribution in (12). The number of MPC evaluations under the target policy per critic target using the proposed hierarchy-aware data storage and sampling scheme is therefore Ne/(qN e − 1) .If groups were sampled independently rather than consec-utively, each group would require MPC evaluations under the target policy for both itself and its successor. Without reuse between sampled groups, retaining all q transitions per group would therefore require 2Ne evaluations for qN e critic targets, giving 2Ne/(qN e) = 2/q evaluations per target. For the proposed scheme, the ratio Ne/(qN e − 1) decreases monotonically toward 1/q as Ne increases, approaching half the number of MPC evaluations per critic target required by independent sampling. By reusing identical MPC computa-tions under fixed network parameters, the proposed scheme reduces the MPC evaluation cost per retained transition without introducing additional approximations into its critic target or composite-gradient terms. IV. C ASE STUDY 
+
+This section evaluates CGL on two multi-class freeway traffic networks and compares it with alternative methods. 
+
+A. Freeway Traffic Control Settings 
+
+We consider the two freeway networks in Figure 4, each with two vehicle classes. We use a multi-class METANET model [7] to simulate these networks with a sampling interval of T = 10 s, owing to its balance between computational efficiency and modeling accuracy. Each 1-km link contributes seven state elements comprising the class-dependent mean speeds, densities, and outflows and the total density, while each origin contributes four state elements comprising the class-dependent queue lengths and outflows. Network 1 has nine links and three origins, yielding a 75-dimensional state vector x(k). Network 2 has eight links and four origins, yielding a 72-dimensional state vector. At each step, the demand vector d(k) contains 6 class-specific demands of the three exogenous demand streams. Each network uses one vehicle-splitting input, uh, to distribute traffic between two routes and two ramp-metering inputs, ul,1 and ul,2, to regulate traffic entering the freeway     
+
+> Fig. 4. Freeway layouts for Network 1 (top) and Network 2 (bottom). The green-and-red arrow symbol denotes the route split controlled by uh, and the traffic-light symbols denote the ramp-metering locations controlled by
+> ul,1and ul,2.
+
+from the two controlled on-ramps. The network structures yield different coupling strengths. In Network 1, uh splits mainline traffic between two routes that later merge with separately metered on-ramps. In Network 2, uh directly splits a shared demand stream between the two metered on-ramps, creating stronger bidirectional coupling with the ramp-metering actions. The low-level DRL action ul = [ ul,1, u l,2]⊤ ∈ [0 , 1] 2
+
+determines two ramp-metering rates every Tl = 120 s. The high-level MPC input uh ∈ [0 , 1] is a traffic splitting rate updated every Th = 600 s. Hence, q = 5 , and each MPC input is held fixed while five successive DRL actions are applied. The MPC prediction horizon is 20 min, and each controlled episode lasts 30 min. Initial traffic conditions for both networks are established through a warm-up period before controlled operation. 
+
+B. Learning Methods and Experimental Setup 
+
+CGL is compared with three alternative learning methods: CGL-D (direct), CGL-S (scaled), and MPC-E. CGL-D uses the joint-action critic but updates the actor using only the direct gradient grl , omitting the indirect contribution gmpc 
+
+through MPC. CGL-S uses grl +αgmpc with α = nh∥grl ∥ 
+
+> nl∥gmpc ∥
+
+to balance the DRL and MPC contribution norms in proportion to their control input counts, where ∥·∥ denotes the Euclidean norm and nl and nh are the dimensions of the low- and high-level control input vectors, respectively. MPC-E treats MPC as part of the environment, omits the high-level MPC input from the critic’s action input, and updates the actor using only grl .The actor and critic use the reduced observation ˜xrl , which augments the traffic state with the current demand vector and the previously applied splitting rate. The reduced observation is treated as an approximate MDP state and has dimensions 82 and 79 for Networks 1 and 2, respectively. The low-level reward over each 120-s interval is the neg-ative sum of the total time spent (TTS), a queue-constraint penalty, and an input-change penalty. Here, the TTS is the aggregate time that vehicles spend traveling on the freeway links or waiting in the origin queues, so reducing it promotes efficient traffic movement. The queue-constraint penalty is one-sided and squared: no penalty is applied below a queue limit, and the penalty grows quadratically above it. Queue limits are 200 vehicles at mainline origins in both networks and 50 and 120 at each controlled on-ramp in Networks 1 and 2, respectively. Network 2 also includes a density-constraint penalty for the total density above 33 veh/km/lane downstream of each controlled merge, with a weight of 2000. The input-change penalty applies to changes in all three control inputs with a weight of 0.4, encouraging smoother control operation. The reward is scaled by 1/30 to control its magnitude, motivated by evidence that reward scaling can affect learning speed and asymptotic performance in off-policy actor-critic learning [12]. MPC minimizes the negative of this reward over a prediction horizon of Np = 2 high-level control steps, equivalent to 120 sampling steps, thereby aligning its objective with the DRL objective. Similarly to [4], the actor has two 256-unit hidden layers with rectified linear unit activations and layer normalization. The joint-action critic processes the observation and joint action through separate 256- and 128-unit branches, followed by 256- and 128-unit hidden layers. All methods use a replay-buffer capacity of 10 000, a configured mini-batch size of 120, γ = 0 .99 , actor and critic learning rates of 10 −3, and 
+
+τ = 0 .01 . The hierarchy-aware sampling scheme uses Ne =2, yielding 108 retained transitions across B = 12 sampled sequences per update. Decaying Ornstein-Uhlenbeck noise is added to the DRL actions during training, as suggested in [10]. The nonlinear optimization problem in (3) is solved using Optimistix [13] with at most 500 iterations. The sensitivity in (13) is computed by reverse-mode automatic differentiation of the finite-iteration solver map using a recursive checkpoint adjoint scheme, which, unlike implicit differentiation, does not require the solver to converge to a local minimum [13]. Each method is trained using 10 independent neural-network-initialization and exploration seeds, with 960 com-plete episodes per run distributed over 64 parallel envi-ronments. The implementations and full evaluation outputs are available at https://github.com/GirayOnur/ composite-gradient-learning .
+
+C. Results and Discussion 
+
+Figure 5 compares the evaluation returns obtained by the learning methods in both networks. The return is the sum of the undiscounted rewards over one episode.  
+
+> Fig. 5. Evaluation returns (higher is better) for Network 1 (left) and Network 2 (right). Each point shows the mean return of one trained policy over 100 evaluations with different demand-noise realizations. Horizontal bars show the mean over the 10 policies for each method.
+
+For Network 1, the return distributions overlap strongly, and the variation across trained policies is larger than the differences between the method means. Taking CGL as the reference, CGL-D has a lower mean return, whereas MPC-E has a higher mean return. The large overlap shows no clear advantage for any method in Network 1. For Network 2, the mean returns of CGL-D and MPC-E are both lower than that of CGL by approximately 2.4% of its magnitude. Their trained policies reach nearly identical returns, while three of the 10 CGL policies achieve distinctly higher returns. These results suggest that CGL may learn higher-performing control policies than the alternative methods in a subset of training runs when the DRL and MPC control inputs interact strongly, although the average control-performance gains remain modest. The similar returns of CGL-D and MPC-E also show that including the high-level input in the critic is not sufficient to achieve this improvement; the actor update must also include the indirect contribution through MPC. Figure 5 also shows that CGL-S does not improve on CGL in Network 1 despite amplifying gmpc , whose magnitude is much smaller than that of grl in this network (see also Figure 6). It is therefore not considered in Network 2, where the stronger DRL-MPC interaction results in a larger indirect MPC contribution. Figure 6 shows the norm share of the indirect MPC gradient, expressed as a percentage, and the cosine similarity for CGL during training. The norm share of the indirect MPC gradient is ∥gmpc ∥/(∥grl ∥ + ∥gmpc ∥) expressed as a percentage, measuring the relative magnitude of the indi-rect MPC contribution. The cosine similarity measures the directional alignment between grl and gmpc , where positive values indicate similar directions and negative values indicate opposing directions. 
+
+Fig. 6. Distributions of the norm share of the indirect MPC gradient (left) and branch cosine similarity between grl and gmpc (right) during CGL training. Each network has 1 720 logged updates (172 per policy); the Network 1 norm-share distribution excludes one zero-gradient update. Violin shapes, boxes, horizontal lines, and diamonds show the distributions, interquartile ranges, medians, and means, respectively. 
+
+In Network 1, the mean share of gmpc is only 3.0% ,and the median cosine similarity between grl and gmpc 
+
+is 0.03. In Network 2, the mean share of gmpc increases to 27 .3% , possibly due to the stronger interaction between the DRL and MPC control inputs, giving the indirect MPC contribution a larger role in learning. Moreover, the median cosine similarity decreases to −0.40 , showing that gmpc 
+
+often opposes grl , while including this opposing contribution can redirect the actor update toward the higher-return control policies shown in Figure 5. V. C ONCLUSIONS 
+
+This paper has proposed composite-gradient learning (CGL) for hierarchical control frameworks in which deep reinforcement learning (DRL) and model predictive control (MPC) share control authority. CGL integrates the MPC controller into the learning process by representing the DRL and MPC control inputs as a joint action and accounting for their interaction when updating the DRL agent during training. This paper has also proposed a hierarchy-aware data storage and sampling scheme that enables the reuse of MPC computations during training to reduce the computational burden of CGL. In the freeway traffic control case studies, CGL offered limited benefit when the DRL and MPC control inputs interacted weakly. Under strong interaction, however, CGL learned policies that markedly outperformed the alternatives in some training runs, highlighting its potential to improve control performance despite modest average gains. Future work will focus on detecting strong DRL-MPC control input coupling and selectively computing and using the composite gradient in such cases to improve the compu-tational efficiency of CGL. REFERENCES [1] J. B. Rawlings, D. Q. Mayne, and M. M. Diehl, Model Predictive Control: Theory, Computation, and Design , 2nd ed. Madison, WI, USA: Nob Hill Publishing, 2017. [2] X. Wang, S. Wang, X. Liang, D. Zhao, J. Huang, X. Xu, B. Dai, and Q. Miao, “Deep reinforcement learning: A survey,” IEEE Transactions on Neural Networks and Learning Systems , vol. 35, no. 4, pp. 5064– 5078, 2024. [3] R. Reiter, J. Hoffmann, D. Reinhardt, F. Messerer, K. Baumg¨ artner, S. Sawant, J. B¨ odecker, M. Diehl, and S. Gros, “Synthesis of model predictive control and reinforcement learning: Survey and classifica-tion,” Annual Reviews in Control , vol. 61, 2026, art. no. 101045. [4] D. Sun, A. Jamshidnejad, and B. De Schutter, “A novel framework combining MPC and deep reinforcement learning with application to freeway traffic control,” IEEE Transactions on Intelligent Transporta-tion Systems , vol. 25, no. 7, pp. 6756–6769, 2024. [5] M. A. Aljabri, M. O. Bahabri, N. A. Alakhrash, F. A. Hariri, and M. N. Ajour, “AMI-informed hierarchical deep reinforcement learning–model predictive control for coordinated EV, PV, and battery energy management in campus microgrids,” Energies , vol. 19, no. 13, 2026, art. no. 3210. [6] G. Onur, A. Dabiri, and B. De Schutter, “Sharing the control authority between deep reinforcement learning and model predictive control: Application to multi-class transportation networks,” arXiv preprint arXiv:2608.20858 , 2026. [7] C. Pasquale, S. Sacone, S. Siri, and B. De Schutter, “A multi-class model-based control scheme for reducing congestion and emissions in freeway networks by combining ramp metering and route guidance,” 
+
+Transportation Research Part C: Emerging Technologies , vol. 80, pp. 384–408, 2017. [8] U. Rosolia, A. Singletary, and A. D. Ames, “Unified multirate control: From low-level actuation to high-level planning,” IEEE Transactions on Automatic Control , vol. 67, no. 12, pp. 6627–6640, 2022. [9] C. Xue, L. Ding, Z. Quan, and Y. Li, “Multirate modeling and predic-tive control for WBG-device-based high-switching-frequency power converters,” IEEE Transactions on Industrial Electronics , vol. 71, no. 1, pp. 93–103, 2024. [10] T. P. Lillicrap, J. J. Hunt, A. Pritzel, N. Heess, T. Erez, Y. Tassa, D. Sil-ver, and D. Wierstra, “Continuous control with deep reinforcement learning,” in International Conference on Learning Representations (ICLR) , 2016. [11] D. P. Kingma and J. Ba, “Adam: A method for stochastic opti-mization,” in International Conference on Learning Representations (ICLR) , 2015. [12] T. Haarnoja, A. Zhou, P. Abbeel, and S. Levine, “Soft actor-critic: Off-policy maximum entropy deep reinforcement learning with a stochastic actor,” in International Conference on Machine Learning (ICML) , ser. Proceedings of Machine Learning Research, vol. 80. PMLR, 2018, pp. 1861–1870. [13] J. Rader, T. Lyons, and P. Kidger, “Optimistix: Modular optimisation in JAX and Equinox,” arXiv preprint arXiv:2402.09983 , 2024.
