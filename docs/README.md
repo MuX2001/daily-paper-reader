@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-19</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-20</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 31 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 21 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>18</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>8</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-19 21:52:04 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-20 21:52:27 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,10 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共筛选31篇论文，精读18篇、速读13篇，重点聚焦视觉-语言-动作模型与3D场景统一建模。最值得看的是两篇9分工作：Dynin-Robotics的全模态统一扩散VLA模型，以及GeomVLA将场景、运动与动作统一到3D中。普通读者可优先了解VLA与3D统一建模方向，再结合自身兴趣跟进速读中的世界模型安全问题。</p>
+<p>今日共生成 21 篇推荐（精读 8 篇，速读 13 篇）</p>
+<p>精读：《World-Action Models for Robot Learning and Control: A Survey》（10.0/10）, 《GeomVLA: Unifying Scene, Motion, and Action in 3D》（9.0/10）</p>
+<p>速读：《SWIM: Vision-Language-Grounded Soft Whole-Body Interactive Manipulation》（8.0/10）, 《Residual Fault Adaptation for Dexterous In-Hand Manipulation Under Runtime Joint Faults》（8.0/10）, 《Hamilton-Jacobi Reachability for Hybrid Systems: Unified Goal-Driven Control with Safety Guarantees》（8.0/10）</p>
+<p>这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +74,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">18 篇</strong>
+    <strong class="dpr-home-dashboard-count">8 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Dynin-Robotics: Omnimodal Unified Diffusion Vision-Language-Action Model">Dynin-Robotics: Omnimodal Unified Diffusion Vision-Language-Action Model</span></li><li><span class="dpr-home-dashboard-paper-title" title="GeomVLA: Unifying Scene, Motion, and Action in 3D">GeomVLA: Unifying Scene, Motion, and Action in 3D</span></li><li><span class="dpr-home-dashboard-paper-title" title="World-Action Models for Robot Learning and Control: A Survey">World-Action Models for Robot Learning and Control: A Survey</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="World-Action Models for Robot Learning and Control: A Survey">World-Action Models for Robot Learning and Control: A Survey</span></li><li><span class="dpr-home-dashboard-paper-title" title="GeomVLA: Unifying Scene, Motion, and Action in 3D">GeomVLA: Unifying Scene, Motion, and Action in 3D</span></li><li><span class="dpr-home-dashboard-paper-title" title="TAO-Force: Unifying Force-Aware Perception and Fast-Slow Control for Contact-Rich Manipulation">TAO-Force: Unifying Force-Aware Perception and Fast-Slow Control for Contact-Rich Manipulation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>7</strong></span><span class="dpr-home-dashboard-tag">vla <strong>5</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>4</strong></span><span class="dpr-home-dashboard-tag">control <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>4</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>3</strong></span><span class="dpr-home-dashboard-tag">control <strong>1</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -87,9 +90,9 @@
     <strong class="dpr-home-dashboard-count">13 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="When the World Lies: Backdoor Attacks on Latent World Models for Downstream Control">When the World Lies: Backdoor Attacks on Latent World Models for Downstream Control</span></li><li><span class="dpr-home-dashboard-paper-title" title="WLA$^3$: World Latent Action Modeling for Semantics, Dynamics, and Kinematics">WLA$^3$: World Latent Action Modeling for Semantics, Dynamics, and Kinematics</span></li><li><span class="dpr-home-dashboard-paper-title" title="Policy Gradient over History-Dependent Policy Classes for LQR with Domain Randomization">Policy Gradient over History-Dependent Policy Classes for LQR with Domain Randomization</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="SWIM: Vision-Language-Grounded Soft Whole-Body Interactive Manipulation">SWIM: Vision-Language-Grounded Soft Whole-Body Interactive Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Residual Fault Adaptation for Dexterous In-Hand Manipulation Under Runtime Joint Faults">Residual Fault Adaptation for Dexterous In-Hand Manipulation Under Runtime Joint Faults</span></li><li><span class="dpr-home-dashboard-paper-title" title="Hamilton-Jacobi Reachability for Hybrid Systems: Unified Goal-Driven Control with Safety Guarantees">Hamilton-Jacobi Reachability for Hybrid Systems: Unified Goal-Driven Control with Safety Guarantees</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">control <strong>5</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>4</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>3</strong></span><span class="dpr-home-dashboard-tag">vla <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>8</strong></span><span class="dpr-home-dashboard-tag">control <strong>4</strong></span><span class="dpr-home-dashboard-tag">vla <strong>1</strong></span></div>
 </section>
 </div>
 
