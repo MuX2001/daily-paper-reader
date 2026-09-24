@@ -1,0 +1,440 @@
+Title: LOInK: Learned Optimal Inverse Kinematics via Structured Neural Surrogate Models
+
+URL Source: https://arxiv.org/pdf/2609.21275v1
+
+Published Time: Mon, 21 Sep 2026 00:27:14 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# LOInK: Learned Optimal Inverse Kinematics via Structured Neural Surrogate Models 
+
+Michael Somerfield, Damian Abood, Ruigang Wang, Ian R. Manchester 
+
+Abstract — We introduce Learned Optimal Inverse Kinemat-ics (LOInK), a method to generate approximately optimal solutions to an inverse kinematics problem. When trained on data consisting of sampled configurations and associated task variables and a given cost function, LOInK learns a bi-Lipschitz invertible mapping from configuration space to a decoupled task/latent space, and moreover, the latent space is structured so as to place cost-minimizing solutions at the origin. This enables efficient sampling of cost-minimizing solutions via a network-inversion algorithm based on operator splitting. We demonstrate the proposed approach on three problems: an illustrative three degree-of-freedom manipulator problem; a quadrupedal climbing robot for which LOInK can generate near-optimal solutions on average 31 times faster and up to 100 times faster than a constrained optimization approach; and a simulated soft actuator as a purely data-driven example, in which LOInK can explicitly generate high-quality solutions, unlike existing generative approaches that require diverse sampling and evaluation of candidate solutions. 
+
+I. I NTRODUCTION 
+
+Inverse problems are significant in many fields, from med-ical imaging, geophysics, astronomy and others [1], and as such are a focal point for many researchers. Finding solutions for these problems requires inferring which input parameters would produce a given output. For many inverse problems, there are multiple feasible solutions and it becomes neces-sary to choose between them, e.g. via regularization, prior knowledge or some measure of solution quality. A prominent inverse problem within robotics is inverse kinematics (IK), where the question of how best to position a robot to achieve a desired task is ubiquitous across platforms, and for many situations remains challenging. For a robot with redundancy, that is more degrees of freedom than task-space constraints, an IK method must choose one solution from a (generally infinite) set of solutions, variously referred to as a null space, a latent space, or a self-motion manifold [2]. This provides freedom to select a solution which minimizes some auxiliary cost, e.g. manipulability metrics for manipulators, stability criteria for a legged platform, actuator effort, or costs related to collision avoidance. Analytical approaches to the problem are restricted to standard manipulator morphologies, and particular solutions are not necessarily high quality [3]. IK can be formulated as a constrained optimization problem, and standard numerical methods allow for locally searching the solution set for                                         
+
+> The authors are with the Australian Robotic Inspection and Asset Management (ARIAM) Hub, the Australian Centre for Robotics (ACFR), and the School of Aerospace, Mechanical and Mechatronic Engineering, The University of Sydney, Australia
+> {michael.somerfield, damian.abood, ruigang.wang, ian.manchester}@sydney.edu.au .
+> Fig. 1. The main idea of LOInK is to learn an invertible map G(a bi-Lipschitz diffeomorphism) between configuration space and a decoupled task/latent-space coordinate system. Moreover, on the latent space, the origin
+> z= 0 corresponds to the cost-minimizing solution. Then, for a given task variable y, the optimal configuration can be evaluated as x⋆=G−1([ y; 0]) .
+
+high quality solutions. However, IK problems can have challenging optimization landscapes, and this approach is fundamentally inapplicable when the forward model or cost function (or both) are computationally intractable for real-time optimization, or simply unavailable. Recently, learning-based methods have been introduced for the problem of positioning redundant manipulators, uti-lizing the null space afforded by redundancy to provide a set of solutions, as opposed to being restricted to a sin-gle solution as with non-redundant manipulators. Invertible networks have been utilized to learn the forward pass, as well as a decoupled null space. Once learned, the network’s latent representation may be sampled, returning configura-tions which satisfy a desired task space position. These generative methods offer the ability to obtain one or many feasible solutions, however these approaches do not attempt to generate a solution that is high quality [4]. To the best of the authors’ knowledge, no learning-based method explicitly generates high-quality solutions to an inverse problem. The solutions are sampled arbitrarily from a distribution, and the cost must be evaluated on the solution/s after inference, which may be computationally expensive or simply impossible in a model-free setting. Further, there is no notion of smoothness between nearby task-space solutions, limiting applicability to time-varying task-space trajectories. arXiv:2609.21275v1 [cs.RO] 18 Sep 2026 In this paper, we introduce a new approach: Learned Opti-mal Inverse Kinematics (LOInK), which learns an invertible change of coordinates to a structured task/latent space, such that for a given task variable the cost-minimizing solution is mapped to the origin of the latent space (see Fig. 1). In particular:  
+
+> •
+
+The model is trained on data consisting of configura-tions and associated task variables and costs, without explicit knowledge of the optimal solution.  
+
+> •
+
+When trained, approximately optimal inverse kinematic solutions can be generated via a fast operator splitting-based inversion algorithm.  
+
+> •
+
+Due to the bi-Lipschitz structure of the models, smoothly-varying task variables result in smoothly-varying configuration solutions.  
+
+> •
+
+We demonstrate the proposed approach finding cost-minimizing configurations for three examples, a simple planar manipulator, a quadrupedal climbing robot and a soft robot manipulator. The results show that it is substantially faster than optimization-based methods, and more accurate than existing generative models. II. R ELATED WORK 
+
+Neural networks have been utilized for inverse problems for many years, with their application to inverse kinematics as early as 1992 [5], where they used neural networks as approximate mappings between task and configuration space for each kinematic solution group. Subsequently, statistical learning methods such as locally weighted linear regression have been applied [6]. More broadly, data-driven methods have been applied to inverse problems across a wide range of scientific and engineering domains, as surveyed in [7]. Generative modeling techniques such as normalizing flows were first applied to inverse kinematics in [8] and further developed [9], which added noise injection during training to promote greater coverage of the configuration space. Graph-based methods such as Generative Graphical Inverse Kinematics [10] and GraphDiff-IK [11] have demonstrated the effectiveness of networks that simultaneously learn the kinematic topology of the robot and the task space mapping. Whilst these methods collectively produce sets of kinemati-cally feasible solutions, there are no measures included that ensure these solutions are of high quality, e.g. minimizing a user-defined cost function. Incorporating solution quality for learned kinematics ex-tends the problem to a form of constrained optimization, which can be challenging to learn and often requires a surrogate model to approximate [12]. [13] presented a means of learning a convex surrogate model, which could be efficiently optimized at the expense of poor model fitting. Improving model fitting loss, [14] used a bi-Lipschitz neural network to construct a Polyak–Łojasiewicz (PL) loss func-tion, whose properties enabled better fitting performance whilst still being amenable to gradient-based optimization. Furthermore, [15] demonstrated the capability of invert-ible neural networks for creating homeomorphic mappings between inequality-constrained solution sets to unit balls, enabling efficient sampling of feasible solutions. III. P RELIMINARIES 
+
+Inverse problems such as IK can be formulated as follows: given a known “forward” model f : X → Y and aknown/desired output y ∈ Y , compute an x ∈ X such that 
+
+y = f (x).In many practical cases, e.g. IK for redundant manipula-tors, there generally exists multiple (even infinitely-many) solutions x satisfying y = f (x). In such cases it makes sense to choose the “best” among these, as quantified by some auxiliary cost function or regularizer J(x). This can be formalized as a family of constrained optimization problems parameterized by y:
+
+x⋆(y) := arg min  
+
+> x∈X
+
+J(x)
+
+s.t. f (x) = y. (1) While such problems can be tackled through standard con-strained optimization tools, some applications have character-istics that motivate alternative approaches based on machine learning: (a) The cost function J or the forward model f may be computationally complex, or black-box simulations without available gradients, making real-time optimiza-tion impractical. (b) A model may be completely unavailable, and only experimental observations of x, y and J are available, necessitating a data-driven approach. 
+
+A. Problem Formulation 
+
+Motivated by these applications, we consider a setting in which the available information consists of a data set: 
+
+D = {xi, y i, J i}Ni=1 (2) where yi = f (xi) and Ji = J(xi) for each i. E.g. this data could be collected through extensive off-line computations for case (a) above, or through experiments for case (b). The overall goal of this paper is to introduce a class of models which, when trained on the data set D, can approximate the solution of Problem (1), i.e., to learn a model ˆx⋆ : Y → X such that ˆx⋆(y) ≈ x⋆(y) for y ∈ Y .
+
+B. Inverse Kinematics 
+
+An example of Problem (1) is the inverse kinematics of a robot (described as a kinematic tree), where x = q ∈X ⊂ Rn is the joint configuration, y ∈ Y ⊂ Rp is the desired effector tasks, and f : X → Y is their associated forward kinematics, i.e., f (q) = y. A robot is considered redundant when n > p , in which case a feasible task y ∈Y admits a set of solutions Sy = {q ∈ X | f (q) = y}.The cost J for selecting a preferred configuration q⋆ from 
+
+Sy could be distance from a rest or reference pose, joint-limit/singularity avoidance terms, manipulability measures, obstacle-avoidance penalties, or their combinations. C. BiLipNet and PLNet 
+
+We first introduce some technical machinery that will be used in our approach. A mapping G : Rn → Rn is said to be (μ, ν ) bi-Lipschitz , with ν ≥ μ > 0, if 
+
+μ∥x1 − x2∥ ≤ ∥G (x1) − G (x2)∥ ≤ ν∥x1 − x2∥ (3) for all x1, x 2 ∈ Rn, where ∥·∥ denotes the Euclidean norm. Such a mapping is invertible, and its inverse G−1 : Rn → Rn
+
+is (1 /ν, 1/μ ) bi-Lipschitz. 
+
+BiLipNet is a class of deep neural networks Gθ : Rn → Rn
+
+proposed in [14] such that, for any learnable parameter 
+
+θ ∈ RM , the mapping Gθ is (μ, ν ) bi-Lipschitz, where μ
+
+and ν can be either user-specified or learned. Moreover, [14] develops an efficient operator splitting algorithm for computing the inverse x = G−1 
+
+> θ
+
+(y).Building on BiLipNet, we can construct a scalar-output neural network, referred to as a PLNet [14], of the form 
+
+P(x) = 12 ∥G θ (x)∥2 + b, (4) where b ∈ R is a trainable parameter. For any θ and b,this network satisfies the Polyak–Łojasiewicz (PL) condi-tion [16], [17] 
+
+12 ∥∇ xP(x)∥2 ≥ μ2
+
+
+
+P(x) − min  
+
+> ˜x∈Rn
+
+P(˜ x)
+
+
+
+, ∀x ∈ Rn. (5) The PL condition is particularly useful in optimization since it is weaker than convexity, but still implies that gradient methods converge to a global minimum with a linear rate [18]. Consequently, PLNet provides a natural architecture for learning potentially nonconvex surrogate loss functions while the resulting landscape is easy to optimize. Furthermore, the bi-Lipschitz property of Gθ ensures that P has a unique global minimizer x⋆, which can be computed via 
+
+x⋆ = G−1 
+
+> θ
+
+(0) , (6) and hence min x∈Rn P(x) = P(x⋆) = b.For computation the inverse G−1 
+
+> θ
+
+, we utilize operator splitting algorithms which allow fast computation without the need for gradient descent [14]. In many applications, it is desirable to preserve these structural properties with respect to the input variable while allowing the network to depend on an additional conditioning variable. To this end, [14] also introduces a partially bi-Lipschitz neural network Gθ : Rn × Rp → Rn such that, for every model parameter θ ∈ RM and conditioning variable 
+
+p ∈ Rp, the mapping Gθ (·; p) : Rn → Rn is bi-Lipschitz. Accordingly, we can construct a partially PL network as 
+
+P(x; p) = 12 ∥G θ (x; p)∥2 + bϕ(p), (7) where bϕ : Rp → R is a scalar-output neural network param-eterized by ϕ. It is easy to obtain that for any conditional variable p ∈ Rp, the surrogate loss model P(·; p) has a global minimum bϕ(p), which is achieved as x⋆(p) = G−1 
+
+> θ
+
+(0; p).IV. M ETHODOLOGY 
+
+Here we present the main ideas of LOInK, an approach to learn an approximate optimal solution ˆx⋆(y) for Problem 1 based on the dataset D in (2). We first construct an easy-to-optimize neural surrogate model and then train it based on the supervised dataset D. For online deployment, we take the optimal solution of the surrogate model as an approximation to the true solution of Problem (1). 
+
+A. Neural Surrogate Model 
+
+Our neural surrogate model takes the form of 
+
+ˆx⋆(y) := arg min 
+
+> x∈Rn
+
+ˆJ(x)
+
+s.t. ˆf (x) = y
+
+(8) where y is the desired task to achieve. To simplify the presentation, we omit the dependency of ˆJ and ˆf on the learnable parameter θ.Here we give step-by-step construction for ˆf and ˆJ. First, we take the following neural coordinate transformation x 7 →
+
+(ˆ y, z ) with ˆy ∈ Rp and z ∈ Rn−p via 
+
+ˆyz
+
+
+
+=
+
+G1(x)
+
+G2(x)
+
+
+
+:= G(x), (9) where G is a BiLipNet. Here we choose ˆf = G1. Secondly, we use the auxiliary variable z to form the cost function 
+
+ˆJ(z, ˆy) = ∥z∥2  
+
+> M(ˆ y)
+
++ b(ˆ y) (10) where the metric M (ˆ y) ≻ 0 and the offset b(ˆ y) ∈ R are generated by a neural network 
+
+H : ˆ y 7 → (b, P ) (11) with P ∈ Rp×p and M = 12 I + P ⊤P .In summary, the surrogate optimization model in (8) can be written as 
+
+min  
+
+> x∈Rn
+
+∥G 2(x)∥2  
+
+> M(G1(x))
+
++ b(G1(x)) 
+
+s.t. G1(x) = y. 
+
+(12) It is obvious that for a given y (12) admits a unique global minimizer over x:
+
+x⋆ = G−1
+
+ y
+
+0
+
+ 
+
+, (13) which can be computed via the fast splitting-based method in [14] and used as an approximate solution to Problem (1) after model training. 
+
+B. Model Training 
+
+The training objective is to make the surrogate optimiza-tion model match the original problem (1) over the dataset 
+
+D, see Fig. 2. Let θ and ϕ denote the model parameters of BiLipNet G and neural network H, respectively. The first loss component is to minimize the task error: 
+
+Ltask (θ; D) = MSE(ˆ y, y ) = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+∥G 1(xi; θ) − yi∥22. (14) Fig. 2. LOInK model structure and training process, where we have highlighted the decoupled output [y z ]T ∈ Rn and the separate loss functions for each output space. In the task space we impose a fitting loss between dataset tasks yi ∈ Rp and network output ˆyi := ˆ y(xi) whilst the latent space fitting loss structures the latent space so that the mapping ˆJ(zi, ˆyi) defined in (10) approximates the auxiliary costs Ji from the dataset D.
+
+The second component, denoted as the auxiliary loss, fits our surrogate cost model (10) to the observed costs Ji:
+
+Laux (θ, ϕ ; D) = MSE( ˆJ, J ) = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+  ˆJ(zi, ˆyi; θ, ϕ ) − Ji
+
+2.
+
+(15) The total training loss is then given by 
+
+L(θ, ϕ ; D) = Ltask (θ; D) + λLaux (θ, ϕ ; D), (16) with λ > 0 as the weighting coefficient. 
+
+C. Properties and Geometric Interpretation 
+
+The main idea of our approach is to learn a diffeomor-phism G between configuration space X and a decoupled coordinate system Y × Z , where Y and Z denotes the task space and latent space, respectively, as illustrated in Fig. 1. For a given task pose y ∈ Y , this implies that G maps the constraint set Sy = {x ∈ X | f (x) = y}, which may be a curved manifold, onto the “flat” space {y} × Z . This implies G1(x) = y for x ∈ S y , motivating the task-space fitting loss. Technically, this decoupling requires that the forward map f (x) is a submersion defining a foliation over 
+
+X which is trivializable over the desired region. While this may not always be true it is always true in a region of a non-degenerate point [19, Sec. IV.3]. Secondly, the diffeomorphism G maps the cost function 
+
+J(x) over the set Sy into a positive-definite quadratic form on Z with the global minimum rooted at z = 0 , i.e. ˆJ in (10). This implies that the optimal solution x⋆(y) ∈ S y maps to the point [y, 0] T ∈ { y} × Z. It is worth to mention that 
+
+x⋆(y) does not need to be included in the training dataset D,instead, it is learned by fitting the auxiliary cost model ˆJ to the overall loss landscape shape captured by the dataset D.Note that we generally do not require the original problem (1) possess the same nice property as the neural surrogate model (12), which admits a unique minimizer (13). Similar to PLNet [14], imposing such a property on the surrogate model can instead be seen as a form of regularization: it encourages the model to disregard spurious poor local minima and focus on regions that are more likely to contain a high-quality solutions. 
+
+D. The Effect of Bi-Lipschitz Bound 
+
+The bi-Lipschitz bound (μ, ν ) of the neural network G
+
+controls the smoothness of the learnt optimal IK solution. Consider the case where the task pose follows a smooth trajectory y(t), then the associated IK solution (13) also follows a smooth trajectory x⋆(t) satisfying 
+
+1
+
+ν ∥ ˙y(t)∥ ≤ ∥ ˙x⋆(t)∥ ≤ 1
+
+μ ∥ ˙y(t)∥ ∀t ≥ 0. (17) In other words, the hyper-parameters μ, ν control the velocity bounds in the configuration space, in particular larger μ leads to smoother configuration trajectories x⋆(t) for a given y(t).V. I LLUSTRATION ON A 3-D OF M ANIPULATOR 
+
+We first illustrate our approach on a planar three degree-of-freedom (DoF) manipulator for tracking a horizontal target while minimizing an objective associated with the kinematics of the system (i.e. an instance of case (a) for Problem (1)). The manipulator has links of uniform length l = 1 m, and each joint restricted to the domain [0 , π ] to capture only “elbow up” configurations. 
+
+A. Problem Formulation 
+
+Considering Problem 1, we set the input as the config-uration of the robot (i.e. x = q ∈ C ⊆ R3). Defining the horizontal position of the end-effector relative to the base as 
+
+p ∈ R, the forward model for our problem is the forward kinematics f (x) = p := y, mapping from configuration space to this one-dimensional task space. The cost function J in Problem 1 includes two terms. The first ensures the system remains within its range of motion, via a log-barrier cost on joint limits, normalized to the range 
+
+qi ∈ [−1, 1] , the cost is 
+
+Jq (q) = − X
+
+> i
+
+log  max(1 − q2 
+
+> i
+
+, ϵ ), (18) for some small conditioning scalar 0 ≤ ϵ ≪ 1.The second cost relates to the projection of the system’s center of mass c ∈ R2 along the horizontal plane, by keeping this projection close to the base of the robot, we treat this Fig. 3. Demonstrative example of the planar 3-DoF manipulator, where the task space is the horizontal position. At each of three task space locations, there is a particular minimal cost. In the learned latent space z1, z 2, cost increases radially from the origin. 
+
+cost as a proxy for minimizing the motor torques require to counteract gravitational effects. This cost is computed as 
+
+Jcom (q) = l
+
+3
+
+> 3
+
+X
+
+> i=0
+
+ci
+
+> com ,x
+
+(q) 2. (19) Then, the total cost is 
+
+J(q) = Jq (q) + λcom Jcom (q), (20) where λcom > 0 is a weighting coefficient. 
+
+B. Training Details 
+
+We generate the training dataset D by uniformly sampling the configuration space C for 1,000,000 samples, and for each configuration sample xi = qi, compute yi = f (xi) and cost 
+
+Ji = J(xi). The BiLipNet G consists of two monotone layers [14] with depth of 4 and width of 256, trained for 3 epochs with a batch size of 500. The offset b was parameterized by a 2-layer MLP with width of 128. We fix the bi-Lipschitz lower bound μ at 0.1, keeping the upper bound ν as a free parameter, but with a small penalty on the distortion τ := 
+
+ν/μ in the training loss. Our learning rate was 1e-3, with a reduce on plateau patience of 500 steps. For this and all following examples, numerical experi-ments were performed on an Intel Core i9-14900KF CPU with 64GB of RAM and an NVIDIA GeForce RTX 4090 GPU. 
+
+C. Results 
+
+Fig. 3 shows sample configurations q⋆ = G−1(y) for three horizontal targets, with the cost level sets in Z shown for each. The influence of Jq is evident with each manipulator remaining well within its joint limits. Furthermore, the case with y = 1 .0 m demonstrates the effect of Jcom , with all links positioned over base of the robot. The properties of                
+
+> Fig. 4. Configuration velocities resulting from end-effector trajectory track-ing with different values of μ. We observe that both solutions effectively track the desired task trajectory y(red), while the larger value for μproduces smoother velocity profiles, as expected c.f. Sec IV-D.
+> Fig. 5. Left: Magneto robot with center of mass and gravity direction. Right: End-effector force f(red) resulting from adhesion force σ(blue), frictional normal force fn(green) and tangential force ft(magenta).
+
+the network discussed in Sec. IV-C are clearly shown by the circular level sets of J at each configuration, with a minimal cost b(y) that varies smoothly with y.Fig. 4 illustrates the effects of the bi-Lipschitz bounds 
+
+(μ, ν ) for tracking smooth a task trajectory y(t) (see Sec. IV-D). The resulting joint velocities are depicted for two choices of μ. We observe that both solutions effectively track the desired task trajectory y, while larger μ leads to smoother configuration trajectories, as expected. VI. A PPLICATION TO A QUADRUPEDAL CLIMBING 
+
+ROBOT 
+
+We next demonstrate our approach in finding optimal configurations for a climbing robot, where the underlying objective necessitates the evaluation of a numerical solver, i.e. a high-dimensional example of case (a) for Problem (1). Magneto [20], originally developed by CSIRO and now being developed by NEXXIS [21], is a robotic platform designed for inspection tasks in confined and hazardous environments. As shown in Fig. 5, this robot has nl = 4 
+
+limbs, each with four joints and thus nj = 16 joints. Magneto has electromagnetic feet that allow it to climb ferromagnetic surfaces regardless of orientation. It is critical that the forces acting at the contacts are evenly distributed such that no foot exceeds the maximum allowable adhesive force. Under contact-location constraints (the task space), the effector forces can be regulated by shifting the center of mass, by varying the configuration coordinates. 
+
+A. Problem Formulation 
+
+Here we seek to find whole-body configurations q ∈ C ⊆ 
+
+Rnj satisfying contact constraints while distributing the end-effector forces evenly. With reference to Problem (1) and defining x = q, we choose as task variable y the set of end-effector positions pi(q) ∈ R3 for i = 1 . . . n l (each determined via forward kinematics), i.e., 
+
+y = p⊤ 
+
+> 1
+
+p⊤ 
+
+> 2
+
+· · · p⊤
+
+> nl
+
+⊤ ∈ R3nl . (21) We design our cost J to minimize for the adhesive compo-nent of the acting end-effector forces f ∈ R3nl required to keep the system in static equilibrium at configuration 
+
+q. As we allow the robot to have any orientation within the inertial frame, we include the perceived gravity vector 
+
+g ∈ R3 (relative to the body frame) as a parameter to the cost. The end-effector forces can be determined by solving a second-order conic program (SOCP) of the form 
+
+Jf (q, g ) = min  
+
+> f,σ,s
+
+s
+
+s.t. W (q)f = w(q, g )
+
+∥fi,t ∥ ≤ μf (fi,n + σi) ∀ifi,n + σi ≥ 0 ∀i
+
+0 ≤ σi ≤ s ∀i. 
+
+(22) With the wrench matrix W (q) ∈ R6×3nl and bias vector 
+
+w(q, g ) ∈ R6 defined in [22] and surface tangent/normal forces given by ft and fn respectively. The cost function is given by 
+
+J(q, g ) = Jf (q, g ) + λq Jq (q), (23) with λq > 0, where Jq is the joint limit penalty (18). Note that in (22) the normal force constraints allow fi,n 
+
+to act into the surface, up to a maximum adhesion threshold 
+
+s ≥ 0 (see Fig. 5). In the special case where the maximum adhesion limit s = 0, (22) is identical to the standard formulation of quasi-static testing with unilateral forces [22]. 
+
+B. Training Details 
+
+We train a BiLipNet G with the loss (16) in order to achieve a mapping from the set of desired contact positions to the adhesion-minimizing configuration q⋆. We construct                        
+
+> Fig. 6. Comparison between a cost minimizing solution (blue) for Magneto with required adhesion force Jf= 1 .004 N and a non-minimizing solution (red) with Jf= 13 .047 N. Note the straight upper limbs of the optimal solution. The direction of gravity is shown with the blue arrow. Solver Time [ms] EE error [mm] Cost ( J)LOInK 5.47 (5.31–5.78) 38.9 (17.47–76.5) 0.237 (0.08–0.46) IPOPT 171.1 (77.6–617.7) 15.6 (7.24–30.4) 0.227 (0.08–0.43) TABLE I COMPARISONS BETWEEN LOI NKAND OPTIMIZATION METHOD IPOPT [MEAN (MIN -MAX )].
+
+G : C → Y, with the normalized direction of gravity 
+
+ˆg ∈ S2 (relative to the body frame) included as a conditioning variable of G (see Sec. III-C). Our network consists of two monotone layers of size 128 with a depth of 2, trained for 10 epochs with a batch size of 500. The offset b was a 2-layer MLP with width of 64. We fix μ at 0.1, keeping ν as a free parameter, but with a small distortion penalty in the training loss. Our learning rate was 1e-3, with a reduce on plateau patience of 300 steps. To generate the training set, we sample xi ∈ X , ˆgi ∈
+
+S2 uniformly. For each sample (xi, ˆgi), we compute the resulting contact task f (xi) = yi and cost Ji = J(xi; ˆ gi)
+
+by solving Problem (22) with CVXPY [23]. 
+
+C. Results 
+
+To evaluate the proposed approach we compare against a model-based optimization approach using IPOPT [24]. Table I shows that LOInK generates approximately cost-minimizing solutions on average 31 times faster than the IPOPT solver, and in some cases over 100 times faster. It is also notable that the computation time for LOInK is very consistent, whereas for IPOPT computation time varies by almost an order of magnitude for different task variables. Both methods return solutions of comparable cost, however it is notable that IPOPT achieved lower end-effector error although the errors achieved by LOInK would still be Fig. 7. Example postures for the simulated three-segment planar HSA robot, showing configurations that can be achieved on the platform through its actuation ranges. 
+
+acceptable in most applications. VII. A PPLICATION TO A SOFT ROBOT MANIPULATOR 
+
+We now apply the proposed approach to a planar HSA soft manipulator [25], where the forward kinematic model is unknown. Instead, we have access to a set of experimental data [26], consisting of the input actuator forces and resulting configurations generated by a complex simulation model, see example postures in Fig. 7. This is an example of case (b) for Problem (1). 
+
+A. Problem Formulation 
+
+Here we model an N -segment manipulator in 2D space within the SoRoMox framework [27]. Each segment contains two actuators which allow segment-wise elongation and lateral bending. We define the control for each segment as 
+
+ui := [ ui, 1 ui, 2]T ∈ R2 i = 1 . . . N , giving us our input 
+
+x = u = u1 · · · uN
+
+⊤ ∈ U ⊂ R2N and select the position and orientation of the final segment as our task output (i.e. y = px py θ ∈ Y ⊂ R3). We treat the forward map f (x) = y in our problem as the evaluation of the complex SoRoMox model. We design our objective to encourage the actuation close to a desired level ¯u ∈ R2N ,which we express as a sum of squares cost 
+
+J(u) = ∥u − ¯u∥22. (24) 
+
+B. Training Details 
+
+Our BiLipNet G consisted of 2 monotone layers, each with 2 hidden layers of width 256. The offset function b(y) had 2 layers of width 64. We chose a learning rate of 1e-3, with a reduce on plateau patience of 500 steps. For the following experiments we selected a manipulator with N = 3 , with each segment 0.1 m in length. To generate the training dataset D, we uniformly sampled 
+
+2 × 10 6 inputs ui ∈ U where for each ui, we simulated the corresponding SoRoMox model, recording the end-effector placement yi after reaching equilibrium. We also evaluated the cost Ji = J(ui) from (24) with ¯u = 0 , i.e., the cost becomes effort-minimization. We compare our approach to 
+
+IKFlow [9], which was trained on the same dataset with similar model size. 
+
+C. Results 
+
+The results in Table II show that our method generates solutions faster than IKFlow, with higher end-effector ac-curacy and lower actuation effort cost. The histogram in 10 ¡2 10 ¡1 10 0 10 1 10 2
+
+EE error [mm]     
+
+> 050 100 150 200 250
+> Count
+> LOInK (Ours) IKFlow
+> Fig. 8. Histogram comparing positional error of the task space position across 2000 end-effector positions. 2000 4000 LOInK (Ours) IKFlow optimization-based (reference) 10 010 110 2
+
+Cost Ratio ku ⋆ k2=kuk2                       
+
+> 0100 200 300 400
+> Count
+> Fig. 9. Histogram showing the ratio of actuation efforts versus an optimization-based reference, where our solutions are obtained at z= 0
+> for a sample of 2000 random end-effector targets. Solver Time [ms] EE error (mm) Cost ( J)LOInK 2.66 (2.66-2.67) 0.44 (0.0022-35.049) 0.17 (0.0003-0.59) IKFlow 4.51 (4.43-4.56) 1.42 (0.0037-43.80) 0.38 (0.01-0.71) TABLE II COMPARISON WITH IKF LOW FOR THE SOFT ROBOT MANIPULATOR :SOLVE TIMES , EE ERROR ,AND COST [MEAN (MIN -MAX )]
+
+Fig. 9 shows that we can directly sample approximately cost-minimizing inputs, as opposed to IKFlow, which generates diverse samples which must be post-processed to assess 050 c = 0                   
+
+> 020 c= 0 :1
+> 010 c= 0 :2
+> 05c= 0 :3
+> 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5 1.6
+> Cost Ratio kuk2=ku⋆k2
+> 05
+> c= 0 :4Count
+
+Fig. 10. Costs of the distribution obtained by sampling z ∼ N (0 , cI )
+
+with varying c.
+
+quality. This would require generating far more samples and, in a model-free context, would require some kind of learnt model to estimate the resulting costs. In Fig. 8 we see that this cost minimization has not come at the cost of accuracy of end-effector position, in fact our method is substantially more accurate. If some diversity of solutions is required, we can trade off cost vs diversity by sampling from a distribution centred on z = 0 with varying covariance, see Fig. 10, where for a particular configuration we sample z from a zero mean Gaussian with variance Σ = cI with varying c.VIII. L IMITATIONS 
+
+Our work does have limitations, which could be addressed in future work. Firstly the method assumes that the latent space consists of a single connected component. This is not always the case in inverse kinematics, but could be addressed by learning multiple maps, one per connected component. Secondly, as with any learning based approach, with limited data and model capacity the precision of our end-effector placement may not be as high as with a model-based method, and as such a solution may need to be refined after being obtained. Finally, the data sampling suffers from the curse of dimensionality, becoming intractable to densely sample the configuration space, and more targeted sampling may be required. IX. C ONCLUSIONS 
+
+In this work we have introduced Learned Optimal Inverse Kinematics (LOInK), which learns an invertible mapping from configurations to a decoupled task/latent space, with the latent space structured to enable efficient generation of (ap-proximately) optimal solutions. The bi-Lipschitz structure of the underlying invertible map also guarantees that smoothly-varying task variables lead to smoothly-varying configuration solutions. In application examples, it was demonstrated that the method can generate near-optimal solutions much faster than model-based optimization, and can generate higher-quality and more accurate solutions than existing learning-based approaches. X. A CKNOWLEDGMENTS 
+
+This research was supported by the Australian Re-search Council through the ARC Research Hub in Intel-ligent Robotic Systems for Real-Time Asset Management (IH210100030) and by NEXXIS PTY LTD. We would also like to thank NEXXIS for access to the Magneto simulation model and useful discussions regarding Magneto’s operation. REFERENCES [1] M. Benning and M. Burger, “Modern regularization methods for inverse problems,” Acta Numerica , vol. 27, pp. 1–111, May 2018. [2] J. W. Burdick, “On the inverse kinematics of redundant manipulators: Characterization of the self-motion manifolds,” in Advanced Robotics: 1989: Proceedings of the 4th International Conference on Advanced Robotics Columbus, Ohio, June 13–15, 1989 . Springer, 1989, pp. 25–34. [3] V. Lakshmi Narayanan, J. Narayan, H. Gritli, and S. K. Dwivedy, “A decade of inverse kinematics methods for serial manipulators: a systematic review,” Journal of Field Robotics , vol. 43, no. 1, pp. 184–229, Jan. 2026. [4] H. Xing, R. Huang, Y. Yang, J. Chen, W. Li, C. Yao, C. Shi, and L. Ding, “Inverse kinematics and redundancy resolution in manipulators: methods, optimization objectives, and future trends,” 
+
+Biomimetic Intelligence and Robotics , vol. 6, no. 2, p. 100339, Jun. 2026. [5] D. DeMers and K. Kreutz-Delgado, “Global regularization of inverse kinematics for redundant manipulators,” in Proceedings of the 6th International Conference on Neural Information Processing Systems ,ser. NIPS’92. San Francisco, CA, USA: Morgan Kaufmann Publishers Inc., Nov. 1992, pp. 255–262. [6] A. D’Souza, S. Vijayakumar, and S. Schaal, “Learning inverse kine-matics,” in Proceedings of the 2001 IEEE/RSJ International Confer-ence on Intelligent Robots and Systems. , vol. 1. Maui, HI, USA: IEEE, 2001, pp. 298–303. [7] S. Arridge, P. Maass, O. Öktem, and C.-B. Schönlieb, “Solving inverse problems using data-driven models,” Acta Numerica , vol. 28, pp. 1–174, May 2019. [8] L. Ardizzone, J. Kruse, S. Wirkert, D. Rahner, E. W. Pellegrini, R. S. Klessen, L. Maier-Hein, C. Rother, and U. Köthe, “Analyzing inverse problems with invertible neural networks,” 2019. [9] B. Ames, J. Morgan, and G. Konidaris, “IKFlow: generating diverse inverse kinematics solutions,” IEEE Robotics and Automation Letters ,vol. 7, no. 3, pp. 7177–7184, Jul. 2022. [10] O. Limoyo, F. Mari´ c, M. Giamou, P. Alexson, I. Petrovi´ c, and J. Kelly, “Generative graphical inverse kinematics,” IEEE Transactions on Robotics , vol. 41, pp. 1002–1018, 2025. [11] H. Huang, K. Tan, F. Wen, G. Huang, and X. Quan, “Whole-body inverse kinematics with graph diffusion,” 2026. [Online]. Available: https://arxiv.org/abs/2606.00086 [12] B. Amos, “Tutorial on amortized optimization,” Foundations and Trends in Machine Learning , vol. 16, no. 5, pp. 592–732, 2023. [13] B. Amos, L. Xu, and J. Z. Kolter, “Input convex neural networks,” in International Conference on Machine Learning (ICML) . PMLR, 2017, pp. 146–155. [14] R. Wang, K. D. Dvijotham, and I. R. Manchester, “Monotone, Bi-lipschitz, and polyak-łojasiewicz networks,” in Proceedings of the 41st International Conference on Machine Learning , ser. ICML’24. JMLR.org, 2024. [15] E. Liang, M. Chen, and S. Low, “Low complexity homeomorphic projection to ensure neural-network solution feasibility for optimiza-tion over (non-) convex set,” in International conference on machine learning (ICML) . PMLR, 2023. [16] B. Polyak, “Gradient methods for minimizing functionals (in russian),” 
+
+USSR Computational Mathematics and Mathematical Physics , vol. 3, no. 4, pp. 643–653, 1963. [17] S. Lojasiewicz, “A topological property of real analytic subsets,” Coll. du CNRS, Les équations aux dérivées partielles , vol. 117, no. 87-89, p. 2, 1963. [18] H. Karimi, J. Nutini, and M. Schmidt, “Linear convergence of gradient and proximal-gradient methods under the Polyak-Łojasiewicz condi-tion,” in Machine Learning and Knowledge Discovery in Databases: European Conference, ECML PKDD 2016, Riva del Garda, Italy, September 19-23, 2016, Proceedings, Part I 16 . Springer, 2016, pp. 795–811. [19] C. Camacho and A. Lins Neto, Geometric Theory of Foliations .Boston, MA: Birkhäuser, 1985. [20] T. Bandyopadhyay, R. Steindl, F. Talbot, N. Kottege, R. Dungavell, B. Wood, J. Barker, K. Hoehn, and A. Elfes, “Magneto: a versatile multi-limbed inspection robot.” Madrid: IEEE, Oct. 2018, pp. 2253–2260. [21] “Designing solutions for now that are ready to shape the future. This is nexxis. — nexxis.com.au.” [Online]. Available: https://nexxis.com.au/ [22] T. Bretl and S. Lall, “A fast and adaptive test of static equilibrium for legged robots.” Orlando, FL, USA: IEEE, 2006, pp. 1109–1116. [23] S. Diamond and S. Boyd, “CVXPY: A Python-embedded modeling language for convex optimization,” Journal of Machine Learning Research , vol. 17, no. 83, pp. 1–5, 2016. [24] A. Wächter and L. T. Biegler, “On the implementation of an interior-point filter line-search algorithm for large-scale nonlinear program-ming,” Mathematical programming , vol. 106, no. 1, pp. 25–57, 2006. [25] N. Paine, S. Oh, and L. Sentis, “Design and control considerations for high-performance series elastic actuators,” IEEE/ASME Transactions On Mechatronics , vol. 19, no. 3, pp. 1080–1091, 2013. [26] G. Fang, Y. Tian, Z.-X. Yang, J. M. Geraedts, and C. C. Wang, “Efficient jacobian-based inverse kinematics with sim-to-real transfer of soft robots by learning,” IEEE/ASME Transactions on Mechatronics ,vol. 27, no. 6, pp. 5296–5306, 2022. [27] M. Stölzle, S. Gribonval, D. Feliu-Talegon, V. D. Perfetta, M. Martini, C. Zhang, K. Wong, M. Tarnini, A. T. Mathew, F. Renda, D. Rus, and C. D. Santina, “SoRoMoX: Fast, differentiable, and parallelizable soft robot models,” arXiv preprint arXiv:2608.06650 , 2026.

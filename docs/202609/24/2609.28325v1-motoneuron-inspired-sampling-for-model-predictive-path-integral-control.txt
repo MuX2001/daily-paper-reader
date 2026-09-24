@@ -1,0 +1,1110 @@
+Title: Motoneuron-Inspired Sampling for Model Predictive Path Integral Control
+
+URL Source: https://arxiv.org/pdf/2609.28325v1
+
+Published Time: Thu, 24 Sep 2026 01:27:06 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# Motoneuron-Inspired Sampling for Model Predictive Path Integral Control 
+
+Alexis Poignant and Jan Babiˇ c
+
+Abstract — Model Predictive Path Integral (MPPI) control relies on stochastic trajectory sampling, and its performance un-der limited rollout budgets depends strongly on the structure of the proposal distribution. Standard implementations commonly perturb control sequences with Gaussian noise, despite growing evidence that temporally correlated and structured sampling can improve finite-budget control. We introduce Spike-MPPI, a motoneuron-inspired proposal that generates temporally struc-tured perturbations through a simplified model of motoneuron dynamics. The proposal is evaluated within a common MPPI framework on torque-actuated and antagonistically actuated MuJoCo Ant models against standard Gaussian sampling and spectrum-matched Gaussian controls. Results show that structured sampling substantially improves executed-control smoothness, while its effect on task performance depends on rollout condition and robot actuation. Spectrum matching reproduces a substantial part of the observed behavior, while the full Spike proposal retains additional effects beyond second-order spectral structure. These results support treating proposal design as a combination of second-order spectral structure and higher-order statistical organization. 
+
+Index Terms — Model predictive control, Sampling-based con-trol 
+
+I. I NTRODUCTION 
+
+Model Predictive Path Integral (MPPI) control is asampling-based stochastic optimal-control method derived from path-integral formulations of optimal control [1]. In its receding-horizon form, MPPI evaluates a population of control sequences through the system dynamics and updates the nominal sequence by exponentially weighting low-cost rollouts [2], [3]. The method is attractive for nonlinear and contact-rich systems because it does not require derivatives of the dynamics or objective, its rollouts can be evaluated independently in parallel, and it has been demonstrated in demanding real-time control problems such as aggressive autonomous driving [4], [5]. Under a finite rollout budget, however, performance depends strongly on the proposal distribution from which candidate control trajectories are generated. This dependence becomes particularly important for direct control of articulated systems. Sampling an independent perturbation for every actuator at every prediction step pro-duces a search space whose dimension grows with both the control horizon and the number of actuators. Whole-body and joint-level sampling-based controllers therefore commonly introduce temporal or structural parameteriza-tions to reduce the effective search dimension. Whole-body MPPI has sampled joint targets at sparse knot points and 
+
+> Source code and supplementary animated visualizations are available at
+> https://github.com/fleurssauvages/spikeMPPI .
+
+reconstructed the horizon through interpolation [6]; spline-interpolated MPPI similarly samples a reduced number of control points and reported improved reactive-navigation performance when combined with Stein variational inference [7]; and Model Tensor Planning constructs globally diverse candidates from structured graph samples followed by spline interpolation, outperforming standard sampling-based MPC and evolutionary baselines across manipulation and loco-motion tasks [8]. These results motivate control proposals that concentrate samples on temporally structured trajectories rather than treating every control coordinate independently. The frequency content and statistical form of the proposal are also important. [9] showed that replacing uncorrelated Gaussian perturbations with colored low-frequency noise can provide smoother, more exploratory candidates and equal or better MPPI performance across systems with different actuator response speeds. iCEM [10] demonstrated that tem-porally correlated actions together with sample reuse can reduce the required number of trajectories while improving performance in high-dimensional control tasks. Adaptive importance sampling can also achieve better performance with fewer samples, with the benefit increasing with action-space dimension [11]. Together, these works suggest that temporal correlation, reduced temporal parameterization, and nontrivial proposal structure can materially improve finite-budget sampling efficiency. A complementary line of work has also shown that MPPI can be extended beyond continuous Gaussian perturbations. Information-theoretic MPC has been applied to systems with compound-Poisson jump processes [12], demonstrating that discontinuous event statistics can be incorporated into the path-integral importance-sampling framework. This result is particularly relevant to sparse event-based proposals: a point process provides an explicit representation of when a control-relevant event occurs, while a mark can encode its direction, magnitude, or type. Such a representation separates event frequency from event effect and provides a natural route to sparse, temporally structured exploration. Biological motor control provides a natural source of structure for stochastic control proposals. Motoneuron pop-ulations transform shared neural drive into coordinated, temporally extended muscle activation through recruitment, discharge dynamics, and twitch responses, producing richer temporal correlations than simple memoryless event pro-cesses [13]–[16]. These mechanisms therefore provide in-ductive biases for generating structured control perturbations without prescribing a gait or learned policy. Motivated by these observations, we introduce two struc-arXiv:2609.28325v1 [cs.RO] 23 Sep 2026 (a) Poisson point-process proposal 
+
+Positive event rate Negative event rate Recruitment marks 
+
+Signed marked events xt,m 
+
+generated by Poisson process 
+
++
+
+−
+
+Shifted twitch responses 
+
+from kernel κ
+
+Summed perturbation zt,m 
+
+for motor channel m
+
+(b) Spike motor-pool discharge model 
+
+Common stochastic drive 
+
+> shared, temporally correlated signal
+
+Agonist 
+
+pool (+) 
+
+Antagonist 
+
+pool (−)
+
+Ordered recruitment with hysteresis  
+
+> solid: recruit dashed: derecruit
+
+Ordered recruitment with hysteresis  
+
+> solid: recruit dashed: derecruit drive active units drive active units
+
+Rate coding Rate coding 
+
+> drive firing rate drive firing rate
+
+Refractory renewal process Refractory renewal process 
+
+(c) Spike twitch decoding and actuator mapping 
+
+Agonist spikes Antagonist spikes Heterogeneous motor-unit twitches κ
+
+> slow/weak to fast/strong
+
+Heterogeneous motor-unit twitches κ
+
+> slow/weak to fast/strong
+
+Summed pool output z+
+
+> t,m
+
+Summed pool output z−
+
+> t,m
+
+Actuator mapping 
+
+Torque Ant 
+
+(signed perturbation) 
+
+zt,m = z+ 
+
+> t,m
+
+− z−
+
+> t,m
+
+Agonist/Antagonist Ant 
+
+(separate channels) 
+
+ z+
+
+> t,m
+
+z−
+
+> t,m
+
+
+
+Fig. 1. Overview of the Poisson and Spike proposal distributions. (a) Poisson generates sparse signed events from fixed positive and negative event rates and recruitment marks, then decodes the events with a common twitch kernel. (b) Spike uses a shared stochastic drive for agonist and antagonist motor pools. Increasing drive recruits motor units progressively in ordered steps, while derecruitment occurs at lower drive levels, producing hysteresis. Active units then use rate coding and refractory renewal discharge; spike heights illustrate different motor-unit strengths. (c) Motor-unit-specific twitch responses are summed separately for the agonist and antagonist pools. The resulting outputs are converted either to a signed torque perturbation or to separate agonist and antagonist actuator channels. 
+
+tured proposal distributions for MPPI. The first is a sparse marked Poisson proposal in which signed recruitment events are decoded through a causal twitch kernel. The second, Spike-MPPI, introduces a motoneuron-inspired motor-pool model with common drive, ordered recruitment, recruitment– derecruitment hysteresis, rate coding, refractory renewal discharge, and heterogeneous motor-unit twitch dynamics. Both proposals generate temporally structured perturbations without prescribing a gait or learned policy. We evaluate the samplers on two MuJoCo Ant actua-tion models: the original eight-channel torque-driven Ant and an antagonistic sixteen-channel Ant model in which simultaneous agonist and antagonist activation changes joint impedance. In addition to the Standard, Poisson, and Spike proposals, we introduce Gaussian controls matched to the finite-horizon spectra of Poisson and Spike. These controls separate effects associated with second-order temporal struc-ture from those associated with the additional non-Gaussian event and motor-pool construction. The central question is therefore not only whether structured proposals change finite-budget MPPI behavior, but which aspects of that structure account for the observed differences in performance, smooth-ness, coordination, and antagonistic actuation. II. M ETHODOLOGY 
+
+A. Problem Formulation 
+
+We consider online receding-horizon control of an artic-ulated dynamical system with state xt ∈ X ⊂ Rnx and actuator-level command ut ∈ U ⊂ Rnu . The discrete-time predictive dynamics are 
+
+xt+1 = f (xt, ut), (1) where f includes the nonlinear rigid-body dynamics, con-tacts, actuator limits, and task-dependent interactions with the environment. At controller update k, the controller opti-mizes a sequence 
+
+U = [ u0, . . . , uH−1] (2) over a horizon of H control steps to minimize a cost-function: 
+
+J(U; xk) = 
+
+> H−1
+
+X
+
+> t=0
+
+J(xt, ut) + Jf (xH ). (3) consisting of per-step costs and one final cost. Model Predic-tive Path Integral (MPPI) control addresses this problem by sampling perturbations around a nominal control sequence 
+
+U. In this work, the controller is initialized with a zero nominal sequence, 
+
+U0 = 0, (4) and subsequent updates are warm-started by shifting the previous MPPI solution, 
+
+Uk+1 = u⋆k, 1, . . . , u⋆k,H −1, u⋆k,H −1
+
+ . (5) Thus, after the first update, all methods explore around the controller’s own previous solution. 
+
+B. Model Predictive Path Integral Control 
+
+Given the current nominal control sequence U, MPPI generates N candidate sequences, 
+
+U(i) = U + ϵ(i), i = 1 , . . . , N, (6) where ϵ(i) is a sampled perturbation sequence. Each candi-date is clipped to the admissible control set U, propagated through the predictive dynamics, and assigned a trajectory cost Ji. Defining ρJ = min i Ji, the normalized importance weights are 
+
+wi = exp[ −(Ji − ρJ )/λ ]
+
+PNj=1 exp[ −(Jj − ρJ )/λ ] , (7) where λ > 0 is the sampling temperature. The updated control sequence is then obtained as the weighted average 
+
+U⋆ =
+
+> N
+
+X
+
+> i=1
+
+wiU(i). (8) The first command u⋆ 
+
+> 0
+
+is applied to the plant, after which the horizon is shifted and the procedure is repeated. The sampling temperature is adapted online using Lower-Bound Policy Search (LBPS) [17]. Sampling methods described in this paper use the same nominal sequence, predictive dynamics, objective, actuator limits, temperature adaptation, and MPPI update; they differ only in the generation of the perturbations ϵ(i).
+
+C. Gaussian Sampling 
+
+Standard MPPI samples Gaussian perturbations directly in the native actuator space, 
+
+ϵi,t ∼ N (0, Σ), (9) where Σ defines the actuator-specific exploration variance. The perturbations are temporally correlated using a station-ary first-order filter constructed to preserve the prescribed marginal variance. In the experiments, the temporal correla-tion coefficient is ρs = 0 .25 , and the exploration standard deviation is set to 30% of the actuator-specific control scale. 
+
+D. Poisson Sampling with Twitch kernels 
+
+The Poisson variant replaces Gaussian perturbations with sparse marked point-process events followed by a causal twitch decoder. Each original Ant joint j = 1 , . . . , M owns an event channel with independent positive and negative streams. For rollout i, prediction step t, and recruitment-depth mark r ∈ { 1, . . . , L },
+
+N + 
+
+> i,t,j,r
+
+∼ Poisson 
+
+ λ0
+
+2 ∆t p r
+
+
+
+, (10) 
+
+N − 
+
+> i,t,j,r
+
+∼ Poisson 
+
+ λ0
+
+2 ∆t p r
+
+
+
+, (11) with pr = 1/L . Event sign and recruitment depth are therefore separate marks of the process. The mark amplitude represents cumulative recruitment of an ordered motor-unit pool rather than an arbitrary scalar amplitude. Unit ℓ has normalized strength 
+
+gℓ = 2ℓL(L + 1) , ℓ = 1 , . . . , L, (12) so that PLℓ=1 gℓ = 1 . A mark of depth r recruits units 
+
+1, . . . , r , giving 
+
+ar =
+
+> r
+
+X
+
+> ℓ=1
+
+gℓ = r(r + 1) 
+
+L(L + 1) . (13) The positive and negative impulse trains are 
+
+ypi,t,j =
+
+> L
+
+X
+
+> r=1
+
+ar N pi,t,j,r , p ∈ { +, −} . (14) −1.0                
+
+> −0.5 0.0 0.5 1.0
+> εt
+> Standard Gaussian Poisson-spectrum-matched Gaussian Spike-spectrum-matched Gaussian
+> −1.0
+> −0.5 0.0 0.5 1.0
+> Event amplitude
+> Events before twitch fi ltering
+> −1.0
+> −0.5 0.0 0.5 1.0
+> εt
+> After twitch kernel
+> 0.00 0.25 0.50 0.75 1.00 1.25 1.50
+> Time (s)
+> −1.0
+> −0.5 0.0 0.5 1.0
+> Event amplitude
+> Motor-unit discharges
+> 0.00 0.25 0.50 0.75 1.00 1.25 1.50
+> Time (s)
+> −1.0
+> −0.5 0.0 0.5 1.0
+> εt
+> After heterogeneous twitch kernels
+> Gaussian Poisson Spike
+
+Fig. 2. Representative perturbation realizations for the five sampling methods. The top row shows the Standard Gaussian proposal and the Gaussian-Poisson and Gaussian-Spike spectrum-matched controls. For Poisson sampling, the middle row shows discrete signed events before filtering and the resulting perturbation after the common twitch kernel. For Spike sampling, the bottom row shows motor-unit discharge events before filtering and the resulting perturbation after heterogeneous motor-unit twitch kernels. 
+
+Each event is decoded through a common peak-normalized causal bi-exponential twitch kernel. For discrete lag q,
+
+κq = exp 
+
+
+
+− (q + 1)∆ tτd
+
+
+
+− exp 
+
+
+
+− (q + 1)∆ tτr
+
+
+
+, (15) with τd > τ r the decay and rising time. The decoded pool outputs are 
+
+zpi,t,j =
+
+> Q−1
+
+X
+
+> q=0
+
+κq ypi,t −q,j . (16) For the torque-driven robots, the raw perturbation is z+ 
+
+> i,t,j
+
+−
+
+z− 
+
+> i,t,j
+
+. For the antagonistic robot described in Sec.II-G, z+
+
+and z− are routed to the agonist and antagonist actuator channels respectively. Because the antagonistic channels are nonnegative before centering, we remove the rollout-population mean at each horizon coordinate, 
+
+ez(i) 
+
+> t
+
+= z(i) 
+
+> t
+
+− 1
+
+N
+
+> N
+
+X
+
+> n=1
+
+z(n) 
+
+> t
+
+. (17) For the signed torque representation, no centering is required, since the symmetric positive and negative event processes yield a zero-mean perturbation. Finally, the pre-clipping ex-pected root-mean-square magnitude of the Poisson proposal is scaled to match that of the Standard Gaussian proposal, en-suring a comparable exploration magnitude across methods. Because this matching is performed before actuator clipping, the realized post-clipping variance may still differ near the control bounds. 
+
+E. Spike Sampling 
+
+Spike sampling replaces the fixed Poisson event law with a reduced-order stochastic motor-pool model. The aim is not to reproduce complete spinal electrophysiology, but to introduce a sequence of structured priors—common drive, ordered recruitment, hysteresis, rate coding, refractory re-newal discharge, and heterogeneous twitches—into the MPPI proposal [13]–[16]. 
+
+a) Antagonistic pools and common drive: Each joint 
+
+j has an agonist (+) and antagonist (−) motor pool. A zero-mean first-order stochastic process provides a low-dimensional command shared by all motor units within the pair, 
+
+si,t +1 ,j = ρdsi,t,j + σd
+
+q
+
+1 − ρ2 
+
+> d
+
+ξi,t,j , (18) with ξi,t,j ∼ N (0 , 1) and ρd = exp  −∆t/τ drive 
+
+> d
+
+. The two pool drives are then obtained by half-wave rectification, 
+
+d+ 
+
+> i,t,j
+
+= dco + [ si,t,j ]+, (19) 
+
+d− 
+
+> i,t,j
+
+= dco − [si,t,j ]−, (20) where [x]+ = max( x, 0) and [x]− = min( x, 0) . The com-mon drive is therefore a low-dimensional stochastic signal that is shared by all units within the agonist–antagonist pair. The torque-driven Ant uses dco = 0 . For the antagonistic Ant, a small common background drive dco = 0 .08 permits simultaneous agonist–antagonist recruitment and therefore physical co-contraction. Common synaptic drive and antago-nist co-activation are consistent with established observations of motor-pool organization and joint impedance modulation [14], [18], [19]. 
+
+b) Ordered recruitment and hysteresis: Each pool con-tains L ordered motor units. With normalized recruitment index 
+
+ϕℓ = ℓ − 1
+
+L − 1 , (21) the recruitment thresholds are exponentially spaced, 
+
+θon  
+
+> ℓ
+
+= θmin 
+
+ θmax 
+
+θmin 
+
+ϕℓ
+
+, (22) with θmin = 0 .10 and θmax = 0 .85 . Derecruitment occurs at a lower threshold, 
+
+θoff  
+
+> ℓ
+
+= θon  
+
+> ℓ
+
+− 0.06 − 0.08 θon  
+
+> ℓ
+
+. (23) Let bpi,t,j,ℓ ∈ { 0, 1} denote the recruitment state for p ∈{+, −} . Its hysteretic update is 
+
+bpi,t,j,ℓ =
+
+
+
+1, dpi,t,j ≥ θon  
+
+> ℓ
+
+,
+
+0, dpi,t,j ≤ θoff  
+
+> ℓ
+
+,bpi,t −1,j,ℓ , otherwise .
+
+(24) This introduces state into recruitment: a unit can remain ac-tive after the drive has fallen below its recruitment threshold [20]. Unit strengths use the same ordered hierarchy gℓ as in Eq. (12). We note that the numerical parameters of the motor-pool model are not intended as subject-specific physiological fits, but rather, as normalized modeling choices selected to reproduce qualitative features of motor-unit organization while maintaining a well-conditioned proposal distribution. Notably, the background drive dco = 0 .08 lies below the minimum recruitment threshold θmin = 0 .10 , such that it cannot recruit a resting unit by itself, while remaining above the lowest derecruitment threshold and therefore permitting persistent antagonist overlap through hysteresis, and the recruitment range θmin = 0 .10 to θmax = 0 .85 distributes recruitment over most of the normalized drive range while leaving a suprathreshold region for rate coding of the highest-threshold units. 
+
+c) Rate coding and renewal discharge: For an active unit, firing rate increases with the normalized suprathreshold drive. We first define the clipped drive ratio 
+
+rpi,t,j,ℓ = clip dpi,t,j − θon 
+
+> ℓ
+
+1 − θon 
+
+> ℓ
+
+, 0, 1
+
+!
+
+. (25) The firing rate is then 
+
+f pi,t,j,ℓ = bpi,t,j,ℓ 
+
+h
+
+fmin + ( fmax − fmin )rpi,t,j,ℓ 
+
+i
+
+, (26) where fmin = λ0 and fmax = 3 λ0. Rather than memoryless Poisson discharge, inter-spike intervals are drawn from a refractory shifted-Gamma renewal process [15], [21], 
+
+∆Tℓ = τref + Gℓ, Gℓ ∼ Γ
+
+
+
+k, 1/f ℓ − τref 
+
+k
+
+
+
+, (27) with k = 3 and τref = 5 ms . The initial countdown at recruitment is randomized so that newly recruited units do not emit an artificial synchronized volley. The refractory scale is consistent with experimentally observed minimum human motor-unit response intervals [22]. 
+
+d) Heterogeneous motor-unit twitches: Later-recruited units are both stronger, through gℓ, and faster. Their rise and decay constants are 
+
+τr,ℓ = τ 0 
+
+> r
+
+(1 .30 − 0.55 ϕℓ) , (28) 
+
+τd,ℓ = τ 0 
+
+> d
+
+(1 .45 − 0.65 ϕℓ) . (29) If Spi,j,ℓ denotes the set of discharge bins of unit ℓ in pool 
+
+p, the pool output is 
+
+zpi,t,j =
+
+> L
+
+X
+
+> ℓ=1
+
+gℓ
+
+X
+
+> k∈S pi,j,ℓ
+
+κℓ,t −k, p ∈ { +, −} . (30) This converts sparse discharge events into temporally ex-tended, motor-unit-dependent perturbations [15], [16]. The chosen motor-unit-specific twitch parameters introduced here are a moderate approximately two-fold variation in temporal scale, preserving the established ordering from slower low-threshold units to faster high-threshold units without attempt-ing to reproduce the full range of muscle-specific contraction dynamics. For the torque-driven Ant, the raw Spike perturbation is 
+
+z+ − z−. For the antagonistic Ant, the two nonnegative pool outputs are retained as separate actuator channels and centered using Eq. (17). Similarly to the Poisson sampling, the pre-clipping RMS of the Spike proposal is scaled to match that of the Standard Gaussian proposal. Thus Poisson and Spike are matched to Standard at the same nominal exploration scale, while retaining their distinct temporal and statistical structure. 
+
+F. Spectrum-Matched Gaussian Sampling 
+
+To distinguish the effect of temporal frequency content from the non-Gaussian structure of the event-based pro-posals, we introduce two additional Gaussian baselines: Gaussian-Poisson and Gaussian-Spike. These proposals pre-serve the second-order spectral structure of the correspond-ing Poisson and Spike perturbations while removing their event-based and motor-pool statistics. Thus, the resulting perturbations remain Gaussian, but exhibit approximately the same temporal frequency content and autocorrelation as the structured proposal to which they are matched. For each target proposal q ∈ {Poisson , Spike }, we generate Mcal independent calibration perturbations using the same horizon, proposal parameters, and pre-clipping exploration scaling used by MPPI. Let z(r) 
+
+> t,m
+
+∈ Rdm denote calibration realization r for joint m, where dm = 1 for the −1.6         
+
+> −0.8 0.0 0.8 1.6
+> Standard
+> Command increment
+> −1.0
+> −0.5 0.0 0.5 1.0
+> Executed command
+> −1.6
+> −0.8 0.0 0.8 1.6
+> Gaussian-Poisson
+> −1.0
+> −0.5 0.0 0.5 1.0
+> −1.6
+> −0.8 0.0 0.8 1.6
+> Δu
+> Poisson
+> −1.0
+> −0.5 0.0 0.5 1.0
+> u
+> −1.6
+> −0.8 0.0 0.8 1.6
+> Gaussian-Spike
+> −1.0
+> −0.5 0.0 0.5 1.0 01234
+> Time (s)
+> −1.6
+> −0.8 0.0 0.8 1.6
+> Spike
+> 01234
+> Time (s)
+> −1.0
+> −0.5 0.0 0.5 1.0
+> Leg 1 Hip
+> Ant
+
+Fig. 3. Representative executed control traces for the five sampling methods on the torque-driven Ant after the MPPI weighted average. The panels show the command increment ∆ut = ut − ut−1 and corresponding executed command ut for the hip joint of leg 1 over the same time window. In this representative segment, the structured proposals exhibit visibly smaller command increments than Standard. 
+
+torque-driven Ant and dm = 2 for the agonist–antagonist representation. We remove the ensemble mean at each hori-zon coordinate, 
+
+ez(r) 
+
+> t,m
+
+= z(r) 
+
+> t,m
+
+− 1
+
+Mcal 
+
+> Mcal
+
+X
+
+> s=1
+
+z(s)
+
+> t,m
+
+, (31) and transform the centered perturbation along the horizon, 
+
+Z(r) 
+
+> k,m
+
+=
+
+> H−1
+
+X
+
+> t=0
+
+ez(r) 
+
+> t,m
+
+exp 
+
+
+
+−i 2πkt H
+
+
+
+, (32) for k = 0, . . . , H − 1. The resulting frequency-domain representation is used to estimate the finite-horizon spectral matrix of the target proposal as 
+
+bSk,m = 1
+
+Mcal 
+
+> Mcal
+
+X
+
+> r=1
+
+Z(r)
+
+> k,m
+
+Z(r)Hk,m , (33) where (·)H denotes the conjugate transpose. For the torque-driven Ant, bSk,m reduces to a scalar power spectrum. For the antagonistic Ant, it is a 2 × 2 spectral matrix and can therefore additionally represent second-order agonist– antagonist coupling. A spectral factor Ak,m is then constructed such that 
+
+Ak,m AHk,m = 1
+
+H bSk,m . (34) In practice, the factor is obtained from an eigendecomposi-tion of the Hermitian spectral matrix. At each MPPI sampling step, a real white-Gaussian sequence 
+
+wt,m ∼ N (0, I) (35) is generated and transformed to the frequency domain, 
+
+Wk,m = F{ wt,m }. The spectrum-matched sample is ob-tained through 
+
+Yk,m = Ak,m Wk,m , ϵt,m = F−1{Yk,m }, (36) Conjugate symmetry is enforced for the nonzero positive-frequency coefficients, 
+
+YH−k,m = Y∗
+
+> k,m
+
+, k = 1 , . . . , 
+
+ H − 12
+
+
+
+. (37) The DC coefficient and, for even H, the Nyquist coefficient are constrained to be real, such that the inverse DFT yields a real-valued perturbation. With the unnormalized discrete Fourier transform, E[Wk,m WHk,m ] = HI, and consequently 
+
+E Yk,m YHk,m 
+
+ = bSk,m . (38) The generated Gaussian proposal therefore reproduces, in ex-pectation, the finite-horizon power spectrum of its target pro-posal. Consequently, Gaussian-Poisson and Gaussian-Spike reproduce the spectral structure seen by MPPI rather than the spectrum of the underlying event or spike trains. They do not reproduce event sparsity, recruitment, recruitment– derecruitment hysteresis, refractory discharge, non-Gaussian amplitude statistics, or higher-order temporal dependencies. Comparison with a spectrum-matched Gaussian counterpart should provide a controlled means of assessing whether behavior associated with a structured proposal is reproduced by its finite-horizon second-order spectrum. 
+
+G. Robot Models 
+
+We evaluate the sampling methods on two actuation models that share the same Ant rigid-body morphology, joint topology, environment, task objective, and planning dynamics. They differ only in how each joint is actuated. 
+
+a) Torque-driven Ant: The first model is the standard MuJoCo/Gymnasium Ant with eight bidirectional joint mo-tors and control vector 
+
+u ∈ [−1, 1] 8. (39) Each motor produces generalized joint force through the source transmission gain, corresponding to peak magnitude 
+
+F0 = 150 at |uj | = 1 . Standard therefore samples eight Gaussian actuator coordinates, Poisson produces eight signed twitch-decoded channels, and Spike subtracts its agonist and antagonist pool outputs before applying the resulting eight-dimensional command. 
+
+b) Agonist/antagonist Ant: The second model preserves the same rigid-body system but replaces each bidirectional motor by an agonist/antagonist pair, giving sixteen nonneg-ative commands 
+
+a+ 
+
+> j
+
+, a − 
+
+> j
+
+∈ [0 , 1] , j = 1 , . . . , 8. (40) The MuJoCo actuators use an instantaneous command-to-force mapping, so no additional activation filter is imposed by the plant. This isolates the temporal structure introduced by the proposal: Standard has no twitch decoder, Poisson uses one common twitch kernel, and Spike uses a heteroge-neous motor-unit twitch bank. For each joint, the antagonistic pair implements 
+
+τj = τ0
+
+ a+ 
+
+> j
+
+− a−
+
+> j
+
+ − K  a+ 
+
+> j
+
++ a−
+
+> j
+
+ qj − B  a+ 
+
+> j
+
++ a−
+
+> j
+
+ ˙qj ,
+
+(41) where τ0 = 150 N m is the nominal directional torque authority, K = 18 N m /rad is the activation-dependent stiff-ness coefficient, and B = 1 .5 N m s /rad is the activation-dependent damping coefficient. Differential activation there-fore controls directional torque, whereas simultaneous ago-nist/antagonist activation changes joint stiffness and damp-ing. Equal activation produces no τ0 directional term while retaining the impedance terms, giving co-contraction a direct mechanical effect. On this model, Standard samples the sixteen native actuator coordinates independently; Poisson routes positive and negative events to the corresponding agonist and antagonist channels; and Spike generates the two motor-pool outputs directly. 
+
+H. Tasks 
+
+All experiments use the same closed stadium track. Let 
+
+s(p) denote the periodic track-progress coordinate of planar point p, and let ∆st denote the signed wrapped progress increment between consecutive control steps. Depending on the task, the primary tracked body is the robot torso, a pushed box, or a towed sled. A lap is completed whenever the cumulative progress of this primary body increases by one track length. 
+
+a) Running: In the baseline locomotion task, the robot torso is the primary tracked body. The controller is rewarded for forward progress while remaining upright and on the road. This task is evaluated on flat terrain for the main rollout-budget comparison and is also reused for the terrain, morphology, and planner-mismatch studies described below. 
+
+b) Box pushing: A free box is placed 1.8 m ahead of the robot. The box has a 0.90 × 0.90 m footprint, height 
+
+0.45 m , mass 0.1 kg , and friction parameter 0.60 . The box, rather than the robot, defines task progress and lap com-pletion. Dense shaping additionally rewards robot progress coupled to box progress and reduction of the robot–box distance before contact. Candidate trajectories are rejected if the box is lifted more than 0.12 m above its rest height or if its up-axis falls below 0.75 .
+
+c) Sled towing: A sled is placed 1.8 m ahead of the robot and connected by a 3.0 m rope. The sled dimensions are 1.0 × 0.80 × 0.16 m , with mass 0.1 kg and friction parameter 0.60 . The sled defines task progress and lap completion. Because the rope already couples the robot to the sled, no approach-to-object shaping term is used. The same 
+
+0.12 m lift limit is applied, with a minimum sled up-axis value of 0.70 .
+
+d) Rollout objective: The rollout objective combines task progress with tiny regularization terms that promote physically stable and moderate control. For all tasks, let             
+
+> TABLE I TASK -SPECIFIC ROLLOUT -COST WEIGHTS .Task wpwrwa
+> Run 1.00 00Push box 1.00 0.35 1.00 Tow sled 1.00 0.25 0
+
+Pt be cumulative progress of the primary task body up to horizon step t, and let Rt be cumulative progress of the robot root. For object-manipulation tasks, define the coupled root progress Ct = min( Rt, max( Pt, 0)) and the approach improvement At = D0 − Dt where Dt is the planar distance between the robot root and task object. Let ht denote the robot torso up-axis component, ut the nominal control, and 
+
+su the actuator control-scale vector. The finite-horizon rollout cost used by MPPI is 
+
+J = − wp
+
+H
+
+> H
+
+X
+
+> t=1
+
+Pt − wr
+
+H
+
+> H
+
+X
+
+> t=1
+
+Ct − wa
+
+H
+
+> H
+
+X
+
+> t=1
+
+At
+
++ wup 
+
+> H
+
+X
+
+> t=1
+
+(1 − ht)2 + wu
+
+nuHX
+
+> t=1
+
+∥(ut − ut) ⊘ su∥22 ,
+
+(42) where ⊘ denotes elementwise division. We use wup = 0 .05 
+
+and wu = 10 −4 for every task. The task-dependent shaping weights are summarized in Table I. For running, the primary body is the robot itself, so only the primary progress term is active. Overall, depending on the task, it rewards progress of the primary body Pt, progress of the robot that remains coupled to the manipulated object Ct, and reduction of the robot–object distance At. It penalizes loss of upright posture via wup and deviations of the sampled control from the nominal MPPI command via wu. Finally, a rollout receives infinite cost if either the primary task body or robot root leaves the permitted road corridor or if the robot or the object falls on its back. 
+
+e) Generalization scenarios: Beyond flat running, we evaluate whether the proposal structures transfer without changing their parameters. Terrain transfer uses rocky and 
+
+mixed tracks, with the same terrain realization presented to all methods for a matched seed. Task transfer uses the push-box and tow-sled tasks above. Morphology transfer uses two altered Ant leg-length patterns, same-side and 
+
+diagonal , with the short- and long-leg scales fixed to 0.75 
+
+and 1.25 , respectively; plant and planning models share the modified morphology. Finally, planner-model mismatch is evaluated with a nominal plant using its source integrator while rollouts use either a one-step fast-RK4 planner with zero sub-integration steps or an ImplicitFast planner (from Mujoco). These studies test whether the sampling priors remain useful when contact conditions, morphology, task dynamics, or planning dynamics differ from the flat-running baseline. Fig. 4. Representative evolution of the Spike controller over a single run and eight selected frames.  
+
+> Fig. 5. Representative snapshots of the generalization scenarios: mixed terrain, rocky terrain, two asymmetric-leg configurations, box pushing, and sled towing.
+
+I. Experimental Protocol 
+
+The controller runs at ∆t = 20 ms with horizon H = 75 ,corresponding to a 1.5 s prediction horizon. The exploration scale is 30% of each actuator’s control scale, LBPS uses δ =0.95 . Poisson and Spike use L = 6 motor-unit/recruitment levels and base rate λ0 = 8 Hz . The common Poisson twitch uses τr = 16 ms , τd = 64 ms , and a 200 ms 
+
+finite support. Spike uses the same base twitch constants before unit-specific scaling, together with σd = 0 .20 and 
+
+τ drive  
+
+> d
+
+= 50 ms .
+
+a) Rollout-budget conditions: The flat-running exper-iment compares three computational conditions for every method and robot. Condition 32 evaluates N = 32 can-didates at full rollout fidelity; 256 evaluates N = 256 
+
+candidates at full fidelity; and Screen 256 first generates a pool of 256 candidates, ranks them with a cheaper full-horizon ImplicitFast preview, and then evaluates only 32 
+
+candidates at full fidelity, where 24 are selected from the lowest preview costs and the remaining 8 sampled uniformly from the unselected pool to preserve exploration. Screening is therefore an evaluation mode applied identically to the sampling methods, not a separate proposal distribution. The terrain, task, morphology, and planner-mismatch transfer studies use the primary unscreened N = 32 condition. The spectrum-matched Gaussian baselines use Mcal =4096 calibration perturbations for each proposal. The spectral factors are computed before online control and reused during the corresponding evaluation runs; online sampling therefore requires only generation of white Gaussian sequences and application of the precomputed frequency-domain factors. Experiments are conducted on an AMD Ryzen™ 7 260 CPU with eight physical cores and two hardware threads per core. The implementation uses Numba-accelerated numerical routines. 
+
+b) Repeated trials: In the flat-study results reported here, each configuration is run with 10 matched random seeds. Each seed executes one warm-up lap followed by 10 
+
+retained evaluation laps; controller and plant state are not reset between laps. The warm-up lap and every control-step metric recorded during it are discarded. A per-lap safety limit of 2000 control steps is used. The seed/run is the statistical replicate, while laps are treated as repeated measurements within a seed rather than independent samples. Sampler and rollout-condition execution order is deterministically rotated across seeds to reduce systematic timing drift. A seed is considered successful only if it completes the warm-up lap and all 10 retained laps without leaving the track, falling, or reaching the per-lap step limit. All seeds complete the retained evaluation in the main flat-running experiment. In the transfer studies, descriptive performance statistics include all completed retained laps, including those from seeds that subsequently terminate early, while the mean number of completed laps per seed is reported separately. 
+
+c) Evaluation metrics: Locomotion/task performance is summarized by the velocity of the main body. Optimization quality is characterized by the MPPI-weighted rollout cost 
+
+Jw =
+
+> N
+
+X
+
+> i=1
+
+wiJi. (43) Control smoothness is measured from the executed com-mands using ∥ut − ut−1∥2. We also report computation time per executed control step. The latter includes candidate generation and MPPI computation, plant integration, and task/track progress projection. For the antagonistic Ant, we additionally quantify how the two physical channels are used. For joint j at executed step 
+
+t, the co-contraction index is 
+
+CI t,j = 2 min( a+ 
+
+> t,j
+
+, a − 
+
+> t,j
+
+)
+
+a+ 
+
+> t,j
+
++ a−
+
+> t,j
+
+, (44) and differential action is 
+
+Dt,j = a+ 
+
+> t,j
+
+− a− 
+
+> t,j
+
+. (45) Both are averaged over joints. The first measures simulta-neous antagonist activation, whereas the second measures directional use of the agonist–antagonist pair; neither is treated as a task-performance objective. Finally, we quantify the temporal coordination of the executed joint commands. For Ant-2, the sixteen actuator commands are first reduced to eight signed joint-level com-mands using udiff  
+
+> j
+
+= a+ 
+
+> j
+
+− a− 
+
+> j
+
+. For two command signals 
+
+x(t) and y(t), let ϕx(t) and ϕy (t) denote their instantaneous phases obtained from the analytic signals of the demeaned commands. Their coordination is measured by the phase-locking value 
+
+C(x, y ) = 1
+
+T
+
+> T
+
+X
+
+> t=1
+
+exp i ϕx(t) − ϕy (t) , (46) where C ∈ [0 , 1] and larger values indicate a more consistent relative phase, irrespective of the absolute phase offset. Within-leg coordination is obtained by averaging the hip– ankle coordination over the four legs, while between-leg coordination averages the coordination of homologous hip and ankle commands over all six pairs of legs. 
+
+d) Data analysis: All reported distributions and de-scriptive statistics are computed at the level of completed retained laps. Each completed lap constitutes one observation for descriptive summaries. Weighted rollout cost and compu-tation time are averaged over the controller steps belonging to that lap. Control smoothness is computed within each lap as the mean ∥ut − ut−1∥2, excluding the transition between successive laps. The Ant-2 co-contraction and differential-action measures are likewise computed separately for each completed lap. The statistical analysis addresses four mechanistically mo-tivated hypotheses: 1) Structured sampling: does the full Spike proposal differ from Standard Gaussian sampling? Spike vs. Standard .
+
+2) Spectral shaping: does the spectrum-matched Gaussian-Spike proposal differ from Standard Gaussian sampling? Gaussian-Spike vs. Standard .
+
+3) Beyond spectral matching: does the full Spike proposal differ from its spectrum-matched Gaussian counter-part? Spike vs. Gaussian-Spike .
+
+4) Motor-pool structure: does the motoneuron-inspired Spike proposal differ from the simpler Poisson event-based proposal? Spike vs. Poisson .
+
+Gaussian-Poisson is retained as an auxiliary descriptive spectrum-matched control for the Poisson proposal but is not included in the hypothesis-driven inferential analysis. For each contrast, paired differences are evaluated using a two-sided exact seed-blocked permutation test, with random seed treated as the independent experimental unit. Only ob-servations paired by seed and retained-lap index are included. Family-wise error is controlled separately for each out-come metric and each of the four hypothesis families using the Holm step-down correction. Because each hypothesis contains one contrast, correction is performed across robot morphologies and rollout conditions. For metrics defined on both robots, each correction family therefore contains six tests (two robots and three rollout conditions). For Ant-2-specific metrics, co-contraction and differential action, each family contains three tests. Within-leg and between-leg coordination are treated as separate outcome metrics. Distinct metrics are analyzed separately and are not pooled into a common correction family. Raw permutation p-values are denoted by p, and Holm-adjusted values are reported as pH. Statistical significance is assessed at α = 0 .05 . Effect magnitudes and descriptive statistics are reported alongside the inferential results to characterize the direction and magnitude of the observed differences. III. R ESULTS 
+
+A. Flat Racing Comparison 
+
+Figure 6 compares Standard, Gaussian-Poisson, Poisson, Gaussian-Spike, and Spike sampling on the flat racing task for both robot morphologies. Within each rollout condition, all methods use the same MPPI objective, prediction horizon, 32 256 Screen 256 4.5 5.0 5.5 6.0 6.5 7.0 Mean lap velocity (m/s) 
+
+> Ant
+
+Mean lap velocity ↑  
+
+> 32 256 Screen 256
+> −4.5
+> −4.0
+> −3.5
+> −3.0
+> −2.5 Weighted rollout cost
+
+Weighted rollout cost ↓  
+
+> 32 256 Screen 256 20 50 100 Compute time (ms/step)
+
+Computation time ↓ (log scale)   
+
+> 32 256 Screen 256 0.4 0.6 0.8 1.0 1.2 1.4 1.6 Executed  ‖ut − ut − 1‖2
+
+Control smoothness ↓            
+
+> 32 256 Screen 256 Rollout condition 4.0 4.5 5.0 5.5 6.0 6.5 Mean lap velocity (m/s)
+> Ant-2
+> 32 256 Screen 256 Rollout condition
+> −4.0
+> −3.5
+> −3.0
+> −2.5 Weighted rollout cost 32 256 Screen 256 Rollout condition 20 50 100 Compute time (ms/step) 32 256 Screen 256 Rollout condition 0.4 0.6 0.8 1.0 Executed  ‖ut − ut − 1‖2
+> Standard Gaussian-Poisson Poisson Gaussian-Spike Spike
+
+Fig. 6. Performance of the sampling methods on the flat running task for Ant and Ant-2 under the three rollout conditions. The panels report mean lap velocity, weighted rollout cost, computation time per control step, and executed-control smoothness measured by ∥ut − ut−1∥2. Distributions are shown across completed retained laps, with horizontal bars indicating the mean. Arrows indicate the preferred direction for each metric. 32 256 Screen 256 Rollout condition 0.4 0.5 0.6 0.7 0.8 Co-contraction index       
+
+> Co-contraction
+> 32 256 Screen 256 Rollout condition 0.20 0.25 0.30 0.35 Mean | a + − a − |
+> Di ff erential action
+> Standard Gaussian-Poisson Poisson Gaussian-Spike Spike
+
+Fig. 7. Antagonistic actuation characteristics of Ant-2 for the sampling methods under the three rollout conditions. The co-contraction index quan-tifies simultaneous activation of the agonist and antagonist actuators, while differential action measures the magnitude of the net directional agonist– antagonist command. 
+
+control constraints, and nominal exploration scale; only the temporal and statistical structure of the sampled perturbations differs. Table II summarizes which of the four hypothesis-driven contrasts remain significant at the α = 0 .05 thresh-old after Holm correction. The complete raw permutation 
+
+p-values and corresponding Holm-adjusted pH values are reported in Appendix. At the low rollout budget ( N = 32 ), both structured proposals numerically improve velocity on the torque-driven Ant compared with Standard Gaussian sampling. Mean lap velocity increases from 5.09 m /s with Standard to 5.25 m /s
+
+with Poisson and 5.30 m /s with Spike, corresponding to increases of 3.1% and 4.2% . The weighted rollout cost is also lower for Poisson than for Standard ( −3.18 versus −3.01 ). The effect is more pronounced on the antagonistic Ant-2. At N = 32 , Poisson produces only a small velocity increase 32 256 Screen 256 0.0 0.1 0.2 0.3 0.4 Coordination index           
+
+> Ant
+> Within-leg coordination
+> 32 256 Screen 256 0.0 0.1 0.2 0.3 0.4 Coordination index
+> Between-leg coordination
+> 32 256 Screen 256 Rollout condition 0.0 0.1 0.2 0.3 0.4 Coordination index
+> Ant-2
+> 32 256 Screen 256 Rollout condition 0.0 0.1 0.2 0.3 0.4 Coordination index Standard Gaussian-Poisson Poisson Gaussian-Spike Spike
+
+Fig. 8. Executed-command coordination for the sampling methods on Ant and Ant-2 under the three rollout conditions. Within-leg coordination measures the consistency of the relative phase between the hip and ankle commands of each leg, averaged across the four legs. Between-leg coordi-nation measures the consistency of the relative phase between homologous joints, averaged across all leg pairs. Higher values indicate a more consistent phase relationship. 
+
+from 4.77 to 4.82 m /s, whereas Spike reaches 5.14 m /s, a 
+
+7.8% increase over Standard. Spike also yields the lowest weighted rollout cost ( −3.01 ), compared with −2.85 for Poisson and −2.74 for Standard. Increasing the full rollout budget to N = 256 changes the relative performance on the two morphologies. On Ant, Standard reaches 6.21 m /s, compared with 6.03 m /s for Poisson and 6.08 m /s for Spike. On Ant-2, Spike reaches TABLE II SIGNIFICANCE SUMMARY FOR ALL HYPOTHESES AT THE 0.05                                                                                                
+
+> THRESHOLD AFTER HOLM CORRECTION . S: S PIKE ; GS: GAUSSIAN -S PIKE ; P: P OISSON ; S TD : S TANDARD GAUSSIAN . E NTRIES CORRESPOND TO 32 /256 /Scr ..
+> Outcome Robot H1: S–Std H2: GS–Std H3: S–GS H4: S–P
+> Task performance
+> Lap velocity Ant ✓/✓/✓✓/−/−−/−/−−/−/−
+> Ant-2 ✓/✓/✓✓/−/−−/−/−✓/✓/✓
+> Weighted rollout cost Ant ✓/−/−−/−/−−/−/−−/−/−
+> Ant-2 ✓/✓/✓✓/−/−−/−/−✓/✓/✓
+> Temporal structure and coordination
+> Control smoothness Ant ✓/✓/✓✓/✓/✓✓/✓/✓✓/✓/✓
+> Ant-2 ✓/✓/✓✓/✓/✓✓/✓/✓✓/✓/✓
+> Within-leg coordination Ant ✓/✓/✓✓/✓/✓−/−/✓✓/✓/✓
+> Ant-2 ✓/✓/✓✓/✓/✓✓/−/−✓/✓/✓
+> Between-leg coordination Ant ✓/✓/✓✓/✓/✓✓/−/✓✓/✓/✓
+> Ant-2 ✓/✓/✓✓/✓/✓−/−/−✓/✓/✓
+> Antagonistic actuation
+> Co-contraction Ant-2 ✓/✓/✓✓/✓/✓✓/✓/✓✓/✓/✓
+> Differential action Ant-2 ✓/✓/✓✓/✓/✓−/−/−✓/✓/✓
+
+5.93 m /s compared with 5.78 m /s for Standard, whereas Poisson decreases the mean velocity to 5.57 m /s. Spike also produces the lowest weighted rollout cost among the three methods. With rollout screening, Standard, Poisson, and Spike reach 
+
+6.03 , 5.97 , and 5.93 m /s on Ant, respectively. On Ant-2, Poisson decreases velocity from 5.69 to 5.39 m /s, whereas Spike reaches 5.83 m /s. Spike is therefore numerically faster than Standard on Ant-2 under all three rollout conditions. The strongest and most consistent effect of the proposal structure is observed in executed-control smoothness. Rela-tive to Standard, Poisson reduces the mean control-increment norm by approximately 43 –53% , while Spike reduces it by approximately 51 –61% across the two robots and three rollout conditions. Spike also produces smaller control in-crements than Poisson in every condition. The improvement in smoothness therefore persists regardless of whether the corresponding task velocity is higher or lower than Standard. The smoother structured proposals incur additional com-putation. At N = 32 , mean computation time is approxi-mately 14 .2, 14 .9, and 16 .4 ms /step for Standard, Poisson, and Spike on Ant, and 14 .7, 15 .3, and 17 .0 ms /step on Ant-2. These differences remain small compared with the increase caused by evaluating 256 full rollouts, for which computation rises to approximately 97 –117 ms /step . Screening reduces this cost to approximately 29 –44 ms /step .Figure 7 further shows that the proposal structure sys-tematically changes how the antagonistic actuation space is used. Standard produces substantially greater simultaneous agonist–antagonist activation than either structured proposal. At N = 32 , the mean co-contraction index decreases from 
+
+0.73 with Standard to 0.47 with Poisson and 0.50 with Spike; at N = 256 , it decreases from 0.79 to 0.45 and 0.49 ,respectively, and with screening from 0.76 to 0.42 and 0.46 .In contrast, Spike produces the largest differential antag-onist action. At N = 32 , the mean |a+ − a−| is 0.25 
+
+for Standard, 0.25 for Poisson, and 0.34 for Spike. At 
+
+N = 256 , the corresponding values are 0.20 , 0.22 , and 
+
+0.31 . Although neither co-contraction nor differential action is itself a monotonic performance objective, these results show that modifying the temporal and statistical structure of the MPPI proposal changes how the same antagonistic actuator model is used. Figure 8 finally shows that structured sampling also changes the coordination of the executed commands. For both Ant and Ant-2, Poisson increases within-leg and between-leg coordination relative to Standard under all three rollout conditions, while Spike produces a further increase. For example, at N = 32 , within-leg coordination increases from 0.068 to 0.125 and 0.138 on Ant, and from 0.070 to 
+
+0.118 and 0.150 on Ant-2 for Standard, Poisson, and Spike, respectively. The spectrum-matched Gaussian control reproduces a sub-stantial part of this increase. At N = 32 on Ant, Gaussian-Spike reaches within-leg and between-leg coordination val-ues of 0.128 and 0.131 , compared with 0.138 and 0.150 for Spike. On Ant-2, Gaussian-Spike reaches 0.130 and 0.139 ,compared with 0.150 and 0.151 for Spike. Thus, spectral matching recovers a large part of the coordination increase, while the full Spike proposal remains numerically more coordinated in these comparisons. 
+
+B. Generalization and Robustness 
+
+We next evaluate whether the differences between sam-pling methods persist beyond the nominal flat-racing environ-ment. Across Tables III–VI, velocity and control smoothness are reported as mean ± standard deviation over completed retained laps, including laps completed by seeds that subse-quently terminate early. Bold values denote the best descrip-tive value within each scenario–robot block according to the indicated metric direction. Because velocity and smoothness are conditioned on completed laps, these metrics should be interpreted jointly with the reported completion rate, particularly in scenarios with frequent early termination. The transfer studies are descriptive and are not included in the hypothesis-driven inferential analysis of the flat-running experiment. 
+
+a) Terrain generalization: Table III shows that the structured proposals retain their smooth-control behavior under substantially more difficult terrain. Spike achieves the highest mean velocity in all four terrain–morphology combinations and the lowest control increments throughout. The largest difference is observed on mixed terrain with Ant-2, where Spike completes 8.0 laps/seed compared with 1.6
+
+for Standard while increasing mean velocity from 3.83 to 
+
+4.11 m /s. Poisson also improves completion substantially on mixed terrain, particularly for Ant ( 9.5 versus 5.7 laps/seed), whereas the gains on rocky terrain are more moderate. 
+
+b) Task generalization: The manipulation results in Table IV show smaller differences in task velocity, with all three methods generally retaining high completion rates. Spike nevertheless produces the smoothest control in ev-ery robot–task combination and reaches the highest mean velocity on Ant-2 for both pushing and towing. On Ant, TABLE III GENERALIZATION TO MIXED AND ROCKY TERRAIN . V ELOCITY AND SMOOTHNESS ARE REPORTED AS MEAN ± STANDARD DEVIATION OVER COMPLETED LAPS .
+
+Terrain Robot Sampler Vel. (m/s) ↑ Laps/seed ↑ Smooth. ↓
+
+Mixed Ant Standard 3.270 ± 1.102 5.7/10 1.451 ± 0.128 
+
+Poisson 3.992 ± 1.199 9.5/10 0.734 ± 0.068 
+
+Spike 4.186 ± 1.121 8.8/10 0.574 ± 0.048 
+
+Ant-2 Standard 3.831 ± 0.397 1.6/10 1.098 ± 0.038 
+
+Poisson 3.264 ± 1.105 3.1/10 0.533 ± 0.059 
+
+Spike 4.110 ± 0.938 8.0/10 0.459 ± 0.038 
+
+Rocky Ant Standard 4.154 ± 0.698 2.2/10 1.637 ± 0.051 
+
+Poisson 4.402 ± 0.887 3.8/10 0.784 ± 0.041 
+
+Spike 4.656 ± 0.768 4.0/10 0.605 ± 0.029 
+
+Ant-2 Standard 3.861 ± 0.977 2.4/10 1.152 ± 0.086 
+
+Poisson 3.738 ± 0.988 3.5/10 0.568 ± 0.038 
+
+Spike 4.477 ± 0.861 4.1/10 0.491 ± 0.031 
+
+TABLE IV GENERALIZATION TO OBJECT -MANIPULATION TASKS .
+
+Task Robot Sampler Vel. (m/s) ↑ Laps/seed ↑ Smooth. ↓
+
+Push box Ant Standard 2.324 ± 0.218 10.0/10 1.923 ± 0.033 
+
+Poisson 2.176 ± 0.183 9.1/10 1.026 ± 0.021 
+
+Spike 2.219 ± 0.240 10.0/10 0.748 ± 0.015 
+
+Ant-2 Standard 2.372 ± 0.281 10.0/10 1.287 ± 0.020 
+
+Poisson 2.337 ± 0.224 9.7/10 0.701 ± 0.014 
+
+Spike 2.429 ± 0.228 10.0/10 0.594 ± 0.010 
+
+Tow sled Ant Standard 2.650 ± 0.473 8.5/10 1.605 ± 0.098 
+
+Poisson 2.399 ± 0.608 9.2/10 0.721 ± 0.081 
+
+Spike 2.647 ± 0.500 8.4/10 0.577 ± 0.044 
+
+Ant-2 Standard 2.540 ± 0.402 10.0/10 1.152 ± 0.045 
+
+Poisson 2.539 ± 0.415 10.0/10 0.585 ± 0.042 
+
+Spike 2.680 ± 0.536 9.8/10 0.470 ± 0.044 
+
+Standard remains fastest for pushing and is essentially tied with Spike for towing ( 2.650 versus 2.647 m /s), indicating that the smoother structured proposals do not require a consistent increase in task velocity to alter the resulting control behavior. 
+
+c) Altered morphology: All methods remain compara-tively robust to altered leg-length configurations (Table V), with almost all conditions completing the full evaluation. On Ant, Poisson gives the highest mean velocity under both diagonal and same-side asymmetric configurations, whereas Spike is highest on Ant-2. The smoothness ordering observed in flat racing is preserved: Spike has the lowest control-increment magnitude in every condition, followed by Poisson and Standard. In particular, under same-side configuration on Ant-2, Spike increases mean velocity from 3.95 to 4.41 m /s
+
+while reducing the control-increment magnitude from 1.06 
+
+to 0.48 .
+
+d) Integrator mismatch: Integrator mismatch exposes a clearer trade-off between task velocity, control smoothness, and completion reliability (Table VI). Spike remains the smoothest method in all four conditions and attains the highest mean velocity for both robots under fast RK4 and for Ant-2 under the implicit-fast mismatch. However, this does 
+
+TABLE V ROBUSTNESS TO ALTERED MORPHOLOGY .                                                                                            
+
+> Asymmetry Robot Sampler Vel. (m/s) ↑Laps/seed ↑Smooth. ↓
+> Diagonal Ant Standard 4.764 ±0.351 10.0/10 1.497 ±0.046
+> Poisson 4.972 ±0.356 10.0/10 0.739 ±0.027
+> Spike 4.930 ±0.333 10.0/10 0.584 ±0.020
+> Ant-2 Standard 4.438 ±0.395 10.0/10 1.007 ±0.033
+> Poisson 4.468 ±0.374 10.0/10 0.536 ±0.020
+> Spike 4.782 ±0.340 10.0/10 0.458 ±0.015
+> Same side Ant Standard 4.060 ±0.332 10.0/10 1.574 ±0.036
+> Poisson 4.370 ±0.350 9.2/10 0.785 ±0.029
+> Spike 4.342 ±0.311 10.0/10 0.605 ±0.021
+> Ant-2 Standard 3.953 ±0.319 10.0/10 1.060 ±0.024
+> Poisson 3.989 ±0.284 10.0/10 0.562 ±0.018
+> Spike 4.411 ±0.328 10.0/10 0.476 ±0.014
+
+TABLE VI ROBUSTNESS TO PLANNER –PLANT INTEGRATOR MISMATCH .                                                                                            
+
+> Mismatch Robot Sampler Vel. (m/s) ↑Laps/seed ↑Smooth. ↓
+> Fast RK4 Ant Standard 4.584 ±0.347 7.0/10 1.573 ±0.051
+> Poisson 4.651 ±0.368 5.7/10 0.807 ±0.029
+> Spike 4.732 ±0.305 6.9/10 0.624 ±0.022
+> Ant-2 Standard 4.343 ±0.296 7.8/10 1.041 ±0.036
+> Poisson 4.224 ±0.323 6.3/10 0.574 ±0.022
+> Spike 4.852 ±0.307 5.0/10 0.484 ±0.017
+> Implicit fast Ant Standard 4.055 ±0.461 9.1/10 1.587 ±0.051
+> Poisson 4.009 ±0.451 8.2/10 0.798 ±0.025
+> Spike 4.012 ±0.420 8.0/10 0.617 ±0.022
+> Ant-2 Standard 3.616 ±0.471 8.8/10 1.131 ±0.051
+> Poisson 3.654 ±0.402 8.0/10 0.582 ±0.022
+> Spike 3.963 ±0.411 3.9/10 0.497 ±0.015
+
+not translate into greater completion: on Ant-2, Spike com-pletes only 5.0 and 3.9 laps/seed under the two mismatches, compared with 7.8 and 8.8 for Standard. The integrator experiments therefore indicate that the temporal structure that yields smoother and, in several cases, faster locomotion can become less robust when the predictive model differs substantially from the plant. IV. D ISCUSSION 
+
+The most consistent effect of the proposed sampling struc-ture is the substantial increase in executed-control smooth-ness while preserving useful task performance, particularly on the antagonistic Ant-2 model. Across the flat experiments, Poisson reduces the control-increment magnitude by approx-imately 43 –53% relative to Standard, while Spike reduces it by approximately 51 –61% . The same ordering persists across terrain, task, and morphology variations. The spectrum-matched Gaussian experiments show that second-order temporal structure reproduces an important part of the behavior associated with Spike. Notably, the absence of a significant Spike / Gaussian-Spike difference in flat-running velocity and weighted rollout cost indicates that the present experiments do not detect an additional task-performance effect beyond spectral matching. This pattern is consistent with the temporal spectrum accounting for a substantial part of the task-level behavior. The full Spike proposal nevertheless differs from Gaussian-Spike in several aspects of executed control. Spike produces significantly different control smoothness across all tested flat-running conditions, and on Ant-2 it produces significantly different co-contraction across all three rollout conditions. Additional differences occur in selected within-and between-leg coordination conditions, whereas differen-tial action does not show a significant Spike–Gaussian-Spike difference. Because Gaussian-Spike preserves the estimated finite-horizon second-order spectrum while removing the non-Gaussian motor-pool construction, these residual effects are consistent with contributions from higher-order temporal or amplitude statistics. Possible contributors include common agonist–antagonist drive, sparse discharge events, ordered recruitment, recruitment–derecruitment hysteresis, refractory discharge, rate coding, and heterogeneous twitch dynamics. The present experiments do not isolate these mechanisms individually. This interpretation may also help explain why several task-performance differences are strongest at the low rollout count. With only N = 32 candidates, concentrating samples on temporally coherent trajectories may increase the proba-bility of obtaining useful rollouts. At larger rollout budgets, Standard Gaussian sampling has many more candidates from which to construct its weighted update, while components of the weakly correlated proposal that are not consistently associated with low cost can partially cancel during the weighted average. The direct comparison with Poisson further separates the richer motor-pool construction from a simpler event-based temporal proposal. Spike differs from Poisson consistently in control smoothness and coordination across the flat-running conditions, and on Ant-2 it also produces dis-tinct co-contraction and differential-action behavior. Task-performance differences between the two proposals are less universal, appearing primarily on the antagonistic Ant-2 rather than the torque-driven Ant. This suggests that the additional motor-pool structure primarily affects the temporal organization and use of the executed commands, with task-level benefits depending on the actuation model. The generalization experiments also show that the tem-poral prior introduced by structured sampling is not spe-cific to the nominal flat-running condition. Across terrain, manipulation, and morphology variations, Spike retains the lowest executed-control increments while also showing fa-vorable descriptive performance on difficult terrain and al-tered morphologies. However the planner-model mismatch experiments expose a clearer limitation: Spike remains the smoothest proposal and can retain high velocity, but this can coincide with reduced completion when the predictive dynamics differ substantially from the plant. Several limitations remain. First, all experiments are performed in simulation and do not include the actuator dynamics, latency, sensing noise, compliance, and contact uncertainty encountered on physical systems. The antago-nistic actuator and motoneuron models are simplified ab-stractions rather than quantitatively validated muscle–tendon or physiological models. Second, the structured samplers introduce a modest computational overhead. Finally, the planner-mismatch experiments show that a stronger temporal proposal prior is not uniformly beneficial: smoother control can coexist with reduced completion when the predictive model is substantially inaccurate. Yet, the event-based formulation creates several useful directions for future work. Because the latent perturbation is represented by sparse event times and marks, future imple-mentations could operate directly on this representation. This representation may also enable optimization directly over sparse event sequences, for example through cross-entropy search with Bernoulli or categorical distributions over event occurrence, sign, and recruitment depth [23], [24]. A second direction could be to learn parts of the proposal rather than fixing them manually, and event rates, temporal scales, recruitment structure, or low-dimensional actuator synergies could be adapted from control performance. More broadly, MPPI could also act as a teacher for learning a closed-loop policy, following approaches in guided policy search [25]– [28]. V. C ONCLUSION 
+
+The experiments show that the temporal structure of the MPPI proposal substantially influences closed-loop be-havior under finite sampling budgets. Spectrum matching reproduces a substantial part of the task-level behavior of Spike, while the full motoneuron-inspired proposal retains additional effects on control smoothness, coordination, and antagonistic actuation. These results support treating pro-posal design as a combination of second-order spectral structure and higher-order statistical organization, providing a principled direction for designing efficient and structured sampling distributions for MPPI. REFERENCES [1] E. Theodorou, J. Buchli, and S. Schaal, “A generalized path integral control approach to reinforcement learning,” The Journal of Machine Learning Research , vol. 11, pp. 3137–3181, 2010. [2] G. Williams, A. Aldrich, and E. Theodorou, “Model predictive path integral control using covariance variable importance sampling,” arXiv preprint arXiv:1509.01149 , 2015. [3] G. Williams, A. Aldrich, and E. A. Theodorou, “Model predictive path integral control: From theory to parallel computation,” Journal of Guidance, Control, and Dynamics , vol. 40, no. 2, pp. 344–357, 2017. [4] G. Williams, P. Drews, B. Goldfain, J. M. Rehg, and E. A. Theodorou, “Aggressive driving with model predictive path integral control,” in 2016 IEEE international conference on robotics and automation (ICRA) . IEEE, 2016, pp. 1433–1440. [5] ——, “Information-theoretic model predictive control: Theory and applications to autonomous driving,” IEEE Transactions on Robotics ,vol. 34, no. 6, pp. 1603–1622, 2018. [6] J. Alvarez-Padilla, J. Z. Zhang, S. Kwok, J. M. Dolan, and Z. Manch-ester, “Real-time whole-body control of legged robots with model-predictive path integral control,” in 2025 IEEE International Confer-ence on Robotics and Automation (ICRA) . IEEE, 2025, pp. 14 721– 14 727. [7] T. Miura, N. Akai, K. Honda, and S. Hara, “Spline-interpolated model predictive path integral control with stein variational inference for reactive navigation,” in 2024 IEEE International Conference on Robotics and Automation (ICRA) . IEEE, 2024, pp. 13 171–13 177. [8] A. T. Le, K. Nguyen, M. N. Vu, J. Carvalho, and J. Peters, “Model tensor planning,” arXiv preprint arXiv:2505.01059 , 2025. [9] B. Vlahov, J. Gibson, D. D. Fan, P. Spieler, A.-a. Agha-mohammadi, and E. A. Theodorou, “Low frequency sampling in model predictive path integral control,” IEEE Robotics and Automation Letters , vol. 9, no. 5, pp. 4543–4550, 2024. [10] C. Pinneri, S. Sawant, S. Blaes, J. Achterhold, J. Stueckler, M. Rolinek, and G. Martius, “Sample-efficient cross-entropy method for real-time planning,” in Conference on Robot Learning . PMLR, 2021, pp. 1049– 1065. [11] D. M. Asmar, R. Senanayake, S. Manuel, and M. J. Kochenderfer, “Model predictive optimized path integral strategies,” in 2023 IEEE International Conference on Robotics and Automation (ICRA) . IEEE, 2023, pp. 3182–3188. [12] Z. Wang, G. Williams, and E. A. Theodorou, “Information theoretic model predictive control on jump diffusion processes,” in 2019 Amer-ican Control Conference (ACC) . IEEE, 2019, pp. 1663–1670. [13] E. Henneman, “Relation between size of neurons and their suscepti-bility to discharge,” Science , vol. 126, no. 3287, pp. 1345–1347, 1957. [14] F. Hug, S. Avrillon, J. Ib´ a˜ nez, and D. Farina, “Common synaptic input, synergies and size principle: Control of spinal motor neurons for movement generation,” The Journal of physiology , vol. 601, no. 1, pp. 11–20, 2023. [15] A. J. Fuglevand, D. A. Winter, and A. E. Patla, “Models of recruit-ment and rate coding organization in motor-unit pools,” Journal of neurophysiology , vol. 70, no. 6, pp. 2470–2488, 1993. [16] A. H. Caillet, A. T. Phillips, D. Farina, and L. Modenese, “Motoneuron-driven computational muscle modelling with motor unit resolution and subject-specific musculoskeletal anatomy,” PLOS Com-putational Biology , vol. 19, no. 12, p. e1011606, 2023. [17] J. Watson and J. Peters, “Inferring smooth control: Monte carlo posterior policy iteration with gaussian processes,” in Conference on Robot Learning . PMLR, 2023, pp. 67–79. [18] D. Farina, F. Negro, and J. L. Dideriksen, “The effective neural drive to muscles is the common synaptic input to motor neurons,” The Journal of Physiology , vol. 592, no. 16, pp. 3427–3441, 2014. [19] G. N. Lewis, C. D. MacKinnon, R. Trumbower, and E. J. Perreault, “Co-contraction modifies the stretch reflex elicited in muscles short-ened by a joint perturbation,” Experimental Brain Research , vol. 207, no. 1–2, pp. 39–48, 2010. [20] C. J. Heckman, M. Johnson, C. Mottram, and J. Schuster, “Persistent inward currents in spinal motoneurons and their influence on human motoneuron firing patterns,” The Neuroscientist , vol. 14, no. 3, pp. 264–275, 2008. [21] J. Navallas, S. Porta, and A. Malanda, “Exact inter-discharge interval distribution of motor unit firing patterns with gamma model,” Medical & Biological Engineering & Computing , vol. 57, pp. 1159–1171, 2019. [22] J. Borg, “Effects of prior activity on the conduction in single motor units in man,” Journal of Neurology, Neurosurgery & Psychiatry ,vol. 46, no. 4, pp. 317–321, 1983. [23] P.-T. De Boer, D. P. Kroese, S. Mannor, and R. Y. Rubinstein, “A tutorial on the cross-entropy method,” Annals of operations research ,vol. 134, no. 1, pp. 19–67, 2005. [24] R. Rubinstein, “The cross-entropy method for combinatorial and continuous optimization,” Methodology and computing in applied probability , vol. 1, no. 2, pp. 127–190, 1999. [25] S. Levine and V. Koltun, “Guided policy search,” in International conference on machine learning . PMLR, 2013, pp. 1–9. [26] S. Ross, G. Gordon, and D. Bagnell, “A reduction of imitation learning and structured prediction to no-regret online learning,” in Proceedings of the fourteenth international conference on artificial intelligence and statistics . JMLR Workshop and Conference Proceedings, 2011, pp. 627–635. [27] G. Kahn, T. Zhang, S. Levine, and P. Abbeel, “Plato: Policy learning using adaptive trajectory optimization,” in 2017 IEEE International Conference on Robotics and Automation (ICRA) . IEEE, 2017, pp. 3342–3349. [28] A. Reske, J. Carius, Y. Ma, F. Farshidian, and M. Hutter, “Imitation learning from mpc for quadrupedal multi-gait control,” in 2021 IEEE international conference on robotics and automation (ICRA) . IEEE, 2021, pp. 5014–5020. 
+
+APPENDIX 
+
+Tables VII and VIII report the complete Holm-adjusted and raw permutation p-values, respectively, for the four hypothesis-driven contrasts. Holm correction is applied in-dependently for each outcome metric and hypothesis family. For metrics evaluated on both robot morphologies, each family contains six tests; for Ant-2-specific metrics, each family contains three tests. TABLE VII HOLM -ADJUSTED pH VALUES FOR THE FOUR HYPOTHESIS -DRIVEN CONTRASTS . B OLD VALUES INDICATE pH < 0.05 .
+
+H1: S–Std H2: GS–Std H3: S–GS H4: S–P 
+
+Outcome Robot 32 256 Scr. 32 256 Scr. 32 256 Scr. 32 256 Scr. Lap velocity Ant 0.016 0.029 0.031 0.029 0.156 0.523 0.484 0.328 0.094 0.803 0.803 0.803 Ant-2 0.012 0.012 0.031 0.012 0.062 0.062 0.328 0.094 0.125 0.020 0.012 0.020 
+
+Weighted rollout cost Ant 0.023 0.072 0.051 0.078 0.078 0.109 0.146 1.000 0.234 1.000 1.000 0.094 Ant-2 0.012 0.012 0.023 0.012 0.078 0.078 1.000 0.094 0.146 0.020 0.012 0.020 
+
+Control smoothness Ant 0.012 0.012 0.012 0.012 0.047 0.031 0.012 0.047 0.031 0.012 0.012 0.012 
+
+Ant-2 0.012 0.012 0.012 0.012 0.047 0.047 0.012 0.047 0.047 0.012 0.012 0.012 
+
+Computation time Ant 0.012 0.012 0.012 0.012 0.047 0.031 0.012 0.062 0.039 0.012 0.012 0.012 
+
+Ant-2 0.012 0.012 0.012 0.012 0.047 0.047 0.062 0.062 0.062 0.012 0.012 0.012 
+
+Within-leg coordination Ant 0.012 0.012 0.012 0.012 0.047 0.031 0.164 0.688 0.039 0.039 0.012 0.012 
+
+Ant-2 0.012 0.012 0.012 0.012 0.047 0.047 0.035 0.125 0.688 0.012 0.012 0.012 
+
+Between-leg coordination Ant 0.012 0.012 0.012 0.012 0.047 0.031 0.012 0.062 0.039 0.012 0.012 0.012 
+
+Ant-2 0.012 0.012 0.012 0.012 0.047 0.047 0.070 0.188 0.188 0.012 0.012 0.012 
+
+Co-contraction Ant-2 0.006 0.006 0.006 0.006 0.031 0.031 0.006 0.031 0.031 0.006 0.006 0.006 
+
+Differential action Ant-2 0.006 0.006 0.006 0.006 0.031 0.031 0.916 0.656 0.875 0.006 0.006 0.006   
+
+> TABLE VIII RAW PERMUTATION p-VALUES BEFORE HOLM CORRECTION FOR THE FOUR HYPOTHESIS -DRIVEN CONTRASTS .
+
+H1: S–Std H2: GS–Std H3: S–GS H4: S–P 
+
+Outcome Robot 32 256 Scr. 32 256 Scr. 32 256 Scr. 32 256 Scr. Lap velocity Ant 0.004 0.010 0.020 0.006 0.078 0.523 0.484 0.109 0.016 0.268 0.285 0.338 Ant-2 0.002 0.002 0.016 0.002 0.016 0.016 0.164 0.016 0.031 0.004 0.002 0.004 Weighted rollout cost Ant 0.006 0.072 0.025 0.020 0.031 0.109 0.029 0.594 0.078 0.531 0.842 0.031 Ant-2 0.002 0.002 0.008 0.002 0.016 0.016 0.734 0.016 0.031 0.004 0.002 0.004 Control smoothness Ant 0.002 0.002 0.002 0.002 0.016 0.008 0.002 0.016 0.008 0.002 0.002 0.002 Ant-2 0.002 0.002 0.004 0.002 0.016 0.016 0.002 0.016 0.031 0.002 0.002 0.004 Computation time Ant 0.002 0.002 0.002 0.002 0.016 0.008 0.002 0.016 0.008 0.002 0.002 0.002 Ant-2 0.002 0.002 0.004 0.002 0.016 0.016 0.035 0.016 0.031 0.002 0.002 0.004 Within-leg coordination Ant 0.002 0.002 0.002 0.002 0.016 0.008 0.055 0.672 0.008 0.039 0.002 0.002 Ant-2 0.002 0.002 0.004 0.002 0.016 0.016 0.006 0.031 0.344 0.002 0.002 0.004 Between-leg coordination Ant 0.002 0.002 0.002 0.002 0.016 0.008 0.002 0.016 0.008 0.002 0.002 0.002 Ant-2 0.002 0.002 0.004 0.002 0.016 0.016 0.023 0.156 0.094 0.002 0.002 0.004 Co-contraction Ant-2 0.002 0.002 0.004 0.002 0.016 0.016 0.002 0.016 0.031 0.002 0.002 0.004 Differential action Ant-2 0.002 0.002 0.004 0.002 0.016 0.016 0.916 0.219 0.438 0.002 0.002 0.004

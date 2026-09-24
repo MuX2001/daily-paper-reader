@@ -1,0 +1,318 @@
+Title: Stochastic Neural Signed Swept Volume for Real-time Chance-Constrained Trajectory Optimization
+
+URL Source: https://arxiv.org/pdf/2609.21211v1
+
+Published Time: Mon, 21 Sep 2026 00:28:05 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# Stochastic Neural Signed Swept Volume for Real-time Chance-Constrained Trajectory Optimization 
+
+Qingyi Chen, Kevin Zhang, Lucas Chen, and Zachary Kingston 
+
+Abstract — Collision-free motion planning requires reliable collision models from sensed environments and validation of states along a continuous trajectory. To make this tractable, most planners check for collision at discrete states along continuous trajectories against a single determinized model of the environment, introducing a trade-off between safety and computational efficiency. While continuous collision checking approaches that approximate the swept volume of the robot exist, they are computationally expensive or overly conservative. Data-driven approaches can learn the swept volume; however, these neural models are susceptible to approximation errors and are therefore often limited to serving as coarse filters for downstream collision checkers. In this work, we propose to learn a signed distance function of the swept volume as a prob-abilistic field, enabling quantification of epistemic uncertainty, incorporation of perception noise, and eventual integration into a chance-constrained trajectory optimization framework. We demonstrate our approach on challenging high-dimensional manipulation problems with significant sensor noise, both in simulation and on real hardware. 
+
+I. I NTRODUCTION AND RELATED WORK 
+
+Collision avoidance is a fundamental requirement for robot motion planning, especially in safety-critical and human-centric environments. To achieve this, a robot must efficiently compute continuous collision-free motions while accounting for uncertainty arising from imperfect sensing and dynamic obstacles. Conventional planning methods, such as sampling-[1–3] and trajectory optimization-based methods [4, 5] typi-cally check collision over discretized trajectories for compu-tational tractability. While increasing discretization density improves safety, it is computationally expensive, particularly in high-dimensional configuration spaces where collision queries dominate planning time [6]. Furthermore, these methods do not explicitly account for uncertainty in sensed geometry or future obstacle motion, further complicating reliable collision avoidance in real-world settings. Swept volume representations address the first challenge by describing the entire region occupied by a robot throughout a motion. However, exact swept volumes are expensive to com-pute and difficult to scale to articulated manipulators [7, 8]. Classical planning approaches therefore rely on conservative or local approximations. TrajOpt [9] uses convex hull-based over-approximations over short trajectory segments, while reachability-based methods [10, 11] bound swept occupancy through set propagation, and other approaches employ related geometric constructions [12]. These methods improve upon       
+
+> QC, KZ, LC, and ZK are with the Department of Computer Science, Purdue University, West Lafayette, IN, USA. {chen5221, zhan4196, chen4007, zkingston }@purdue.edu .
+> (a) Franka Panda (b) Fetch (c) UR5 Fig. 1: Our method uses a learned swept volume model to formulate continuous collision-avoidance constraints for uncertainty-aware motion planning. The figure shows reconstructed neural swept volumes for the three robots. Within each group, the columns show the predicted swept volume (blue), the ground-truth swept volume (white), and an overlay visualization.
+
+point-wise collision checking but remain computationally expensive and limited to short trajectories. Recent learning-based approaches propose neural approxi-mations of swept volumes in light of their efficiency and scal-ability [13–15], typically representing a signed distance func-tion learned from geometric mesh unions [14] or reachability computation [16]. However, deterministic neural approxima-tions remain susceptible to modeling error and cannot account for perception uncertainty. As a result, they cannot be directly trusted within planning pipelines without additional safety mechanisms. Prior work often relies on conservative post-hoc calibration [17] or uses learned models only as coarse filters preceding exact geometric collision checking [14], but these strategies reduce the computational advantages of the learned representation and do not provide a unified mechanism for incorporating both model and perception uncertainty. Uncertainty-aware motion planning has separately been studied for uncertain dynamics, perception, and environment estimation [18–22]. Chance-constrained and stochastic plan-ning methods formulate collision avoidance probabilistically rather than against a single deterministic environment esti-mate. For example, Quintero-Pe˜ na et al. [19] use variational arXiv:2609.21211v1 [cs.RO] 18 Sep 2026 inference to learn robot signed distance models from noisy distance measurements and correct candidate plans subject to chance-constraints, while Liu et al. [20] integrate obstacle probability density over geometric regions to compute colli-sion probability. However, these methods typically represent uncertainty in sensing, obstacle state, or system evolution while relying on deterministic robot swept geometry. Other uncertainty-aware approaches likewise evaluate validity at discrete configurations or trajectory samples [21, 22]. What remains missing is a swept representation that is simultane-ously efficient and continuous over robot motion, while also expressing uncertainty in the learned geometry and allowing it to be combined with uncertainty in perception. In this work, we propose a probabilistic formulation of swept volume signed distance modeling for uncertainty-aware motion planning. Our method leverages spherical representations of robot geometry and exploits their geometric properties to efficiently compute both interior and exterior swept distances and to provide gradient supervision that facilitates learning. We model the swept volume distance function as a probabilistic field that jointly represents geomet-ric occupancy and predictive uncertainty, naturally enabling incorporation of perception and model uncertainty. Building on this representation, we formulate collision avoidance as a chance constraint within a trajectory optimization problem to provide probabilistic safety over continuous trajectories. We demonstrate that the proposed formulation generalizes across multiple robot manipulators, produces tighter and more adaptive safety estimates than post-hoc conformal calibration approaches, naturally incorporates multiple uncer-tainty sources, and enables efficient trajectory optimization in dynamic environments. II. M ETHOD 
+
+We study the problem of collision-free motion planning for a robotic manipulator operating under perception uncertainty and approach this problem using stochastic neural swept-volume models. We (i) formulate swept volume representa-tion as a probabilistic signed distance field learning problem, (ii) develop a chance-constrained trajectory optimization problem for motion planning under uncertain obstacle obser-vations, and (iii) extend the framework to a receding-horizon planning scheme that incorporates velocity-level control for dynamic obstacle avoidance in time-varying environments. 
+
+A. Preliminaries: Problem Formulation 
+
+The workspace contains nobs obstacles represented as a point cloud. Each obstacle is defined by its position and ra-dius, such that the obstacle set is given by O = {(oi, r i)}nobs 
+
+> i=1
+
+,where oi ∈ R3 and ri > 0 denote the center and radius of the i-th obstacle, respectively. At perception time, the robot does not have access to the true obstacle centers and instead observes noisy measurements ˆO = {ˆoi}nobs 
+
+> i=1
+
+.Let the configuration space of an nd manipulator be 
+
+Q ⊂ Rnd , and let V(q) ⊂ R3 denote the volume occupied by the robot in the workspace at configuration q ∈ Q . A configuration is collision-free if the robot’s occupied volume does not intersect any obstacle in the environment, i.e., 
+
+Qfree = {q ∈ Q | V (q) ∩ O = ∅} . Given start and goal configurations qstart , q goal ∈ Q free , our objective is to compute a continuous trajectory τ : [0 , 1] → Qfree that remains collision-free with respect to the unknown true environment, despite the perception noise. 
+
+B. Preliminaries: Signed Distance Fields and Swept Volume 
+
+We begin by introducing the signed distance field (SDF) of a set. Let Ω ⊂ R3 be a closed set with non-empty interior and boundary ∂Ω. The signed distance function of a point 
+
+x ∈ R3 to the set is a mapping sΩ : R3 → R defined by 
+
+sΩ(x) = 
+
+
+
++d( x, ∂ Ω) , x / ∈ Ω,
+
+0, x ∈ ∂Ω,
+
+− d( x, ∂ Ω) , x ∈ Ω,
+
+(1) where d( x, ∂ A) = inf y∈∂Ω ∥x − y∥2 denotes the Euclidean distance from x to the boundary of Ω. By construction, sΩ
+
+encodes both the occupancy of Ω and the proximity to the boundary, which can be recovered from the zero level set 
+
+{x | sΩ(x) = 0 }. This makes SDF naturally suitable for collision avoidance: a point x is collision-free with respect to Ω if and only if sΩ(x) > 0. Whenever it is differentiable, the signed distance function satisfies the eikonal equation 
+
+∥∇ sΩ(x)∥2 = 1 , (2) with its gradients ∇sΩ(x) pointing from x along the direction of steepest increase of the signed distance. We now apply this construction to the geometry traced out by a moving robot. Given a robot’s continuous trajectory in the configuration space τ : [0 , 1] → Q , its swept volume is 
+
+SV (τ ) = [
+
+> t∈[0 ,1]
+
+V(τ (t)) ⊂ R3. (3) Specializing the signed distance construction above to 
+
+Ω = SV (τ ) yields the swept volume signed distance function 
+
+sSV (τ ). A trajectory τ is collision-free with respect to an obstacle point x ∈ R3 if and only if sSV (τ )(x) > 0, reducing continuous-time collision checking along τ to a point-wise inequality on a single scalar field. In practice, the trajectory τ is parameterized by a finite vector of decision variables such as waypoints, spline coef-ficients, or polynomial parameters. In this work we adopt a waypoint formulation with linear interpolation between consecutive configurations, and write 
+
+SV (q0, q 1) := SV (τq0,q 1 ), (4) 
+
+τq0,q 1 (t) = (1 − t)q0 + tq 1, t ∈ [0 , 1] (5) so that SV (q0, q 1) denotes the swept volume of the robot traversing in a straight line from q0 to q1 in configuration space. This formulation is chosen to be compatible with sampling-based planners, which evaluate collisions along interpolated segments between graph vertices [2, 3], and with trajectory optimizers that represent paths as sequences of such segments. Trajectories with other parameterizations, such as B-splines, can be handled similarly [14]. C. Ground-Truth Generation via Spherical Representations 
+
+Training a neural swept volume SDF requires a large dataset of (τ, x, sSV (τ )(x)) triples. However, collecting the data for an articulated manipulator with general mesh is time consuming [14, 23] and requires numerically sensitive operations, making it difficult to scale to the millions of samples needed to train a network that generalizes across trajectories, query locations, and robot morphologies. We mitigate this bottleneck by approximating the robot as a union of N spheres. This leverages their efficiency for collision checking [2, 4] and replaces the true robot occupancy with a conservative spherized approximation. The signed distance from an exterior query point x to the swept region then admits a closed-form expression 
+
+s ˆSV (τ )(x) = min  
+
+> t∈[0 ,1]
+> i=1 ,··· ,N
+
+sBt,i (x) (6) for x̸ ∈ ˆSV (q0, q 1). Bt,i = B(ci(τ (t)) , r i) is a single sphere with time parameterized center and radius. This representa-tion also provides direct targets for the spatial gradient of the swept-volume SDF from the Eikonal identity: 
+
+∇s ˆSV (τ )(x) = x − c∗
+
+∥x − c∗∥2
+
+(7) 
+
+c∗ = ci∗ (τ (t∗)) (8) 
+
+t∗, i ∗ = arg min  
+
+> t∈[0 ,1]
+> i=1 ,··· ,N
+
+sBt,i (x). (9) The interior case is more subtle, as when x lies inside the union, naively taking the maximum of negative per-sphere signed distances gives the distance to the nearest individual sphere boundary rather than to the union’s boundary, as shown in Fig. 2 (b). Our key observation is that to train a network, interior points need not be directly sampled. Since the closed-form gradient (7) at any exterior x points along the line from the nearest swept-sphere center c∗ to x, we can trace this ray inward and generate interior samples from ground-truth signed distance known by construction. Specifically, given an exterior sample (x, d ) with d = s ˆSV (τ )(x) > 0, we sample an interior offset β ∈ (0 , r i∗ ) and step along the negative distance gradient by d + β:
+
+x′ = x − (d + β)∇xs ˆSV (τ )(x). (10) The resulting point lies inside the corresponding swept sphere at depth β, with signed distance −β. Varying β generates dense interior samples from exterior points without directly evaluating an interior union distance. Figure 2(c) illustrates such construction. Using this formulation, our implementation using jax [24] generates millions of training points in seconds. 
+
+D. Learning swept volume SDF from a Probabilistic View 
+
+The constructions in Sections II-B and II-C treat the swept volume signed distance function as a deterministic geometric object given a trajectory. In deployment, however, obtaining the exact form is intractable. The SDF s ˆSV (τ ) is approximated with a neural network at planning time; obstacle locations against which the swept volume is checked come from noisy perception. A common approach is to inflate the collision constraint using a fixed global safety margin. However, such a margin can be overly conservative in regions where the model is accurate, while still being insufficient in regions with large model approximation error or high perception uncertainty. To make these errors explicit, we adopt a probabilistic view and treat the swept volume signed distance at a query point as Normally-distributed random variable. We note that this assumption is a working model rather than a claim about the true distribution of modeling error. Formally, given a sample (τk, x k, s k, g k) of a trajectory, a query point, the corresponding ground-truth signed distance 
+
+sk = s ˆSV (τk )(xk) and ground-truth spatial gradient gk =
+
+∇xs ˆSV (τk )(xk), the loss terms are computed by 
+
+Lnll (θ) = 
+
+ sk − μθ (xk, τ k)2
+
+2 σ2 
+
+> θ
+
+(xk, τ k) + 12 log σ2 
+
+> θ
+
+(xk, τ k), (11) 
+
+Lgrad (θ) = ∇xμθ (xk, τ k) − gk
+
+> 22
+
+, (12) where μθ and σ2 
+
+> θ
+
+are the predicted mean and variance of the network with parameters θ. The negative log-likelihood term Lnll encourages the network to predict large σ2 where its mean predictions are unreliable, and small σ2 where they are accurate. The gradient term Lgrad supervises the spatial gradient of the predicted mean against the ground truth to satisfy the property of the SDF. The full training objective combines both terms with weighting term λgrad :
+
+L(θ) = Lnll (θ) + λgrad Lgrad (θ) (13) 
+
+E. Chance-Constrained Trajectory Optimization 
+
+We now describe how the learned swept-volume represen-tation is integrated into manipulator motion planning through chance-constrained trajectory optimization. Our goal is to compute a collision-free trajectory while accounting for mul-tiple sources of uncertainty, including perception uncertainty and modeling uncertainty in the learned swept volume field. Given start and goal configurations qstart and qgoal , we seek a sequence of intermediate waypoints q0: T such that each trajectory segment satisfies a probabilistic collision-safety requirement. Formally, we consider the following chance-constrained optimization problem: 
+
+min 
+
+> q0: T
+
+Ctask (q0: T )
+
+s.t. q0 = qstart , q T = qgoal ,qlim ≤ qt ≤ ¯qlim , (14) 
+
+Pr ( SV (qt, q t+1 ) ∩ O = ∅) ≥ 1 − δ
+
+∀t = 0 , · · · , T − 1.
+
+where Ctask denotes a user-defined trajectory objective, such as path length or smoothness, and qlim , ¯qlim represent the joint limits. The parameter δ specifies the maximum allowable probability of collision for each trajectory segment. In practice, to mitigate local minima, we solve (14) using the penalty-based particle trajectory optimization framework SPaSM [25]. Specifically, we sample a batch of initial trajectories and optimize best candidates in parallel. The (a) Exterior: ŝSV (x) = min        
+
+> t,i
+> st,i(x) computes positive distances (b) Interior: per-sphere distance ≠ distance to ∂ ̂SV
+> c*
+> x
+> (c) Line x→c*generates correct negative distances Fig. 2: Ground-truth swept-volume SDF computation via spherical representations. The blue region depicts the swept volume of a moving sphere. Solid black dots mark query points; green arrows indicate their signed distances to the swept-volume boundary. In (b), the red arrows show the incorrect distance produced by the naive formulation at an interior point, which measure distance to an individual sphere boundary rather than to the boundary of the union.
+
+resulting objective for each candidate takes the form 
+
+min  
+
+> q1: T−1
+
+wtask Ctask (q0: T )+ wcollision 
+
+> nobs
+
+X 
+
+> i=1
+> T−1
+
+X
+
+> t=0
+
+Csafe (qt, q t+1 , ˆoi, P i, θ ), (15) where ˆoi is the perceived position of obstacle i with percep-tion uncertainty Pi, represented as a covariance matrix. To quantify probabilistic safety, we define the collision penalty 
+
+Csafe (qt, q t+1 , ˆoi, P i, θ ) = max 
+
+
+
+0,
+
+− μθ (ˆ oi, τ ·,·) + α
+
+q
+
+σ2 
+
+> θ
+
+(ˆ oi, τ qt,q t+1 ) + n⊤
+
+> θ,i
+
+Pinθ,i 
+
+
+
+, (16) 
+
+nθ,i = ∇ˆoi μθ (ˆ oi, τ qt,q t+1 ), α = Φ −1(1 − δ). (17) Here Φ−1 is the inverse cumulative distribution function of the standard normal distribution, which translates user-specified chance tolerance δ to the corresponding confidence multiplier α. The term n⊤
+
+> θ,i
+
+Pinθ,i corresponds to the variance in the signed-distance estimate induced by the predicted obstacle-position uncertainty. Intuitively, the obstacle covari-ance is projected onto the local distance gradient direction, yielding the effective uncertainty along the collision bound-ary normal via a first order Taylor expansion. Assuming independence between perception and model uncertainty, this propagated variance is added to the predictive variance 
+
+σ2 
+
+> θ
+
+; the square root converts their combined variance into a standard deviation, which is then scaled by confidence multiplier α to form the probabilistic safety margin. In the isotropic case where Pi = σ2 
+
+> p
+
+I, the term simplifies to σ2 
+
+> p
+
+with 
+
+∥nθ,i ∥2 = 1 for a signed distance field. This formulation provides a unified treatment of both geometric modeling uncertainty and perception uncertainty within a differentiable optimization objective. Rather than relying on a conservative global safety margin, the planner adaptively scales the safety buffer according to the local uncertainty predicted by the learned swept-volume model. 
+
+F. Receding-Horizon Trajectory Planning 
+
+The chance-constrained formulation in Section II-E pro-duces a single open-loop trajectory in static environments. In dynamic environments, robot must react to obstacle motions and evolving perception as well as prediction uncertainties. To handle this setting, we adopt a receding-horizon formula-tion in which the planner repeatedly solves a short-horizon chance-constrained optimization problem, executes the first control action, incorporates updated observations, and replans. The trajectory optimization is formulated as a sequence of linked optimization problems as (14); 
+
+min 
+
+> u0: H
+
+Ctask (q0: H+1 , q T ) s.t. qt+1 = f (qt, u t) (18) where ut ∈ Rnd denotes the joint-velocity command at time step t, f (qt, u t) is the time-discretized configuration-space dynamics model, and H is the planning horizon. The cost function defines the desired behavior to complete the task, such as progression toward the goal configuration. III. E XPERIMENTAL RESULTS 
+
+This section presents four sets of analyses to evaluate the proposed framework. We first compare probabilistic and de-terministic swept volume SDF models in terms of prediction accuracy and uncertainty quantification. We then evaluate their ability to correct potentially colliding RRT trajectories into safe continuous trajectories using MotionBenchMaker (MBM) [26], under varying levels of perception noise. Next, we assess the effectiveness of the proposed motion planning formulation in a cluttered environment containing 150 spher-ical obstacles with noisy observations. Finally, we evaluate the system in dynamic environments using a receding-horizon control scheme with online re-planning. Experiments are performed on a machine with AMD Ryzen Threadripper PRO 5965WX 24-Cores CPUs and an NVIDIA RTX 4090 GPU. 
+
+A. Swept Volume Learning and Uncertainty Quantification 
+
+We first evaluate the learning performance of the proposed probabilistic swept volume SDF. We study (i) whether the learned mean field μθ accurately approximates swept-volume SDF across different robot morphologies, and (ii) whether the learned variance field σ2 
+
+> θ
+
+provides a calibrated, query-dependent estimate of predictive uncertainty. We conduct experiments on three manipulators with dis-tinct kinematic structures: a 7-DOF Franka Panda, a 6-DOF Universal Robots UR5, and an 8-DOF Fetch arm. For each robot, we generate a dataset of 1 million linear joint-space trajectories sampled uniformly within the joint limits along with 512 query points sampled uniformly from the robot’s reachable workspace. Ground-truth signed distances are computed using the method described in Section II-C. For every experiments, we train the same 12-layer, 1024 wide MLP with default torch AdamW optimizer. We compare the proposed probabilistic model trained using a negative log-likelihood (NLL) loss, against a deterministic baseline trained using mean squared error (MSE) loss on the same architecture and dataset. Both models include gradient loss, such that the regression term is their only difference. To evaluate uncertainty quantification, we further perform a coverage analysis. For the MSE baseline, we apply a post-hoc conformal-style calibration procedure in which test-set prediction errors are modeled as samples from a Gaussian distribution, and the empirical standard deviation is used as a fixed, query-independent uncertainty estimate. Table I summarizes the evaluation results. Across all robot platforms, models trained with the NLL loss consistently achieve lower prediction error than those trained with the MSE loss, with the largest improvement observed for the Panda robot, whose geometry is more complex. In addition, the NLL-trained models generally predict smaller standard deviations while achieving higher empirical coverage across the 1-, 2-, and 3-standard-deviation intervals. indicating that the learned variance provides a more reliable estimate of modeling uncertainty. In contrast, achieving a comparable level of safety with an MSE-trained model would require a larger global safety buffer, leading to a more conservative over-approximation. Figure 1 visualizes examples of the reconstructed swept volumes for all three robots. 
+
+B. Continuous Trajectory Refinement 
+
+We now evaluate the ability of our neural swept volume model to refine discrete and potentially in-collision trajecto-ries. Sampling-based planners typically represent a solution trajectory as a sequence of discrete waypoints connected by interpolated motions and collision-checked only at a finite set of configurations. Consequently, a trajectory considered collision-free under discrete collision checking may still collide with obstacles along its continuous execution. We therefore apply our neural swept volume model to refine trajectories generated by sampling-based planners and evaluate its ability to recover collision-free continuous motions. Specifically, we generate waypoint-based trajec-tories using RRT-Connect [2, 3] on MotionBenchMaker (MBM) [26] and use the resulting trajectories to initial-ize the optimization problem (14), with the intermediate waypoints treated as optimization variables. We evaluate                                          
+
+> Robot Loss Mean Error ↓
+> Mean Std Coverage
+> α= 1 α= 2 α= 3
+> Panda NLL 3.4 4.4 78.4 96.5 99.4 MSE 4.7 5.8 73.4 91.2 96.5 UR5 NLL 3.7 4.9 81.4 97.6 99.5 MSE 4.4 5.3 72.2 90.8 96.4 Fetch NLL 4.2 5.5 85.9 97.9 99.5 MSE 4.9 7.6 79.8 91.3 96.2 Table I: Learning and uncertainty quantification performance of the proba-bilistic (NLL) and deterministic (MSE) swept-volume SDF models across three robots. Mean error and std are in unit [mm].
+> Fig. 3: Example planned trajectory in the Cage (red) environment and the corresponding learned swept volume reconstruction (transparent blue). The robot motion is shown sequentially from left to right and top to bottom.
+
+both the deterministic model trained with MSE loss and the probabilistic model trained with NLL loss, using only the predicted mean ( α = 0) for the latter, focusing on the ability of the learned swept volume representations to recover collision-free continuous trajectories from discretely validated planner outputs. We conduct 100 trials for each task and perception-noise level. Uncertainty in environment perception is modeled by perturbing each observed obstacle position with isotropic Gaussian noise such that ˆoi = oi + ϵi, ϵi ∼ N (0 , σ 2 
+
+> p
+
+I),
+
+with σp ∈ {0.0, 0.01 , 0.02 }, while evaluating collisions and task success against the complete ground-truth obstacle geometry. For both swept volume models, we optimize the intermediate trajectory waypoints for 50 iterations using the cost function defined in Equation 15 given the ground truth noise covariance, with wtask = 0 and wsafe = 1 . We report success rate, collision rate, planning time, and path length, with path length averaged only over successful trials. Table II summarizes the results, with the original RRT-Connect trajectories included for reference. Although RRT-Connect finds trajectories that are collision-free under discrete checks, many fail continuous collision validation against the full environment geometry. Refinement using either learned swept volume model substantially improves success across most tasks and noise levels. In particular, the NLL model achieves a higher success rate and lower collision rate than the MSE model. An example of the planned trajectory in the Cage environment is shown in Figure 3. 
+
+C. Uncertainty-Aware Path Planning 
+
+While MBM provides diverse and challenging planning problems, many are designed to contain narrow passages, making it difficult to isolate the effect of uncertainty aware-ness from the effect of geometric clearance. We thus consider a Franka Panda arm tasked with moving from a start pose to a goal pose while avoiding collisions to 150 randomly placed spherical obstacles, and use the same perception-noise model and ground-truth evaluation criterion as in Section III-B. σp = 0 m σp = 0 .01 m σp = 0 .02 mTask Method SR ↑ CR ↓ Time ↓ Len ↓ SR ↑ CR ↓ Time ↓ Len ↓ SR ↑ CR ↓ Time ↓ Len ↓
+
+Bookshelf (small) RRT-Connect 25 75 – 4.2 ±0.7 27 71 – 4.6 ±0.9 33 56 – 4.6 ±0.8 SV (MSE) 32 68 1.0 ±0.7 4.7 ±1.3 37 61 1.0 ±0.6 4.9 ±1.1 38 51 1.0 ±0.6 5.0 ±1.4 SV (NLL) 35 65 1.0 ±0.7 5.3 ±1.5 39 59 1.0 ±0.6 5.6 ±1.4 46 43 1.0 ±0.6 6.4 ±1.8 Bookshelf (tall) RRT-Connect 33 67 – 4.5 ±0.6 37 63 – 4.6 ±0.6 40 58 – 4.7 ±0.7 SV (MSE) 43 57 1.5 ±0.9 4.6 ±0.7 43 57 1.5 ±0.9 4.8 ±0.9 41 57 1.6 ±0.9 5.1 ±1.1 SV (NLL) 48 52 1.5 ±0.9 5.3 ±1.2 51 49 1.5 ±0.9 5.7 ±1.4 56 42 1.6 ±0.9 6.3 ±1.7 Bookshelf (thin) RRT-Connect 20 80 – 4.4 ±0.6 22 78 – 4.6 ±0.6 38 59 – 4.4 ±0.6 SV (MSE) 67 33 3.1 ±1.4 5.1 ±1.1 74 26 3.3 ±1.4 5.4 ±1.1 74 23 3.5 ±1.5 6.2 ±1.7 SV (NLL) 81 19 3.1 ±1.4 6.6 ±1.6 81 19 3.3 ±1.5 7.0 ±1.7 87 10 3.5 ±1.5 7.4 ±1.6 Cage RRT-Connect 7 93 – 6.0 ±0.6 13 85 – 6.3 ±1.2 14 57 – 6.6 ±1.8 SV (MSE) 45 55 2.3 ±1.1 7.9 ±2.7 39 59 2.7 ±1.2 9.6 ±2.7 30 41 3.5 ±1.6 11.8 ±3.8 SV (NLL) 58 42 2.4 ±1.1 9.8 ±2.9 54 44 2.7 ±1.2 11.6 ±2.8 52 19 3.5 ±1.6 15.4 ±4.9 Table Pick RRT-Connect 47 53 – 4.6 ±0.6 61 37 – 4.6 ±0.6 62 25 – 4.7 ±0.6 SV (MSE) 87 13 1.0 ±0.4 4.9 ±0.9 76 22 1.1 ±0.5 5.0 ±0.9 76 11 1.3 ±0.6 5.8 ±1.7 SV (NLL) 95 5 1.0 ±0.4 5.3 ±1.1 92 6 1.1 ±0.5 5.7 ±1.3 81 6 1.3 ±0.6 6.7 ±1.9 Table Under Pick RRT-Connect 23 77 – 7.1 ±1.8 36 63 – 6.6 ±1.8 47 41 – 6.6 ±1.5 SV (MSE) 80 20 2.3 ±0.8 6.9 ±2.1 87 12 2.3 ±0.9 7.2 ±2.0 76 12 2.6 ±0.9 8.5 ±2.4 SV (NLL) 92 8 2.3 ±0.8 8.2 ±2.2 94 5 2.4 ±0.9 8.7 ±2.1 85 3 2.6 ±0.9 10.8 ±2.5    
+
+> Table II: RRT-Connect trajectory refinement results on MBM under different perception-noise levels σp. SR: success rate [%], CR: collision rate [%], Time: planning time [s], Len: path length. Best and second best per column within each task. Planning time and path length are unranked: both swept-volume variants share the same optimization budget, and shorter paths here reflect less conservative avoidance rather than better performance.
+
+We compare a straight-line trajectory, CuRobo [4], RRT-Connect [3], and an uncertainty-aware optimization method CCIKOPT [19]. CCIKOPT learns a distribution over signed distances between the robot and sensed environment points from repeated noisy distance samples during training, and incorporates the prediction into a chance-constrained inverse-kinematics optimization. We additionally evaluate both our deterministic MSE method, and the uncertainty-aware neural NLL model at different uncertainty margins α ∈ { 0, 1, 2}.For both swept volume models, we optimize the intermediate trajectory waypoints for 50 iterations using the cost function defined in Equation 15 with Ctask (q0: T ) = PTt=1 ∥qt −
+
+qt−1∥2, wtask = 0 .01 and wsafe = 1 .Table III summarizes the results. Explicitly accounting for uncertainty substantially improves robustness to noisy per-ception. As the observation noise increases, RRT-Connect’s collision rate increases considerably. CuRobo maintains rel-atively low collision rates and short planning times, although its success rates are lower in this setting, likely because it also optimizes additional trajectory-quality objectives (e.g., smoothness) beyond collision avoidance. CCIKOPT, as an uncertainty-aware method, also maintains low collision rates across perception-noise levels, but at the cost of lower success rates and longer planning times. At σp = 0 , its collision rate remains unchanged across risk levels because its stochastic distance model relies on repeated noisy observations to cap-ture uncertainty, which disappear in the absence of perception noise. The deterministic MSE model performs well under low noise, but its collision rate increases as perception noise increases. In contrast, incorporating the uncertainty prediction of the NLL model allows the planner to trade path efficiency       
+
+> Fig. 4: An illustrative comparison of the paths planned from start (orange) to goal (green). Only the obstacles (red) near the planned trajectory are visualized for clarity of presentation. Left: MSE-trained model. The red arrow marks a collision. The learned swept volume for the colliding segment (transparent blue) under-approximates the true occupied region, causing a collision. Right : NLL-trained model with a 1σuncertainty buffer. Accounting for predictive uncertainty yields a more conservative swept-volume estimate and a collision-free trajectory in critical regions.
+
+for safety. In particular, the NLL model with α = 1 achieves the highest success rate while maintaining lowest collision rates. Increasing the uncertainty level further eliminates colli-sions entirely across all three noise levels, at the cost of lower success rates and longer paths. These results demonstrate that the probabilistic swept volume formulation provides a mechanism for trading path efficiency and feasibility for increased robustness to perception and model uncertainty. Figure 4 demonstrates this advantage. 
+
+D. Planning around Dynamic Obstacles 
+
+We now consider a scenario where a robot manipulator operates in an environment with dynamic obstacles. To σp = 0 m σp = 0 .01 m σp = 0 .02 mMethod SR ↑ CR ↓ Time ↓ Len ↓ SR ↑ CR ↓ Time ↓ Len ↓ SR ↑ CR ↓ Time ↓ Len ↓
+
+Straight-line 17 83 – 4.8 ±1.1 17 83 – 4.8 ±1.1 17 83 – 4.8 ±1.1 
+
+CuRobo 32 32 0.9 ±0.7 5.2 ±1.5 32 27 0.9 ±0.8 5.8 ±1.9 24 31 1.0 ±0.9 5.1 ±1.3 RRT-Connect 60 40 0.5 ±0.6 7.8 ±3.8 54 46 3.0 ±1.9 5.1 ±2.0 32 68 1.8 ±1.8 5.4 ±2.0 CCIKOPT ( α=0) 16 7 11.7 ±3.3 4.0 ±0.8 11 0 13.8 ±4.5 4.5 ±1.0 6 0 13.9 ±4.2 4.9 ±0.8 CCIKOPT ( α=1) 16 7 11.5 ±3.3 4.0 ±0.8 10 1 17.3 ±5.6 4.5 ±1.0 7 0 13.8 ±4.1 5.7 ±2.2 CCIKOPT ( α=2) 13 7 12.0 ±3.4 4.2 ±0.7 9 0 14.6 ±4.9 4.3 ±1.0 3 0 13.7 ±4.2 5.5 ±0.8 SV (MSE) 91 7 1.5 ±0.3 5.9 ±1.2 84 12 1.5 ±0.1 5.9 ±1.3 70 27 1.5 ±0.1 5.8 ±1.3 SV (NLL, α=0) 89 8 1.5 ±0.4 6.2 ±1.4 83 14 1.5 ±0.1 6.1 ±1.3 78 20 1.5 ±0.1 6.1 ±1.4 SV (NLL, α=1) 91 3 1.5 ±0.1 6.8 ±1.6 89 5 1.5 ±0.1 6.8 ±1.6 81 9 1.5 ±0.1 6.7 ±1.6 SV (NLL, α=2) 83 0 1.5 ±0.1 7.0 ±1.5 86 0 1.5 ±0.1 7.1 ±1.7 69 0 1.5 ±0.1 7.2 ±1.9    
+
+> Table III: Static obstacle planning results under different perception-noise levels σp. Swept Volume (SV) indicates our approach. SR: success rate [%], CR: collision rate [%], Time: planning time [s], Len: path length. Best and second best per column.
+
+introduce uncertainty and unpredictable obstacle dynamics into the environment, we design obstacles to follow sinu-soidal trajectories nearby the robot. At planning time, the robot observes only noisy estimates of the current obstacle positions and uses their motion history to infer future states. Specifically, it employs a Kalman Filter (KF) [27] to estimate future obstacle positions and their associated uncertainty, rep-resented as covariance matrices. We then apply the receding-horizon formulation defined in (18) and solve the resulting optimization problem using IPOPT [28]. We use the cost function Ctask (q0: H+1 , q T ) = ∥qH+1 − qT ∥22 and formulate obstacle avoidance as a hard constraint. We evaluate the proposed method over 100 simulated scenarios with varying obstacle initial conditions and motion parameters, including amplitude, frequency, and phase. We compare the proposed uncertainty-aware formulation against (i) an ablated version without uncertainty modeling and (ii) reactive baselines that act only based on the current observations, including Deep Reactive Policy (DRP) [29] and CuRobo [4]. These reactive baselines observe only the current noisy obstacle positions and rely on fast replanning to avoid collisions. We limit the planning time of our method to 66 ms, corresponding to a replanning rate of 15 Hz. For the reactive baselines, we additionally evaluate higher replanning frequencies to examine whether faster replanning can compensate for the lack of future-state prediction. Table IV summarizes the experiment results. Incorporating uncertainty into predictive planning substantially improves robustness to noisy observations and dynamic obstacle mo-tion. Although the uncertainty-aware formulation produces longer trajectories and planning time, it achieves signifi-cantly safer behavior in the presence of noisy predictions and dynamic obstacle motion. Increasing the replanning frequency also improves the reactive DRP baseline, but its collision rate remains high even at the highest replanning frequency. CuRobo exhibits lower collision rates at higher replanning frequencies, although it does not successfully complete the task in these highly dynamic scenarios. These results highlight the benefits of predictive control that reasons about future obstacle motion and uncertainty. A visualization from the dynamic obstacle avoidance scenario is shown in Figure 5. The robot continuously replans under noisy obstacle observations while reasoning about predicted future obstacle motion and uncertainty, successfully reaching the goal while avoiding moving obstacles. To validate the proposed approach under realistic perceptual un-certainty, we further conduct real-world experiments using a Franka FR3 manipulator. The full planner generated velocity commands at approximately 13 Hz with each step taking 78 ±
+
+19 ms, which were subsequently executed asynchronously by a configuration level PD controller. Figure 6 shows selected obstacle-dodging behavior. Corresponding videos for both simulated and real-world experiments are provided in the supplementary materials. IV. C ONCLUSION 
+
+We present an efficient and uncertainty-aware planning method leveraging probabilistic characterization of a learned swept volume signed distance function. We describe an efficient method to training data using a union of spheres, and propose a framework for estimating and training prediction variance of signed distance functions. Evaluation of the neural swept volume in several cluttered environments shows im-provements in planning success while keeping collision rate low. Implementation of the approach on hardware demon-strates its applicability to real-world planning scenarios. Despite the empirical performance, several limitations remain and point to future directions. First, the chance-                                                       
+
+> Method Hz SR ↑CR ↓Time [ms] ↓Len ↓
+> DRP [29] 15 55 44 9±43.3 ±0.3 40 64 36 9±43.7 ±0.3 100 71 29 9±34.3 ±0.5 CuRobo [4] 15 024 57 ±130 –40 016 56 ±91 –SV (MSE) 15 70 30 28 ±14 2.9 ±0.4
+> SV (NLL, α=0) 15 72 28 30 ±16 3.0 ±0.6 SV (NLL, α=1) 15 83 17 40 ±21 3.4 ±0.6 SV (NLL, α=2) 15 91 946 ±21 4.4 ±1.2 Table IV: Dynamic obstacle planning results. Hz: replanning rate, SR: success rate [%], CR: collision rate [%], Time: planning time [ms], Len: path length. Best and second best per column.
+
+Fig. 5: Snapshots of our method successfully planning the robot (solid white) toward the goal (transparent green) among dynamic obstacles (red). Historical robot and obstacle trajectories are visualized with transparency, with more recent states rendered more opaque. 
+
+Fig. 6: Real-world dynamic obstacle avoidance on a Franka robot. Snapshots from left to right show the process of the robot avoiding moving foam pool noodles to reach its goal (transparent). 
+
+constrained formulation relies on Gaussian assumptions for uncertainty propagation in both the learned model and obsta-cle perception. In particular, the use of first-order uncertainty propagation introduces an approximation that becomes less accurate in non-linear regimes. Second, the optimization-based planner does not provide global optimality guarantees. Moreover, because the collision avoidance constraint in (14) is incorporated through a soft penalty, constraint satisfaction is not guaranteed and careful weight tuning is required to balance task performance and safety. Finally, the initial sampling phase in the particle optimization may limit real-time performance with a large number of obstacles. Although it is amenable to acceleration, further work is needed to improve efficiency for resource-constrained robotic systems. REFERENCES [1] S. M. LaValle and J. J. Kuffner, “Rapidly-exploring random trees: Progress and prospects,” in Workshop Algorithmic Found. Robot. AK Peters/CRC Press, 2001, pp. 303–307. [2] W. Thomason, Z. Kingston, and L. E. Kavraki, “Motions in mi-croseconds via vectorized sampling-based planning,” in IEEE Int. Conf. Robot. Autom. , 2024, pp. 8749–8756. [3] J. J. Kuffner and S. M. LaValle, “RRT-connect: An efficient approach to single-query path planning,” in IEEE Int. Conf. Robot. Autom. ,vol. 2, 2000, pp. 995–1001. [4] B. Sundaralingam et al., “cuRobo: Parallelized collision-free robot motion generation,” in IEEE Int. Conf. Robot. Autom. , 2023, pp. 8112–8119. [5] N. Ratliff, M. Zucker, J. A. Bagnell, and S. Srinivasa, “CHOMP: Gradient optimization techniques for efficient motion planning,” in 
+
+IEEE Int. Conf. Robot. Autom. , 2009, pp. 489–494. [6] J. Bialkowski, S. Karaman, and E. Frazzoli, “Massively parallelizing the RRT and the RRT ∗,” in IEEE/RSJ Int. Conf. Intell. Robots Syst. ,2011, pp. 3513–3518. [7] M. Peternell, H. Pottmann, T. Steiner, and H. Zhao, “Swept volumes,” 
+
+Comput.-Aided Des. Appl. , vol. 2, no. 5, pp. 599–608, 2005. [8] E. Larsen, S. Gottschalk, M. C. Lin, and D. Manocha, “Fast distance queries with rectangular swept sphere volumes,” in IEEE Int. Conf. Robot. Autom. , vol. 4, 2000, pp. 3719–3726. [9] J. Schulman et al., “Motion planning with sequential convex opti-mization and convex collision checking,” Int. J. Robot. Res. , vol. 33, no. 9, pp. 1251–1270, 2014. [10] P. Holmes et al., “Reachable sets for safe, real-time manipulator trajectory design,” in Robot.: Sci. Syst. , 2020. [11] J. Michaux et al., “Safe planning for articulated robots using reachability-based obstacle avoidance with spheres,” in Robot.: Sci. Syst. , 2024. [12] S. Ashur et al., “SPITE: Simple polyhedral intersection techniques for motion planning in modified environments,” in Workshop Algorithmic Found. Robot. Springer, 2026, pp. 151–168. [13] H.-T. L. Chiang et al., “Fast deep swept volume estimator,” Int. J. Robot. Res. , vol. 40, no. 10-11, pp. 1068–1086, 2021. [14] D. Joho, J. Schwinn, and K. Safronov, “Neural implicit swept volume models for fast collision detection,” in IEEE Int. Conf. Robot. Autom. ,2024, pp. 15 402–15 408. [15] H. Jung, D. Son, and B. Kim, “NeuralSVCD for efficient swept volume collision detection,” in Conf. Robot Learn. , ser. Proc. Mach. Learn. Res. Vol. 305, 2025, pp. 5218–5233. [16] J. Michaux, Q. Chen, Y. Kwon, and R. Vasudevan, “Reachability-based trajectory design with neural implicit safety constraints,” in 
+
+Robot.: Sci. Syst. , 2023. [17] Y. Kwon et al., “Conformalized reachable sets for obstacle avoidance with spheres,” in IEEE Int. Conf. Robot. Autom. , 2025, pp. 12 877– 12 884. [18] L. Bruderm¨ uller et al., “CC-VPSTO: Chance-constrained via-point-based stochastic trajectory optimisation for online robot mo-tion planning under uncertainty,” Int. J. Robot. Res. , 2026, Art. no. 02783649261464639. [19] C. Quintero-Pe˜ na et al., “Stochastic implicit neural signed distance functions for safe motion planning under sensing uncertainty,” in 
+
+IEEE Int. Conf. Robot. Autom. , 2024, pp. 2360–2367. [20] J. Liu et al., “RADIUS: Risk-aware, real-time, reachability-based motion planning,” in Robot.: Sci. Syst. , 2023. [21] B. Luders, M. Kothari, and J. How, “Chance constrained RRT for probabilistic robustness to environmental uncertainty,” in AIAA Guid. Navig. Control Conf. , 2010. [22] F. Meng et al., “NR-RRT: Neural risk-aware near-optimal path planning in uncertain nonconvex environments,” IEEE Trans. Autom. Sci. Eng. , vol. 21, no. 1, pp. 135–146, 2024. [23] S. Sell´ an, N. Aigerman, and A. Jacobson, “Swept volumes via spacetime numerical continuation,” ACM Trans. Graph. , vol. 40, no. 4, pp. 1–11, 2021. [24] J. Bradbury et al., JAX: Composable transformations of Python+NumPy programs , version 0.3.13, 2018. [25] L. Chen, S. R. Iyer, and Z. Kingston, “Differentiable parti-cle optimization for fast sequential manipulation,” arXiv preprint arXiv:2510.07674 , 2025. [26] C. Chamzas et al., “MotionBenchMaker: A tool to generate and benchmark motion planning datasets,” IEEE Robot. Autom. Lett. ,vol. 7, no. 2, pp. 882–889, 2022. [27] M. I. Ribeiro, “Kalman and extended Kalman filters: Concept, deriva-tion and properties,” Institute for Systems and Robotics, Instituto Superior T´ ecnico, Lisbon, Portugal, Tech. Rep., 2004. [28] A. W¨ achter and L. T. Biegler, “On the implementation of an interior-point filter line-search algorithm for large-scale nonlinear programming,” Math. Program. , vol. 106, no. 1, pp. 25–57, 2006. [29] J. Yang et al., “Deep reactive policy: Learning reactive manipulator motion planning for dynamic environments,” in Conf. Robot Learn. ,ser. Proc. Mach. Learn. Res. Vol. 305, 2025, pp. 5056–5071.

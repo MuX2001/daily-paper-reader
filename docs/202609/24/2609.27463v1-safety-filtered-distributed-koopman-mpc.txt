@@ -1,0 +1,1002 @@
+Title: Safety-Filtered Distributed Koopman-MPC
+
+URL Source: https://arxiv.org/pdf/2609.27463v1
+
+Published Time: Thu, 24 Sep 2026 00:41:30 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# Safety-Filtered Distributed Koopman-MPC 
+
+Shengjun Zhang 1,∗, Wenhao Li 2,3,∗, Zhenxin Lin 4, and Zhenglong Sun 2,3,†    
+
+> 1School of Artificial Intelligence, Hubei University, Wuhan, Hubei, 430061 China
+> 2Shenzhen Institute of Artificial Intelligence and Robotics for Society (AIRS), Shenzhen, Guangdong, China
+> 3School of Science and Engineering, The Chinese University of Hong Kong, Shenzhen (CUHK-Shenzhen), Shenzhen, Guangdong, China
+> 4Manchester Metropolitan Joint Institute, Hubei University, Wuhan, China
+> sj.zhang@hubu.edu.cn ,wenhaoli1@link.cuhk.edu.cn ,linzhenxin@stu.hubu.edu.cn ,sunzhenglong@cuhk.edu.cn
+> ∗Equal contribution. †Corresponding author.
+
+Abstract — Distributed model predictive control (DMPC) often constructs both predictions and collision constraints from neighbor trajectories, so packet loss can remove both. We separate these roles: received trajectories drive Koopman-MPC, while local sensing and shelf geometry define a hard-constrained quadratic program (QP) that projects the applied input. Its radial demand is the least constant acceleration that keeps a supporting-plane clearance nonnegative throughout one zero-order-hold interval. Complementary pair rows recover the coupled demand without exchanging safety decisions. We give an intersample separation theorem under bounded snapshot and directional plant errors, an exact max–min test for simultaneous local feasibility, and a sensing-radius condition for switching interaction graphs. Anticipatory high-order rows may be relaxed for performance, but the finite-hold rows contain no safety slack. Matched eight-robot warehouse simulations use a frozen Koopman model, nonlinear drift, bounded inputs and speed, shelf constraints, a 120 ms control period, and packet dropout. The full controller is collision-free in 20/20 matched trials and reaches 160/160 robot goals; predictive Koopman-MPC without the final projection is collision-free in 1/20 trials. All 38,400 full-method hard-row sets pass the online feasibility test, and every local QP solves. Five-stream fleet sweeps are collision-free and hard-row feasible through 16 robots; the 20-robot boundary fails only after the online margin turns negative, while the reconstructed per-agent critical path remains below the sampling period. Bounded-sensing and differential-drive tests provide additional deployment stress. 
+
+I. I NTRODUCTION 
+
+Distributed model predictive control (DMPC) often uses received neighbor trajectories for both horizon planning and pairwise collision constraints; a lost packet can therefore affect both. Reactive velocity-obstacle methods use current geometry [1], [2], whereas DMPC plans over a horizon [3], [4]. We retain horizon planning but construct the final collision constraints independently of message delivery. The baseline exposes the failure mode: an eight-robot Koopman-MPC planner reaches its goals accurately but collides in nearly every packet-loss run. Prediction supports task progress, yet a missing plan removes the associated pair constraint. We therefore use exchanged trajectories for nominal planning and a current local snapshot for constraints on the applied input. Koopman lifting yields a linear predictor and a condensed quadratic program (QP) for local MPC [5]. A second local QP projects the first input onto sensed pair and shelf constraints. Its hard row is derived for the actual sample period and a bounded plant residual. For each pair (i, j ), the robots enforce complementary shares of one relative-acceleration demand; the two rows sum to the coupled condition without centralized or iterative safety optimization. This paper makes three contributions. 1) A two-channel Koopman-DMPC architecture in which trajectory packets affect planning, but every final pair constraint comes from local sensing. 2) A hard finite-hold projection with bounded-state-error tightening, an intersample separation proof, complemen-tary authority allocation, an exact multi-row feasibility margin, and a switching-graph condition. 3) Matched simulation tests with a frozen model, analytic drift bounds, hard-QP audits, unequal actuation limits, packet-loss, sensing-error, differential-drive, layout, and fleet-size stress tests. The predictor shapes nominal motion but does not enter the hard feasible set. Accordingly, the theory covers collision avoidance, not learned-model stability or global liveness. The experiments report collision avoidance and route-level completion as separate outcomes. II. R ELATED WORK 
+
+Koopman prediction and control. Extended dynamic mode decomposition (EDMD) and dynamic mode decomposition with control (DMDc) learn finite-dimensional predictors from nonlinear data [6], [7]. Koopman predictors support linear and robust MPC [5], [8], [9], including multi-robot guidance [10] and distributed obstacle-density prediction [11]. Our frozen Koopman model supplies the nominal planner. Prediction error can change the required correction, but it cannot remove a sensed safety row. 
+
+Distributed predictive coordination. DMPC spans decom-posed receding-horizon control and iterative coordination [3], [4], [12]; learned forecasting and games also support crowd navigation [13]. Recent DMPC with control barrier functions (CBFs) uses node–edge alternating direction method of multipliers (ADMM) updates to optimize a coupled horizon in 15 reported rounds per cycle [14]. Our horizon optimizer is local and nominal; one local QP enforces current-step safety. This sacrifices coupled horizon optimality but removes edge copies, dual variables, stopping tests, and safety messages. Warehouse dispatch and multi-agent path finding (MAPF) [15], [16] provide higher-level routes. 1arXiv:2609.27463v1 [cs.RO] 23 Sep 2026 TABLE I COMPARISON OF ONLINE SAFETY MECHANISMS .         
+
+> Method Safety decision Online coupling and role ORCA [2] preferred velocity one-shot reciprocal velocity half-planes; reactive avoidance PSF [25] backup horizon model-based predictive backup and recovery CBF-DMPC [14] state–input horizon iterative node–edge consensus toward a coupled solution Ours held acceleration independent local QPs; hard finite-hold row and exact local feasibility test
+
+Reactive safety. Optimal reciprocal collision avoidance (ORCA) uses reciprocal half-planes in velocity space [2], [17]. CBFs encode forward-invariance conditions as op-timization constraints [18], including high-relative-degree constraints [19] and multi-robot barrier formulations [20]. Distributed CBF implementations [21], optimization-based safe navigation [22], and delay-aware barriers [23] address distributed enforcement, coupling, and communication delay. Symmetric and asymmetric pairwise CBF allocations exist; the latter can avoid relative-velocity information [24]. Predic-tive safety filters (PSFs) likewise separate a task policy from a safety-filtered correction [25]. Sampled-data CBF analyses explicitly account for zero-order hold and input delay [26]. Table I summarizes the differences. ORCA projects velocity; our filter projects acceleration after horizon control. PSFs use a backup horizon; ours uses a current-step radial lower bound evaluated over the full hold. Unlike a softened barrier row, the hard row is not relaxed. The auxiliary variable affects only anticipatory braking. III. P ROBLEM FORMULATION 
+
+Let tk = kT denote the sampling instants, and index the N robots by i ∈ V := {1, . . . , N }. Robot i has state 
+
+xi = [ p⊤ 
+
+> i
+
+, v ⊤ 
+
+> i
+
+]⊤ ∈ R4 and applies a constant command ui,k ∈Ui ⊂ R2 on [tk, t k+1 ). Its position evolves as 
+
+˙pi = vi, ˙vi = ui,k + di(t), t ∈ [tk, t k+1 ), (1) where di collects plant drift and acceleration mismatch. The compact convex set Ui contains the applied-command limits; a separate speed bound ∥vi(t)∥ ≤ ¯vi is used only to reason about sensing activation. We write pi,k = pi(tk) and 
+
+vi,k = vi(tk) for sampled states. Position is continuous at sampling instants. If a low-level speed limiter updates the velocity at an instant tk, the controller uses that measured post-update velocity as the initial condition of the next hold. The control objective is to move each robot toward gi ∈ R2
+
+while maintaining 
+
+∥pi − pj ∥ ≥ dcol , dist( pi, Po) ≥ rrob (2) for every pair and every convex shelf or pallet Po.Robot i receives a predicted trajectory from j only when 
+
+j lies inside communication radius Rcomm and the packet is delivered; N ci (k) denotes this random message neighborhood. Separately, the local sensor supplies snapshots ˆpi,k , ˆvi,k with known errors ∥ˆpi,k − pi,k ∥ ≤ εpi and ∥ˆvi,k − vi,k ∥ ≤ εvi . It activates N si (k) = {j̸ = i : ∥ˆpi,k − ˆpj,k ∥ ≤ Rsens }. Pair snapshots are synchronized and symmetric: both members Safety-filtered distributed control loop 
+
+> Koopman Fit
+> offline data
+> Model
+> sent to MPC
+
+Goal + Trajectory Exchange 
+
+> neighbor plans, dropout
+
+Distributed Koopman-MPC 
+
+> nominal multi-robot plan
+
+Reciprocal Local QP 
+
+> per-robot safety projection
+
+Robot Dynamics 
+
+> applied control input
+
+State + Local Sensing  
+
+> feedback for planning and safety
+> state feedback local sensing
+> Fig. 1. Controller architecture. Each robot solves a Koopman-MPC from received trajectories, followed by an independent reciprocal QP from local sensing. Packet loss can change the nominal input but does not remove a finite-hold row for a sensed pair.
+
+use one relative snapshot, opposite normals, and the same tightened demand. Let Oi(k) denote the active shelf faces, whose geometry is locally available. Using the snapshot-based normals defined below, we assume known directional bounds 
+
+n⊤
+
+> ij,k
+
+[di(t) − dj (t)] ≥ − ¯dij ,n⊤
+
+> io,k
+
+di(t) ≥ − ¯dio , t ∈ [tk, t k+1 ). (3) These are directional bounds on the plant, not learned-model error bounds. We derive numerical values for the simulated dynamics in Section VI. Packet loss affects trajectory ex-change but not the local snapshot used to build the applied-input constraints. Our safety results concern (2); Koopman prediction accuracy and goal arrival are evaluated separately. IV. M ETHOD 
+
+Fig. 1 shows where the two information streams enter the controller. Received plans enter only the blue MPC layer. The red QP is rebuilt from current relative states and shelf geometry, then filters the nominal input before it is applied to the plant. 
+
+A. Koopman Identification 
+
+We fit one extended dynamic mode decomposition with control (EDMDc) predictor offline and keep it fixed during evaluation. Let z = ψ(x) ∈ Rnz be a dictionary of observ-ables. For M transitions, define Z− = [ ψ(x0) · · · ψ(xM −1)] ,2Z+ = [ ψ(x1) · · · ψ(xM )] , U = [ u0 · · · uM −1], and 
+
+Ω = [ Z⊤− U ⊤]⊤, with Z± ∈ Rnz ×M and U ∈ R2×M .EDMDc identifies 
+
+zk+1 = Az k + Bu k, ˆpk = Cpzk, (4) by ridge regression with ϵ > 0,
+
+[A B ] = Z+Ω⊤(ΩΩ ⊤ + ϵI )−1. (5) The lift is ψ(x) = [1; x; vech( xx ⊤); ϕκ(p)] , where ϕκ(p) = [sin( κp x), cos( κp x), sin( κp y ), cos( κp y )] ⊤. Cp and Cv select physical position and velocity. Training covers the operating envelope, and no training rollout is reused in evaluation. 
+
+B. Local Predictive Planning 
+
+At control step k, robot i receives neighbor predictions 
+
+ˆpj, 1: H for j ∈ N ci (k). Its local reference ri,τ is the goal gi,or a waypoint when a route planner is present. Linearizing pair and shelf directions about the previous plans gives the local QP 
+
+min 
+
+> z,u,ξ ≥0
+> H
+
+X 
+
+> τ=1
+
+ ∥Cpzτ − ri,τ ∥2 
+
+> Qτ
+
++ ∥Cv zτ ∥2
+
+> S
+
+
+
++
+
+> H−1
+
+X 
+
+> τ=0
+
+∥uτ ∥2 
+
+> R
+
++
+
+> H−1
+
+X 
+
+> τ=1
+
+∥uτ − uτ −1∥2 
+
+> R∆
+
++ ρp∥ξ∥2
+
+s.t. z0 = ψ(xi,k ), zτ +1 = Az τ + Bu τ ,n⊤ 
+
+> ij,τ
+
+(Cpzτ − ˆpj,τ ) + ξij,τ ≥ dplan ,n⊤ 
+
+> io,τ
+
+(Cpzτ − qo,τ ) + ξio,τ ≥ do,uτ ∈ U box  
+
+> i
+
+, Cv zτ ∈ V i.
+
+(6) Here H is the horizon, ξ collects predictive slacks, Qτ ⪰ 0,
+
+S ⪰ 0, R ≻ 0, R∆ ⪰ 0, and ρp > 0. The sets Ubox  
+
+> i
+
+and 
+
+Vi impose componentwise planner bounds. Dynamics and input rows use τ = 0: H − 1; separation rows use τ = 1: H,received neighbors j ∈ N ci (k), and active faces o ∈ O i(k).The vectors nij,τ are unit separation directions; qo,τ is the closest point on active shelf face o, nio,τ is its outward normal, and do is the planner shelf clearance. After norm clipping, the first MPC input becomes the nominal input ¯ui,k . If a packet is missing, its predictive pair rows disappear from (6). The planning QP therefore defines nominal motion but does not impose the sensed constraints on the applied input. 
+
+C. Finite-Hold Local Safety Projection 
+
+Use the bounded local snapshots from Section III; exact sensing has εpi = εvi = 0 . For a sensed pair, set nij,k =(ˆ pi,k − ˆpj,k )/∥ˆpi,k − ˆpj,k ∥ and define the tightened quantities 
+
+hij,k = ∥ˆpi,k − ˆpj,k ∥ − dcol − εpi − εpj ,νij,k = n⊤
+
+> ij,k
+
+(ˆ vi,k − ˆvj,k ) − εvi − εvj . (7) The triangle and Cauchy–Schwarz inequalities give 
+
+n⊤
+
+> ij,k
+
+(pi,k − pj,k ) − dcol ≥ hij,k and n⊤
+
+> ij,k
+
+(vi,k − vj,k ) ≥ νij,k .For h ≥ 0, introduce the least constant radial acceleration that prevents the quadratic lower bound from becoming negative during one hold: 
+
+ϕT (h, ν ) = sup  
+
+> 0<τ ≤T
+
+− 2( h + τ ν )
+
+τ 2 . (8) The corresponding closed form is 
+
+ϕT (h, ν ) = 
+
+
+
+ν2/(2 h), h > 0, ν ≤ − 2h/T, 
+
+−2( h + T ν )/T 2, h > 0, ν > −2h/T, 
+
+−2ν/T, h = 0 , ν ≥ 0,
+
++∞, h = 0 , ν < 0.
+
+(9) The robust hard demand is 
+
+βH 
+
+> ij,k
+
+= ϕT (hij,k , ν ij,k ) + ¯dij . (10) The hard row reacts only to motion that can violate separation within the current hold. We retain the high-order expression as an anticipatory target. Let kv , k p > 0 and define the directional authorities 
+
+ciij = max 
+
+> u∈U i
+
+n⊤
+
+> ij,k
+
+u, cjij = max 
+
+> u∈U j
+
+n⊤
+
+> ji,k
+
+u. (11) Let bc 
+
+> ij
+
+= −kv νij,k − kphij,k + ¯dij . Then 
+
+βA 
+
+> ij,k
+
+= max 
+
+n
+
+βH
+
+> ij,k
+
+, min {bc 
+
+> ij
+
+, c iij + cjij }
+
+o
+
+. (12) The cap prevents an isolated pair target from exceeding its combined radial authority. The input sets are known to both members of a sensed pair. For heterogeneous robots we use complementary weights 
+
+αij =
+
+
+
+ciij 
+
+ciij + cjij 
+
+, ciij + cjij > 0,
+
+12 , ciij + cjij = 0 ,αji = 1 − αij ;
+
+(13) equal robots recover the half split. For obstacle o, take a supporting plane (qio,k , n io,k ) at the estimated position and set hio,k = n⊤
+
+> io,k
+
+(ˆ pi,k − qio,k ) −
+
+rrob − εpi and νio,k = n⊤ 
+
+> io,k
+
+ˆvi,k − εvi . We define βH 
+
+> io,k
+
+=
+
+ϕT (hio,k , ν io,k ) + ¯dio and 
+
+βA 
+
+> io,k
+
+= max {βH
+
+> io,k
+
+, min( −kv νio,k − kphio,k + ¯dio , c iio )},
+
+(14) where ciio = max u∈U i n⊤
+
+> io,k
+
+u.At a fixed sample, we suppress the index k in the following QP. Robot i solves for ui and ζi. The variables ζi relax only the anticipatory targets; they do not appear in the hard rows. 
+
+min  
+
+> ui,ζ i≥0
+
+∥ui − ¯ui∥2 + ρ2∥ζi∥2 + ρ11⊤ζi
+
+s.t. ui ∈ U i,n⊤ 
+
+> ij
+
+ui ≥ αij βH 
+
+> ij
+
+, j ∈ N si ,n⊤ 
+
+> ij
+
+ui + ζiij ≥ αij βA 
+
+> ij
+
+, j ∈ N si ,n⊤
+
+> io
+
+ui ≥ βH
+
+> io
+
+, o ∈ O i,n⊤
+
+> io
+
+ui + ζiio ≥ βA
+
+> io
+
+, o ∈ O i.
+
+(15) Thus a large ζi means that early braking was sacrificed to remain close to the MPC command; it does not weaken the 3finite-hold condition. We use a 16-sided polygon inscribed in the acceleration ball for Ui and solve the QP with the Operator Splitting Quadratic Program solver (OSQP) [27]. The weights ρ1, ρ 2 > 0 penalize anticipatory relaxation. 
+
+D. Online Decomposition and Feasibility Check 
+
+Let the hard rows of robot i be a⊤
+
+> iℓ
+
+ui ≥ riℓ , ℓ ∈ L i(k),and define 
+
+μi(k) = max 
+
+> u∈U i
+
+min 
+
+> ℓ∈L i(k)
+
+(a⊤
+
+> iℓ
+
+u − riℓ ). (16) where μi(k) = + ∞ when Li(k) is empty. For polygonal Ui,this is a linear program in (ux, u y , μ ). We solve it before (15) and log a feasibility fault when μi < 0. In two dimensions its vertices consist of input-polygon vertices, intersections of one input facet with two row planes, and intersections of three row planes; the implementation evaluates these candidates in vectorized form. No safety slack is used in the hard rows; a negative μi is reported as infeasibility. With mi local rows, the projection has at most 2 + mi variables and 16 + 3 mi
+
+scalar inequalities. Its size is independent of the MPC horizon and the fleet size outside the sensed degree. 
+
+Algorithm 1 Distributed Koopman-MPC with finite-hold projection 
+
+Require: frozen predictor; sampling, sensing, and plant bounds  
+
+> 1:
+
+for each sample k do  
+
+> 2:
+
+for each robot i in parallel do  
+
+> 3:
+
+receive available plans and solve (6) for ¯ui,k  
+
+> 4:
+
+form bounded local snapshots and supporting obstacle planes  
+
+> 5:
+
+build βH from (8) and βA 
+
+> 6:
+
+solve (16); require μi(k) ≥ 0 
+
+> 7:
+
+solve (15) and hold ui,k for T seconds  
+
+> 8:
+
+end for  
+
+> 9:
+
+end for 
+
+V. T HEORETICAL RESULTS 
+
+The Koopman predictor determines ¯ui but not the hard feasible set. The following results therefore make no claim about predictor error, MPC recursive feasibility, or goal convergence. Assume Ui is nonempty, compact, and convex, 
+
+0 ∈ U i, and ρ1, ρ 2 > 0.
+
+Assumption 1: At each tk, the snapshot errors satisfy the stated bounds. Pair sensing is synchronized and symmetric, so both members use the same hij,k , νij,k , and βH 
+
+> ij,k
+
+with opposite normals. Every obstacle row uses a unit outward normal of a supporting plane, and the directional residual bounds in (3) hold throughout [tk, t k+1 ). Commands returned by (15) are applied with zero-order hold. 
+
+Proposition 1: Let Di(k) ⊂ R2 be compact, contain the origin, and satisfy di(t) ∈ D i(k) throughout the hold. For the support function σD (q) := max d∈D q⊤d, the choices 
+
+¯dij,k = σDi(k)(−nij,k ) + σDj (k)(nij,k ),
+
+¯dio,k = σDi(k)(−nio,k ) (17) satisfy (3) and are tight over Di(k) × D j (k). Moreover, if 
+
+Di(k) = Lsr=1 D(r) 
+
+> i
+
+(k), then 
+
+σDi(k)(q) = 
+
+> s
+
+X
+
+> r=1
+
+σD(r) 
+
+> i(k)
+
+(q). (18) Consequently, bounds ∥d(r) 
+
+> i
+
+∥ ≤ δ(r) 
+
+> i
+
+imply ¯dio,k ≤ P 
+
+> r
+
+δ(r)
+
+> i
+
+and ¯dij,k ≤ P 
+
+> r
+
+(δ(r) 
+
+> i
+
++ δ(r) 
+
+> j
+
+).
+
+Proof: For any di ∈ D i(k) and dj ∈ D j (k),
+
+n⊤
+
+> ij,k
+
+(di − dj ) = −(−nij,k )⊤di − n⊤
+
+> ij,k
+
+dj
+
+≥ − σDi(k)(−nij,k ) − σDj (k)(nij,k ).
+
+Replacing nij,k by nio,k and omitting dj proves the obstacle inequality. Compactness supplies support maximizers; choos-ing them independently attains equality in both bounds, which proves tightness. The origin assumption makes the bounds nonnegative. For the Minkowski sum, independent component choices give 
+
+σDi(k)(q) = max   
+
+> d(r)
+> i∈D (r)
+> i(k)
+
+q⊤
+
+> s
+
+X
+
+> r=1
+
+d(r)
+
+> i
+
+=
+
+> s
+
+X
+
+> r=1
+
+max   
+
+> d(r)
+> i∈D (r)
+> i(k)
+
+q⊤d(r) 
+
+> i
+
+,
+
+which is (18). A Euclidean ball of radius δ has σ(q) = δ∥q∥
+
+by Cauchy–Schwarz. Substitution into (17), with unit normals, yields the norm-bound formulas. 
+
+Lemma 1: For h ≥ 0, (9) equals the supremum in (8). Whenever this value is finite, 
+
+h + τ ν + 12 τ 2a ≥ 0 ∀τ ∈ [0 , T ] ⇐⇒ a ≥ ϕT (h, ν ).
+
+(19) 
+
+Proof: For 0 < τ ≤ T , let f (τ ) = −2( h + τ ν )/τ 2.Since τ 2/2 > 0, the inequality on the left of (19) holds for every positive τ if and only if a ≥ f (τ ) for every such τ .Thus its least admissible value is sup 0<τ ≤T f (τ ); continuity supplies the endpoint τ = 0 .For h > 0, f (τ ) → −∞ as τ ↓ 0 and 
+
+f ′(τ ) = 2(2 h + ντ )
+
+τ 3 .
+
+If ν ≤ − 2h/T , the stationary point τ∗ = −2h/ν ∈ (0 , T ]
+
+is the maximizer and f (τ∗) = ν2/(2 h). Otherwise f is increasing at every point up to its maximum at T , which gives 
+
+−2( h + T ν )/T 2. For h = 0 , f (τ ) = −2ν/τ : it is unbounded above when ν < 0, and its maximum is −2ν/T when ν ≥ 0.These are precisely the four cases in (9), and the equivalence follows from the supremum argument above. 
+
+Lemma 2: For a symmetrically sensed pair with αij +
+
+αji = 1 , the two local hard rows imply 
+
+n⊤
+
+> ij,k
+
+(ui,k − uj,k ) ≥ βH
+
+> ij,k
+
+. (20) 
+
+Proof: At sample k, robot i enforces n⊤
+
+> ij,k
+
+ui,k ≥
+
+αij βH
+
+> ij,k
+
+, while robot j enforces n⊤
+
+> ji,k
+
+uj,k ≥ αji βH
+
+> ij,k
+
+. Since 
+
+nji,k = −nij,k , adding the rows gives 
+
+n⊤
+
+> ij,k
+
+(ui,k − uj,k ) ≥ (αij + αji )βH
+
+> ij,k
+
+,
+
+4which is (20). 
+
+Proposition 2: The hard rows of robot i are jointly feasible if and only if μi(k) ≥ 0. Whenever this holds, (15) has a unique optimizer. Its feasible set is independent of trajectory packets. 
+
+Proof: If Li(k) is empty, every u ∈ U i satisfies the hard rows by convention. Otherwise, compactness of Ui and continuity of the pointwise minimum make the maximum in (16) attainable. Let u⋆i be a maximizer. If μi(k) ≥ 0, then 
+
+a⊤
+
+> iℓ
+
+u⋆i − riℓ ≥ μi(k) ≥ 0 ∀ℓ ∈ L i(k),
+
+so every hard row is satisfied. Conversely, any hard-row-feasible u makes the inner minimum nonnegative; maximizing over u yields μi(k) ≥ 0.Fix a hard-row-feasible u. Each anticipatory inequality can be satisfied by choosing its component of ζi no smaller than the positive part of its row deficit. Hence (15) is feasible. Its feasible set is closed and convex. The quadratic objective has positive-definite Hessian on (ui, ζ i) because ρ2 > 0;it is also coercive in ζi, while ui lies in the compact set 
+
+Ui. A minimizer therefore exists and strict convexity makes it unique. Finally, trajectory packets change only ¯ui in the objective. Every constraint is built from the local snapshot, geometry, input sets, and plant bounds. 
+
+Proposition 3: Suppose Li(k) is nonempty and Ui = {u :
+
+Fiu ≤ gi} is a compact polytope. Then 
+
+μi(k) = min  
+
+> λ,γ
+
+g⊤ 
+
+> i
+
+λ − X
+
+> ℓ∈L i(k)
+
+γℓriℓ 
+
+s.t. F ⊤ 
+
+> i
+
+λ = X
+
+> ℓ∈L i(k)
+
+γℓaiℓ ,
+
+1⊤γ = 1 , λ ≥ 0, γ ≥ 0.
+
+(21) 
+
+Proof: Introduce an auxiliary variable s. Equation (16) is the linear program 
+
+max  
+
+> u,s
+
+s s.t. Fiu ≤ gi, −a⊤
+
+> iℓ
+
+u + s ≤ − riℓ ∀ℓ. 
+
+Assign nonnegative dual variables λ to the input facets and 
+
+γℓ to the hard rows. Stationarity with respect to u and s
+
+gives F ⊤ 
+
+> i
+
+λ = P 
+
+> ℓ
+
+γℓaiℓ and P 
+
+> ℓ
+
+γℓ = 1 , respectively. The dual objective is g⊤ 
+
+> i
+
+λ − P 
+
+> ℓ
+
+γℓriℓ . The primal is feasible and has a finite optimum because Ui is nonempty and compact. Linear-program strong duality therefore yields (21). The weights γ identify a convex combination of simultane-ously limiting rows. A negative dual value therefore exposes a local conflict among pair, obstacle, and input constraints rather than a numerical QP failure. 
+
+Proposition 4: For an isolated pair, the coupled hard row is feasible if and only if βH 
+
+> ij,k
+
+≤ ciij +cjij . Under this condition, the split in (13) makes both local hard rows feasible. 
+
+Proof: Because the input sets are independent and 
+
+nji,k = −nij,k ,
+
+max  
+
+> ui∈U i,u j∈U j
+
+n⊤
+
+> ij,k
+
+(ui − uj ) = max 
+
+> ui∈U i
+
+n⊤
+
+> ij,k
+
+ui + max  
+
+> uj∈U j
+
+n⊤
+
+> ji,k
+
+uj
+
+= ciij + cjij .
+
+The coupled row is therefore feasible exactly when its right-hand side does not exceed this maximum. Since 0 ∈ U i ∩ U j ,both authorities are nonnegative. If βH 
+
+> ij,k
+
+≤ 0, ui = uj = 0 
+
+satisfies both local rows. If βH 
+
+> ij,k
+
+> 0, feasibility of the coupled row implies 
+
+αij βH 
+
+> ij,k
+
+≤ ciij 
+
+ciij + cjij 
+
+(ciij + cjij ) = ciij ,
+
+and the analogous inequality holds for robot j. Compactness provides maximizers in (11); those maximizers satisfy the two local rows. 
+
+Theorem 1: Under Assumption 1, suppose hij,k ≥ 0,
+
+ϕT (hij,k , ν ij,k ) is finite, and the applied commands satisfy the two corresponding hard rows in (15). Then 
+
+∥pi(tk + τ ) − pj (tk + τ )∥ ≥ dcol ∀τ ∈ [0 , T ]. (22) If hio,k ≥ 0, ϕT (hio,k , ν io,k ) is finite, and the applied command satisfies the analogous obstacle hard row, then 
+
+dist( pi(tk + τ ), Po) ≥ rrob on the same interval. 
+
+Proof: For the pair result, write r = pi −pj , w = vi −vj ,
+
+dij = di − dj , and freeze n = nij,k over the hold. By definition, n⊤r(tk) − dcol ≥ hij,k and n⊤w(tk) ≥ νij,k . Two integrations of (1) give 
+
+n⊤r(tk + τ ) − dcol ≥ hij,k + τ ν ij,k + 12 τ 2n⊤(ui,k − uj,k )+
+
+Z τ
+
+> 0
+
+(τ − s)n⊤dij (tk + s) ds. 
+
+The directional residual bound implies 
+
+Z τ
+
+> 0
+
+(τ − s)n⊤dij (tk + s) ds ≥ − 12 τ 2 ¯dij .
+
+The two applied hard rows and Lemma 2 give 
+
+n⊤(ui,k − uj,k ) ≥ ϕT (hij,k , ν ij,k ) + ¯dij .
+
+Substitution cancels the residual allowance. Since n is a unit vector, ∥r∥ ≥ n⊤r, and hence 
+
+∥r(tk + τ )∥ − dcol ≥ n⊤r(tk + τ ) − dcol 
+
+≥ hij,k + τ ν ij,k + 12 τ 2ϕT (hij,k , ν ij,k )
+
+≥ 0.
+
+The final inequality is Lemma 1; it holds at every point of the hold, not only at the next sample. For the obstacle result, set n = nio,k and q = qio,k . The supporting property gives Po ⊆ { y : n⊤(y − q) ≤ 0}. Thus, for every y ∈ P o,
+
+∥p − y∥ ≥ n⊤(p − y) ≥ n⊤(p − q),
+
+and taking the infimum over y yields dist( p, Po) ≥ n⊤(p−q).Integrating the single-robot dynamics gives 
+
+n⊤(pi(tk + τ ) − q) − rrob ≥ hio,k + τ ν io,k 
+
++ 12 τ 2{n⊤ui,k − ¯dio }.
+
+The obstacle hard row makes the braced term at least 
+
+ϕT (hio,k , ν io,k ). Lemma 1 completes the argument. 
+
+Corollary 1: Under Assumption 1, suppose the fleet is initially safe, every active tightened clearance is nonnegative, every active finite-hold demand is finite, and obstacle rows 5activate whenever dist(ˆ pi,k , Po) ≤ Ro using a closest supporting plane. Suppose also that Algorithm 1 applies an optimizer of (15) at every sample, and μi(k) ≥ 0 for every active row set. If 
+
+Rsens − 3( εpi + εpj ) − T (¯ vi + ¯ vj ) > d col ,Ro − 3εpi − T ¯vi > r rob , (23) where Ro is the obstacle-activation distance, then the switch-ing sensing graph preserves (2) for all continuous time. This conclusion is independent of packet delivery. 
+
+Proof: Assume (2) holds at tk. For every active row, Proposition 2 and μi(k) ≥ 0 imply that the optimizer of (15) satisfies the hard constraint. Theorem 1 then preserves the corresponding pair or obstacle separation throughout the hold. If pair (i, j ) is inactive at tk, then ∥ˆpi(tk) − ˆpj (tk)∥ >Rsens . The reverse triangle inequality and the speed bounds give, for every τ ∈ [0 , T ],
+
+∥pi(tk + τ ) − pj (tk + τ )∥ > R sens − εpi − εpj
+
+−
+
+Z tk +τtk
+
+∥vi(s) − vj (s)∥ ds 
+
+≥ Rsens − εpi − εpj
+
+− τ (¯ vi + ¯ vj ) > d col .
+
+For an inactive obstacle, the distance function is one-Lipschitz, so 
+
+dist( pi(tk + τ ), Po) > R o − εpi − τ ¯vi > r rob .
+
+At tk+1 , a second application of the measurement-error bound gives ∥ˆpi − ˆpj ∥ > R sens − 2( εpi + εpj ) − T (¯ vi + ¯ vj ).Hence a newly active pair has hij,k +1 > 0 by (23); the one-Lipschitz obstacle distance gives the analogous conclusion for hio,k +1 . Thus active and inactive interactions remain safe, and newly active rows enter the next induction step with positive tightened clearance. Packet delivery changes neither the hard rows nor this induction. The theorem addresses intersample collision avoidance for the stated plant and bounds. It does not turn a locally feasible safety projection into a route planner: deadlock avoidance and goal convergence remain properties of the nominal planning layer. The claim is conditional on the stated residual and sensing bounds and on μi(k) ≥ 0 for every active hard-row set. If that test fails, Algorithm 1 reports infeasibility and makes no collision-avoidance claim for the ensuing hold interval. VI. E XPERIMENTS 
+
+A. Protocol 
+
+The main benchmark in Fig. 2 places eight robots on opposing warehouse lanes. Their shortest routes cross between the shelves, creating pair and shelf conflicts at the same time. We train the Koopman model once from 220 rollouts of 22 steps using seed 7 and ridge 10 −7, then freeze it. Setting κ =0.55 m −1 gives the 19-dimensional lift. Each training position coordinate lies in [−5.5, 5.5] m ; velocities and smoothed random controls are clipped to their admissible sets. Within −6 −4 −2 0 2 4 6x [m] −6 −4 −2 0246y [m]                                  
+
+> 12345678
+> trajectory exchange radius Rcomm = 3.0 local sensing/QP radius Rsense = 3.0 robot safety disk start goal shelf obstacle
+> Fig. 2. Eight-robot warehouse benchmark. Circles and crosses are starts and goals; gray rectangles are shelves. Dashed and dotted neighborhoods illustrate trajectory communication and local safety sensing. TABLE II MAIN SIMULATION PARAMETERS .Parameter Value
+> N,T, steps 8, 0.12 s , 240 MPC horizon, dplan 8, 0.76 m
+> Rcomm ,Rsens 3.0 m ,3.0 m
+> Main dropout 0.05, 0.15
+> dcol ,rrob 0.45 m ,0.22 m
+> kv,kp5, 6
+> ¯dij ,¯dio 1.54 ,0.77 m /s2
+> umax ,vmax 1.8 m /s2,2.1 m /s
+
+each setting, all communication-dependent controllers receive the same Bernoulli packet-loss stream. A trial seed changes that stream, not the fixed warehouse geometry. ORCA and the reactive QP do not use these messages and are therefore deterministic in this test. No controller uses a global route planner, an intersection waypoint, or a resource scheduler. We compare four controllers: (1) an ORCA half-plane linear program (LP) with shelf constraints; (2) goal feedback followed by the same local finite-hold projection; (3) predic-tive Koopman-MPC with message-dependent pair constraints but no final projection; and (4) the full controller. A robot collision step is a fleet time step containing any pair below 
+
+dcol = 0 .45 m . A shelf collision step contains any robot center closer than rrob = 0 .22 m to a shelf. A robot run succeeds when its final goal error is at most 0.75 m ; success columns report the fraction of successful robot runs. The sequential cycle time includes all eight planning calls, safety QPs, and Python orchestration; a 120 ms control period is available, and p95 denotes the 95th percentile. We use dmin 
+
+for minimum pair distance and “Shelf” for minimum signed center-to-shelf clearance. 6TABLE III FIXED WAREHOUSE OVER DROPOUT {0.05 , 0.15 } AND TEN MATCHED STREAMS PER LEVEL . C OLLISION COLUMNS ARE MEAN FLEET TIME STEPS PER TRIAL .Method Safe Robot Shelf Goals Error dmin Shelf /20 coll. coll. /160 [m] [m] [m] 
+
+ORCA 0 12.0 63.0 160 0.631 0.288 0.125 Goal + filter 20 0.0 0.0 120 2.031 0.502 0.224 Predictive MPC 1 1.3 6.2 160 0.0065 0.264 −0.379 
+
+Ours 20 0.0 0.0 160 0.0065 0.676 0.321 −6 −4 −2 0 2 4 6                  
+
+> x[m] −6 −4 −2 0246
+> y [m]
+> (a) ORCA robot/shelf collision steps: 12/63 | dmin =0.29 m
+> −6 −4 −2 0246
+> x[m]
+> (b) Predictive Koopman-MPC robot/shelf collision steps: 0/8 | dmin =0.50 m
+> −6 −4 −2 0246
+> x[m]
+> (c) Ours robot/shelf collision steps: 0/0 | dmin =0.77 m
+
+Fig. 3. Representative matched trial at 15% dropout (packet stream seed 3409652536). Lines are executed trajectories, colored dots are starts, black crosses are goals, and rectangles are shelves; Table III reports all 20 trials. 4 8 12 16 20 
+
+Robots 
+
+012345
+
+> Count out of five
+
+(a) Safety and completion 
+
+> Goals / N Safe Feasible
+
+4 8 12 16 20 
+
+Robots 
+
+0510 15 20 
+
+> Worst  μi [m/s 2]
+
+(b) Online conditions    
+
+> min μ i[m/s 2]min Lij [m]
+
+4 8 12 16 20 
+
+Robots 
+
+050 100 150 200 250 
+
+> Workload [ms]
+
+(c) Runtime 
+
+> Sequential Per-agent mean Per-agent max 120 ms
+
+0.0 0.1 0.2 0.3 
+
+Fig. 4. Fixed-footprint fleet scaling at 15% dropout, with five packet streams per size. (a) Bars count safe and feasible trials; the line is completed robots divided by fleet size. (b) Worst online feasibility and finite-hold margins. (c) Central sequential workload and the reconstructed per-agent critical path; the dotted line is the 120 ms period. 
+
+The simulated residual is the sum of quadratic drag, bounded terrain terms, and velocity cross-coupling. With 
+
+vmax = 2 .1 m /s, each robot satisfies 
+
+∥di∥ ≤ 0.10 v2max + p0.19 2 + 0 .17 2
+
++ 0 .035 vmax < 0.77 m /s2. (24) Proposition 1 therefore gives the obstacle bound ¯dio =0.77 m /s2 and pair bound ¯dij = 2(0 .77) = 1 .54 m /s2. These values are fixed before any trial. Moreover, Rsens −2T v max =2.496 m > d col ; the 1.8 m obstacle trigger similarly satisfies 
+
+1.8 − T v max > r rob . Thus the reported configuration meets (23) by construction. 
+
+B. Prediction Ablation 
+
+Across three model seeds and 100 test rollouts each, 25-step errors are 0.471 ± 0.003 , 0.280 ± 0.010 , 0.381 ± 0.012 ,and 0.265 ± 0.010 m for the linear, trigonometric, quadratic, and full lifts. The full lift is 44% better than the linear one and uses no shelf coordinates, so layout changes require no dynamics retraining within the sampled envelope. 
+
+C. Main Warehouse Result 
+
+ORCA and predictive Koopman-MPC reach 160/160 goals but are safe in 0/20 and 1/20 trials. Goal feedback plus projection is safe in 20/20 but reaches 120/160 goals. Ours is safe in 20/20, reaches 160/160, and retains the predictive controller’s 0.0065 m error; its worst pair and shelf distances are 0.676 and 0.321 m .7TABLE IV FROZEN -MODEL STRESS TESTS (μi IN m/s2 , Lij IN M ); NEGATIVE μi
+
+> REMOVES THE THEOREM
+
+’S PREMISE .
+
+Study Safe Goals min μi min Lij 
+
+Dropout 0.50 10/10 80/80 4.130 0.036 
+
+Rsens = 3 .0 m 10/10 80/80 11.760 0.148 
+
+εp ≤ 2 cm 15/15 120/120 7.214 0.087 Perturbed shelves 19/20 160/160 −0.756 −0.030 
+
+Scaling, N ≤ 16 20/20 199/200 1.496 ≈ 0
+
+Diff. drive, N = 4 20/20 80/80 3.388 0.028 
+
+εp = 5 cm 4/5 38/40 −7.245 −0.250 
+
+Scaling, N = 20 2/5 71/100 −2.213 −0.053 
+
+D. Hard-Row Audit 
+
+For each active pair we log the minimum quadratic lower bound used in the proof, 
+
+Lij,k = min 
+
+0≤τ ≤T
+
+hij,k + τ ν ij,k 
+
++ 12 τ 2{n⊤
+
+ij,k (ui,k − uj,k ) − ¯dij },
+
+(25) and define Lio,k analogously. Across 38,400 local solves, every LP and hard QP solves, min μi = 14 .79 m /s2, and the smallest pair/shelf bounds are 0.214 /0.094 m . Anticipatory relaxation reaches 1.523 m /s2 but never enters a safety row. 
+
+E. Boundary and Scaling Studies 
+
+All rows reuse model seed 7, and (23) holds at every listed sensing-error level. Disk-bounded snapshot errors use 
+
+εvi = 2 εpi s−1 and (7). At 3 cm, 5/5 runs remain collision-free but min μi = −0.979 m /s2 with four hard-row faults. Figure 4 uses distinct ports, opposite goals, and static shelf routes. The near-zero N = 16 audit is solver tolerance. At 
+
+N = 20 , negative margin precedes nine collision samples, marking a fixed-footprint authority boundary rather than a fleet-size guarantee. The differential-drive stress preserves longitudinal accel-eration and clips lateral acceleration at ∥vi∥ωmax . Write the resulting tracking mismatch as ddd 
+
+i . For ∥vi∥ > 0, let 
+
+ei = vi/∥vi∥ and let e⊥
+
+i be its lateral unit vector; then (17) uses −n⊤ddd 
+
+i ≤ | n⊤e⊥
+
+i |[umax ,i − ∥ vi∥ωmax ]+. At rest we use umax ,i . We set vmax = 1 .5 m /s and ωmax = 2 .4 rad /s.In the separate heterogeneous-input study, authority allocation raises the worst pair distance from 0.696 to 0.802 m and cuts maximum anticipation relaxation from 0.683 to 0.039 m /s2.
+
+F. Solver Diagnostics 
+
+All 38,400 MPC and 38,400 safety-QP solves return, with mean/p95/max iterations of 103 .6/304 .1/2500 and 
+
+86 .9/131 .4/9025 . The sequential simulator sums eight robots and takes 90 .1/109 .0/159 .4 ms . A per-agent reconstruction including full row-build time takes 18 .1/25 .5/46 .9 ms ; the scaling maximum is 73 .0 ms and no sample exceeds 120 ms .It excludes scheduling, communication I/O, and hardware worst-case timing. VII. C ONCLUSION 
+
+Local sensing wraps nominal Koopman-MPC in a hard finite-hold projection with bounded-snapshot tightening. Un-der explicit plant, sensing, and feasibility conditions, fixed-warehouse safety rises from 1/20 to 20/20 at the same 
+
+0.0065 m goal error. Across stress tests, unsafe cases follow a negative online margin. REFERENCES 
+
+[1] P. Fiorini and Z. Shiller, “Motion planning in dynamic environments using velocity obstacles,” Int. J. Robot. Res. , vol. 17, no. 7, pp. 760–772, 1998. [2] J. van den Berg, S. J. Guy, M. Lin, and D. Manocha, “Reciprocal n-body collision avoidance,” in Robotics Research . Springer, 2011, pp. 3–19. [3] E. Camponogara, D. Jia, B. H. Krogh, and S. Talukdar, “Distributed model predictive control,” IEEE Control Syst. Mag. , vol. 22, no. 1, pp. 44–52, 2002. [4] W. B. Dunbar and R. M. Murray, “Distributed receding horizon control for multi-vehicle formation stabilization,” Automatica , vol. 42, no. 4, pp. 549–558, 2006. [5] M. Korda and I. Mezi´ c, “Linear predictors for nonlinear dynamical systems: Koopman operator meets model predictive control,” Automatica , vol. 93, pp. 149–160, 2018. [6] M. O. Williams, I. G. Kevrekidis, and C. W. Rowley, “A data-driven approxi-mation of the Koopman operator: Extending dynamic mode decomposition,” J. Nonlinear Sci. , vol. 25, no. 6, pp. 1307–1346, 2015. [7] J. L. Proctor, S. L. Brunton, and J. N. Kutz, “Dynamic mode decomposition with control,” SIAM J. Appl. Dyn. Syst. , vol. 15, no. 1, pp. 142–161, 2016. [8] X. Zhang, W. Pan, R. Scattolini, S. Yu, and X. Xu, “Robust tube-based model predictive control with Koopman operators,” Automatica , vol. 137, Art. no. 110114, 2022. [9] D. Bruder, X. Fu, R. B. Gillespie, C. D. Remy, and R. Vasudevan, “Data-driven control of soft robots using Koopman operator theory,” IEEE Trans. Robot. ,vol. 37, no. 3, pp. 948–961, 2021. [10] Y. Zhao and Q. Zhu, “Stackelberg game-theoretic trajectory guidance for multi-robot systems with Koopman operator,” in Proc. IEEE Int. Conf. Robot. Autom. ,2024, pp. 12326–12332. [11] A. Azarbahram, S. Liu, and G. P. Incremona, “Distributed Koopman operator learning for perception and safe navigation,” arXiv:2511.22368, 2025. [12] R. Scattolini, “Architectures for distributed and hierarchical model predictive control: A review,” J. Process Control , vol. 19, no. 5, pp. 723–731, 2009. [13] V.-A. Le, V. Tadiparthi, B. Chalaki, et al. , “Multi-robot cooperative navigation in crowds: A game-theoretic learning-based model predictive control approach,” in Proc. IEEE Int. Conf. Robot. Autom. , 2024, pp. 4834–4840. [14] Y. Zeng, R. S. Sambhus, B. M. Imran, et al. , “ADMM-based distributed MPC with control barrier functions for safe multi-robot quadrupedal locomotion,” arXiv:2603.19170, 2026. [15] P. R. Wurman, R. D’Andrea, and M. Mountz, “Coordinating hundreds of cooperative, autonomous vehicles in warehouses,” AI Mag. , vol. 29, no. 1, pp. 9–20, 2008. [16] W. H¨ onig, S. Kiesel, A. Tinka, J. W. Durham, and N. Ayanian, “Persistent and robust execution of MAPF schedules in warehouses,” IEEE Robot. Autom. Lett. ,vol. 4, no. 2, pp. 1125–1131, 2019. [17] J. Alonso-Mora, A. Breitenmoser, M. Rufli, P. Beardsley, and R. Siegwart, “Optimal reciprocal collision avoidance for multiple non-holonomic robots,” in 
+
+Distributed Autonomous Robotic Systems . Springer, 2013, pp. 203–216. [18] A. D. Ames, X. Xu, J. W. Grizzle, and P. Tabuada, “Control barrier function based quadratic programs for safety critical systems,” IEEE Trans. Autom. Control , vol. 62, no. 8, pp. 3861–3876, 2017. [19] Q. Nguyen and K. Sreenath, “Exponential control barrier functions for enforcing high relative-degree safety-critical constraints,” in Proc. Amer. Control Conf. ,2016, pp. 322–328. [20] L. Wang, A. D. Ames, and M. Egerstedt, “Safety barrier certificates for collision-free multirobot systems,” IEEE Trans. Robot. , vol. 33, no. 3, pp. 661–674, 2017. [21] X. Tan and D. V. Dimarogonas, “Distributed implementation of control barrier functions for multi-agent systems,” IEEE Control Syst. Lett. , vol. 6, pp. 1879– 1884, 2022. [22] P. Mestres, C. Nieto-Granda, and J. Cort´ es, “Distributed safe navigation of multi-agent systems using control barrier function-based controllers,” IEEE Robot. Autom. Lett. , vol. 9, no. 7, pp. 6760–6767, 2024. [23] L. Ballotta and R. Talak, “Safe distributed control of multi-robot systems with communication delays,” IEEE Trans. Veh. Technol. , vol. 74, no. 7, pp. 10137– 10150, 2025. [24] H. Dan, H. Etchu, K. Yokoi, Y. Origane, and D. Kurabayashi, “An asymmetric allocation rule of constraints derived from control barrier function for collision avoidance between autonomous robots,” SICE J. Control Meas. Syst. Integr. ,vol. 18, no. 1, Art. no. 2457203, 2025. [25] K. P. Wabersich and M. N. Zeilinger, “A predictive safety filter for learning-based control of constrained nonlinear dynamical systems,” Automatica ,vol. 129, Art. no. 109597, 2021. [26] A. Singletary, Y. Chen, and A. D. Ames, “Control barrier functions for sampled-data systems with input delays,” in Proc. IEEE Conf. Decis. Control , 2020, pp. 804–809. [27] B. Stellato, G. Banjac, P. Goulart, A. Bemporad, and S. Boyd, “OSQP: An operator splitting solver for quadratic programs,” Math. Program. Comput. ,vol. 12, pp. 637–672, 2020. 
+
+8

@@ -1,0 +1,603 @@
+Title: Fast Direction-Conditioned Reachability for Motion Prediction Under Model Uncertainty
+
+URL Source: https://arxiv.org/pdf/2609.27077v1
+
+Published Time: Thu, 24 Sep 2026 00:21:34 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# Fast Direction-Conditioned Reachability for Motion Prediction Under Model Uncertainty 
+
+Hrishav Das and Melkior Ornik 
+
+Abstract — To avoid collisions, a robot must repeatedly pre-dict where nearby agents may move, usually with an imper-fect model of their dynamics. Reachable sets provide such predictions, but computing them when the system matrices themselves are uncertain can become computationally expensive and conservative for frequent replanning. Moreover, a planner often needs to know only how far an agent can move in one particular direction, for example toward the robot, rather than the complete reachable set. We propose a direction-conditioned reachability method for linear systems with uncertain state and input matrices. Given a query direction d, the method selects one admissible model 
+
+(A⋆, B ⋆) whose reachable set extends nearly as far along d
+
+as the reachable set of the entire uncertain model family, and then computes the reachable set of only this model with a standard reachability solver. On an uncertain linearized bicycle model, the complete selection-and-computation pipeline is about three times faster than computing the reachable set of the full uncertain family in the CORA toolbox, while its extent along d
+
+is within 5% of the full family’s in the reported directions. We also use the method in a closed-loop multi-vehicle simulation in which the robot queries, at each replanning step, how far each nearby vehicle can move toward it, and replans to avoid the resulting sets. 
+
+I. INTRODUCTION Robots operating around moving agents must repeatedly reason about where those agents may move before commit-ting to a plan. Reachable sets provide a natural tool for this purpose: they describe all states a system can attain from an initial set under admissible inputs and uncertainty. Reacha-bility methods can broadly be divided into Hamilton–Jacobi methods [1] and set-propagation methods [2]. Hamilton– Jacobi methods can characterize nonlinear reachability but scale poorly with state dimension [3], [4]. Set-propagation methods scale more favorably to higher-dimensional systems, but can become conservative, particularly for nonlinear dy-namics. Reachability has become widely used in the robotics literature [5], [6]. In motion planning, reachable sets are used to restrict candidate trajectories to regions that remain feasible or safe, and have been incorporated directly into real-time planning frameworks for robots [7], [8], [9], [10]. In autonomous driving, the same idea appears in several forms: reachable sets have been used to verify safety online [11], to predict the possible future motion of surrounding traffic participants [12], and to incorporate those predictions into collision-aware planning and decision-making [4], [13]. Related ideas also appear in robust model predictive control. 
+
+> The authors are with the Department of Aerospace Engineering, Uni-versity of Illinois Urbana-Champaign, Urbana, IL 61801, USA. Emails:
+> {hrishav2,mornik }@illinois.edu
+
+In tube MPC, bounded model error and disturbances are handled by maintaining a tube around a nominal trajectory, so that state and input constraints remain satisfied despite uncertainty [14]. Extensions to nonlinear systems similarly optimize or propagate uncertainty tubes within a reced-ing horizon framework [15]. Tube-based methods provide another example in which uncertainty must be repeatedly accounted for within an online planning or control loop.  
+
+> Fig. 1. Direction-conditioned reachable sets for planning.
+
+These applications create a need for reachable-set compu-tations that are both efficient and informative, particularly in the presence of model uncertainty. When the dynamics them-selves are uncertain, a reachability algorithm must account not only for uncertain states and inputs, but also for every admissible model in the uncertain family. Prior work reduces the online cost of reachability through efficient set represen-tations [16], [17], [18], by moving expensive computation offline [7], [19], by restricting the prediction model using interaction-specific information [4], [20], or by simplifying the state representation when only high-level decisions are needed [9]. This computational efficiency matters in online planning, where reachable sets are recomputed whenever new observations arrive [9], [11], [21]. At the same time, many planning decisions do not require the complete reachable set. Instead, the set is used to answer specific geometric questions, such as whether a candidate trajectory may collide with another agent [7], [8], [9]. For convex sets, many such questions can be phrased using the support function, which measures how far a set extends along a given direction [17], [22]. For collision avoidance, the arXiv:2609.27077v1 [cs.RO] 22 Sep 2026 relevant quantity may be how far another vehicle can move toward the robot. If only a few directions matter, computing the full reachable set may therefore perform unnecessary work (Fig. 1). Support-function methods represent reachable sets through their extent along fixed template directions [17], [22]. Building on this observation, we ask a simple but useful question: if the planner only needs the reachable extent along a task-relevant direction, why compute the full uncertain reachable set first? We therefore propose a faster direction-conditioned approach that selects a single admissible model tailored to the queried direction and propagates only that selected model. The main contributions of this work are:  
+
+> •
+
+A direction-conditioned formulation for selecting a state matrix A⋆ ∈ A and an input matrix B⋆ ∈ B from sets of uncertain matrices, given a query direction.  
+
+> •
+
+A selection-and-computation procedure that, for a single query direction, is about three times faster than comput-ing the reachable set of the full uncertain family.  
+
+> •
+
+A closed-loop multi-vehicle simulation in which these predictions are used for replanning around moving vehicles. The remainder of the manuscript is organized as follows. Section II introduces the uncertain system model and states the direction-conditioned selection problem. Section III de-velops the procedure for selecting (A⋆, B ⋆) and computing the corresponding reachable set. Section IV evaluates its directional accuracy and computation time on an uncertain bicycle model, and Section V applies the method to closed-loop multi-vehicle collision-avoidance planning. II. PROBLEM FORMULATION Consider the finite-horizon linear system 
+
+˙x(t) = Ax (t) + Bu (t), x(0) ∈ X 0, u(t) ∈ U , (1) for t ∈ [0 , T ]. The matrices A and B are constant over this horizon, but their exact values are unknown. We only know that A ∈ A and B ∈ B , where 
+
+A =
+
+(
+
+Ac +
+
+> nA
+
+X
+
+> i=1
+
+αiGAi : αi ∈ [−1, 1] 
+
+)
+
+,
+
+B =
+
+Bc +
+
+> nB
+
+X
+
+> j=1
+
+βj GBj : βj ∈ [−1, 1] 
+
+ .
+
+(2) Sets of this form are called matrix zonotopes [16], [23], [24]. Each admissible matrix is a nominal (center) matrix Ac or Bc
+
+plus a weighted sum of generator matrices GAi or GBj . Each generator describes one source of model error, which may perturb several matrix entries together, and its coefficient αi
+
+or βj scales that error between its two extremes. In Sec. IV-A, the generators perturb specific terms of a linearized vehicle model. We assume that X0 is compact and convex and that U is a compact convex polytope. 
+
+Definition 1 (Reachable set) . For fixed matrices (A, B ), the reachable set at time T is 
+
+RA,B (T ; X0) = x(T ) x(0) ∈ X 0,
+
+˙x(t) = Ax (t) + Bu (t),u(t) ∈ U for almost every t ∈ [0 , T ] .
+
+(3) 
+
+Definition 2 (Support function) . For a compact set S ⊂ Rn,its support function in direction d ∈ Rn is 
+
+ρS (d) = max  
+
+> x∈S
+
+d⊤x. (4) For a unit vector d, ρS (d) is how far S extends along d
+
+[17]. For example, if d points from another vehicle toward a robot and S is that vehicle’s reachable set, ρS (d) measures how far the vehicle can advance toward the robot. 
+
+Problem 1 (Direction-Conditioned Model Selection) . Given 
+
+A, B, X0, U, T , and a nonzero direction d, find 
+
+max 
+
+> A∈A
+> B∈B
+
+ρRA,B (T ;X0)(d). (5) Standard reachability tools for uncertain linear systems compute one set that encloses the reachable sets of all admissible (A, B ) simultaneously [23], [25], which requires tracking how the matrix uncertainty interacts with the state set at every time step. Instead, we approximately solve Problem 1 to select a single admissible model and pass this fixed model to a standard reachability solver. III. DIRECTION-CONDITIONED REACHABILITY We approximately solve Problem 1 in four steps. First, we write the support function for a fixed pair (A, B ). Second, we select A⋆ by maximizing the part of this expression due to the initial set. Third, with A⋆ fixed, we select B⋆ by maximizing the part due to the inputs. Finally, we compute 
+
+RA⋆,B ⋆ (T ; X0).
+
+A. Directional Support for a Fixed Model 
+
+For fixed (A, B ), the solution of (1) is 
+
+x(T ) = eAT x0 +
+
+Z T
+
+> 0
+
+eA(T −t)Bu (t) dt. (6) Taking the support in direction d gives the standard expression [17] 
+
+hd(A, B ) ≜ ρRA,B (T ;X0)(d)= ρX0
+
+
+
+eA⊤T d
+
+
+
++
+
+Z T
+
+> 0
+
+ρU
+
+
+
+B⊤eA⊤(T −t)d
+
+
+
+dt. 
+
+(7) The first term is the extent along d contributed by the initial set, and the integral is the extent contributed by the inputs over [0 , T ]. Problem 1 is thus equivalent to maximizing (7) over A ∈ A and B ∈ B .B. State-Matrix Selection 
+
+The matrix A appears in both terms of (7). Rather than optimizing both terms jointly, we select A using only the first term: 
+
+A⋆ ∈ arg max  
+
+> A∈A
+
+ρX0
+
+
+
+eA⊤T d
+
+
+
+. (8) Writing A(α) = Ac + PnA 
+
+> i=1
+
+αiGAi , this becomes 
+
+max 
+
+> α∈[−1,1] nA
+
+ρX0
+
+
+
+eA(α)⊤T d
+
+
+
+. (9) Because eA(α)⊤T depends nonlinearly on α, this problem is nonconvex. In our experiments, we solve it using a dense grid search over α, followed by local refinement. Selecting A from the first term alone is an approxima-tion: A⋆ still affects the input term, but only through the subsequent B-selection step. We expect the approximation to be most accurate when the input contribution, rather than the drift dynamics, dominates the reachable extent over the horizon. We do not claim that (A⋆, B ⋆) solves Problem 1 globally; its accuracy is evaluated empirically in Sec. IV. 
+
+C. Input-Matrix Selection 
+
+Once A⋆ has been selected, define: 
+
+p⋆(t) = eA⋆⊤(T −t)d. (10) as in [26]. Substituting (10) into the second term of (7), the input-matrix selection problem is 
+
+B⋆ ∈ arg max 
+
+> B∈B
+
+Z T
+
+> 0
+
+ρU
+
+ B⊤p⋆(t) dt. (11) Let U = conv {u1, . . . , u Nu }. Since a linear function attains its maximum over a polytope at a vertex, 
+
+ρU
+
+ B⊤p⋆(t) = max 
+
+> i=1 ,...,N u
+
+p⋆(t)⊤Bu i. (12) We denote the objective in (11) by 
+
+Jd(B) ≜
+
+Z T
+
+> 0
+
+max  
+
+> i
+
+p⋆(t)⊤Bu i dt, (13) and evaluate the integral numerically using midpoint samples on [0 , T ].
+
+Theorem 1 (Extreme-point input-matrix selection) . Let U =conv {u1, . . . , u Nu } and let B be a compact matrix polytope. For fixed A⋆, Jd(B) in (13) is convex in B. Consequently, at least one maximizer of (11) is an extreme point of B.Proof. For each fixed t, the integrand is the pointwise maximum of functions that are linear in B, hence convex; integration preserves convexity. A convex function over a compact polytope attains its maximum at an extreme point [27]. The matrix zonotope B in (2) is the affine image of the box [−1, 1] nB , so each of its extreme points is the image of a box vertex [16], [24]. It therefore suffices to evaluate the at most 2nB candidates 
+
+Bσ = Bc +
+
+> nB
+
+X
+
+> j=1
+
+σj GBj , σ ∈ {− 1, 1}nB , (14) and choose 
+
+B⋆ ∈ arg max 
+
+> σ∈{− 1,1}nB
+
+Jd(Bσ ). (15) 
+
+D. Reachable Set of the Selected Model 
+
+With both matrices selected, the system 
+
+˙x(t) = A⋆x(t) + B⋆u(t), x(0) ∈ X 0, u(t) ∈ U 
+
+(16) has no matrix uncertainty, and we compute RA⋆,B ⋆ (T ; X0)
+
+with a standard linear reachability algorithm [17], [28]; in Sec. IV we use the CORA toolbox [29]. 
+
+Algorithm 1 Direction-Conditioned Model Selection and Reachability 
+
+Require: A, B, X0, U, d, T  
+
+> 1:
+
+Solve (9) numerically to obtain A⋆ 
+
+> 2:
+
+Compute p⋆(t) from (10)  
+
+> 3:
+
+Enumerate (14) and use (15) to obtain B⋆ 
+
+> 4:
+
+Compute RA⋆,B ⋆ (T ; X0) 
+
+> 5:
+
+return RA⋆,B ⋆ (T ; X0)
+
+We call the output of Algorithm 1 the direction-conditioned reachable set , because the model 
+
+(A⋆(d), B ⋆(d)) used to compute it depends on d.IV. BICYCLE MODEL EVALUATION We compare two reachable-set computations for the same uncertain model: the uncertain CORA outer approximation 
+
+Runc , which encloses the reachable sets associated with the matrix family A×B , and the direction-conditioned reachable set RA⋆,B ⋆ of Algorithm 1. Both are computed with CORA. We compare their extents along d and the computation required to obtain them. 
+
+A. Vehicle Model and Uncertainty 
+
+We use the kinematic bicycle model [30] 
+
+˙x = v cos ψ, ˙y = v sin ψ, ˙ψ = vL tan δ, ˙v = a, (17) where (x, y ) is position, ψ is heading, v is speed, a is longitudinal acceleration, and δ is steering angle. We use 
+
+L = 0 .42 m as the wheelbase of the simulated small-scale vehicle. Let 
+
+ξ = [ x y ψ v ]⊤, u = [ a δ ]⊤.
+
+Around an operating point ( ¯ξ, ¯u), the dynamics are locally approximated by [30], [31] 
+
+˙ξ ≈ Aℓξ + Bℓu + c, 
+
+where 
+
+Aℓ =
+
+
+
+0 0 −¯v sin ¯ψ cos ¯ψ
+
+0 0 ¯v cos ¯ψ sin ¯ψ
+
+0 0 0 tan ¯δL
+
+0 0 0 0
+
+ , (18) Bℓ =
+
+
+
+0 00 00 ¯vL cos 2 ¯δ
+
+1 0
+
+ , (19) and 
+
+c = f ( ¯ξ, ¯u) − Aℓ ¯ξ − Bℓ ¯u, 
+
+with f denoting the right-hand side of (17). Appending a constant state, z = [ ξ⊤ 1] ⊤, gives the linear form used in (1): 
+
+˙z = Acz + Bcu, Ac =
+
+ Aℓ c
+
+01×4 0
+
+
+
+, Bc =
+
+ Bℓ
+
+01×2
+
+
+
+.
+
+(20) To evaluate the proposed method under model mismatch, we place bounded uncertainty on selected Jacobian and input-gain terms of the local model [32], [33]. We represent these perturbations using the matrix zonotopes 
+
+A = Ac + α1GA 
+
+> 1
+
++ α2GA 
+
+> 2
+
+: αi ∈ [−1, 1] ,
+
+B = Bc + β1GB 
+
+> 1
+
++ β2GB 
+
+> 2
+
+: βi ∈ [−1, 1] , (21) where 
+
+GA 
+
+> 1
+
+= 0 .12 
+
+
+
+0 0 −¯v sin ¯ψ cos ¯ψ 00 0 ¯v cos ¯ψ sin ¯ψ 00 0 0 0 00 0 0 0 00 0 0 0 0
+
+ , (22) 
+
+GA 
+
+> 2
+
+= 0 .15 
+
+
+
+0 0 0 0 00 0 0 0 00 0 0 tan ¯δL 00 0 0 0 00 0 0 0 0
+
+
+
+, (23) and 
+
+GB 
+
+> 1
+
+= 0 .10 
+
+
+
+0 00 00 01 00 0
+
+ , GB 
+
+> 2
+
+= 0 .18 
+
+
+
+0 00 00 ¯vL cos 2 ¯δ
+
+0 00 0
+
+
+
+.
+
+(24) Each generator perturbs a related group of entries of the nominal model. GA 
+
+> 1
+
+changes the sensitivity of the position rates to heading and speed by up to ±12% , while GA
+
+> 2
+
+changes the sensitivity of the yaw rate to speed by up to ±15% . Similarly, GB 
+
+> 1
+
+and GB 
+
+> 2
+
+change the longitudinal-acceleration and steering gains by up to ±10% and ±18% ,respectively. The 10 –18% uncertainty levels used here are consistent with errors reported in vehicle model-identification studies. For example, Seong et al. [33] report average cornering-stiffness estimation errors of approximately 9.5% and 13% ,while Gonultas et al. [32] report comparable or larger differ-ences between nominal and identified parameters on a real F1TENTH vehicle. The affine column c is left unperturbed so that the experiment isolates uncertainty in the Jacobian and input-gain terms. The initial set X0 is an axis-aligned box centered at the observed state, with half-widths 
+
+[0 .07 m , 0.07 m , 0.035 rad , 0.10 m /s] 
+
+in (x, y, ψ, v ); the appended constant state has zero width. These are fixed simulation bounds chosen to be of the same order as errors reported for high-precision vehicle state estimation. In particular, [34] reports mean errors of approximately 4.7 cm in position, 1◦ in orientation, and 
+
+0.1 m /s in velocity. Since the future inputs of the observed vehicle are un-known, the input set U is centered at the current input estimate ¯u with half-widths 
+
+0.48 m /s2 and 0.105 rad 
+
+for acceleration and steering, respectively. For the simula-tions, we additionally restrict the inputs to 
+
+|a| ≤ 1.4 m /s2, |δ| ≤ 0.42 rad . (25) The steering bound is consistent with the 0.4189 rad steering limit reported for a measured F1TENTH vehicle in [35]. The acceleration bound is a conservative simulation choice rather than a measured actuator limit. The prediction horizon is T =1.65 s , which corresponds to approximately four replanning periods in Sec. V. The results in Secs. IV-B–IV-C use the operating point 
+
+¯ξ = [0 0 18 ◦ 1.35] ⊤, ¯u = [0 .10 7 ◦]⊤. (26) The nonzero heading and steering angles ensure that both state-matrix generators are active at the chosen operating point. In particular, GA 
+
+> 2
+
+vanishes when ¯δ = 0 , while some entries of GA 
+
+> 1
+
+vanish when ¯ψ = 0 . The same operating point and uncertainty values are used for every direction in the evaluation. 
+
+B. Directional Accuracy 
+
+In an application, Algorithm 1 is run for one or a few directions chosen by the planner, as in Sec. V. To check that its accuracy does not rely on a favorable choice of 
+
+d, we evaluate it here for many position-space directions 
+
+d(θ) = [cos θ sin θ 0 0 0] ⊤, θ ∈ [0 ◦, 360 ◦). The uncertain CORA outer approximation Runc does not depend on d, so it is computed once and its support is evaluated for every 
+
+θ. The direction-conditioned set is recomputed for each θ,since (A⋆, B ⋆) changes with d.For each set R and direction d, Fig. 3 shows the range of the projection d⊤x over x ∈ R :
+
+h
+
+min  
+
+> x∈R
+
+d⊤x, max  
+
+> x∈R
+
+d⊤x
+
+i
+
+= −ρR(−d), ρ R(d). (27) Algorithm 1 targets only the upper end ρR(d). As Fig. 3 shows, across θ, the upper extent of RA⋆,B ⋆ closely tracks that of Runc , whereas the lower extents differ substantially: the selected model is chosen to reach far along +d, not along 
+
+−d.Fig. 2. Reachable sets for the query θ = 60 ◦. Green: uncertain CORA outer approximation Runc . Red: direction-conditioned reachable set 
+
+RA⋆,B ⋆ for the direction d shown by the arrow. Blue: initial set. Along 
+
+d, the red set extends nearly as far as the green set, although it is much smaller in other directions. 
+
+Fig. 3. Range (27) of d(θ)⊤x as a function of θ. Green: uncertain CORA outer approximation Runc . Red: direction-conditioned reachable set 
+
+RA⋆,B ⋆ . Solid curves show the upper extent ρR(d) and dashed curves show the lower extent −ρR(−d). Black curves evaluate (7) directly for the selected model. 
+
+Table I quantifies this for representative directions. The upper extent of RA⋆,B ⋆ is at most 4.8% below that of the uncertain CORA outer approximation and matches it at 
+
+θ = 90 ◦. Because (A⋆, B ⋆) is an admissible model and Runc 
+
+encloses the reachable sets of all admissible models, the optimal value of Problem 1 lies between the two columns; the reported gap therefore provides an upper bound on the loss introduced by the sequential selection in Sec. III. Evaluating (7) directly for the selected model agrees with CORA to within 7.5 × 10 −4 across all directions. Fig. 2 shows both sets for θ = 60 ◦. Along d, the red direction-conditioned set nearly reaches the green uncertain CORA boundary, even though RA⋆,B ⋆ is much smaller overall. This is the intended trade-off: the method focuses on retaining the extent along the queried direction rather than reproducing the complete uncertain set. 
+
+TABLE I UPPER EXTENT ALONG d(θ) OF THE UNCERTAIN CORA OUTER APPROXIMATION (h+unc ) AND THE DIRECTION -CONDITIONED SET (h+sel ), 
+
+> THEIR RELATIVE GAP
+
+, AND THE TIME FOR SELECTING (A⋆, B ⋆) (tsel ) 
+
+> AND FOR THE COMPLETE
+
+ALGORITHM 1 ( ttotal ). C OMPUTING THE UNCERTAIN CORA OUTER APPROXIMATION TAKES 0.457 s .
+
+θ h+unc h+sel gap [%] tsel [s] ttotal [s] 
+
+0◦ 3.564 3.484 2.2 0.0378 0.153 
+
+30 ◦ 4.243 4.167 1.8 0.0375 0.167 
+
+60 ◦ 4.458 4.414 1.0 0.0373 0.146 
+
+90 ◦ 3.478 3.478 0.0 0.0356 0.158 
+
+120 ◦ 1.805 1.718 4.8 0.0339 0.155 
+
+Fig. 4. Computation time versus query direction θ. Green: uncertain CORA propagation, computed once because it is independent of θ. Red: CORA propagation of the direction-conditioned model. The remaining curves show matrix-selection time and the total direction-conditioned pipeline. 
+
+C. Computation Time 
+
+Selecting (A⋆, B ⋆) takes 0.0367 s on average, and com-puting the reachable set of the selected model takes 0.118 s ,for a total of 0.154 s per direction. Computing the uncertain CORA outer approximation takes 0.457 s , so for a single direction Algorithm 1 is about three times faster (Fig. 4). All timings were measured in MATLAB R2026a with CORA [29] on an AMD Ryzen 7 5800H CPU. This advantage holds only when a few directions are needed. The full uncertain set can be queried in any number of directions once computed, whereas Algorithm 1 must be rerun for each direction. With the timings above, the proposed approach remains faster than one uncertain prop-agation for up to two directional queries. This matches the collision-avoidance setting considered next, where we use one direction per nearby agent [9], [36]. V. CLOSED-LOOP MULTI-VEHICLE NAVIGATION We now use the method in closed loop. A controlled vehicle, the ego , must reach a goal while avoiding two other vehicles whose future motion is not known exactly. At each replanning step, the ego asks how far each nearby vehicle can move toward it: the query direction d is the unit vector from that vehicle to the ego. Only one direction per vehicle is needed, which is the regime in which Sec. IV-C shows the method to be faster than computing the full uncertain reachable set. Set-based prediction of the positions that other traffic participants may occupy is used similarly in [4], [13], [21]. 
+
+A. Scenario and Online Prediction 
+
+The simulation takes place in a 14 m × 9 m planar workspace. The ego starts at [0 .75 0.85] ⊤ m, must reach 
+
+pgoal = [13 .15 8 .15] ⊤ m, and moves at a constant speed of 
+
+1.05 m /s. The two other vehicles move according to the non-linear bicycle model (17), each following its own sequence of waypoints. The ego does not know these waypoints or the vehicles’ inputs. The vehicles move in continuous time, but the ego mea-sures their states only at discrete update times tk = k∆t,
+
+k = 0 , 1, . . . , where ∆t = 0 .4 s is the replanning period. We describe the prediction for one vehicle and omit the vehicle index; the same procedure is applied to each vehicle. Let 
+
+ξk = [ xk yk ψk vk]⊤ be the vehicle’s measured state at 
+
+tk. The ego estimates its acceleration and yaw rate by finite differences, 
+
+ˆak = vk − vk−1
+
+∆t , b˙ψk = wrap( ψk − ψk−1)∆t , (28) where wrap( ·) maps the heading difference to [−π, π ].Inverting the yaw-rate equation ˙ψ = ( v/L ) tan δ of (17) [30] gives the steering estimate 
+
+ˆδk = tan −1 L b˙ψk
+
+max( vk, ε )
+
+!
+
+, (29) where ε > 0 avoids division by near-zero speeds. Both estimates are clipped to the actuator limits. We use the measured state and estimated input as the operating point, 
+
+¯ξk = ξk and ¯uk = [ˆ ak ˆδk]⊤, evaluate (18)–(19) there, and build (Ac,k , B c,k ) and the uncertainty sets (21) as in Sec. IV-A. The prediction model is thus re-linearized at every update [31], [37]. For vehicle i at position pi(t) and the ego at pego (t), the query direction is 
+
+di(t) = pego (t) − pi(t)
+
+∥pego (t) − pi(t)∥2
+
+, (30) padded with zeros to the dimension of z and passed to Algorithm 1 with T = 1 .65 s . Direction-conditioned reach-able sets are computed only for vehicles within a 5.3 m 
+
+sensing radius of the ego. The 0.4 s replanning period is longer than the time needed to predict both vehicles with Algorithm 1 ( 2 × 0.154 ≈ 0.31 s , Sec. IV-C), but shorter than computing both full uncertain reachable sets would take (2 × 0.457 ≈ 0.91 s ). In the closed-loop figures, green regions show the un-certain CORA outer approximations Runc associated with the local matrix uncertainty. Red regions show the direction-conditioned reachable sets RA⋆,B ⋆ . The green sets are shown for comparison, while the planner uses the red direction-conditioned sets (Fig. 5).      
+
+> Fig. 5. Reachable sets of Vehicle 1 at one update. The arrow dpoints from Vehicle 1 toward the ego. Green: uncertain CORA outer approximation
+> Runc . Red: direction-conditioned reachable set RA⋆,B ⋆, which the planner avoids.
+
+B. Reachability-Aware Path Planning 
+
+The ego plans its path with a grid-based A* planner [38]. At each update, for every vehicle within the sensing radius, we compute the direction-conditioned reachable sets at several times within the horizon, project them onto the 
+
+(x, y ) plane, and form their union. The result is the set of positions the vehicle may occupy at some time during the horizon. We enlarge this set by an additional 0.28 m 
+
+as a safety margin, consistent with set-based occupancy prediction [13], [21], and denote by Hdir the union of these enlarged sets over all nearby vehicles. The planner then finds the shortest grid path to the goal that does not enter Hdir :
+
+γ⋆ ∈ arg min  
+
+> γ∈Γ
+
+L(γ) s.t. γ ∩ H dir = ∅, (31) where Γ is the set of grid paths from the ego’s current position to pgoal and L(γ) is the Euclidean length of γ. The ego follows γ⋆ until the next update, when Hdir and γ⋆ are recomputed. 
+
+C. Closed-Loop Behavior 
+
+Fig. 6 shows four frames of the simulation. Initially, no vehicle is within the sensing radius, and the ego heads di-rectly toward the goal. (a) When a vehicle enters the sensing radius, its direction-conditioned reachable set is computed. (b) This set blocks the ego’s planned path, so the planner reroutes around it. (c) A second interaction later in the run causes another detour. (d) Once no red direction-conditioned set intersects the route to the goal, the ego proceeds to the goal. The detours are visible as bends in the ego’s executed trajectory. Instead of the direction-conditioned sets, the planner could use the full uncertain reachable sets as obstacles. How-ever, based on the timings of Sec. IV-C, computing them would not fit within the replanning period of Sec. V-A. The direction-conditioned set is not an enclosure of all possible vehicle motions. Rather, it is selected to approach the uncertain-family extent toward the ego, the direction most relevant to the current collision-avoidance decision. This reduces computation and leaves more free space for the ego in directions that are not currently queried. VI. CONCLUSION We presented a direction-conditioned reachability method for linear systems whose state and input matrices are uncer-tain. When a planner needs only the extent of a reachable set along one direction, the method selects a single admissible model (A⋆, B ⋆) that approximately maximizes this extent and computes the reachable set of only that model. On an uncertain linearized bicycle model, the proposed method was about three times faster than computing the reachable set of the full uncertain model family, while the extent along the queried direction was within 5% of the uncertain-family extent in the reported directions. In a closed-loop multi-vehicle simulation, the resulting predictions were fast enough for rapid replanning around moving vehicles. These results indicate that direction-conditioned reacha-bility can serve as a computational tool for planners that repeatedly query reachable sets along a few task-relevant directions. Future work will seek stronger guarantees for the state-matrix selection and apply the method to higher-dimensional models and hardware experiments. REFERENCES 
+
+[1] S. Bansal, M. Chen, S. Herbert, and C. J. Tomlin, “Hamilton–jacobi reachability: A brief overview and recent advances,” in Proc. IEEE Conf. Decision Con-trol (CDC) , 2017, pp. 2242–2253. [2] M. Althoff, G. Frehse, and A. Girard, “Set propaga-tion techniques for reachability analysis,” Annu. Rev. Control Robot. Auton. Syst. , vol. 4, pp. 369–395, 2021. [3] M. Chen and C. J. Tomlin, “Hamilton–jacobi reacha-bility: Some recent theoretical advances and applica-tions in unmanned airspace management,” Annu. Rev. Control Robot. Auton. Syst. , vol. 1, no. 1, pp. 333–358, 2018. [4] A. Li, L. Sun, W. Zhan, M. Tomizuka, and M. Chen, “Prediction-based reachability for collision avoidance in autonomous driving,” in Proc. IEEE Int. Conf. Robot. Autom. (ICRA) , 2021, pp. 7908–7914. [5] K.-C. Hsu, H. Hu, and J. F. Fisac, “The safety filter: A unified view of safety-critical control in autonomous systems,” Annu. Rev. Control Robot. Auton. Syst. ,vol. 7, pp. 47–72, 2024. [6] K. P. Wabersich et al., “Data-driven safety filters: Hamilton–jacobi reachability, control barrier func-tions, and predictive methods for uncertain systems,” 
+
+IEEE Control Syst. Mag. , vol. 43, no. 5, pp. 137–177, 2023. [7] S. Kousik, S. Vaskov, F. Bu, M. Johnson-Roberson, and R. Vasudevan, “Bridging the gap between safety and real-time performance in receding-horizon trajec-tory design for mobile robots,” Int. J. Robot. Res. ,vol. 39, no. 12, pp. 1419–1469, 2020. [8] K. Leung et al., “On infusing reachability-based safety assurance within planning frameworks for human– robot vehicle interactions,” Int. J. Robot. Res. , vol. 39, no. 10–11, pp. 1326–1345, 2020. [9] N. Kochdumper and S. Bak, “Real-time capable deci-sion making for autonomous driving using reachable sets,” in Proc. IEEE Int. Conf. Robot. Autom. (ICRA) ,2024, pp. 14 169–14 176. [10] H. Seo, D. Lee, C. Y. Son, I. Jang, C. J. Tomlin, and H. J. Kim, “Real-time robust receding horizon planning using hamilton–jacobi reachability analysis,” 
+
+IEEE Trans. Robot. , vol. 39, no. 1, pp. 90–109, 2023. [11] M. Althoff and J. M. Dolan, “Online verification of automated road vehicles using reachability analysis,” 
+
+IEEE Trans. Robot. , vol. 30, no. 4, pp. 903–918, 2014. [12] M. Althoff and S. Magdici, “Set-based prediction of traffic participants on arbitrary road networks,” IEEE Trans. Intell. Veh. , vol. 1, no. 2, pp. 187–202, 2016. [13] M. Koschi and M. Althoff, “Set-based prediction of traffic participants considering occlusions and traffic rules,” IEEE Trans. Intell. Veh. , vol. 6, no. 2, pp. 249– 265, 2020. [14] S. Yu, C. Maier, H. Chen, and F. Allg¨ ower, “Tube MPC scheme based on robust control invariant set with application to lipschitz nonlinear systems,” Syst. Control Lett. , vol. 62, no. 2, pp. 194–200, 2013. [15] B. T. Lopez, J. P. How, and J.-J. E. Slotine, “Dynamic tube MPC for nonlinear systems,” in Proc. Amer. Control Conf. (ACC) , 2019, pp. 1655–1662. [16] A. Girard, “Reachability of uncertain linear systems using zonotopes,” in Hybrid Syst.: Comput. Control (HSCC) , vol. 3414, 2005, pp. 291–305. [17] C. L. Guernic and A. Girard, “Reachability analysis of linear systems using support functions,” Nonlinear Anal.: Hybrid Syst. , vol. 4, no. 2, pp. 250–262, 2010. [18] Y. Huang, E. Luo, S. Bak, and Y. Sun, “Reachability analysis for linear systems with uncertain parameters using polynomial zonotopes,” Nonlinear Anal.: Hy-brid Syst. , vol. 56, p. 101 571, 2025. [19] A. Majumdar and R. Tedrake, “Funnel libraries for real-time robust feedback motion planning,” Int. J. Robot. Res. , vol. 36, no. 8, pp. 947–982, 2017. [20] S. Bansal, A. Bajcsy, E. Ratner, A. D. Dragan, and C. J. Tomlin, “A hamilton–jacobi reachability-based framework for predicting and analyzing human motion for safe planning,” in Proc. IEEE Int. Conf. Robot. Autom. (ICRA) , 2020, pp. 7149–7155. [21] M. Koschi and M. Althoff, “SPOT: A tool for set-based prediction of traffic participants,” in Proc. IEEE Intell. Veh. Symp. (IV) , 2017, pp. 1686–1693. [22] A. Girard and C. L. Guernic, “Efficient reachability analysis for linear systems using support functions,” 
+
+IFAC Proc. Volumes , vol. 41, no. 2, pp. 8966–8971, 2008. [23] M. Althoff, C. L. Guernic, and B. H. Krogh, “Reach-able set computation for uncertain time-varying linear (a) A vehicle enters the sensing radius. 
+
+(b) First detour. 
+
+(c) Second interaction. 
+
+(d) Approaching the goal.      
+
+> Fig. 6. Closed-loop simulation. Black: ego’s executed trajectory. Dashed blue: current A* path. Star: goal. Dashed circle: sensing radius. Green: uncertain CORA outer approximations Runc (reference only). Red: direction-conditioned reachable sets RA⋆,B ⋆, which the planner avoids. As the vehicles move, the red direction-conditioned sets and the A* path are recomputed at every update.
+
+systems,” in Proc. ACM Int. Conf. Hybrid Syst.: Com-put. Control (HSCC) , 2011, pp. 93–102. [24] A. Alanwar, A. Koch, F. Allg¨ ower, and K. H. Johans-son, “Data-driven reachability analysis using matrix zonotopes,” in Proc. Learn. Dyn. Control (L4DC) ,2021, pp. 163–175. [25] E. Luo, N. Kochdumper, and S. Bak, “Reachability analysis for linear systems with uncertain parameters using polynomial zonotopes,” in Proc. ACM Int. Conf. Hybrid Syst.: Comput. Control (HSCC) , 2023, pp. 1– 12. [26] H. Das and M. Ornik, “Input matrix optimization for desired reachable set warping of linear systems,” arXiv preprint arXiv:2604.04165 , 2026. [27] D. P. Bertsekas, A. Nedi´ c, and A. E. Ozdaglar, Convex Analysis and Optimization . Athena Scientific, 2003. [28] A. Girard, C. L. Guernic, and O. Maler, “Efficient computation of reachable sets of linear time-invariant systems with inputs,” in Hybrid Syst.: Comput. Con-trol (HSCC) , 2006, pp. 257–271. [29] M. Althoff, “An introduction to CORA 2015,” in Proc. Workshop Appl. Verification Continuous Hybrid Syst. ,2015, pp. 120–151. [30] J. Kong, M. Pfeiffer, G. Schildbach, and F. Bor-relli, “Kinematic and dynamic vehicle models for autonomous driving control design,” in Proc. IEEE Intell. Veh. Symp. (IV) , 2015, pp. 1094–1099. [31] C. Hebisch and D. Abel, “Model predictive trajec-tory tracking for a ground vehicle in a heteroge-neous rendezvous with a fixed-wing aircraft,” IFAC-PapersOnLine , vol. 53, no. 2, pp. 15 693–15 698, 2020. [32] B. M. Gonultas, P. Mukherjee, O. G. Poyrazoglu, and V. Isler, “System identification and control of front-steered ackermann vehicles through differen-tiable physics,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst. (IROS) , 2023, pp. 4347–4353. [33] J. Seong, S. Park, and K. Huh, “Robust lane keeping control with estimation of cornering stiffness and model uncertainty,” in Proc. 16th Int. Symp. Adv. Veh. Control (AVEC) , 2024, pp. 272–278. [34] E. S. Morales, M. Botsch, B. Huber, and A. G. Higuera, “High precision indoor navigation for au-tonomous vehicles,” in Proc. Int. Conf. Indoor Posi-tioning Indoor Navigation (IPIN) , 2019, pp. 1–8. [35] R. Trumpp, D. Hoornaert, and M. Caccamo, “Residual policy learning for vehicle control of autonomous racing cars,” in Proc. IEEE Intell. Veh. Symp. (IV) ,2023, pp. 1–6. [36] P. Holmes et al., “Reachable sets for safe, real-time manipulator trajectory design,” arXiv preprint arXiv:2002.01591 , 2020. [37] X. Song, Y. Shao, and Z. Qu, “A vehicle trajectory tracking method with a time-varying model based on model predictive control,” IEEE Access , vol. 8, pp. 16 573–16 583, 2019. [38] P. E. Hart, N. J. Nilsson, and B. Raphael, “A formal basis for the heuristic determination of minimum cost paths,” IEEE Trans. Syst. Sci. Cybern. , vol. 4, no. 2, pp. 100–107, 1968.
