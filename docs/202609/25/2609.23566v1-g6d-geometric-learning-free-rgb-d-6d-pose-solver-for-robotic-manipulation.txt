@@ -1,0 +1,386 @@
+Title: G6D: Geometric Learning-Free RGB-D 6D Pose Solver for Robotic Manipulation
+
+URL Source: https://arxiv.org/pdf/2609.23566v1
+
+Published Time: Tue, 22 Sep 2026 02:00:32 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# G6D: Geometric Learning-Free RGB-D 6D Pose Solver for Robotic Manipulation 
+
+Yixuan Liang 1, William Chen 2, Yunan Wang 1, Jizhou Yan 1, Zhao Jin 1, Changling Liu 2, and Chuxiong Hu 1,* 
+
+> 1
+
+Tsinghua University 2Sapient Intelligence 
+
+> *
+
+Corresponding author: Chuxiong Hu 
+
+Abstract — 6D object pose estimation is fundamental to robotic manipulation and automation. Recent zero-shot methods have significantly improved generalization to unseen objects, but most still rely on large-scale pretrained models with substantial GPU computation and memory demands. These requirements complicate deployment on robotic platforms where perception, planning, and control share limited computational resources, while learned intermediate representations offer limited geometric interpretability for task-specific adaptation. To address these limitations, we propose G6D, a learning-free, geometry-driven RGB-D 6D pose solver. Given an RGB-D observation, an object instance mask, camera intrinsics, and a CAD model, G6D generates pose hypotheses through template-based geometric matching and refines them using silhouette and depth consistency, forming a purely geometry-driven pose estimation paradigm. This paradigm requires neither pretrained visual models nor target-specific training and preserves interpretable geometric representations throughout pose estimation. Moreover, adjustable hypothesis counts provide flexible accuracy–computation trade-offs, while a CPU-only configuration supports deployment without GPU resources. Experiments on LineMOD and five BOP19 datasets demonstrate advanced performance. Real-world pick-and-place experiments further demonstrate G6D’s applicability to robotic manipu-lation. The complete project is publicly available at https: //ai4control.github.io/G6D-Project-Page .
+
+I. I NTRODUCTION 
+
+6D object pose estimation recovers the 3D translation and rotation of an object and is fundamental to robotic manipu-lation tasks. Prior studies in robotics have investigated pose estimation in cluttered scenes, robotic grasping, industrial objects, and articulated-object manipulation [1]–[6]. However, the requirements of robotic systems for pose estimation extend beyond accuracy. Objects encountered in real-world manipulation are diverse and continuously chang-ing, requiring pose estimators to generalize to novel instances without repeated data collection and retraining. Meanwhile, the inference process should preserve interpretable intermedi-ate representations to facilitate prior incorporation, constraint construction, failure analysis, and manipulation decision-making, enabling adaptation to task-specific requirements across diverse robotic applications. Moreover, pose estimation is only one component of the perception–planning–control pipeline and must share computational resources with other modules, such as scene understanding, motion planning, and control. Substantial and relatively fixed computational and memory requirements therefore limit deployment across robotic platforms with different computational budgets. Con-sequently, a practical robotic pose estimator should jointly  
+
+> Fig. 1. Overview of G6D: offline template construction and online geometry-driven pose estimation for robotic manipulation.
+
+provide accuracy, generalization, interpretability, and adapt-ability to heterogeneous computational budgets. Existing supervised RGB-D pose estimators have achieved strong performance by exploiting appearance and geometric cues. For example, DenseFusion [7] fuses RGB and point-cloud features for pose prediction and iterative refinement, PVN3D [8] estimates poses through 3D keypoint voting, and FFB6D [9] strengthens feature interaction through bidirectional RGB-D fusion. Other related approaches include PointPoseNet [10], G2L-Net [11], and DFTr [12]. However, these methods generally require object- or dataset-specific training, making additional data preparation and retraining necessary when new objects are introduced. Zero-shot RGB-D pose estimation alleviates this limitation by generalizing to unseen objects without target-specific retraining. Existing ap-proaches typically transfer pretrained representations to novel objects and combine hypothesis generation with matching, registration, or learned refinement. FoundationPose [13] uses pretrained networks for pose refinement and ranking, SAM-6D [14] combines instance segmentation with coarse-to-fine point matching, and FreeZe [15] uses frozen geometric and visual features for 3D registration. Other related approaches include FreeZeV2 [16], MatchU [17], ZeroPose [18], and the depth-based OVE6D [19]. Despite their strong accuracy and generalization to unseen arXiv:2609.23566v1 [cs.CV] 20 Sep 2026 Fig. 2. Detailed G6D pipeline: offline template construction, online correspondence matching and pose initialization, silhouette-guided selection, depth alignment, and mask–depth multi-hypothesis optimization. 
+
+objects, existing zero-shot methods still fall short of several requirements for practical robotic deployment, and zero-shot does not imply learning-free. Their reliance on large pre-trained vision models limits the geometric interpretability of intermediate reasoning, while heavy and relatively fixed neural inference pipelines impose non-trivial GPU computation and memory demands. These characteristics hinder task-specific adaptation and deployment across robotic platforms with different computational budgets. To address these limitations, this work introduces G6D, a learning-free, geometry-driven RGB-D 6D pose solver, as illustrated in Fig. 1. The main contributions are: 1) A learning-free, geometry-driven RGB-D pose esti-mation paradigm that eliminates both pretrained visual models and target-specific training, while maintaining explicit geometric intermediate representations through-out inference. 2) A geometric multi-hypothesis estimation and refine-ment pipeline that addresses pose optimization under uncertain initialization by preserving multiple candidate poses and progressively refining them using silhouette and depth consistency. 3) A flexible deployment design that adapts to different computational budgets through adjustable hypothesis counts and a CPU-only configuration, enabling de-ployment across robotic platforms with heterogeneous computational resources. II. R ELATED WORK 
+
+A. RGB-D-based 6D Pose Estimation 
+
+Existing learning-based RGB-D pose estimators exploit complementary appearance and geometric cues from RGB images and depth observations. Representative methods such as DenseFusion [7], G2L-Net [20], and related RGB-D regression approaches [4], [5] directly infer object poses from fused image and point-cloud features. Other methods, including PointPoseNet [10], PVN3D [8], FFB6D [9], and RCVPose [21], learn geometric keypoints or point-wise correspondences and recover poses through voting or rigid alignment. Although these methods achieve strong accuracy, they generally require object- or dataset-specific training, limiting direct generalization to unseen objects. 
+
+B. Zero-shot RGB-D Pose Estimation 
+
+Recent zero-shot RGB-D methods aim to estimate poses of unseen objects without target-specific training. Representative approaches include OVE6D [19], FoundationPose [13], SAM-6D [14], MatchU [17], FreeZe [15], FreeZeV2 [16], and ZeroPose [18]. These methods typically combine CAD models or reference observations with learned visual features and geometric matching to generate and refine pose hypotheses. Despite their strong generalization and accuracy, many still rely on pretrained visual models and neural inference, leading to limited geometric interpretability and non-trivial computational demands. 
+
+C. Geometry-driven Pose Estimation 
+
+Geometry-driven pose estimation traditionally relies on hand-crafted local features such as SIFT [22] and ORB [23] to establish 2D–3D correspondences, followed by geometric solvers such as PnP/EPnP [24] with RANSAC [25] to recover object poses. More recently, differentiable rendering techniques such as nvdiffrast [26] have enabled image-space pose refinement [27]. However, existing geometry-based pipelines often achieve lower accuracy than learning-based methods and can suffer from unreliable initialization and limited robustness under challenging appearance conditions. III. M ETHOD 
+
+A. Overview 
+
+Given an RGB-D observation (I, D ) of a known target object, together with its instance mask M , camera intrinsics 
+
+K, and metric CAD mesh G, G6D estimates the object-to-camera pose Tc←o ∈ SE(3) under a geometry-driven paradigm as shown in Fig. 2, requiring neither task-specific training nor pretrained pose networks. G6D follows a two-stage design with offline geometric representation construction and online multi-hypothesis pose inference. In the offline stage, multi-view RGB-D renderings are used to build an object-specific template bank containing ORB descriptors and their associated metric 3D points. During online inference, G6D matches query features against the template bank to establish 2D–3D correspondences and generates diverse pose hypotheses using MSAC-PnP. These hypotheses are then evaluated by silhouette consistency, geometrically aligned with the observed depth through trimmed ICP, and refined by mask–depth multi-hypothesis pose optimization (MHPO) using differentiable rasterization. An optional geometry-driven post-refinement stage can be activated to further improve pose accuracy when additional computation is available. 
+
+B. Offline Metric Correspondence Templates 
+
+For each CAD object, G6D constructs a reusable template bank once offline. We sample NT templates over approxi-mately uniform viewing directions and in-plane rotations. For template j, rasterization provides an RGB image Irj , mask 
+
+M rj , metric depth Drj , and known pose 
+
+T rj =
+
+Rrj trj
+
+0⊤ 1
+
+
+
+∈ SE(3) . (1) Rendered templates and online observations share the same shape-preserving normalization. Given a mask bounding box of width w and height h, the crop side length is 
+
+s = (1 + 2 p) max( w, h ), where p denotes the padding ratio. The resulting square crop is uniformly resized to S × S,while the inverse affine transformation Arj is retained to map detected features back to the original image coordinates. This normalization adjusts object scale without distorting local shape. ORB [23] features are extracted from the masked and contrast-normalized template crop. Let vji denote the original image location of feature i in template j, dji ∈ { 0, 1}256 
+
+its binary descriptor, and zji = Drj (vji ) its rendered depth. Since the rendering pose and metric depth are known, the corresponding CAD point is 
+
+Xoji = ( Rrj )⊤  zji K−1 evji − trj
+
+ . (2) The resulting template bank is 
+
+B =
+
+n
+
+M rj , T rj , A rj , (dji , Xoji ) Nj
+
+> i=1
+
+oNT
+
+> j=1
+
+. (3) Once constructed, B is reused for all subsequent pose estimation of the corresponding object. 
+
+C. Feature Matching and MSAC-PnP 
+
+For the query observation, G6D applies the same masking, square cropping, and contrast normalization as in the offline stage. ORB descriptors dqi are then extracted, and their feature locations are mapped back to the original image coordinates as uqi .For template j, each query descriptor is matched to its nearest template descriptor using Hamming distance, and matches satisfying δji < τ H are retained. The resulting 2D– 3D correspondence set is 
+
+Cj =
+
+n
+
+(uqi , Xojπ j (i)) | δji < τ H
+
+o
+
+, (4) where πj (i) denotes the index of the nearest template descrip-tor to query feature i, and δji is the corresponding Hamming distance. Templates with insufficient valid correspondences are discarded. Candidate templates are ranked using 
+
+Qj = X
+
+> i∈I j
+
+
+
+1 − δji 
+
+τH
+
+
+
+, (5) where Ij denotes the retained match set. This score jointly favors correspondence quantity and descriptor quality. The top NP correspondence sets are retained for pose estimation. For each retained set, G6D estimates a metric pose using MSAC-PnP [28]. Let ΠK (·) denote perspective projection. The robust objective is 
+
+bTj = arg min  
+
+> T∈SE(3)
+
+X
+
+> i∈I j
+
+min 
+
+
+
+ΠK (T Xojπ j (i)) − uqi
+
+> 22
+
+, τ 2
+
+> P
+
+
+
+.
+
+(6) The inlier threshold τP is scaled according to the projected target size and clipped to a valid pixel range, improving robustness across different image scales. Valid solutions are locally refined using the MSAC inliers, yielding the initial pose set P = { bTj }Nvalid  
+
+> j=1
+
+.
+
+D. Observable Selection and Dense Depth Alignment 
+
+Low reprojection error does not necessarily imply consis-tency with the complete visible object. G6D therefore renders the mask cM (T ) of each valid PnP hypothesis and evaluates target coverage and intersection-over-union: 
+
+C(T ) = | cM (T ) ∩ M ||M | , J(T ) = | cM (T ) ∩ M || cM (T ) ∪ M | . (7) The observable error is defined as 
+
+Eobs (T ) = ωC [1 − C(T )] + (1 − ωC )[1 − J(T )] . (8) Coverage suppresses hypotheses explaining only a small fraction of the target, while IoU penalizes both missing and excessive rendered regions. The NH hypotheses with the lowest observable error form 
+
+HP = T Pk 
+
+> NH
+> k=1
+
+. (9) Metric depth is then used to refine the retained pose hypotheses. For each retained pose, the CAD model is rendered to obtain ( cMk, bDk). Valid observed pixels u inside 
+
+M are back-projected into 
+
+Y = D(u)K−1 eu | u ∈ M, D (u) > 0 , (10) while cMk and bDk define the corresponding rendered source cloud bYk.After deterministic image-space subsampling, G6D re-fines each retained hypothesis using trimmed point-to-point ICP [29]. At each iteration, nearest-neighbor correspondences are computed, and only the closest fraction ρ with residuals below rmax = max( r0, κ ddG ) is retained for rigid alignment, where dG is the CAD diameter, κd controls the object-scale-dependent tolerance, and r0 provides a minimum metric cutoff for small objects. This trimming suppresses outliers caused by occlusion, mask leakage, and depth discontinuities. All NH
+
+hypotheses are refined independently, yielding the aligned set 
+
+HI for subsequent refinement. 
+
+E. Mask–Depth Multi-Hypothesis Pose Optimization 
+
+MHPO preserves the remaining pose hypotheses and refines them through differentiable rasterization [26]. Each hypothesis 
+
+Tk ∈ H I is rendered with the CAD model G to obtain a soft mask cMk and metric depth bDk.The silhouette mask loss is 
+
+LM (Tk) = 1
+
+HW 
+
+X
+
+> u
+
+cMk(u) − M (u) . (11) Depth consistency is evaluated only over regions where the observed target, valid measured depth, and rendered object overlap. We first define the visible-object depth scale as 
+
+zM =
+
+P 
+
+> u
+
+M (u)1D> 0D(u)
+
+P 
+
+> u
+
+M (u)1D> 0 + ϵ , (12) and the valid overlap weight as 
+
+wk(u) = M (u)1D> 0 cMk(u). (13) The robust normalized depth loss is 
+
+LD (Tk) = 
+
+P 
+
+> u
+
+wk(u)ρβ
+
+ bDk (u)−D(u)
+
+> zM
+
+P 
+
+> u
+
+wk(u) + ϵ , (14) where ρβ denotes the Huber penalty. This masking prevents invalid depth measurements and non-overlapping regions from introducing spurious gradients. The multi-hypothesis objective is 
+
+LMHPO = 1
+
+NHNHX
+
+> k=1
+
+[LM (Tk) + λD LD (Tk)] . (15) Optimization and hypothesis selection are deliberately separated. Pose parameters are optimized using Eq. (15), whereas hypothesis quality is evaluated using the physical consistency score 
+
+S(Tk) = 1 − J(Tk) + λS
+
+P 
+
+> u
+
+wk(u) bDk(u) − D(u)
+
+zM
+
+P 
+
+> u
+
+wk(u) + ϵ . (16) The depth term is a normalized weighted mean absolute residual, which prevents positive and negative depth errors from canceling. It is used only for hypothesis selection, while pose optimization uses the robust Huber loss in Eq. (14). Across all hypotheses and optimization steps, G6D retains the best state encountered: 
+
+TA = arg min  
+
+> k,ℓ
+
+S(T (ℓ) 
+
+> k
+
+), SA = S(TA). (17) This historical checkpoint prevents an accurate intermediate pose from being lost due to later optimization overshoot. Adam is used for pose optimization, with early termination when the best physical consistency score falls below a confidence threshold; otherwise, optimization continues to the maximum iteration budget. 
+
+F. Conditional Geometric Post-Refinement (Optional) 
+
+The MHPO output (TA, S A) is taken as the final estimate by default. When additional computation is available and further accuracy improvement is desired, an optional post-refinement cascade can be enabled. It first evaluates residual geometric and appearance discrepancies between the rendered CAD model and the observed RGB-D data, then explores complementary pose hypotheses from depth- and appearance-based cues, followed by the same ICP and MHPO refinement. A new estimate is accepted only when it achieves a sufficiently lower physical consistency score than TA. More details can be found in the released code. IV. E XPERIMENTS 
+
+A. Evaluation Protocol and Metrics 
+
+We evaluate G6D on the full LineMOD test split [32] and five BOP19 datasets: LM-O, T-LESS, TUD-L, IC-BIN, and YCB-V [33]. For LineMOD, we report ADD for asymmetric objects and ADD-S for symmetric objects: 
+
+eADD = 1
+
+|X | 
+
+X
+
+> x∈X
+
+∥(Rx + t) − (R∗x + t∗)∥2 , (18) 
+
+eADD -S = 1
+
+|X | 
+
+X
+
+> x∈X
+
+min  
+
+> y∈X
+
+∥(Rx + t) − (R∗y + t∗)∥2 . (19) A pose is considered correct when eADD( −S) < τ d , where d
+
+is the object diameter. We report results at τ = 0 .1.For BOP, we follow the official average recall metric [33], 
+
+AR = 13 (AR VSD + AR MSSD + AR MSPD ) . (20) G6D constructs NT = 324 offline templates, retains the top NP = 256 correspondence sets for MSAC-PnP, and preserves NH = 18 hypotheses for depth alignment and MHPO refinement. ORB matching uses τH = 64 , observable ranking uses ωC = 0 .70 , trimmed ICP uses ρ = 0 .70 and 
+
+κd = 0 .35 , and MHPO uses λD = 0 .1 and λS = 10 . Unless otherwise specified, the same configuration is used throughout all experiments. As a pose solver, G6D directly takes an RGB-D observation, an instance mask, a CAD model, and camera intrinsics K
+
+as input. Among these inputs, mask quality is particularly important because G6D is explicitly driven by geometric consistency: the mask defines the target region for feature extraction, guides silhouette-based hypothesis ranking, con-strains depth alignment, and directly participates in the mask– depth objective of MHPO. Consequently, G6D can be more sensitive to mask quality than learning-based methods that implicitly encode stronger appearance priors. Although this effect is relatively limited on LineMOD, where occlusion and scene complexity are moderate, it becomes non-negligible Table I RGB-D 6D pose estimation results on LineMOD using ADD(-S)@ 0.1d (%). ✓/✗ indicate whether a method is free of training, target-specific fine-tuning, and target reference RGB-D images, respectively. Eggbox and glue ( ∗) use ADD-S; Avg. is the equal-object mean over all 13 objects.                                                                                                                                                                                                                                                 
+
+> Type Method Train.-free Tune-free Ref.-free ape bench cam can cat drill duck egg ∗glue ∗hole iron lamp phone Avg.
+> Instance
+> DenseFusion [7] ✗✗✓92.3 93.2 94.4 93.1 96.5 87.0 92.3 99.8 100.0 92.1 97.0 95.3 92.8 94.3 PointPoseNet [10] ✗✗✓97.9 99.6 98.5 99.4 99.3 97.5 96.1 97.9 100.0 97.8 99.4 99.1 98.9 98.4 G2L-Net [11] ✗✗✓96.8 96.1 98.2 98.0 99.2 99.8 97.7 100.0 100.0 99.0 99.3 99.5 98.9 98.7 PVN3D [8] ✗✗✓97.3 99.7 99.6 99.5 99.8 99.3 98.2 99.8 100.0 99.9 99.7 99.8 99.5 99.4 FFB6D [9] ✗✗✓98.4 100.0 99.9 99.8 99.9 100.0 98.4 100.0 100.0 99.8 99.9 99.9 99.7 99.7 DFTr [12] ✗✗✓98.6 100.0 100.0 100.0 100.0 100.0 99.1 100.0 100.0 100.0 99.9 100.0 99.6 99.8
+> Few-shot
+> LatentFusion [30] ✗✓✗88.0 92.4 74.4 88.8 94.5 91.7 68.1 96.3 94.9 82.1 74.6 94.7 91.5 87.1 FS6D [31] ✗✗✗74.0 86.0 88.5 86.0 98.5 81.0 68.5 100.0 99.5 97.0 92.5 85.0 99.0 88.9 FS6D+ICP [31] ✗✗✗78.0 88.5 91.0 89.5 97.5 92.0 75.5 99.5 99.5 96.0 87.5 97.0 97.5 91.5 FoundationPose †[13] ✗✓✓99.0 100.0 100.0 100.0 100.0 100.0 99.4 100.0 100.0 99.9 100.0 100.0 100.0 99.9
+> G6D ✓✓✓99.1 100.0 99.9 100.0 100.0 99.9 96.4 100.0 100.0 91.6 100.0 99.6 99.8 99.0
+> G6D (CPU-only) ✓✓✓67.0 100.0 99.7 97.4 98.6 98.8 77.0 100.0 99.6 73.8 99.8 94.9 99.5 92.8 Zero-shot G6D + Post-Refine ✓✓✓99.8 100.0 100.0 100.0 100.0 100.0 98.7 100.0 100.0 99.7 100.0 100.0 100.0 99.9
+
+Table II Zero-shot RGB-D 6D pose estimation on five BOP19 datasets using the official average recall (AR, %). AR 5 is the unweighted mean over the five datasets. Mask sources are indicated in parentheses. Test denotes dataset-provided ground-truth visible masks; SAM-6D and NOCTIS denote predicted masks. Training-related flags refer to the pose estimator, excluding mask generation. Method Pretrain-free Finetune-free LM-O T-LESS TUD-L IC-BIN YCB-V AR 5
+
+MatchU [17] (CNOS) ✗ ✓ 64.4 52.7 89.8 44.2 72.6 64.7 SAM-6D [14] (SAM-6D) ✗ ✓ 69.9 51.5 90.4 58.8 84.5 71.0 FoundationPose [13] (SAM-6D) ✗ ✓ 75.6 64.6 92.3 50.8 88.9 74.4 FreeZe [15] (SAM-6D) ✗ ✓ 71.6 53.1 94.9 54.5 84.0 71.6 FreeZeV2 [16] (SAM-6D) ✗ ✓ 73.3 59.7 95.2 60.9 87.8 75.4 G6D (Test) ✓ ✓ 77.9 81.1 94.6 60.7 84.0 79.7 G6D (SAM-6D) ✓ ✓ 59.8 49.7 81.6 38.9 59.9 58.0 G6D (NOCTIS) ✓ ✓ 60.9 50.8 82.5 38.9 66.2 59.9 
+
+Additional G6D deployment/refinement variants 
+
+G6D CPU-only (Test) ✓ ✓ 61.0 73.3 80.2 49.8 74.7 67.8 G6D CPU-only (SAM-6D) ✓ ✓ 49.1 46.6 66.0 37.6 59.5 51.8 G6D CPU-only (NOCTIS) ✓ ✓ 49.3 48.2 68.1 38.7 64.6 53.8 G6D + Post-refine (Test) ✓ ✓ 80.0 81.4 94.8 61.9 83.7 80.3 G6D + Post-refine (SAM-6D) ✓ ✓ 61.6 50.5 83.3 38.6 59.9 58.8 G6D + Post-refine (NOCTIS) ✓ ✓ 63.8 52.7 85.3 39.2 66.3 61.5 For predicted masks, G6D uses detector-confidence top-N selection; FreeZeV2 uses N + 1 masks with its own pose ranking. 
+
+Fig. 3. Qualitative 6D pose estimation results of G6D on LineMOD and five BOP19 datasets: LM-O, T-LESS, TUD-L, IC-BIN, and YCB-V. Projected 3D bounding boxes and object contours illustrate pose alignment across diverse object geometries, textures, and viewpoints, including challenging scenes with clutter and partial occlusion. on the more challenging BOP datasets. Therefore, evaluating G6D only with dataset-provided ground-truth masks may lead to an overly favorable comparison with modern learning-based methods that operate on predicted masks. To provide a more comprehensive and fair evaluation, we therefore report three BOP settings using: 1) the dataset-provided ground-truth masks, 2) SAM-6D [34] masks, consistent with the segmentation source used by the corresponding baseline, and 3) masks produced by the more recent NOCTIS [35] method. Beyond the effect of mask quality, we further characterize G6D under different inference configurations. Specifically, we report three variants: the standard G6D pipeline, G6D with optional post-refinement, and a CPU-only variant. The CPU-only version removes GPU-dependent differentiable-rendering refinement and related stages, providing a practical reference for deployment on resource-constrained platforms without access to high-performance GPUs. 
+
+B. Results and Discussion 
+
+Table I summarizes the LineMOD results. Without pre-trained models, target-specific fine-tuning, or reference RGB-D images, the standard G6D achieves 99.0% ADD(-S) recall at 0.1d, remaining competitive with highly optimized supervised and zero-shot approaches. The optional post-refinement further improves the average recall to 99.9%, while the CPU-only variant still reaches 92.8%. These results show that a purely geometry-driven pipeline can achieve high pose accuracy while retaining substantial deployment flexibility. Table II further evaluates G6D on the more challenging BOP19 benchmarks under different mask sources. With dataset-provided masks, the standard G6D achieves 79.7% AR 5, outperforming all compared zero-shot RGB-D methods while requiring neither pretraining nor target-specific fine-tuning. Post-refinement further increases AR 5 to 80.3%, whereas the CPU-only variant retains 67.8%, demonstrating that the core geometric pipeline remains effective even without GPU-dependent differentiable refinement. With predicted masks, standard G6D obtains 58 .0% AR 5
+
+using SAM-6D and 59 .9% using NOCTIS; post-refinement reaches 61 .5% with NOCTIS. These scores remain below the listed baselines. The difference from the supplied-mask setting motivates a distinction between missed detections, inaccurate mask boundaries, and genuine object occlusion. The results support deployment where reliable target masks are available, while limiting broader claims in cluttered scenes. Figure 3 further illustrates the estimation quality of G6D across diverse objects and scenes. Overall, the results highlight the main advantage of G6D: favorable pose accuracy can be achieved without pretrained visual representations or target-specific learning, while preserving explicit geometric intermediate representations and supporting deployment from CPU-only systems to higher-performance GPU platforms. Its current limitation lies primarily in the dependence on reliable object-region priors, making G6D most effective in scenarios where accurate masks can be readily obtained. 
+
+C. Stage and Component Ablation 
+
+To ensure a consistent comparison, all results are evaluated on the same 15,800 LineMOD frames used for the main experiment. As illustrated in Fig. 4 and Table III, G6D progressively improves pose accuracy throughout its sequential pipeline. The template seed alone achieves 8.85% ADD(-S)@ 0.1d
+
+recall, which increases to 33.94% after MSAC-PnP. Observ-able selection provides the largest gain, improving recall by 37.86 pp to 71.80% by filtering hypotheses according to global silhouette consistency. Subsequent depth ICP further raises recall to 90.67%, demonstrating the effectiveness of metric depth for correcting residual geometric errors. Finally, MHPO refines the remaining hypotheses through mask–depth differentiable rendering and achieves 98.93% recall. These results show that the overall performance arises from the progressive interaction of correspondence-based initialization, observation-consistent selection, depth alignment, and multi-hypothesis refinement.           
+
+> Table III Cumulative ADD(-S)@ 0.1drecall through the five stages of the G6D primary pipeline on all 15,800 LineMOD frames. Arrows indicate execution order.
+> Stage 1
+> Template seed →
+> Stage 2
+> MSAC-PnP initialization →
+> Stage 3
+> Observable selection →
+> Stage 4
+> Depth ICP →
+> Stage 5
+> MHPO refinement 8.85% 33.94% 71.80% 90.67% 98.93%
+> Fig. 4. Stage-wise accuracy improvement along the G6D pipeline.
+
+Table IV separates the roles of selection and continuous refinement. Removing MHPO causes the largest recall drop of 8.259%, followed by removing both ranking stages (7.253%), observable ranking (6.127%), and PnP initialization (3.842%). Within MHPO, disabling pose updates, mask consistency, depth consistency, and depth-aware selection reduces recall by 1.500%, 0.310%, 0.608%, and 1.101%, respectively, while dense depth ICP contributes a smaller gain of 0.468%. Template pre-ranking and progressive stopping have only marginal effects on final recall, with drops of 0.114% Table IV Component ablation of the G6D primary pipeline on LineMOD using ADD(-S)@ 0.1d. Drop denotes the performance decrease from the full system.                               
+
+> Configuration Recall (%) ↑Drop (pp) ↓
+> Full system 98.930 –w/o Template pre-ranking ‡98.816 0.114 w/o PnP 95.089 3.842 w/o Observable ranking 92.804 6.127 w/o Both ranking stages 91.677 7.253 w/o Dense depth ICP 98.462 0.468 w/o Entire MHPO §90.671 8.259 w/o MHPO pose update †97.430 1.500 MHPO w/o Mask loss 98.620 0.310 MHPO w/o Depth loss 98.323 0.608 Selector w/o Depth 97.829 1.101 w/o Progressive stopping 98.924 0.006
+> †A forward render is retained for hypothesis selection, but no pose update is performed.
+> ‡The same number of templates is passed to PnP, but without quality-based pre-ranking.
+> §The entire MHPO block is bypassed.
+
+and 0.006%, respectively. Their main role is computational pruning: pre-ranking removes low-quality correspondence sets before pose solving, while progressive stopping terminates refinement once sufficient geometric consistency is reached. Both mechanisms therefore reduce unnecessary computation, making them important components of the overall pipeline. Overall, the ablations confirm that G6D benefits from complementary geometric initialization, hypothesis selection, depth alignment, and multi-hypothesis refinement. 
+
+D. Deployment Flexibility 
+
+G6D supports flexible deployment across computational budgets by adjusting the number of retained hypotheses 
+
+K = NH . The recall and peak GPU memory results in Table V cover the full LineMOD test set. The reference implementation measures peak PyTorch-allocated GPU mem-ory. Increasing K consistently improves pose accuracy while increasing GPU memory usage. With only K = 2 , G6D achieves 95.39% ADD(-S) recall with a peak GPU memory footprint of 0.13 GiB, while K = 64 improves recall to 99.62% at 3.38 GiB.                                          
+
+> Table V Accuracy–memory–runtime trade-off of G6D on LineMOD.
+> Budget Recall (%) ↑GPU Mem. (GiB) ↓Time (s) ↓
+> CPU-only 92.78 –1.663
+> K= 2 95.39 0.13 0.914
+> K= 4 97.18 0.24 0.862
+> K= 8 98.07 0.45 0.886
+> K= 12 98.57 0.66 0.951
+> K= 18 98.93 0.97 1.067
+> K= 24 99.13 1.28 1.172
+> K= 36 99.36 1.91 1.420
+> K= 64 99.62 3.38 1.975
+
+To assess runtime under practical deployment conditions, we use a consumer-grade personal computer with an Intel Core i9-13900HX CPU, 64 GB RAM, and an NVIDIA GeForce RTX 4090 Laptop GPU with 16 GB VRAM. Using a fixed random seed, we sample 100 distinct frames per object from four visible-mask-area quartiles, each further divided into three ordered frame-index groups. All configurations use the same 1,300 frames and supplied masks. Mean latency is weighted by stratum population within each object and then averaged equally across the 13 objects. Timing covers preprocessing and pose estimation from decoded RGB-D and mask arrays to the final pose on the CPU, with CUDA synchronization at GPU timing boundaries. Offline template construction, CUDA setup, warmup, image decoding, segmentation, and visualization are excluded. On this personal computer, G6D achieves a mean online latency of 0.862 s at K = 4 and 1.975 s at K = 64 . The CPU-only variant achieves 92.78% recall without GPU resources, with a mean latency of 1.663 s. These results demonstrate deployment flexibility across CPU-only systems and GPU platforms with different memory and runtime budgets. In addition, the explicit geometric intermediate represen-tations allow task-specific priors, such as gravity direction, support surfaces, and restricted object orientations, to guide template and pose-hypothesis pruning, offering further op-portunities to reduce computation in constrained robotic applications. 
+
+E. Real-World Robotic Deployment         
+
+> Fig. 5. Pose-guided sequential tabletop tidying with G6D. (a)–(d) Representative stages of grasping and transferring objects into a storage bin. Bottom: estimated pose overlays for a carton, a bottle, and a canister.
+
+To demonstrate practical applicability, we deploy G6D in a tabletop tidying task using a Franka Emika robot and an externally mounted Azure Kinect DK RGB-D camera. The task involves grasping everyday objects with different geometric shapes and transferring them into a storage bin. LangSAM [36], [37] provides the target instance masks, which G6D uses together with RGB-D observations and CAD models to estimate object poses. In the demonstrated trials, G6D produced pose estimates suitable for guiding robotic grasping when the target masks were correctly segmented. Figure 5 shows representative manipulation stages and pose visualizations. This operator-supervised demon-stration illustrates the integration of G6D into a sequential manipulation pipeline without target-specific network training. The complete process and additional results are provided in the supplementary video. V. C ONCLUSION 
+
+This work presented G6D, a learning-free, geometry-driven RGB-D 6D pose solver. By combining geometric correspon-dence matching, multi-hypothesis reasoning, and mask–depth refinement, G6D provides a purely geometry-driven pose estimation paradigm and achieves favorable performance without pretrained visual models or target-specific training. Its explicit geometric intermediate representations support interpretable reasoning, while adjustable hypothesis counts and a CPU-only configuration enable deployment across diverse computational budgets. Real-world pick-and-place experiments further demonstrate its applicability to robotic manipulation, making G6D a practical solution for robotic and industrial applications. REFERENCES [1] C. Mitash, A. Boularias, and K. E. Bekris, “Improving 6D pose estimation of objects in clutter via physics-aware monte carlo tree search,” in IEEE International Conference on Robotics and Automation ,2018, pp. 1–8. [2] M. Zhang and K. Hauser, “Non-penetration iterative closest points for single-view multi-object 6D pose estimation,” in IEEE International Conference on Robotics and Automation , 2022, pp. 1520–1526. [3] X. Deng, Y. Xiang, A. Mousavian, C. Eppner, T. Bretl, and D. Fox, “Self-supervised 6D object pose estimation for robot manipulation,” in 
+
+IEEE International Conference on Robotics and Automation , 2020, pp. 3665–3671. [4] K. Kleeberger and M. F. Huber, “Single shot 6D object pose estimation,” in IEEE International Conference on Robotics and Automation , 2020, pp. 6239–6245. [5] M. Tian, L. Pan, M. H. Ang, and G. H. Lee, “Robust 6D object pose estimation by learning RGB-D features,” in IEEE International Conference on Robotics and Automation , 2020, pp. 6218–6224. [6] J. Huang, H. Lin, T. Wang, Y. Fu, Y.-G. Jiang, and X. Xue, “You only estimate once: Unified, one-stage, real-time category-level articulated object 6D pose estimation for robotic grasping,” in IEEE International Conference on Robotics and Automation , 2025, pp. 14 044–14 051. [7] C. Wang, D. Xu, Y. Zhu, R. Mart´ ın-Mart´ ın, C. Lu, L. Fei-Fei, and S. Savarese, “DenseFusion: 6D object pose estimation by iterative dense fusion,” in IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2019, pp. 3343–3352. [8] Y. He, W. Sun, H. Huang, J. Liu, H. Fan, and J. Sun, “PVN3D: A deep point-wise 3D keypoints voting network for 6DoF pose estimation,” in 
+
+IEEE/CVF Conference on Computer Vision and Pattern Recognition ,2020, pp. 11 629–11 638. [9] Y. He, H. Huang, H. Fan, Q. Chen, and J. Sun, “FFB6D: A full flow bidirectional fusion network for 6D pose estimation,” in IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2021, pp. 3003–3013. [10] W. Chen, J. Duan, H. Basevi, H. J. Chang, and A. Leonardis, “PointPoseNet: Point pose network for robust 6D object pose estimation,” in IEEE Winter Conference on Applications of Computer Vision , 2020, pp. 2813–2822. [11] W. Chen, X. Jia, H. J. Chang, J. Duan, and A. Leonardis, “G2L-Net: Global to local network for real-time 6D pose estimation with embedding vector features,” in IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2020, pp. 4233–4242. [12] J. Zhou, K. Chen, L. Xu, Q. Dou, and J. Qin, “Deep fusion transformer network with weighted vector-wise keypoints voting for robust 6D object pose estimation,” in IEEE/CVF International Conference on Computer Vision , 2023, pp. 13 967–13 977. [13] B. Wen, W. Yang, J. Kautz, and S. Birchfield, “FoundationPose: Unified 6D pose estimation and tracking of novel objects,” in IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2024, pp. 17 868–17 879. [14] J. Lin, L. Liu, D. Lu, and K. Jia, “SAM-6D: Segment anything model meets zero-shot 6D object pose estimation,” in IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2024, pp. 27 906–27 916. [15] A. Caraffa, D. Boscaini, A. Hamza, and F. Poiesi, “FreeZe: Training-free zero-shot 6D pose estimation with geometric and vision foundation models,” in European Conference on Computer Vision , 2024, pp. 414– 431. [16] A. Caraffa, D. Boscaini, and F. Poiesi, “Accurate and efficient zero-shot 6D pose estimation with frozen foundation models,” arXiv preprint arXiv:2506.09784 , 2025. [17] J. Huang, H. Yu, K.-T. Yu, N. Navab, S. Ilic, and B. Busam, “MatchU: Matching unseen objects for 6D pose estimation from RGB-D images,” in IEEE/CVF Conference on Computer Vision and Pattern Recognition ,2024, pp. 10 095–10 105. [18] J. Chen, Z. Zhou, M. Sun, R. Zhao, L. Wu, T. Bao, and Z. He, “ZeroPose: CAD-prompted zero-shot object 6D pose estimation in cluttered scenes,” IEEE Transactions on Circuits and Systems for Video Technology , vol. 35, no. 2, pp. 1251–1264, 2025. [19] D. Cai, J. Heikkil¨ a, and E. Rahtu, “OVE6D: Object viewpoint encoding for depth-based 6D object pose estimation,” in IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2022. [20] G. Gao, M. Lauri, Y. Wang, X. Hu, J. Zhang, and S. Frintrop, “6D object pose regression via supervised learning on point clouds,” in 
+
+IEEE International Conference on Robotics and Automation , 2020, pp. 3643–3649. [21] Y. Wu, M. Zand, A. Etemad, and M. A. Greenspan, “Vote from the center: 6 DoF pose estimation in RGB-D images by radial keypoint voting,” in European Conference on Computer Vision , 2022, pp. 335– 352. [22] D. G. Lowe, “Distinctive image features from scale-invariant keypoints,” 
+
+International Journal of Computer Vision , vol. 60, no. 2, pp. 91–110, 2004. [23] E. Rublee, V. Rabaud, K. Konolige, and G. Bradski, “Orb: An efficient alternative to sift or surf,” in IEEE International Conference on Computer Vision , 2011, pp. 2564–2571. [24] V. Lepetit, F. Moreno-Noguer, and P. Fua, “Epnp: An accurate o(n) solution to the pnp problem,” International Journal of Computer Vision ,vol. 81, no. 2, pp. 155–166, 2009. [25] M. A. Fischler and R. C. Bolles, “Random sample consensus: A paradigm for model fitting with applications to image analysis and automated cartography,” Communications of the ACM , vol. 24, no. 6, pp. 381–395, 1981. [26] S. Laine, J. Hellsten, T. Karras, Y. Seol, J. Lehtinen, and T. Aila, “Modular primitives for high-performance differentiable rendering,” 
+
+ACM Transactions on Graphics , vol. 39, no. 6, 2020. [27] J. Tremblay, B. Wen, V. Blukis, B. Sundaralingam, S. Tyree, and S. Birchfield, “Diff-DOPE: Differentiable deep object pose estimation,” 
+
+arXiv preprint arXiv:2310.00463 , 2023. [28] P. H. S. Torr and A. Zisserman, “MLESAC: A new robust estimator with application to estimating image geometry,” Computer Vision and Image Understanding , vol. 78, no. 1, pp. 138–156, 2000. [29] D. Chetverikov, D. Svirko, D. Stepanov, and P. Krsek, “The trimmed iterative closest point algorithm,” in International Conference on Pattern Recognition , vol. 3, 2002, pp. 545–548. [30] K. Park, A. Mousavian, Y. Xiang, and D. Fox, “LatentFusion: End-to-end differentiable reconstruction and rendering for unseen object pose estimation,” in IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2020, pp. 10 707–10 716. [31] Y. He, Y. Wang, H. Fan, J. Sun, and Q. Chen, “FS6D: Few-shot 6D pose estimation of novel objects,” in IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2022, pp. 6814–6824. [32] S. Hinterstoisser, V. Lepetit, S. Ilic, S. Holzer, K. Konolige, and N. Navab, “Model based training, detection and pose estimation of texture-less 3d objects in heavily cluttered scenes,” in Asian Conference on Computer Vision , 2012, pp. 548–562. [33] T. Hodan, M. Sundermeyer, B. Drost, Y. Labbe, E. Brachmann, F. Michel, C. Rother, and J. Matas, “Bop challenge 2020 on 6d object localization,” in European Conference on Computer Vision Workshops ,2020, pp. 577–594. [34] J. Lin, L. Liu, D. Lu, and K. Jia, “Sam-6d: Segment anything model meets zero-shot 6d object pose estimation,” in IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2024, pp. 27 906–27 916. [35] M. Gandyra, A. Santonicola, and M. Beetz, “NOCTIS: Novel ob-ject cyclic threshold based instance segmentation,” arXiv preprint arXiv:2507.01463 , 2025. [36] S. Liu, Z. Zeng, T. Ren, F. Li, H. Zhang, J. Yang, C. Li, J. Yang, H. Su, J. Zhu, and L. Zhang, “Grounding dino: Marrying dino with grounded pre-training for open-set object detection,” arXiv preprint arXiv:2303.05499 , 2023. [37] N. Ravi, V. Gabeur, Y.-T. Hu, R. Hu, C. Ryali, T. Ma, H. Khedr, R. R¨ adle, C. Rolland, L. Gustafson, E. Mintun, J. Pan, K. V. Alwala, N. Carion, C.-Y. Wu, R. Girshick, P. Doll´ ar, and C. Feichtenhofer, “SAM 2: Segment anything in images and videos,” arXiv preprint arXiv:2408.00714 , 2024.

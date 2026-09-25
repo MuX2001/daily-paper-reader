@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-24</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-25</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 25 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 40 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>12</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>27</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-24 22:12:14 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-25 23:08:39 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>2026-09-24 日报精选25篇机器人学习论文，精读12篇、速读13篇。最值得看的是SkipVLA用经典规划跳过VLA冗余步骤实现快速操作，以及HIL-UMI把人在回路后训练带入通用操作接口，均获9.0分。普通读者可先读这两篇精读，再顺带浏览KINO、rMuscle、KnowDemo等速读方向。</p>
+<p>9月25日日报扫完40篇，精读27、速读13，机器人操作与强化学习成今日主线。最值得看的是9.0分的《SkipVLA：用经典规划跳过VLA步骤加速机器人操作》和《Potential-Field Action Representation for Contact-Rich Manipulation》。普通读者建议先读这两篇9分精读，再按兴趣扫速读中的手骨架世界动作模型、世界模型持续学习基准等8分方向。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">12 篇</strong>
+    <strong class="dpr-home-dashboard-count">27 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="SkipVLA: Skipping VLA Steps with Classical Planning for Fast Robot Manipulation">SkipVLA: Skipping VLA Steps with Classical Planning for Fast Robot Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="HIL-UMI: Bringing Human-in-the-Loop Post-Training of Vision-Language-Action Models to Universal Manipulation Interface">HIL-UMI: Bringing Human-in-the-Loop Post-Training of Vision-Language-Action Models to Universal Manipulation Interface</span></li><li><span class="dpr-home-dashboard-paper-title" title="DEXTERA: From a Single Image to Deployable Dexterous Manipulation via Real-to-Sim-to-Real">DEXTERA: From a Single Image to Deployable Dexterous Manipulation via Real-to-Sim-to-Real</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="SkipVLA: Skipping VLA Steps with Classical Planning for Fast Robot Manipulation">SkipVLA: Skipping VLA Steps with Classical Planning for Fast Robot Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Potential-Field Action Representation for Reinforcement Learning in Contact-Rich Manipulation">Potential-Field Action Representation for Reinforcement Learning in Contact-Rich Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="SkelWAM: A Skeleton-Guided World-Action Model for Zero-Shot Cross-Embodiment Manipulation">SkelWAM: A Skeleton-Guided World-Action Model for Zero-Shot Cross-Embodiment Manipulation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>5</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>4</strong></span><span class="dpr-home-dashboard-tag">control <strong>2</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>12</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>10</strong></span><span class="dpr-home-dashboard-tag">vla <strong>4</strong></span><span class="dpr-home-dashboard-tag">control <strong>1</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -87,9 +87,9 @@
     <strong class="dpr-home-dashboard-count">13 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="KINO: A Keyframe Interface for VLM Planning and Whole-Body Control in Humanoid Loco-Manipulation">KINO: A Keyframe Interface for VLM Planning and Whole-Body Control in Humanoid Loco-Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="rMuscle: Robotic Muscle Memory for Efficient Vision-Language-Action Model Inference">rMuscle: Robotic Muscle Memory for Efficient Vision-Language-Action Model Inference</span></li><li><span class="dpr-home-dashboard-paper-title" title="KnowDemo: Knowledge-Guided Robot Demonstration Generation from Human Videos">KnowDemo: Knowledge-Guided Robot Demonstration Generation from Human Videos</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Skel-WAM: A Hand-Skeleton-Conditioned World Action Model for Human-to-Robot Manipulation Transfer">Skel-WAM: A Hand-Skeleton-Conditioned World Action Model for Human-to-Robot Manipulation Transfer</span></li><li><span class="dpr-home-dashboard-paper-title" title="Benchmarking World Models for Continual Learning on Compositional Tasks">Benchmarking World Models for Continual Learning on Compositional Tasks</span></li><li><span class="dpr-home-dashboard-paper-title" title="Joint Observer-Based Output-Feedback Robust Guidance and Control Funnel Synthesis">Joint Observer-Based Output-Feedback Robust Guidance and Control Funnel Synthesis</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>8</strong></span><span class="dpr-home-dashboard-tag">control <strong>4</strong></span><span class="dpr-home-dashboard-tag">vla <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">control <strong>5</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>4</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>2</strong></span><span class="dpr-home-dashboard-tag">vla <strong>2</strong></span></div>
 </section>
 </div>
 

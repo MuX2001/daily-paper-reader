@@ -1,0 +1,531 @@
+Title: Online Sim-to-Real Adaptation via Closed-Loop System Modeling
+
+URL Source: https://arxiv.org/pdf/2609.28878v1
+
+Published Time: Fri, 25 Sep 2026 00:24:28 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# Online Sim-to-Real Adaptation via Closed-Loop System Modeling 
+
+Yuhao Huang 1, Samuel A. Moore 1, and Boyuan Chen 1
+
+Abstract — Sim-to-real transfer has made substantial progress, but can still produce controllers that remain stable and functional on hardware while suffering from degraded tracking accuracy due to residual dynamics mismatch. Correcting these errors typically requires identifying the underlying system dynamics, adapting the control policy, or returning to simulation for additional training and finetuning, all of which can require substantial data and computation. We propose OSRAM (Online Sim-to-Real Adaptation via Closed-Loop System Modeling), a framework that instead adapts the reference commands provided to an existing controller. OSRAM treats the deployed robot and its policy as a unified closed-loop dynamical system and learns its task-level command-response behavior directly from tracking observations. A closed-loop dynamics model is meta-trained across randomized dynamics in simulation and rapidly finetuned after deployment using limited real-world interaction. The adapted model is then used to optimize future reference commands while leaving the underlying control policy unchanged. We evaluate OSRAM on bipedal velocity tracking and loco-manipulation in simulation and on hardware. Results show that closed-loop modeling improves prediction and tracking accuracy under unseen dynamics, while online reference adaptation reduces residual sim-to-real tracking errors across different control objectives and hardware configurations. These results demonstrate that adapting the behavior of the robot-policy closed loop provides a practical alternative to finetuning the policy or identifying the full physical dynamics for sim-to-real transfer. More information can be found at 
+
+http://generalroboticslab.com/OSRAM .
+
+I. I NTRODUCTION 
+
+Sim-to-real transfer has enabled learning-based controllers to execute increasingly dynamic and complex behaviors on physical robots [1], [2]. Yet even when a policy transfers successfully and remains functional on hardware, its exe-cution can suffer from degraded precision due to residual mismatch between simulated and real-world dynamics [3]. These discrepancies can arise from modeling inaccuracies, complex actuator dynamics, sensor noise, latency, and en-vironmental variations that are difficult to capture fully in simulation. Even modest mismatches can produce persistent tracking errors in dynamic and contact-rich tasks [4]. Existing approaches often address the sim-to-real gap by improving policy robustness during training. Domain randomization [5], [6] varies physical parameters such as mass, friction, latency, and actuator dynamics in simulation, while related methods inject sensor, action, or adversarial perturbations. These methods rely on the real system being                       
+
+> This work is supported by DARPA FoundSci program under award HR00112490372, DARPA TIAMAT program under award HR00112490419, ARO under award W911NF2410405, ARL STRONG program under awards W911NF2320182, W911NF2220113, and W911NF242021. 1All authors are from Duke University. (b) (a)
+> Fig. 1. OSRAM reduces residual sim-to-real tracking errors through online reference-command adaptation. (a) Velocity tracking without position feedback. (b) Loco-manipulation sine wave trajectory tracking.
+
+sufficiently represented by the training distribution. Design-ing this distribution can be difficult in practice. Insufficient randomization leaves the policy vulnerable to unseen dy-namics, whereas overly broad randomization can sacrifice task performance or destabilize learning [7]. Consequently, residual tracking errors can remain after deployment even when the policy remains functional. Another line of work adapts after deployment by esti-mating physical parameters or learning representations of real-world dynamics from interaction data [8], [9]. These estimates can be used to update the simulator and retrain or fine-tune the policy. Although effective, such approaches seek to recover aspects of the underlying physical system and can require substantial real-world data, simulator calibration, and additional optimization. For high-dimensional robotic systems, accurately identifying the dynamics can itself be challenging, while modifying a deployed policy introduces additional computational and validation costs. In this work, we focus on a complementary regime where the transferred policy remains functional but does not track its intended commands with sufficient accuracy. Instead of reconstructing the physical dynamics or modifying the policy, our key idea is to correct residual sim-to-real errors by adapting the reference commands sent to the existing controller (Fig. 1). An appropriately modified reference can compensate for systematic under-tracking, overshoot, or delay while leaving the underlying controller unchanged. To determine how these references should be modified, we treat the robot and its policy together as a closed-loop dynamical system and learn its task-level command-response behavior directly from tracking observations. This formula-tion shifts adaptation from reconstructing high-dimensional physical dynamics to modeling the lower-dimensional behav-ior directly relevant to the task. Because the learned model captures the aggregate response of both the robot and its arXiv:2609.28878v1 [cs.RO] 24 Sep 2026 embedded controller, it can predict how candidate reference commands will actually be executed. Building on this insight, we introduce OSRAM, a frame-work for online reference-command adaptation through closed-loop system modeling. OSRAM meta-trains a closed-loop dynamics model across randomized system config-urations in simulation, rapidly fine-tunes it from limited interaction after deployment, and uses the adapted model to optimize future reference commands. OSRAM leaves the deployed policy unchanged and does not require explicit identification of physical parameters. We evaluate OSRAM on bipedal velocity tracking and loco-manipulation in simu-lation and on hardware, demonstrating improved prediction and tracking under unseen dynamics and across different control objectives and hardware configurations. II. R ELATED WORK 
+
+A. Sim-to-Real Transfer with Online Adaptation 
+
+Online adaptation complements robustness-oriented sim-to-real methods by using interaction data collected after deployment to adjust system behavior. A common strat-egy is to estimate latent environment representations or physical parameters from online observations and condition the policy on these estimates [10]–[13]. For example, UP-OSI [10] combines a universal policy with online system identification, whereas Rapid Motor Adaptation (RMA) [11] infers latent environment representations from observation histories to rapidly adapt locomotion across varying terrains and dynamics. These approaches achieve effective online adaptation, but generally require additional latent inference, observation encoding, or system identification modules. In contrast, OSRAM leaves the deployed policy unchanged and adapts its reference commands through a learned model of the closed-loop command-response behavior. Another line of work focuses on residual or behavior-level adaptation, where corrective residual policies or behavior adaptation modules are learned from real-world interaction data or updated online [14]–[17]. Online behavior-centric adaptation [17] adapts bipedal locomotion by aligning behav-ior representations and adjusting low-level controller param-eters under unmodeled dynamics mismatch. Sym2Real [18] learns symbolic dynamics from simulation and uses lim-ited real-world data to learn residual corrections for data-efficient adaptive control. These methods demonstrate that real-world adaptation can be achieved without retraining a controller from scratch, but perform adaptation by modify-ing the controller, its actions, or its underlying dynamics representation. OSRAM instead performs adaptation entirely through the reference interface. It models the deployed robot-policy closed loop and optimizes future reference commands without modifying the policy or its parameters. 
+
+B. Input-Output Dynamics Modeling for Robotics 
+
+Dynamics models are widely used for system identifica-tion, policy learning, and model-based control [19]–[21]. A common formulation models the underlying system through state transitions, 
+
+xt+1 = f (xt, ut), yt = h(xt, ut), (1) where xt ∈ X ⊆ Rn is the system state, ut ∈ U ⊆ Rm
+
+is the control input, and yt ∈ Y ⊆ Rp is the system output. Learned state-space models can represent complex nonlinear dynamics, with recent approaches using recur-rent [22] and transformer-based [23] architectures to capture longer-horizon behavior. However, learning sufficiently ac-curate state transitions for high-dimensional robotic systems can require substantial data, particularly when only a low-dimensional aspect of the resulting behavior is relevant to the downstream task success. Input-output system identification provides an alternative that predicts observable responses directly from histories of inputs and outputs. For example, NARX [24], [25] and behavioral system models [26], [27] describe robotic systems implicitly: 
+
+yt+1 = F (ut−N :t, yt−N :t), (2) avoiding explicit reconstruction of the complete internal state. This perspective is particularly useful for partially observed systems or when only task-relevant outputs need to be predicted. Most closely related to our work, Zeng et al. [26] introduce data-driven reference steering, which treats the reference trajectory as the input and the realized trajectory as the output of an existing closed-loop system, and uses data-driven predictive control to modify reference trajectories online while preserving the underlying controller. OSRAM shares this reference-level adaptation but ad-dresses a different setting. Instead of relying on an approx-imately linear closed-loop representation constructed from offline input-output data, OSRAM learns a nonlinear closed-loop command-response model. The model is meta-trained across randomized dynamics in simulation and rapidly adapted from limited deployment data, enabling adaptation to unseen sim-to-real discrepancies. Our method enables reference-level adaptation for learning-based controllers and nonlinear closed-loop dynamics. III. M ETHOD 
+
+OSRAM adapts a deployed robotic system through its reference interface without modifying the underlying control policy. The framework consists of two stages (Fig. 2). First, we learn a closed-loop command-response model in simula-tion and meta-train it across randomized system dynamics to enable rapid adaptation. Second, after deployment, we finetune this model using real-world tracking observations and use it to optimize future reference commands. 
+
+Closed-Loop Command-Response Modeling. Consider a deployed policy π that receives a task-level reference com-mand rref  
+
+> t
+
+and produces low-level actions for the robot. Rather than separately modeling the physical robot dynamics and the policy, we treat their composition as a single closed-loop dynamical system. The resulting behavior can then be characterized directly through the relationship between commanded references and realized responses. Reference 
+
+Real-World Adaptation 
+
+Real 
+
+> Simulation Pretraining Real-world Adaptation
+
+Base Policy Training  Simulation Data Collection  Closed-loop Dynamics Training 
+
+Randomization 
+
+Dynamics Model Finetuning 
+
+Real-world Tasks Fig. 2. Overview of OSRAM. During simulation pretraining, a base policy is trained and used to collect closed-loop rollouts under randomized system dynamics, from which a meta-learned command-response model is trained. After deployment, the model is rapidly finetuned using limited real interaction and used to optimize future reference commands. The underlying control policy remains unchanged throughout adaptation. 
+
+Specifically, we learn a model Fθ that predicts the next realized task-level response from a history of reference commands and observed responses: 
+
+ˆrreal  
+
+> t+1
+
+= Fθ
+
+ rreal  
+
+> t−N:t
+
+, rref  
+
+> t−N:t
+
+ , (3) where rref  
+
+> t
+
+∈ Rb denotes the reference command sent to the policy at time t, rreal  
+
+> t
+
+∈ Rb denotes the observed tracking response, and ˆrreal  
+
+> t+1
+
+denotes the predicted response. This formulation captures the aggregate behavior of the robot and its embedded controller without requiring access to the policy internals or an explicit model of the robot’s physical dynamics. It also restricts modeling to task-relevant variables, which are often substantially lower dimensional than the full robot state. As a result, adaptation can focus directly on the command-response discrepancies that affect task execution. 
+
+Closed-Loop Meta-Dynamics Training. To enable rapid adaptation to previously unseen dynamics, we meta-train the closed-loop command-response model Fθ using a Reptile-inspired first-order meta-learning procedure [28]. The goal is to learn a model prior that can rapidly adapt to previously unseen system dynamics using only a small amount of target-domain data. Meta-training is performed entirely in a high-fidelity simulation environment using self-supervised trajectory data, without access to real-world data during pretraining. During data collection, key physical parameters of the simulator, including mass, friction, and actuator dynamics, are randomized to cover a broad range of in-distribution variations. Stochastic excitation signals are also injected into the reference commands to excite diverse operating regimes and dynamic responses. Each randomized system configuration defines a meta-training task Dm containing trajectories of reference com-mands and realized responses. Starting from a shared initial-ization, the model is adapted for several inner-loop gradient steps on each sampled task. The shared parameters are then moved toward the corresponding task-specific solutions. Repeating this process across diverse simulated dynamics produces an initialization that can be rapidly specialized using limited target-domain data. We train the model using a combination of one-step prediction loss and multi-step rollout consistency: 
+
+Ldynamics = λ0 rreal  
+
+> t+1
+
+− Fθ
+
+ rreal  
+
+> t−N:t
+
+, rref  
+
+> t−N:t
+
+ 22
+
+| {z }
+
+> Lstep
+
++ λ1
+
+1
+
+K
+
+> K
+
+X
+
+> k=1
+
+γk rreal  
+
+> t+k
+
+− F (k)
+
+> θ
+
+ rreal  
+
+> t−N:t
+
+, rref  
+
+> t−N:t+k−1
+
+ 22
+
+| {z }
+
+> Lrollout
+
+.
+
+(4) where F (k) 
+
+> θ
+
+(·) is a k-step autoregressive rollout of the model, obtained by recursively feeding predicted response back into the model. The discount factor γ ∈ (0 , 1] reduces the contribution of errors farther into the rollout, while λ0 and 
+
+λ1 balance one-step accuracy and long-horizon consistency. The resulting meta-learned model provides a prior over closed-loop command-response behavior. After deployment, it can be finetuned directly from observed reference-response trajectories without modifying the policy or reconstructing the underlying physical dynamics. The overall procedure is summarized in Algorithm 1. 
+
+Online Reference-Command Adaptation. After deploy-ment, OSRAM collects a small amount of reference-response data and finetunes the meta-learned closed-loop model to the deployed system. The adapted model is then used to optimize future reference commands so that the resulting robot behavior more closely follows the original desired trajectory. Let rref 0: T denote the nominal reference trajectory and 
+
+rref ,new 0: T a candidate adapted trajectory. We optimize the latter Algorithm 1 Closed-Loop Meta-Dynamics Training &Adaptation  
+
+> 1:
+
+Require: Simulation task distribution Dsim , update steps 
+
+Nin , inner learning rate α, meta learning rate β, finetun-ing steps J, number of tasks per update M 
+
+> 2:
+
+Initialize shared model parameters θ0 
+
+> 3:
+
+// Simulation meta-training  
+
+> 4:
+
+while not converged do  
+
+> 5:
+
+Sample tasks {D m}Mm=1 ∼ D sim  
+
+> 6:
+
+for m = 1 , . . . , M do  
+
+> 7:
+
+θ(m)0 ← θ 
+
+> 8:
+
+for n = 1 , . . . , N in do  
+
+> 9:
+
+θ(m) 
+
+> n
+
+← θ(m) 
+
+> n−1
+
+− α∇θ Ldynamics (Dm, θ (m)
+
+> n−1
+
+) 
+
+> 10:
+
+end for  
+
+> 11:
+
+end for  
+
+> 12:
+
+θ ← θ + β 1
+
+> M
+
+PMm=1 
+
+
+
+θ(m) 
+
+> Nin
+
+− θ
+
+ 
+
+> 13:
+
+end while  
+
+> 14:
+
+// Real-world specialization  
+
+> 15:
+
+Collect reference-response data Dreal  
+
+> 16:
+
+for j = 1 , . . . , J do  
+
+> 17:
+
+θ ← θ − α∇θ Ldynamics (Dreal , θ ) 
+
+> 18:
+
+end for 
+
+using the learned closed-loop model: 
+
+rref ,∗ 
+
+> 0: T
+
+= arg min 
+
+> rref ,new 0: T
+> T
+
+X
+
+> t=0
+
+γth
+
+ℓtrack 
+
+ ˆrreal  
+
+> t
+
+, rref 
+
+> t
+
+
+
++ℓdev 
+
+ rref ,new  
+
+> t
+
+, rref 
+
+> t
+
+
+
++ℓsmooth 
+
+ rref ,new  
+
+> t
+
+, rref ,new 
+
+> t−1
+
+i
+
+s.t. ˆrreal  
+
+> t+1
+
+= Fθ
+
+
+
+ˆrreal  
+
+> t−N:t
+
+, rref ,new  
+
+> t−N:t
+
+
+
+.
+
+(5) Here, γ ∈ [0 , 1] is a discount factor that mitigates the accumulation of model errors over long planning horizons. For the initial prediction window, observed responses are used wherever available, and missing history is filled using a buffer of previously executed references and responses. The tracking term ℓtrack encourages the predicted realized response to follow the original desired reference. The de-viation term ℓdev regularizes the adapted command toward the nominal reference, preventing unnecessarily aggressive corrections and reducing extrapolation beyond the model’s observed operating regime. The smoothness term ℓsmooth 
+
+penalizes abrupt temporal changes in the adapted reference. These terms allow OSRAM to compensate for systematic tracking bias, delay, and other residual sim-to-real discrep-ancies while preserving the behavior induced by the original controller. Importantly, rref ,new is not a replacement task objective. It is an intermediate command selected so that the realized response rreal more accurately follows the original desired reference rref . Thus, adaptation occurs entirely through the reference interface, while the underlying control policy re-mains fixed. 
+
+Sampling-Based Reference Optimization. We solve Eq. (5) using model predictive path integral (MPPI) control, which efficiently evaluates large numbers of candidate reference trajectories through parallel rollouts of the learned model. At each planning step, candidate reference sequences are sampled around the current nominal trajectory, evaluated ac-cording to Eq. (5), and combined according to their trajectory costs. Given K sampled candidate reference trajectories 
+
+{rref ,sample 0: T (k)}Kk=1 with corresponding costs R(k), we com-pute 
+
+wk =exp 
+
+
+
+− R(k)−R min 
+
+> λ(Rmax −R min )
+
+PKj=1 exp 
+
+
+
+− R(j)−R min 
+
+> λ(Rmax −R min )
+
+ , (6) and update the reference trajectory as 
+
+rref ,new 0: T =
+
+> K
+
+X
+
+> k=1
+
+wk rref ,sample 0: T (k). (7) The temperature parameter λ controls the concentration of the weighting over candidate trajectories. We iteratively repeat the sampling and weighting procedure while annealing the sampling covariance following past work [29]. The first portion of the optimized reference is executed, new observa-tions are incorporated, and the optimization is repeated in a receding-horizon manner. IV. E XPERIMENTAL RESULTS 
+
+We evaluated OSRAM on bipedal velocity tracking and loco-manipulation in simulation and on hardware. Our ex-periments were designed to examine the following questions: 
+
+Q1 : Does meta-dynamics learning improve adaptation per-formance under previously unseen out-of-distribution envi-ronment dynamics? 
+
+Q2 : Does modeling the closed-loop system dynamics lead to lower prediction error and higher-quality adaptation? 
+
+Q3 : Does the proposed framework outperform existing on-line adaptation-based sim-to-real transfer methods? 
+
+Q4 : Does the proposed framework work for sim-to-real transfer problems with different control objectives, policy configurations, and command-response spaces? 
+
+A. Experimental Setup 
+
+We briefly describe the robotic platform, task configura-tions, and simulation and hardware setups used to evaluate OSRAM. 
+
+Platforms and Tasks. We evaluated OSRAM on the LimX Tron1 robot with and without its loco-manipulation ex-pansion kit. To assess generality across different control objectives and embodiments, we considered two tasks: base velocity tracking and loco-manipulation. Detailed task def-initions and reward specifications are provided in Table I. For the loco-manipulation task, an end-effector pose-tracking objective was added to the velocity-tracking reward. All rein-forcement learning policies were trained in mjlab [30] using Proximal Policy Optimization (PPO) to optimize cumulative rewards. 
+
+Simulation and Hardware Setup. To support efficient comparisons and ablation studies, we developed a real-time TABLE I TASK REWARDS 
+
+Term Weight Term Weight End-Effector(EE) Position Tracking 
+
+EE Position 2.0 EE Orientation 1.5 
+
+Base Velocity Tracking 
+
+Linear velocity 2.0 Angular velocity 2.0 
+
+Behavior Regularization 
+
+Projected gravity 1.0 Pose deviation 1.0 DoF position limit -1.0 Action rate -1.0 Soft landing -1e-5 Self collision -1.0 Foot slip -0.1 Foot swing height -0.25 Foot clearance -2.0 Foot distance -2.0 
+
+asynchronous MuJoCo [31] simulation environment in which all planners, state estimators, and control policies were im-plemented within the ROS control [32] framework. Because base linear velocities were required for both velocity tracking and loco-manipulation, an Invariant Extended Kalman Filter (InEKF) [33] was used in simulation to estimate base linear velocity and orientation, while joint states and global base position were read from the simulator. For the hardware experiments, we reused the same setup to maintain consistency between simulation and real-world evaluation, while using a motion capture system for global base position estimation. To further increase the sim-to-real gap, we added extra mass and modified the control policy gains to create dynamics mismatch. The model trainer and MPPI planner ran asynchronously in separate threads on a single RTX4090 GPU. The MPPI planner operates at 50 Hz, with each iteration initialized using the provided reference trajectory as the nominal guess. The dynamics model trainer updates the model at 2 Hz with a batch size of 64 . We used 30 finetuning gradient steps for velocity tracking and 70 for loco-manipulation. 
+
+Evaluation Metrics. We evaluated tracking performance and reliability using four metrics. The mean tracking error Emean 
+
+captured systematic over- or under-tracking of the command. The RMSE ERMSE quantified the overall tracking-error mag-nitude, penalizing large deviations while reflecting both bias and transient fluctuations. The RMSE standard deviation Estd 
+
+was computed over repeated trials ( 20 in simulation and 
+
+5 in hardware) and measured run-to-run consistency, with lower values indicating more repeatable behavior. Finally, the success rate SR was the fraction of trials completed without falling or violating environment-terminating safety limits. All tracking-error metrics were averaged over successful trials only, whereas SR was evaluated over all trials. 
+
+B. Adaptation to Unseen Dynamics 
+
+To address Q1 , we evaluated the prediction accuracy and planning performance of the proposed meta-dynamics model against a standard forward MLP model (FD) . Both models were pre-trained on the same amount of task data and then finetuned on an out-of-distribution dataset using batch size 
+
+64 and 10 gradient steps for a fair comparison. We conducted two complementary evaluations. First, we 1.0 0.8 0.5 0.2 0.0 042t (s) v (m/s) xTarget  
+
+> OSRAM
+> OSRAM-FD
+> OSRAM w/o DA
+> OSRAM-OL-Full
+> OSRAM-OL-Out 0.4 0.3 0.2 0.1 RMSE
+> t (s) -0.8 -1.0 -1.2 -1.5 0.0 0.5 1.0 1.5 2.0 2.5 3.0 3.5 4.0 v (m/s) x
+> (a)
+> (c) (b)
+> Fig. 3. Model prediction and velocity-tracking comparison. (a) Predicted velocity trajectories from different dynamics models, with a magnified view highlighting local prediction differences. (b) Closed-loop velocity-tracking performance compared with the target command. (c) Distribution of tracking RMSE over multiple trials. Lower RMSE and tighter distributions indicate more accurate and consistent tracking.
+
+compared the prediction capabilities of the two models by measuring prediction errors on out-of-distribution trajecto-ries, where the center of mass and actuator gains of the robot were further randomized. As shown in Fig. 3(a), our meta-dynamics model achieved substantially lower prediction error in this out-of-distribution setting. For one-step prediction, our proposed model obtained a mean absolute error (MAE) of 0.0116 , compared with 0.0594 for the forward dynamics model, corresponding to an 80 .5% reduction in prediction error (approximately 5× lower MAE). Second, we evaluated task-level performance by deploying both models in velocity-tracking tasks with different com-manded forward velocities. This evaluation tested whether improved prediction accuracy translates into better control performance. Fig. 3(b) shows that both the forward MLP model and the meta-dynamics model improved closed-loop performance when integrated with the proposed method. The meta-dynamics model achieved the strongest track-ing performance, indicating that higher prediction accuracy contributed to better task-level adaptation. This trend was further quantified in Tab. II. Compared with OSRAM w/o DA, integrating a forward MLP dynamics model reduced 
+
+ERMSE from 0.1593 , 0.2127 , and 0.2209 to 0.0800 , 0.1472 ,and 0.1917 at target velocities of 0.4, 0.7, and 0.9 m /s,respectively, while maintaining a 100% success rate. Replac-ing the forward MLP with our closed-loop meta-dynamics model further improved performance, achieving the lowest 
+
+ERMSE values of 0.0733 , 0.0929 , and 0.1560 across the three velocity settings. OSRAM also obtained the best Emean at all tested velocities, indicating more accurate average tracking. 
+
+C. Why Model the Closed-Loop System? 
+
+To address Q2 , we examined whether modeling the closed-loop command-response behavior is more effective than relying on low-level action-conditioned dynamics models for adaptation. We compared the prediction accuracy and task TABLE II ABLATION AND BASELINE STUDIES IN SIMULATION - T RACKING ERROR 
+
+vx = 0 .4 m /s vx = 0 .7 m /s vx = 0 .9 m /s
+
+Method Emean ERMSE Estd SR (%) Emean ERMSE Estd SR (%) Emean ERMSE Estd SR (%) 
+
+Ablation 
+
+OSRAM w/o DA -0.1370 0.1593 0.0064 100 -0.1604 0.2127 0.0099 100 -0.1292 0.2209 0.0250 100 OSRAM-FD -0.0447 0.0800 0.0103 100 -0.0977 0.1472 0.0152 100 -0.1139 0.1917 0.0042 100 OSRAM-OL-Full -0.2759 0.3266 0.0638 20 -0.1017 0.2878 0.1100 30 – – – 0OSRAM-OL-Out 0.3275 0.3732 0.0558 65 0.1473 0.2732 0.1140 35 – – – 0
+
+Baseline 
+
+RNN-Adapt -0.1200 0.1415 0.0118 100 -0.0744 0.1614 0.0256 100 -0.0933 0.2082 0.0356 100 Res-Adapt -0.1069 0.1421 0.0107 100 -0.1291 0.1833 0.0156 100 -0.1250 0.2062 0.0246 100 
+
+Ours OSRAM -0.0059 0.0733 0.0078 100 0.0153 0.0929 0.0109 100 0.0279 0.1560 0.0155 100 
+
+> Comparison of OSRAM with ablation and baseline methods at different commanded velocities. Here, DA denotes dynamics adaptation, FD denotes forward dynamics, OL-Full denotes open-loop full-state dynamics, and OL-Out denotes open-loop output-state dynamics.
+
+level performance of OSRAM with two open-loop dynamics baselines under the same velocity-tracking policy. The first baseline was an open-loop full-state dynam-ics model ( OL-Full ), which predicted the next state from full robot observations (e.g., linear and angular velocities, projected gravity, previous actions, and velocity commands in the velocity-tracking setting), together with the executed joint actions as control inputs. This setting corresponded to the standard partially observable open-loop dynamics formulation commonly used in model-based control. The second baseline was an open-loop output-state dy-namics model ( OL-Out ), which used the same reference-command-related observations as OSRAM’s closed-loop dy-namics model (e.g., base-frame x-y linear velocity and z-axis angular velocity), along with joint actions as control inputs. This baseline removed information unrelated to the command while retaining an open-loop prediction structure. We first compared the three models under identical train-ing conditions: each model is pre-trained on the same amount of data and then finetuned on the same target dataset using the same batch size and number of gradient steps. As shown in Fig. 3(a), the closed-loop dynamics model achieved the highest prediction accuracy, while OL-Full and OL-Out yielded MAEs of 0.0789 and 0.0338 , respectively. More importantly, this difference persisted when the mod-els are used for reference adaptation. We evaluated task-level performance on base velocity tracking tasks with different target velocities. Representative tracking results are shown in Fig. 3(b) and (c), and the corresponding tracking errors and success rates are summarized in Tab. II. OSRAM achieved substantially better tracking performance across all tested velocities. At 0.4 m /s and 0.7 m /s, OSRAM obtained much lower ERMSE than OL-Full and OL-Out while maintaining a 100% success rate. At the more challenging 0.9 m /s
+
+setting, both open-loop baselines failed with 0% success rate, whereas OSRAM remained stable and achieved an ERMSE 
+
+of 0.1560 with 100% success rate. These results suggest that, under the same limited adaptation budget, directly modeling the task-level command-response behavior provides a more effective predictive representation than learning low-level action-conditioned dynamics. 
+
+D. Comparison with Online Adaptation Strategies 
+
+To address Q3 , we compared the proposed method with representative online adaptation-based sim-to-real transfer baselines in simulation using velocity-tracking tasks. The first baseline, denoted as RNN Adaptation ( RNN-Adapt ), followed an RMA-style [11] adaptation procedure, in which a recurrent neural network (RNN) encoder took a history of ob-servations as input and encoded it into a latent representation provided to the velocity-tracking policy. The second base-line, denoted as Residual Policy Adaptation ( Res-Adapt ), followed a residual learning-based adaptation setup [17]. For this baseline, the base policy was kept frozen while a residual policy was learned on top of its actions. For a fair comparison, the residual policy was finetuned using the same amount of target-domain data used to finetune the closed-loop dynamics model in OSRAM. The data was collected from the same distribution as the testing environment. The Baseline section of Tab. II summarizes the tracking performance of the two online adaptation baselines. Both RNN-Adapt and Res-Adapt maintained a 100% success rate across all tested velocities, indicating stable execution under the evaluated conditions. However, their tracking accuracy was consistently lower than that of OSRAM. In particular, RNN-Adapt obtained ERMSE values of 0.1415 , 0.1614 , and 
+
+0.2082 at 0.4, 0.7, and 0.9 m /s, respectively, while Res-Adapt obtained 0.1421 , 0.1833 , and 0.2062 . In comparison, OSRAM achieved lower ERMSE values of 0.0733 , 0.0929 ,and 0.1560 under the same velocity settings. OSRAM also achieved the best Emean across all velocities, indicating more accurate average velocity tracking error mitigation. Thus, under our evaluation setting, adapting through the reference interface provides more accurate tracking than the representative latent and residual policy-adaptation strategies. 
+
+E. Sim-to-Real Hardware Evaluation 
+
+To address Q4 , we further evaluated OSRAM in two real-world sim-to-real transfer scenarios covering different task TABLE III HARDWARE VELOCITY TRACKING AT vx = 0 .7 m /s
+
+Method Emean ERMSE Estd SR (%) 
+
+OSRAM w/o DA -0.2298 0.2847 0.0318 100 RNN-Adapt -0.1354 0.2109 0.0064 100 OSRAM -0.0827 0.2014 0.0169 100 OSRAM w/ RNN-Adapt -0.1023 0.1962 0.0066 100 
+
+Comparison of OSRAM with baseline methods for hardware velocity tracking at vx = 0 .7 m /s. DA denotes dynamics adaptation, and OSRAM w/ RNN-Adapt denotes replacing the baseline policy with an RNN-based adaptation policy. 
+
+objectives, policy configurations, command-response spaces, and hardware configurations. The experiments assessed three aspects of OSRAM: 1) whether it enables real-world sim-to-real transfer, 2) whether it applies to different task objectives, policy configurations, and command-response spaces, and 3) whether it can complement existing online adaptation mechanisms. 
+
+Velocity tracking. We first evaluated OSRAM on hardware using velocity-tracking tasks. We compared four configura-tions: a baseline policy, the baseline policy augmented with OSRAM, an RNN-Adapt policy, and the RNN-Adapt policy augmented with OSRAM. Improvements over the baseline policy showed that the proposed method can be applied to a standard control policy, while additional gains over the RNN-based policy indicate that OSRAM could further improve policies that already included online adaptation. The resulting trajectory tracking results are reported in Tab. III. Position tracking in the sagittal and coronal planes is shown in Fig. 4(a), where methods augmented with OSRAM improved coronal tracking performance for both baseline policy and RNN-Adapt policy. To assess how the number of fine-tuning gradient steps affects the closed-loop dynamics model, we plotted the forward-velocity prediction MAE as a function of gradient steps. The MAE decreased rapidly during the initial fine-tuning stages and then plateaued after approximately 30 steps. 
+
+Loco-manipulation. We next evaluated OSRAM on a loco-manipulation end-effector position-tracking task, in which the robot was commanded to track a global sine-wave end-effector trajectory. Because global position command-response signals lie in an infinite Euclidean space, the meta-dynamics inputs and outputs are represented in the robot’s local base frame. The policy design and training recipe followed prior work [34]. The resulting trajectory tracking performance and cumulative tracking errors over the trajec-tory evolution are shown in Fig. 4(c) and 4(d) where OSRAM reduced the x-direction RMSE from 36 .94 ± 3.02 cm to 
+
+3.11 ± 0.31 cm and the y-direction RMSE from 3.48 ± 0.45 
+
+cm to 2.72 ± 0.23 cm. The trajectories in Fig. 4(c)–(d) show that OSRAM substantially compensates for the large systematic tracking error present without adaptation. 
+
+F. How Does Reference Adaptation Correct Tracking Error? 
+
+Finally, we examine the mechanism how OSRAM im-proves tracking through the interaction between closed-loop 0.2          
+
+> 0.1
+> 0.0
+> -0.1
+> -0.2
+> 1.2
+> 1.1
+> 1.0
+> 0.9
+> 0.8 0.0 0.2 0.5 0.8 1.0 1.2 1.5 1.8
+> x(m)
+> y (m)
+> z (m) 0.2 0.0 -0.2 -0.5 -0.8 0.0 0.5 1.0 1.5 2.0 2.5 3.0 3.5 4.0 x (m) y (m) 1.8 1.5 1.2 1.0 0.8 0.5 0.2 0.0 02684t (s) x (m) OSRAM w/ RNN-Adapt
+> RNN-Adapt OSRAM
+> OSRAM w/o DA Reference
+> Start 0.070 0.065 0.060 0.055 0.050 0.045 0.040 0.035 0.030 5/2.5 10/5 15/7.5 20/10 25/12.5 30/15 35/17.5 Finetuning gradient steps / t(s) v MAE (m/s) xvMAE x(b) (a) (c) (d)
+
+Fig. 4. Hardware results of velocity-tracking and loco-manipulation. (a) Global position trajectories for velocity tracking, truncated at x = 3 .5 m 
+
+to highlight lateral tracking error. (b) Forward-velocity prediction error, measured by vx MAE, versus the number of finetuning gradient steps. (c) End-effector global position trajectories for loco-manipulation. (d) Global 
+
+x-position trajectories for loco-manipulation. 
+
+prediction and reference adaptation. Fig. 5(a)–(b) compares one-step predictions from the finetuned closed-loop model with the realized responses for velocity tracking and loco-manipulation. The model achieves prediction RMSEs of 
+
+0.0557 m /s and 0.0074 m , respectively, showing that it cap-tures the deployed system’s command-response behavior with sufficient accuracy for reference optimization. Fig. 5(c)–(d) illustrates how these predictions translate into corrective reference commands. Instead of attempting to make the robot directly follow the nominal reference, OSRAM selected a modified reference whose predicted response more closely matched the nominal target. For exam-ple, when the robot systematically under-tracked a command, OSRAM increased the reference to compensate. When it overshot, OSRAM reduced the reference. Consequently, the realized trajectories moved closer to the original desired trajectories. These results illustrate the central mechanism of OSRAM: learning the residual command-response behavior of the deployed closed-loop system enables compensation of tracking errors through the reference interface while leaving the underlying policy unchanged. V. C ONCLUSION , L IMITATION AND FUTURE WORK 
+
+We presented OSRAM, an online sim-to-real adaptation framework that models the deployed robot and its controller as a closed-loop command-response system and corrects residual tracking errors by adapting reference commands without modifying the policy. Across simulated and physical bipedal velocity tracking and loco-manipulation, OSRAM improves prediction and tracking in unseen dynamics. While we focus on relatively low-dimensional command spaces, an important future direction is to extend OSRAM to high-dimensional references, such as whole-body motion trajectories. One possible approach is to compress reference motions into a low-dimensional latent representation and 1.0      
+
+> 0.5
+> 0.0
+> 012345
+> t (s)
+> v (m/s) x1.0 0.5 0.0 012345t (s) v (m/s) x0.1 0.0
+> -0.1 02684t (s) y (m) 0.2 0.0 -0.2 02684t (s) y (m) (a) (b) (c) (d)
+
+Fig. 5. (a)–(b) One-step predictions of the finetuned closed-loop dynamics model for velocity tracking and loco-manipulation, respectively. (c)–(d) Nominal references, OSRAM-adapted references, and realized responses for forward-velocity tracking and end-effector y-position tracking. The adapted references compensate for systematic tracking errors so that the realized responses more closely follow the nominal targets. 
+
+perform adaptation in that space. In addition, the current sampling-based optimization backend can be sensitive to hyperparameter tuning. Since the learned closed-loop dy-namics model is differentiable, future work could explore gradient-based optimization as a more efficient alternative. Finally, because OSRAM does not assume a specific form of the inner-loop control policy, extending the proposed framework to model-based controllers can further broaden its applicability. REFERENCES [1] Z. Xie, P. Clary, J. Dao, P. Morais, J. Hurst, and M. van de Panne, “Learning locomotion skills for cassie: Iterative design and sim-to-real,” in Proceedings of the Conference on Robot Learning , ser. Pro-ceedings of Machine Learning Research, L. P. Kaelbling, D. Kragic, and K. Sugiura, Eds., vol. 100. PMLR, 30 Oct–01 Nov 2020, pp. 317–329. [2] A. A. Rusu, M. Veˇ cer´ ık, T. Roth¨ orl, N. Heess, R. Pascanu, and R. Had-sell, “Sim-to-real robot learning from pixels with progressive nets,” in 
+
+Proceedings of the 1st Annual Conference on Robot Learning , ser. Proceedings of Machine Learning Research, S. Levine, V. Vanhoucke, and K. Goldberg, Eds., vol. 78. PMLR, 13–15 Nov 2017, pp. 262– 270. [3] W. Zhao, J. P. Queralta, and T. Westerlund, “Sim-to-real transfer in deep reinforcement learning for robotics: a survey,” in 2020 IEEE Symposium Series on Computational Intelligence (SSCI) , 2020, pp. 737–744. [4] J. Hwangbo et al. , “Learning agile and dynamic motor skills for legged robots,” Science Robotics , vol. 4, no. 26, p. eaau5872, 2019. [5] J. Tobin, R. Fong, A. Ray, J. Schneider, W. Zaremba, and P. Abbeel, “Domain randomization for transferring deep neural networks from simulation to the real world,” in 2017 IEEE/RSJ International Con-ference on Intelligent Robots and Systems (IROS) , 2017, pp. 23–30. [6] X. B. Peng, M. Andrychowicz, W. Zaremba, and P. Abbeel, “Sim-to-real transfer of robotic control with dynamics randomization,” in 2018 IEEE International Conference on Robotics and Automation (ICRA) ,2018, pp. 3803–3810. [7] J. Josifovski, M. Malmir, N. Klarmann, B. L. ˇZagar, N. Navarro-Guerrero, and A. Knoll, “Analysis of randomization effects on sim2real transfer in reinforcement learning for robotic manipulation tasks,” in 2022 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , 2022, pp. 10 193–10 200. [8] N. Sobanbabu, G. He, T. He, Y. Yang, and G. Shi, “Sampling-based system identification with active exploration for legged robot sim2real learning,” 2025, arXiv:2505.14266. [9] T. He et al. , “Asap: Aligning simulation and real-world physics for learning agile humanoid whole-body skills,” 2025, arXiv:2502.01143. [10] W. Yu, J. Tan, C. K. Liu, and G. Turk, “Preparing for the unknown: Learning a universal policy with online system identification,” arXiv preprint arXiv:1702.02453 , 2017. [11] A. Kumar, Z. Fu, D. Pathak, and J. Malik, “Rma: Rapid motor adaptation for legged robots,” arXiv preprint arXiv:2107.04034 , 2021. [12] A. Kumar, Z. Li, J. Zeng, D. Pathak, K. Sreenath, and J. Malik, “Adapt-ing rapid motor adaptation for bipedal robots,” in 2022 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) .IEEE, 2022, pp. 1161–1168. [13] J. Kang, K. Ren, T. Pang, and X. Xiong, “Prime: Physically-consistent robotic inertial and motion estimation for legged and humanoid robots,” 2026, arXiv:2605.17681. [14] A. Xie, H. Qi, and D. Sadigh, “Handelbot: Real-world piano playing via fast adaptation of dexterous robot policies,” 2026, arXiv:2603.12243. [15] X. Zhang, C. Wang, L. Sun, Z. Wu, X. Zhu, and M. Tomizuka, “Efficient sim-to-real transfer of contact-rich manipulation skills with online admittance residual learning,” in Conference on Robot Learn-ing . PMLR, 2023, pp. 1621–1639. [16] C. Chi, B. Burchfiel, E. Cousineau, S. Feng, and S. Song, “Itera-tive residual policy: for goal-conditioned dynamic manipulation of deformable objects,” 2022, arXiv:2203.00663. [17] X. Chen et al. , “Online behavior-centric adaptation for bipedal robot sim-to-real transfer with unmodeled dynamics mismatch,” IEEE Trans-actions on Automation Science and Engineering , vol. 23, pp. 1533– 1545, 2026. [18] E. Lee, S. A. Moore, and B. Chen, “Sym2real: Symbolic dynam-ics with residual learning for data-efficient adaptive control,” arXiv preprint arXiv:2509.15412 , 2025. [19] K. Chua, R. Calandra, R. McAllister, and S. Levine, “Deep rein-forcement learning in a handful of trials using probabilistic dynamics models,” Advances in neural information processing systems , vol. 31, 2018. [20] M. P. Deisenroth and C. E. Rasmussen, “Pilco: a model-based and data-efficient approach to policy search,” in Proceedings of the 28th International Conference on International Conference on Machine Learning , Madison, WI, USA, 2011. [21] S. A. Moore, E. Lee, and B. Chen, “Learning legged mpc with smooth neural surrogates,” 2026, arXiv:2601.12169. [22] D. Hafner, J. Pasukonis, J. Ba, and T. Lillicrap, “Mastering diverse control tasks through world models,” Nature , vol. 640, no. 8059, pp. 647–653, 2025. [23] J. Levy et al. , “Simulation distillation: Pretraining world models in simulation for rapid real-world adaptation,” 2026, arXiv:2603.15759. [24] A. A. Joumah, A. Jafar, and C. Albitar, “Forward geometric model prediction of a 6-rsu parallel manipulator using a modified narx bayesian neural network,” Heliyon , vol. 10, no. 24, 2024. [25] K. Telli et al. , “Quadrotor experimental dynamic identification with comprehensive narx neural networks,” in 2023 6th International Conference on Signal Processing and Information Security (ICSPIS) .IEEE, 2023, pp. 167–172. [26] Y. Zeng, Y. Huang, and X. Xiong, “Reference-steering via data-driven predictive control for hyper-accurate robotic flying-hopping lo-comotion,” in 2025 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , 2025, pp. 3760–3766. [27] J. C. Willems, “The behavioral approach to open and interconnected systems,” IEEE control systems magazine , vol. 27, no. 6, pp. 46–99, 2007. [28] A. Nichol, J. Achiam, and J. Schulman, “On first-order meta-learning algorithms,” 2018, arXiv:1803.02999. [29] H. Xue, C. Pan, Z. Yi, G. Qu, and G. Shi, “Full-order sampling-based mpc for torque-level locomotion control via diffusion-style annealing,” in 2025 IEEE International Conference on Robotics and Automation (ICRA) , 2025, pp. 4974–4981. [30] K. Zakka, Q. Liao, B. Yi, L. L. Lay, K. Sreenath, and P. Abbeel, “mjlab: A lightweight framework for gpu-accelerated robot learning,” 2026, arXiv:2601.22074. [31] E. Todorov, T. Erez, and Y. Tassa, “Mujoco: A physics engine for model-based control,” in 2012 IEEE/RSJ International Conference on Intelligent Robots and Systems . IEEE, 2012, pp. 5026–5033. [32] S. Chitta et al. , “ros control: A generic and simple control framework for ros,” The Journal of Open Source Software , 2017. [33] R. Hartley, M. Ghaffari, R. M. Eustice, and J. W. Grizzle, “Contact-aided invariant extended kalman filtering for robot state estimation,” 
+
+The International Journal of Robotics Research , vol. 39, no. 4, pp. 402–430, 2020. [34] Z. Cao et al. , “Hiwet: Hierarchical world-frame end-effector tracking for long-horizon humanoid loco-manipulation,” 2026, arXiv:2602.06341.
