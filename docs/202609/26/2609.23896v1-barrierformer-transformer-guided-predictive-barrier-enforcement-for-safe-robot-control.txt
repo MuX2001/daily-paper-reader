@@ -1,0 +1,841 @@
+Title: BarrierFormer: Transformer-Guided Predictive Barrier Enforcement for Safe Robot Control
+
+URL Source: https://arxiv.org/pdf/2609.23896v1
+
+Published Time: Tue, 22 Sep 2026 01:53:36 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# BarrierFormer: Transformer-Guided Predictive Barrier Enforcement for Safe Robot Control 
+
+Anandsingh Chauhan 
+
+Arizona State University 
+
+achauh67@asu.edu 
+
+Kunal Garg 
+
+Arizona State University 
+
+kgarg24@asu.edu 
+
+Abstract: Control barrier functions (CBFs) have become one of the most pop-ular tools for encoding and enforcing state constraints in safety-critical robotics. Standard CBF approaches are inherently myopic in nature as they enforce safety only at the current time step. Consequently, the system can be driven toward the boundary of the safe set where no feasible safe control exists at a future timestep. Model predictive control (MPC) based approaches address this by enforcing state constraints over a receding horizon. However, such approaches generally require the model to be known for solving a constrained optimization problem at every step, which is computationally expensive for real-time deployment. We propose BarrierFormer, a barrier-supervised transformer framework that addresses these limitations by encoding rollout-level CBF constraints in learning a model-free safe policy. A causal transformer encodes observation-action history, autoregressively generates a predictive rollout through the dynamics head to replace the model, and provides a residual correction to a nominal controller through the action head to replace the online computation. A barrier critic operating on local observa-tions evaluates CBF constraint violations along this rollout, and a safety teacher computes barrier-consistent actions satisfying these constraints as direct super-vision targets for the learned control policy. During inference, the policy maps observation-action history to control actions without any online optimization or model knowledge, enabling real-time model-free predictive safety enforcement. Evaluations across linear and nonlinear, 2D and 3D dynamical systems for safe goal-directed navigation demonstrate that BarrierFormer outperforms existing re-inforcement learning (RL)-based, diffusion-based, MPC-based, and transformer-based approaches in safety rate and inference latency. 1
+
+Keywords: Control Barrier Function, Predictive Control, Causal transformers 
+
+## 1 Introduction 
+
+Safe robot navigation requires an agent to reach a goal while avoiding obstacles [1, 2, 3]. This reach-avoid objective couples two aspects: the controller must make progress toward the goal while avoiding actions that lead to future safety violations [4]. Control barrier functions (CBFs) provide a principled framework for the safety component by converting set-invariance requirements into constraints on the control input [5, 6, 7], minimally modifying a nominal controller to be safe. An online control input is computed using a single-step quadratic program (QP) to enforce these constraints, but this pointwise formulation is myopic: the barrier condition is evaluated only at the current step and does not constrain how the closed-loop trajectory evolves [8, 9, 10]. An action may therefore be instantaneously safe while still driving the system toward states where the barrier constraint becomes infeasible and no safe recovery action remains [8, 11]. Model predictive control (MPC) and discrete-time CBF-MPC mitigate this by enforcing safety over predicted trajectories [11, 
+
+> 1
+
+Project website: https://safe-robotics-group-at-asu.github.io/BarrierFormer-website/ 10th Conference on Robot Learning (CoRL 2026), Austin TX, USA. arXiv:2609.23896v1 [cs.RO] 20 Sep 2026 12], but require model knowledge for solving constrained optimization problems online, making real-time deployment computationally expensive [13, 14]. The challenge is further compounded when the agent operates under partial observations. The agent observes only its own state and LiDAR readings within a fixed sensing radius, with obstacle ge-ometry beyond that range entirely unknown at decision time [15, 16, 17]. A single observation is therefore insufficient to characterize the safety of the current state: the agent may be currently 
+
+safe but on a trajectory toward an obstacle that has not yet entered its sensing range. Certifying safety, therefore, requires generating a predictive rollout from the current state to anticipate future constraint violations. Diffusion-based approaches incorporate safety through predefined CBFs via iterative optimization at inference time [18, 19]. Transformer-based policies are better suited for this setting, leveraging self-attention to aggregate temporal information across observation-action histories [20, 21]; jointly predicting actions and future states through a shared transformer further improves policy performance [22]. However, incorporating safety filters or constrained optimization at deployment [21, 23, 24] sacrifices inference-time efficiency. The key question is therefore whether safety constraints evaluated over predicted rollouts can be encoded directly into policy parameters, such that no online optimization is needed at deployment. In this work, we use a barrier-supervised transformer framework that directly encodes rollout-level CBF constraints into policy parameters via training-time supervision. A causal transformer encodes observation-action history and jointly outputs a residual correction to a nominal controller and pre-dicted state increments, which are used to autoregressively generate a predictive rollout (see Fig. 1). A barrier critic evaluates CBF constraint violations along this rollout, and a safety teacher computes barrier-consistent corrections as direct supervision targets for the policy. Since horizon-level safety reasoning is encoded in the policy parameters via training-time barrier supervision, the policy maps observation-action histories directly to control actions, with no online optimization at inference. The contributions of this work are as follows. First, we propose BarrierFormer, a model-free frame-work for safety enforcement that encodes observation-action histories and incorporates barrier con-straints over a future horizon into safe policy learning. Second, we replace the online computation of the safe input over a horizon with a learned policy, leading to a faster runtime inference com-pared to existing predictive methods [12, 18]. Third, BarrierFormer uses past observation-action history, where observation includes the robot state and local LiDAR measurements, without access to a global map, to predict state increments and reconstruct future observations, thereby enforcing safety with partial environmental information. We evaluate BarrierFormer on linear and nonlinear robot dynamics against RL-based, diffusion-based, MPC-based, and transformer-based baselines, demonstrating improved safety rate, faster inference, and zero-shot generalization to larger and more cluttered environments. 
+
+## 2 Related Work 
+
+Optimization-based. CBF-QP controllers enforce safety by solving a quadratic program at each timestep that minimally modifies a nominal control input to satisfy the barrier condition [5, 6]. While real-time efficient, this formulation is myopic and can drive the system toward states where the barrier constraint becomes infeasible [8]. Discrete-time CBF-MPC methods address this by enforcing barrier constraints over a receding horizon [11, 12], but the resulting optimization is gen-erally nonconvex and requires accurate dynamics models and full state estimates, making real-time deployment expensive. 
+
+Learning-based. CBFs have been integrated with RL to improve constraint satisfaction through action projection or rollout filtering during training [25, 26, 27]. These methods often require a safety filter or action projection at inference to improve safety, instead of using the policy output directly. Other approaches learn safety certificates directly: neural CBF methods construct value-function-based safety filters [24], and BarrierNet embeds differentiable quadratic programs into neural controllers [23]. Both enable end-to-end training of safety-aware policies but retain a safety filter or constrained optimization at inference. 2Generative Models for Robot Control. Diffusion-based planners incorporate safety by embedding predefined CBFs into the denoising process via gradient projection [18, 19]. While these methods improve constraint satisfaction at the trajectory level, they rely on iterative denoising during infer-ence and are not well-suited for real-time control. Transformer-based policies leverage self-attention to aggregate temporal information across observation-action histories for history-conditioned con-trol [20, 21, 28]. PACT does not enforce safety constraints [20], while TransformerMPC retains online optimization at inference [28]. ConBaT augments a causal transformer with a learned barrier critic trained on safe and unsafe demonstrations, and at inference applies a lightweight gradient-based optimization to correct the proposed action only when the future state is predicted to fall below a safety threshold [21], rather than encoding safety directly into the policy parameters. 
+
+## 3 Preliminaries and Problem Formulation 
+
+Notations : Let R and Z≥0 denote the sets of real numbers and nonnegative integers, respectively. We use ∥ · ∥ to denote the Euclidean norm and [·]+ to denote max(0 , ·).
+
+System and Observation Model : We consider the reach-avoid problem, in which an autonomous agent safely navigates an obstacle-filled environment to reach a goal position pgoal ∈ Rnp [1]. Let 
+
+xt ∈ X ⊆ Rnx and ut ∈ U ⊂ Rnu denote the state and control respectively at time t ∈ Z≥0, where 
+
+U is a compact admissible control set. Each state xt ∈ X includes a position component pt ∈ Rnp ,where np ∈ { 2, 3} denotes the dimension of the position vector. The agent dynamics are given by: 
+
+xt+1 = F (xt, ut) := f (xt) + g(xt)ut. (1) The agent has no prior knowledge of obstacle locations and perceives its environment through nrays 
+
+evenly spaced LiDAR rays within a fixed sensing radius R > 0. Let o : X → Rno denote the observation map. The observation at time t is 
+
+ot = o(xt) =  xt, pgoal − pt, yt, 1, . . . , yt,n rays 
+
+ ∈ Rno . (2) We drop the time index t and the state argument x when clear from context. For each j ∈{1, . . . , n rays }, yt,j ∈ Rnp+2 denotes the feature vector of the j-th LiDAR ray: yt,j = mt,j , ¯dt,j , vt,j 
+
+ , where mt,j is the hit indicator, ¯dt,j denotes the return distance of the j-th Li-DAR ray, normalized by the sensing radius R, and vt,j ∈ Rnp is the ray direction. 
+
+Safety Specification : Let r ∈ (0 , R ) denote the agent radius and O = {O 1, . . . , , OM } the set of obstacles, with Oi ⊂ Rnp for each i ∈ { 1, . . . , M }. The prescribed safe set S ⊂ X and avoid set 
+
+A ⊂ X are defined as: 
+
+S = {x ∈ X | d(p, Oi) ≥ r, ∀i ∈ { 1, . . . , M }} , A = X \ S . (3) where p ∈ Rnp is the position component of x, and d(p, Oi) = min y∈O i ∥p − y∥ is the distance from p to the obstacle Oi. The safety requirement is that the system trajectories remain in the set S
+
+at all times, i.e., xt ∈ S for all t. A set C ⊆ X is control invariant for the system in (1) if, for every 
+
+x ∈ C , there exists u ∈ U such that F (x, u) ∈ C [29]. A state-feedback policy π : X → U renders 
+
+C forward invariant if x0 ∈ C implies xt ∈ C for all t ≥ 0 under xt+1 = F (xt, π (xt)) . If C ⊆ S ,forward invariance of C implies system safety with respect to S. A barrier function, defined below, certifies control invariance of a subset of S [5, 6, 30]. 
+
+Definition 3.1 (Discrete-Time Control Barrier Function [11, 31]) A function h : Rno → R is a discrete-time control barrier function (DTCBF) for the system in (1) with observation model (2) on 
+
+Ch := {x ∈ X | h(o(x)) ≥ 0} ⊆ S if there exists a continuous function α : R → R that is strictly increasing with α(0) = 0 and 0 < α (s) ≤ s for all s > 0, such that for every x ∈ C h there exists 
+
+u ∈ U such that 
+
+h(o+) − h(o) ≥ − α(h(o)) , (4) 
+
+where o := o(x) and o+ := o(F (x, u)) .
+
+3We use the linear function α(s) = γs with γ ∈ (0 , 1] , yielding h(o+) ≥ (1 − γ)h(o) from (4). Based on the DTCBF definition, the set of barrier-admissible control inputs is defined as: 
+
+Kh(x) := {u ∈ U | h(o(F (x, u)) − h(o(x)) + α(h(o(x))) ≥ 0} . (5) Any observation-feedback policy π : Rno → U satisfying π(o(x)) ∈ K h(x), for all x ∈ C h, renders 
+
+Ch forward invariant [11, 31]. 
+
+Remark 3.1 (Myopia of Pointwise DTCBF Enforcement) Condition (4) constrains a single tran-sition at a given time-step t, and does not guarantee that the system can remain safe in the future. Due to this myopic nature of the CBF, a control input satisfying (4) at every timestep can still drive the system towards a state x where Kh(x) is empty [8, 11], making the barrier constraint infeasible. This motivates enforcing the barrier condition over a predicted rollout rather than pointwise at the current state. Similar ideas have been explored previously by combining the CBF-based approaches with MPC-like lookahead mechanisms [12, 32, 33, 34]. 
+
+The myopic nature of the CBF constraint in (4) can be overcome by enforcing the CBF constraint over a horizon {t + k}Hk=0 for some H at each time step t as: 
+
+h (ot+k+1 ) ≥ (1 − γ) h (ot+k) , k = 0 , . . . , H − 1, (6) which requires computation of future states per (1), which in turn requires a known system model. In a model-free control design, future states must be predicted from available information, such as historical state-action pairs. Based on this, we formulate the problem considered in this work. 
+
+Problem 3.1 Design a model-free, history-conditioned policy πθ such that the closed-loop trajecto-ries of (1) satisfy safety , i.e., the robot does not collide with any obstacle, i.e., d(pt, Oi) ≥ r, ∀i ∈{1, . . . , M }, ∀t ≥ 0, where safety at each time step is enforced by requiring the barrier condition to hold over the predicted rollout (6) ; and liveness , i.e., inf t≥0 ∥pt − pgoal ∥ = 0 .
+
+## 4 Methodology 
+
+BarrierFormer overview: In the model-free, partially observed setting, generating a predicted rollout requires using previous observations and actions to infer how the robot state evolves. We therefore use a GPT-2-style causal transformer [35], which conditions residual-action and state-increment predictions on the preceding finite observation–action history containing T observations and the T − 1 preceding actions, where T is a positive integer: 
+
+Ht := ( ot−T +1 , ut−T +1 , . . . , ot−1, ut−1, ot) ∈ HT . (7) At each rollout step t, the predicted state increment dθx is used to obtain the next state ˆxt+1 ,from which the next observation ˆot+1 is constructed. The current rollout history Ht is advanced to Ht+1 by discarding the oldest observation-action pair and appending the predicted action and reconstructed observation. During training, BarrierFormer uses these predictions to enforce the bar-rier condition over a future horizon t, t + 1 , . . . , t + H, instead of only at the current time step t,as discussed in Remark 3.1. The proposed BarrierFormer operates in two steps, as illustrated in Fig. 1. In Step 1, a causal transformer encodes the observation-action history Ht and jointly predicts a residual correction to the action produced by a nominal control policy via the actor head and state increments via the dynamics head. These predictions are used to autoregressively generate a finite-horizon rollout. In Step 2, a barrier critic evaluates DTCBF constraint violations along the predicted rollout, and an SQP-based safety teacher computes barrier-consistent corrections as direct supervi-sion targets for the actor head. Step 2 operates only during training; at deployment, the transformer maps the observation-action history to control actions directly, with horizon-level safety reasoning encoded into the policy parameters through training-time barrier supervision, thereby removing the requirement of any online constrained optimization. Each observation and action in Ht is independently mapped to a dh-dimensional embedding using separate linear encoders. The resulting 2T − 1 embeddings are interleaved in temporal order to 4𝒉 𝝓 (𝐨 𝐭 )𝒉 𝝓 (𝐨 %𝐭#𝟏 )⋮𝒉 𝝓 (𝐨 %𝐭#𝐇 )𝐨 𝐭&𝐓#𝟏     
+
+> 𝐮 𝐭&𝐓#𝟏
+> ⋮𝐮 𝐭&𝟏
+> 𝐨 𝐭
+> 𝐨 𝒕
+> 𝐨 %𝐭#𝟏
+> ⋮𝐨 %𝐭#𝐇
+> Multi Head Attention Feed Forward Layer Action Head Dynamic Head Transformer Block Step 1 : Autoregressive Predictive Rollout Step 2 : Safety Evaluation
+> 𝝁 nom
+> Reconstructed observation o+)#*∣)
+> Control input u+)∣)
+> Observation Reconstruction
+> 𝐨 % = 𝑜 𝐱 +𝐨 %𝐭#𝐤 𝐤-𝟎 𝐇
+> 𝒛 𝐭
+> CBF constraints guide policy learning
+> 𝓗 𝒕
+> 𝐱 #
+> Barrier Critic
+
+Figure 1: Overview of BarrierFormer: In Step 1, a causal transformer autoregressively generates a finite-horizon predictive rollout via the actor and dynamics heads. In Step 2, a barrier critic hϕ
+
+evaluates DTCBF constraint violations along the predicted observations. form the input token sequence. The backbone transformer TθT , parameterized by θT , processes this sequence and produces a latent representation zt = TθT (Ht) that is shared between two heads. The first one is action head πθu , an MLP that maps zt to a residual correction ∆ut = πθu (zt), where the deployed control input is ut = μnom (xt)+∆ ut, with μnom being a nominal control policy designed to drive the robot toward the goal, but not necessarily to satisfy the safety constraints. The second one is dynamics head dθx , an MLP that maps (zt, ut) to a predicted state increment ∆ˆ xt = dθx (zt, ut),used during training to generate predictive rollouts. In particular, with ˆxt|t = xt and bHt|t = Ht, at each step k = 0 , . . . , H − 1, BarrierFormer computes: 
+
+zt+k|t = TθT (Ht+k|t), (8) 
+
+ˆut+k|t = μnom (ˆ xt+k|t) + πθu (zt+k|t), (9) 
+
+ˆxt+k+1 |t = ˆ xt+k|t + dθx (zt+k|t, ˆut+k|t). (10) At each step k, the predicted observation ˆot+k+1 |t is reconstructed from ˆxt+k+1 |t using the observa-tion structure in (2): the robot state and goal-relative position are already known to the robot, while the predicted LiDAR rays are generated using the historical data of the environment, i.e., obstacles encountered thus far. At each rollout step, the predicted history bHt+k|t is updated by discarding its oldest observation-action pair and appending (ˆ ut+k|t, ˆot+k+1 |t), yielding bHt+k+1 |t. The resulting sequence of predicted observations {ˆot+k|t}Hk=0 is passed to the barrier critic for safety evaluation. 
+
+Barrier critic : Given the predicted observation sequence {ˆot+k|t}Hk=0 , a barrier critic hϕ : Rno →
+
+R evaluates horizon-level safety by mapping each predicted observation to a scalar barrier value. Operating on local observations rather than the full environmental state makes the critic directly applicable to partially observable settings. At time t, safety is evaluated by checking whether the DTCBF condition is satisfied along the predicted observation rollout: 
+
+hϕ (ˆ ot+k+1 ) ≥ (1 − γ) hϕ (ˆ ot+k) , k = 0 , . . . , H − 1. (11) The per-step violation of (11) is vk(ot) = (1 − γ) hϕ(ˆ ot+k|t) − hϕ(ˆ ot+k+1 |t)
+
+> +
+
+, based on which the horizon-level violation is obtained by approximating the worst-case violation max k vk(ot) via a smooth log-sum-exp approximation: 
+
+V (ot) = 1
+
+β log 1
+
+H
+
+> H−1
+
+X
+
+> k=0
+
+exp ( β v k(ot)) 
+
+!
+
+, β > 0, (12) where β → ∞ recovers max k vk(ot), and the normalization by H ensures V (ot) = 0 when all constraints are satisfied. 
+
+SQP-based safety teacher : The safety teacher in Step 2 (see Fig. 1) operates only during training to generate corrective-action labels for the actor head. Given the horizon barrier constraints (11) evaluated by the barrier critic hϕ, the goal is to find the sequence of residual corrections ∆Ut =(∆ ut|t, . . . , ∆ut+H−1|t) that minimally modifies the nominal controller while satisfying all horizon 5barrier constraints. Although SQP is used only during training to generate supervision for the actor head, its candidate trajectories are propagated using the blackbox simulator dynamics available dur-ing training, xt+k+1 |t = F (xt+k|t, ut+k|t). This avoids training the actor-head on corrective labels generated under a different rollout distribution. At deployment, the SQP teacher is not used; the actor head predicts the residual correction directly from the observation-action history Ht. The CBF constraints are then enforced on the resulting predicted observations ˆot+k|t, leading to the following receding horizon optimization problem: 
+
+min 
+
+> ∆Ut
+> H−1
+
+X
+
+> k=0
+
+ut+k|t − μnom (xt+k|t) 2 s.t. ut+k|t ∈ U , c k(∆ Ut) ≤ 0, k = 0 , . . . , H − 1, (13) where ck(∆ Ut) = ηs + (1 − γ) hϕ(ˆ ot+k|t) − hϕ(ˆ ot+k+1 |t) encodes the DTCBF constraint (11) at step k, where ηs ≥ 0 is a safety margin that tightens the barrier constraint to account for the mis-match in the ground truth observations ( ot+k|t) and predicted observations ( ˆot+k|t). Problem (13) is nonconvex since ck is a non-convex function of ∆Ut Hence, we solve (13) using sequential quadratic programming (SQP), which iteratively linearizes the nonlinear constraints and solves a sequence of QP subproblems [36]. At each SQP iteration i, the constraints are linearized around the current correction sequence ∆U(i) 
+
+> t
+
+:
+
+c
+
+
+
+∆U(i) 
+
+> t
+
++ δ
+
+
+
+≈ c
+
+
+
+∆U(i)
+
+> t
+
+
+
++ J(i)δ, J(i) = ∂c ∂∆Ut ∆U(i)
+
+> t
+
+. (14) A slack variable ξ ∈ RH with quadratic penalty weight λξ > 0 is introduced to ensure feasibility when the barrier constraints cannot be simultaneously satisfied. 
+
+min 
+
+> δ, ξ
+
+12
+
+> H−1
+
+X
+
+> k=0
+
+∆u(i) 
+
+> t+k|t
+
++ δk 
+
+> 2
+
++ λξ
+
+2 ∥ξ∥22
+
+s.t. c(i) + J(i)δ ≤ ξ, ξ ≥ 0, μnom 
+
+ ˆx(i)
+
+> t+k|t
+
+ + ∆ u(i) 
+
+> t+k|t
+
++ δk ∈ U , k = 0 , . . . , H − 1.
+
+(15) Consistent with the receding-horizon principle, only the first element ∆u⋆t = [∆ U⋆t ]0 is retained as the supervision target for the actor head at each training step. 
+
+Data collection and labeling : Training data are collected on-policy by periodically executing the learned policy πθ . Rollout data are stored in a replay buffer as sequences of transitions, while a sep-arate unsafe replay buffer retains rollouts containing at least one collision. During training, a batch of transitions is sampled from these buffers. Each sampled transition contains its observation–action history H, whose final observation is denoted by o. Let DS and DU denote the sets of observa-tions labelled safe and unsafe, respectively. Although the state component x of an observation may be collision-free, the trajectory generated by the current policy may still encounter a collision at a later step. We therefore assign labels using the states that follow the observation in the same stored rollout. If x is in collision, o is added to DU . If x and all subsequent states over the next Tlabel 
+
+steps are collision-free, o is added to DS ; otherwise, it remains unlabelled. As Tlabel → ∞ , these labels approach the infinite-horizon safe set under the policy used to generate the rollout, which is intractable to compute [24, 37, 38]. We therefore use Tlabel = 32 in all experiments. The labeling horizon Tlabel is separate from the transformer’s predictive horizon H: Tlabel determines how many future states are considered when labeling observations, whereas H determines the horizon over which barrier constraints are evaluated along predicted rollouts. 
+
+Loss function design : The transformer backbone TθT , actor head πθu , dynamics head dθx , and barrier critic hϕ are trained jointly by minimizing: 
+
+min   
+
+> θT,θ u,θ x,ϕ
+
+λact Lact (θT , θ u) + λdyn Ldyn (θT , θ x) + λbar Lbar (θT , θ u, ϕ ), (16) where λact , λ dyn , λ bar > 0 and zt = TθT (Ht) denotes the latent representation. 
+
+Actor Loss : The actor loss Lact (θT , θ u) = P 
+
+> H∈D
+
+∥πθu (zt) − ∆u⋆t ∥22 supervises the residual cor-rection ∆ut = πθu (zt) using the first action of the safety teacher solution ∆u⋆t , computed over all states in D for which the SQP optimization converges. 6Dynamics loss : The dynamics loss supervises the state-increment model dθx using observed tran-sitions from the simulator. Let τt = ( Ht, xt, ut, xt+1 ) denote a transition tuple and define the loss function as Ldyn (θT , θ x) = P 
+
+> τt∈D
+
+∥dθx (zt, ut) − (xt+1 − xt)∥22.
+
+Barrier loss : The barrier loss penalizes DTCBF violations along predicted rollouts and trains hϕ to separate safe and unsafe observations. Using the horizon-level violation V (o) defined in (12), the barrier loss combines the rollout loss and classification loss:                  
+
+> Lbar (θT, θ u, ϕ ) = 1
+> |D|
+> X
+> o∈D
+> V(o)
+> |{z }
+> Lroll
+> +λcls
+> 1
+> |D S|
+> X
+> o∈D S
+> [η−hϕ(o)] ++1
+> |D U|
+> X
+> o∈D U
+> [η+hϕ(o)] +
+> |{z }
+> Lcls
+> .(17)
+
+where λcls > 0 weights the classification loss, while η > 0 defines the classification margin, en-couraging hϕ(o) ≥ η for safe observations and hϕ(o) ≤ − η for unsafe observations, preventing the barrier critic from collapsing to a trivial solution near zero. Here, D denotes the batch of histories sampled from the replay buffers. For each o ∈ D , the BarrierFormer generates a predicted rollout, and V (o) evaluates its horizon-level barrier violation according to (12). The sets DS and DU contain the observations labelled safe and unsafe, respectively. BarrierFormer is trained in two phases. In Phase 1, the transformer backbone TθT and dynamics head dθx are pretrained using Ldyn , while the actor head πθu is initialized via behavioral cloning on offline collected trajectories [20, 21, 28, 39], allowing all components to warm-start before online training begins. In Phase 2, the full training objective (16) is minimized with on-policy data collection; the dynamics head dθx is updated solely via Ldyn , while CBF gradients flow through the barrier critic hϕ directly into the actor head πθu .
+
+## 5 Experiments 
+
+We evaluate BarrierFormer to answer the following questions: (1) Does it achieve higher safety and success rates than the current state-of-the-art without sacrificing inference latency?; (2) Does training the barrier critic with the learned dynamics head maintain performance compared to training with the true simulator?; and (3) Does it generalize well to out-of-distribution data, e.g., to larger and more cluttered environments? 
+
+Environments : We evaluate BarrierFormer on three dynamical systems: one linear (Double Inte-grator) and two nonlinear (Dubins Car and Crazyflie). The sensing radius and robot radius are set to R = 0 .5 and r = 0 .05 across all environments. Training is conducted in a workspace with side-length l = 4 and M = 8 obstacles for Double Integrator and Dubins Car, and in a workspace with sidelength l = 3 and M = 6 obstacles for Crazyflie. The predictive horizon, observation-action his-tory length, and labeling horizon are set to H = 6 , T = 12 , and Tlabel = 32 , respectively. Further architecture and implementation details are given in Appendix A. 
+
+Evaluation Metrics : We evaluate each method using three metrics. The safety rate is defined as the fraction of episodes in which the robot does not collide with any obstacle at any timestep. The 
+
+reaching rate is defined as the fraction of episodes in which the robot reaches its goal location by the end of the episode. The success rate is defined as the fraction of episodes in which the robot is both safe and reaches its goal. For each environment, performance is evaluated across 3 random seeds and 32 experiments, reporting mean and standard deviation. 
+
+Baselines : We compare BarrierFormer against four baselines based on three different model-free and one model-based paradigms: 2
+
+RL-based : CBF-RL [25] integrates CBFs into RL training by safety filtering policy rollouts and incorporating a barrier-inspired reward term, but relies on predefined CBFs. 
+
+Diffusion-based : CoBL-Diffusion [19] guides the denoising process of a diffusion model using pre-defined CBFs via gradient projection, enforcing safety iteratively at inference time.  
+
+> 2Implementation Note. CBF-RL and CoBL-Diffusion were originally evaluated on single integrator sys-tems. To enable fair comparison across all three environments, all baselines are re-implemented within our framework using the same dynamics, observation, and obstacle configurations (refer Appendix).
+
+7Transformer-based : ConBaT [21] augments a causal transformer with a learned barrier critic trained on safe and unsafe demonstrations, and at inference applies a lightweight gradient-based optimiza-tion to correct the action when the future state is predicted to fall below a safety threshold. 
+
+Model-based MPC [40] enforces safety over a receding horizon by solving a constrained optimiza-tion problem at each control step, but requires accurate dynamics models and full state estimates, making real-time deployment computationally expensive. Table 1: Performance comparison in terms of safety rate (Safe), goal reaching rate (Reach), success rate (Success) and per-step computational time (Time) on 2D environments DI: Double Integra-tor, DC: Dubins Car, and 3D environment CF: Crazyflie drone. †Inference time not reported for CoBL-Diffusion as diffusion-based planners require iterative denoising at inference, resulting in slow inference speeds [41].                                                                                                                                                                                                                           
+
+> Env. Metric Model-Free Model-Based CBF-RL CoBL-Diff ConBaT Ours (Dyn-Head) MPC Ours (Sim)
+> DI Safe 67 .71 ±2.95 76 .04 ±3.90 72 .9±8.20 95 .83 ±1.47 98 .96 ±1.47 98 .96 ±1.47
+> Reach 67 .71 ±2.95 26 .04 ±7.80 94 .8±1.50 89 .58 ±6.42 96 .86 ±2.55 87 .50 ±4.42
+> Success 67 .71 ±2.95 21 .88 ±5.10 68 .8±6.80 88 .54 ±6.42 95 .83 ±1.47 86 .46 ±3.90
+> Time ( μs) 9.24 ±0.36 −†6.63 ±0.04 4.99 ±0.02 8256 ±900 4.96 ±0.03
+> DC Safe 56 .25 ±5.10 70 .83 ±3.90 64 .6±13 .10 95 .83 ±2.95 97 .92 ±1.47 97 .92 ±1.47
+> Reach 52 .08 ±3.90 2.08 ±2.95 27 .1±3.90 92 .71 ±2.95 95 .83 ±1.47 93 .75 ±4.42
+> Success 52 .08 ±3.90 2.08 ±2.95 21 .9±2.60 92 .71 ±2.95 94 .79 ±1.47 93 .75 ±4.42
+> Time ( μs) 9.90 ±0.21 −†6.70 ±0.02 4.79 ±0.01 9280 ±1262 4.82 ±0.04
+> CF Safe 88 .54 ±2.95 98 .96 ±1.80 91 .7±5.90 96 .88 ±2.55 93 .75 ±0.00 93.75 ±2.55
+> Reach 85 .42 ±3.90 0.00 ±0.00 96 .9±2.60 92 .71 ±3.90 100 .00 ±0.00 94 .79 ±5.31
+> Success 85 .42 ±3.90 0.00 ±0.00 88 .5±3.90 89 .58 ±8.20 93 .75 ±0.00 88 .54 ±7.37
+> Time ( μs) 9.51 ±0.38 −†8.63 ±0.03 5.12 ±0.04 2773 ±103 5.08 ±0.03
+
+We evaluate two variants of BarrierFormer that differ in how predictive rollouts are generated dur-ing training. In Ours (Sim) , the barrier critic hϕ is trained using rollouts generated by the true simulator, providing accurate state predictions for CBF constraint evaluation. In Ours (Dyn-Head) ,the barrier critic is trained using rollouts generated by the learned dynamics head dθx , which is jointly trained with the transformer backbone. Table 1 compares BarrierFormer against baselines across three dynamical systems, evaluated over 32 environments and 3 seeds for 256 timesteps on the training distribution. Among model-free methods, Ours (Dyn-Head) achieves the best balance between safety and goal-reaching with competitive inference time. CoBL-Diffusion achieves higher safety rates on CF but at the cost of near-zero reaching rates, consistent with the local trap problem identified in [18], where CBF-guided gradient projection during denoising can prevent the planner from making progress toward the goal. The higher performance on Crazyflie across all methods is attributed to the lower obstacle density in the 3D environment. Among model-based methods, 
+
+Ours (Sim) achieves safety and reaching rates comparable to MPC across all environments, while reducing per-step inference time by two to three orders of magnitude. 
+
+Generalization Evaluation. Fig. 2 evaluates zero-shot generalization across different obstacle den-sities and workspace sizes. Obstacle density is defined as ρ = M/l np , where M is the number of obstacles and np ∈ { 2, 3} is the dimension of the position space. We evaluate ρ ∈ { 0.50 , 0.75 , 1.00 }
+
+with workspace sizes l ∈ { 4, 6} for DI and DC and l ∈ { 3, 4} for CF. The DI and DC models are trained at ρ = 0 .50 with l = 4 , while the CF model is trained with M = 6 obstacles and l = 3 , cor-responding to ρ ≈ 0.22 . To ensure a controlled, paired comparison, each instance is initialized at the highest density, ρ = 1 .00 . Lower-density variants are then obtained by removing a random subset of obstacles while preserving the poses of all remaining obstacles. Safety rates generally decrease with increasing density, as higher clutter reduces navigable space and increases the frequency of obsta-cle encounters. At a fixed obstacle density, performance generally decreases as the workspace size increases, potentially due to longer navigation paths and increased exposure to obstacles. Despite being trained only at (ρ, l ) = (0 .50 , 4) for DI and DC and (ρ, l ) ≈ (0 .22 , 3) for CF, both variants retain substantial safety under the evaluated distribution shifts. 860 70 80 90 100                   
+
+> DI
+> l = 4 , 6
+> Rate (%)
+> Safe Reach Success
+> 60 70 80 90 100
+> DC
+> l = 4 , 6
+> Rate (%)
+> 0.50 0.75 1.00
+> Density ρ
+> 60 70 80 90 100
+> CF
+> l = 3 , 4
+> Rate (%)
+> 0.50 0.75 1.00
+> Density ρ
+> 0.50 0.75 1.00
+> Density ρ
+> lower l, Sim lower l, Dyn-Head higher l, Sim higher l, Dyn-Head
+
+Figure 2: Zero-shot generalization across obstacle densities ρ = M/l np and workspace sizes. Rows show DI, DC, and CF; columns show safety, reaching, and success rates. Colors distinguish Sim and Dyn-Head at the smaller and larger workspace sizes. Bars report mean ± standard deviation over 32 environments and 3 seeds. The DI and DC models are trained only at (ρ, l ) = (0 .50 , 4) , while the CF model is trained only at (ρ, l ) ≈ (0 .22 , 3) .
+
+## 6 Limitations 
+
+While the proposed architecture performs better than a variety of existing prediction-based frame-works, its performance drops as problem complexity increases (from linear to nonlinear and from 2D to 3D). The resulting architecture is model-free at inference; however, the training mechanism still requires access to a black-box simulator for data collection. Making the framework truly model-free during training remains an open direction, requiring end-to-end online training to remove the simulator dependency and distributional bias introduced by offline pretraining. Beyond single-agent navigation, a natural extension is to multi-agent settings, where graph-based transformers could enable distributed horizon-level barrier enforcement across agents. Finally, similar to the existing black-box simulator-based approaches, the proposed architecture can have a large simulation-to-real-world (sim2real) gap, which might lead to undesirable behavior on real robotic systems. 
+
+## 7 Conclusion 
+
+In this paper, we presented BarrierFormer, a barrier-supervised transformer framework that encodes rollout-level CBF constraints directly into policy parameters via training-time supervision from an SQP-based safety teacher, enabling predictive safety enforcement without online optimization at inference. Under partial observability, BarrierFormer uses an observation–action history to generate a predictive rollout and evaluate DTCBF violations along it. Evaluations on linear and nonlinear, 2D and 3D dynamical systems illustrate that BarrierFormer achieves better performance than model-free baselines and competitive performance with model-based MPC, while reducing inference latency by over three orders of magnitude. 9Acknowledgments 
+
+The Authors acknowledge the National Artificial Intelligence Research Resource (NAIRR) Pilot and AWS under grant NAIRR250034 for contributing to this research result. Any opinions, findings, conclusions, or recommendations expressed in this publication are those of the authors and do not necessarily reflect the views of the sponsors. 
+
+## References 
+
+[1] O. So and C. Fan. Solving Stabilize-Avoid via Epigraph Form Optimal Control using Deep Reinforcement Learning. In Proceedings of Robotics: Science and Systems , Daegu, Republic of Korea, July 2023. [2] P. Palanisamy. Multi-agent connected autonomous driving using deep reinforcement learning. In 2020 International Joint Conference on Neural Networks (IJCNN) , pages 1–7. IEEE, 2020. [3] L. M. Schmidt, J. Brosig, A. Plinge, B. M. Eskofier, and C. Mutschler. An introduction to multi-agent reinforcement learning and review of its application to autonomous mobility. In 
+
+2022 IEEE 25th International Conference on Intelligent Transportation Systems (ITSC) , pages 1342–1349. IEEE, 2022. [4] M. Jankovic and M. Santillo. Collision avoidance and liveness of multi-agent systems with cbf-based controllers. In 2021 60th IEEE Conference on Decision and Control (CDC) , pages 6822–6828. IEEE, 2021. [5] A. D. Ames, X. Xu, J. W. Grizzle, and P. Tabuada. Control barrier function based quadratic programs for safety critical systems. IEEE Transactions on Automatic Control , 62(8):3861– 3876, 2017. [6] A. D. Ames, S. Coogan, M. Egerstedt, G. Notomista, K. Sreenath, and P. Tabuada. Control barrier functions: Theory and applications. In 2019 18th European Control Conference (ECC) ,pages 3420–3431. IEEE, 2019. [7] D. R. Agrawal and D. Panagou. Safe control synthesis via input constrained control barrier functions. In 2021 60th IEEE Conference on Decision and Control (CDC) , pages 6113–6118. IEEE, 2021. [8] M. H. Cohen and C. Belta. Approximate optimal control for safety-critical systems with control barrier functions. In 2020 59th IEEE Conference on Decision and Control (CDC) , pages 2062– 2067, 2020. [9] A. E. Chriat and C. Sun. On the optimality, stability, and feasibility of control barrier functions: An adaptive learning-based approach. IEEE Robotics and Automation Letters , 8(11):7865– 7872, 2023. [10] S. Yang, S. Chen, V. M. Preciado, and R. Mangharam. Differentiable safe controller design through control barrier functions. IEEE Control Systems Letters , 7:1207–1212, 2022. [11] J. Zeng, B. Zhang, and K. Sreenath. Safety-critical model predictive control with discrete-time control barrier function. In 2021 American Control Conference (ACC) , pages 3882–3889. IEEE, 2021. [12] J. Liu, J. Yang, J. Mao, T. Zhu, Q. Xie, Y. Li, X. Wang, and S. Li. Flexible active safety motion control for robotic obstacle avoidance: A cbf-guided mpc approach. IEEE Robotics and Automation Letters , 10(3):2686–2693, 2025. [13] M. N. Zeilinger, C. N. Jones, and M. Morari. Real-time suboptimal model predictive control using a combination of explicit mpc and online optimization. IEEE transactions on automatic control , 56(7):1524–1534, 2011. 10 [14] A. Alessio and A. Bemporad. A survey on explicit model predictive control. In Nonlinear model predictive control: towards new challenging applications , pages 345–369. Springer, 2009. [15] T. Kim and D. Panagou. Visibility-aware rrt* for safety-critical navigation of perception-limited robots in unknown environments. IEEE Robotics and Automation Letters , 2025. [16] M. Harms, M. Kulkarni, N. Khedekar, M. Jacquet, and K. Alexis. Neural control barrier func-tions for safe navigation. In 2024 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 10415–10422. IEEE, 2024. [17] S. Keyumarsi, M. W. S. Atman, and A. Gusrialdi. Lidar-based online control barrier func-tion synthesis for safe navigation in unknown environments. IEEE Robotics and Automation Letters , 9(2):1043–1050, 2023. [18] W. Xiao, T.-H. Wang, C. Gan, R. Hasani, M. Lechner, and D. Rus. Safediffuser: Safe planning with diffusion probabilistic models. In The Thirteenth International Conference on Learning Representations , 2025. URL https://openreview.net/forum?id=ig2wk7kK9J .[19] K. Mizuta and K. Leung. Cobl-diffusion: Diffusion-based conditional robot planning in dy-namic environments using control barrier and lyapunov functions. In 2024 IEEE/RSJ Interna-tional Conference on Intelligent Robots and Systems (IROS) , pages 13801–13808, 2024. [20] R. Bonatti, S. Vemprala, S. Ma, F. Frujeri, S. Chen, and A. Kapoor. Pact: Perception-action causal transformer for autoregressive robotics pre-training. In 2023 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 3621–3627. IEEE, 2023. [21] Y. Meng, S. Vemprala, R. Bonatti, C. Fan, and A. Kapoor. Conbat: Control barrier trans-former for safe robot learning from demonstrations. In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pages 12857–12864. IEEE, 2024. [22] S. Ye, Y. Ge, K. Zheng, S. Gao, S. Yu, G. Kurian, S. Indupuru, Y. L. Tan, C. Zhu, J. Xiang, et al. World action models are zero-shot policies. arXiv preprint arXiv:2602.15922 , 2026. [23] W. Xiao, T.-H. Wang, R. Hasani, M. Chahine, A. Amini, X. Li, and D. Rus. Barriernet: Differentiable control barrier functions for learning of safe robot control. IEEE Transactions on Robotics , 39(3):2289–2307, 2023. [24] O. So, Z. Serlin, M. Mann, J. Gonzales, K. Rutledge, N. Roy, and C. Fan. How to train your neural control barrier function: Learning safety filters for complex input-constrained systems. In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pages 11532– 11539. IEEE, 2024. [25] L. Yang, B. Werner, M. de Sa, and A. D. Ames. Cbf-rl: Safety filtering reinforcement learning in training with control barrier functions. arXiv preprint arXiv:2510.14959 , 2025. [26] R. Cheng, G. Orosz, R. M. Murray, and J. W. Burdick. End-to-end safe reinforcement learning through barrier functions for safety-critical continuous control tasks. In Proceedings of the AAAI conference on artificial intelligence , volume 33, pages 3387–3395, 2019. [27] Y. Emam, G. Notomista, P. Glotfelter, Z. Kira, and M. Egerstedt. Safe reinforcement learning using robust control barrier functions. IEEE Robotics and Automation Letters , 10(3):2886– 2893, 2022. [28] D. Celestini, D. Gammelli, T. Guffanti, S. D’Amico, E. Capello, and M. Pavone. Transformer-based model predictive control: Trajectory optimization via sequence modeling. IEEE Robotics and Automation Letters , 9(11):9820–9827, 2024. [29] F. Blanchini. Set invariance in control. Automatica , 35(11):1747–1767, 1999. 11 [30] S. Prajna and A. Jadbabaie. Safety verification of hybrid systems using barrier certificates. In International workshop on hybrid systems: Computation and control , pages 477–492. Springer, 2004. [31] A. Agrawal and K. Sreenath. Discrete control barrier functions for safety-critical control of dis-crete systems with application to bipedal robot navigation. In Robotics: Science and Systems ,volume 13, pages 1–10. Cambridge, MA, USA, 2017. [32] J. Breeden and D. Panagou. Predictive control barrier functions for online safety critical con-trol. In 2022 IEEE 61st Conference on Decision and Control (CDC) , pages 924–931. IEEE, 2022. [33] A. Katriniok, E. Shakhesi, and W. Heemels. Discrete-time control barrier functions for guar-anteed recursive feasibility in nonlinear mpc: An application to lane merging. In 2023 62nd IEEE Conference on Decision and Control (CDC) , pages 3776–3783. IEEE, 2023. [34] J. Huang, H. Wang, K. Margellos, and P. Goulart. Predictive control barrier functions: Bridging model predictive control and control barrier functions. In 2025 European Control Conference (ECC) , pages 2623–2629. IEEE, 2025. [35] A. Radford, J. Wu, R. Child, D. Luan, D. Amodei, I. Sutskever, et al. Language models are unsupervised multitask learners. OpenAI blog , 1(8):9, 2019. [36] P. T. Boggs and J. W. Tolle. Sequential quadratic programming. Acta Numerica , 4:1–51, 1995. doi:10.1017/S0962492900002518. [37] K.-C. Hsu*, V. Rubies-Royo*, C. Tomlin, and J. Fisac. Safety and liveness guarantees through reach-avoid reinforcement learning. In Robotics: Science and Systems XVII , RSS2021. Robotics: Science and Systems Foundation, 2021. URL http://dx.doi.org/10.15607/ RSS.2021.XVII.077 .[38] J. F. Fisac, N. F. Lugovoy, V. Rubies-Royo, S. Ghosh, and C. J. Tomlin. Bridging hamilton-jacobi safety analysis and reinforcement learning. In 2019 International Conference on Robotics and Automation (ICRA) , pages 8550–8556, 2019. [39] S. Zhang, O. So, K. Garg, and C. Fan. GCBF+: A neural graph control barrier function framework for distributed safe multi-agent control. IEEE Transactions on Robotics , 2025. [40] A. Sathya, P. Sopasakis, R. Van Parys, A. Themelis, G. Pipeleers, and P. Patrinos. Embedded nonlinear model predictive control for obstacle avoidance using panoc. In 2018 European control conference (ECC) , pages 1523–1528. IEEE, 2018. [41] Z. Wang, M. Li, A. Mandlekar, Z. Xu, J. Fan, Y. Narang, L. Fan, Y. Zhu, Y. Balaji, M. Zhou, et al. One-step diffusion policy: Fast visuomotor policies via diffusion distillation. In Interna-tional Conference on Machine Learning , pages 63399–63416. PMLR, 2025. [42] J. Bradbury, R. Frostig, P. Hawkins, M. J. Johnson, C. Leary, D. Maclaurin, G. Necula, A. Paszke, J. VanderPlas, S. Wanderman-Milne, et al. Jax: composable transformations of python+ numpy programs. 2018. [43] I. Loshchilov and F. Hutter. Decoupled weight decay regularization. In International Confer-ence on Learning Representations , 2019. [44] C. Budaciu, N. Botezatu, M. Kloetzer, and A. Burlacu. On the evaluation of the crazyflie modular quadcopter system. In 2019 24th IEEE International Conference on Emerging Tech-nologies and Factory Automation (ETFA) , pages 1189–1195, 2019. [45] M. Kelly, C. Sidrane, K. Driggs-Campbell, and M. J. Kochenderfer. Hg-dagger: Interactive imitation learning with human experts. In 2019 International Conference on Robotics and Automation (ICRA) , pages 8077–8083. IEEE, 2019. 12 [46] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347 , 2017. 13 Appendix 
+
+## A Implementation and Experiment Details 
+
+We implement the framework in JAX [42] with the Flax neural network library, training all models end-to-end with the AdamW optimizer [43]. The same network architecture, optimizer, and loss formulation are used across all three environments (Double Integrator, Dubins Car, and Crazyflie); only the input and output dimensions of the observation, state, and action spaces change (refer Table 2). The policy follows a learned receding-horizon design: a causal transformer encodes the robot’s recent observation-action history, a residual actor head corrects a nominal controller, and a learned dynamics head provides a differentiable one-step predictor used to roll the policy forward during training. Safety is enforced by a neural barrier critic supervised by safe and unsafe labels and a discrete-time CBF condition evaluated along transformer-predicted rollouts. An SQP-based safety teacher provides imitation targets for the actor head. All weights use Xavier-uniform initialization and all environments are integrated with a fixed timestep ∆t = 0 .03 s .
+
+A.1 Observation Representation 
+
+For each environment, the robot observation ot ∈ Rno concatenates the robot state xt ∈ Rnx , the relative goal vector pgoal − pt ∈ Rnp , and the flattened LiDAR-ray features yt,j . The 2D envi-ronments (Double Integrator and Dubins Car) use four features per LiDAR ray: a hit indicator, a normalized distance, and the ray-direction components (cos θj , sin θj ). The 3D Crazyflie environ-ment uses five features per LiDAR ray: a hit indicator, a normalized distance, and the ray-direction components (cos θj cos ϕj , cos θj sin ϕj , sin θj ). In 2D, θj denotes the planar angle of the j-th ray. In 3D, θj denotes its elevation from the horizontal plane, while ϕj denotes its azimuth in the hor-izontal plane measured from the positive x-axis. The resulting observation dimensions for each environment are summarized in Table 3. 
+
+A.2 Causal Transformer Backbone 
+
+The history encoder is a GPT-2-style [35] decoder-only transformer with pre-LayerNorm (LN) resid-ual blocks. The transformer backbone takes the observation-action history Ht as input and produces a latent summary zt ∈ Rdh used by the downstream actor and dynamics heads. The history con-tains T = 12 observations and T − 1 actions, tokenized into an interleaved sequence of length 
+
+2T − 1 = 23 :  ot−T +1 , ut−T +1 , . . . , ot−1, ut−1, ot
+
+.
+
+Each observation and action token is linearly projected to the model width dh by two separate embedding layers, and a learned absolute positional embedding is added. The sequence is processed by a single GPT-2-style [35] transformer block with 2 attention heads under a causal attention mask, consisting of pre-LayerNorm multi-head self-attention (MHSA) followed by a position-wise feed-forward network with GELU activation, both with residual connections. After the final LayerNorm, the latent at the last token position (corresponding to the current observation ot) is extracted as zt.The full configuration is summarized in Table 3. 
+
+A.3 Actor Head 
+
+The actor head πθu maps the transformer latent representation zt ∈ Rdh to a residual correction 
+
+∆ut = πθu (zt) ∈ Rnu that is added to the action produced by the nominal control policy μnom :
+
+ut = μnom (xt) + ∆ ut. The actor head applies an input LayerNorm, two hidden layers with tanh 
+
+activations, and a linear output layer; the environment-specific layer dimensions are summarized in Table 5. The residual correction is left unbounded by the network, and the resulting action is clipped to the environment action bounds at execution. The nominal control policy μnom is an LQR controller for the Double Integrator, a PID controller for the Dubins Car, and a two-level LQR architecture for the Crazyflie drone, where the high-level controller outputs reference velocity and yaw-rate commands that are tracked by a low-level LQR controller. 14 Table 2: Per-environment input/output dimensions. The network architecture is identical across environments; only these dimensions change. “Feat./ray” is the number of LiDAR features per ray, so no = nx + np + nrays · (Feat./ray ).Environment State nx Action nu LiDAR rays nrays Feat./ray Observation no
+
+Double Integrator 4 2 32 4 134 
+
+Dubins Car 4 2 32 4 134 
+
+Crazyflie 12 4 32 5 175 
+
+Table 3: Causal transformer backbone hyperparameters (shared across environments).                    
+
+> Hyperparameter Value
+> Model width dh128
+> Layers / heads 1/2
+> Head dimension dhead 64
+> FFN width 4×dh= 512
+> FFN activation GELU Positional embedding Learned, absolute History length T12
+> Token sequence length 2T−1 = 23
+
+A.4 Dynamics Head 
+
+The dynamics head predicts a state increment ∆ˆ xt = dθx (zt, ut) ∈ Rnx such that ˆxt+1 = xt +∆ˆ xt.It takes the concatenated vector [z⊤ 
+
+> t
+
+, u⊤ 
+
+> t
+
+]⊤ ∈ Rdh+nu , applies an input LayerNorm followed by three hidden layers with GELU activations and a linear output layer. The environment-specific layer dimensions are summarized in Table 5. The dynamics-head parameters θx are optimized solely through the dynamics loss Ldyn . When the dynamics head is used to generate predictive rollouts for the barrier loss Lbar , θx is held fixed, while gradients with respect to its inputs zt and ut are retained. 
+
+A.5 Barrier Critic Architecture 
+
+The barrier critic hϕ : Rno → (−1, 1) is a feed-forward network with an input LayerNorm, hidden layers of widths (256 , 256 , 128) with ReLU activations, and a scalar output layer followed by a 
+
+tanh activation. Since the SQP safety teacher generates supervision labels by evaluating barrier constraints along predicted rollouts, using the concurrently updated critic could produce inconsistent labels across inner training epochs. Therefore, a target critic h ¯ϕ is maintained using the Polyak update ¯ϕ ← τtgt ϕ + (1 − τtgt ) ¯ϕ, where τtgt = 0 .5, and the SQP teacher uses h ¯ϕ instead of hϕ
+
+during label generation. This keeps the supervision targets fixed across the corresponding inner training epochs while the current critic hϕ is updated through the barrier loss Lbar . The learning rates and loss coefficients for each environment are provided in Table 4. 
+
+A.6 Environment Dynamics Double Integrator. The state of the agent is given by x = [ px, p y , v x, v y ]⊤, where [px, p y ]⊤ is the position and [vx, v y ]⊤ is the velocity. The control input is u = [ ax, a y ]⊤, representing acceleration. The continuous-time dynamics are: 
+
+˙x =
+
+
+
+0 0 1 00 0 0 10 0 0 00 0 0 0
+
+ x +
+
+
+
+0 00 01 00 1
+
+ u, (18) discretized with timestep ∆t = 0 .03 s. The control input is boundedcomponentwise as u ∈ [−1, 1] 2.
+
+Dubins Car. The state of the agent is given by x = [ px, p y , θ, v ]⊤, where [px, p y ]⊤ is the position, θ
+
+is the heading angle, and v is the speed. The control input is u = [ ω, a ], containing angular velocity 15 Table 4: Training and rollout hyperparameters for each environment. 
+
+Hyperparameter DI DC CF 
+
+Actor learning rate 3 × 10 −5 3 × 10 −5 3 × 10 −5
+
+Barrier-critic learning rate 1 × 10 −5 1 × 10 −5 3 × 10 −5
+
+λact 0.1 0.1 0.1
+
+λbar 0.5 0.5 0.2
+
+λdyn 1.0 2.0 1.0
+
+λcls 1.0 1.0 1.0
+
+γ 0.1 0.1 0.1
+
+β 20 .0 20 .0 20 .0
+
+η 0.02 0.02 0.02 
+
+τtgt 0.5
+
+Tlabel 32 
+
+Table 5: Prediction head layer dimensions ( dh = 128 ). Hidden activations are tanh for the actor head and GELU for the dynamics head; output layers are linear. 
+
+Environment Actor head (dh → nu) Dynamics head (dh + nu → nx)Double Integrator 128 → 64 → 64 → 2 130 → 128 → 128 → 128 → 4
+
+Dubins Car 128 → 64 → 64 → 2 130 → 128 → 128 → 128 → 4
+
+Crazyflie 128 → 64 → 64 → 4 132 → 128 → 128 → 128 → 12 
+
+and longitudinal acceleration. The continuous-time dynamics are: 
+
+˙˙x =
+
+
+
+v cos( θ)
+
+v sin( θ)00
+
+ +
+
+
+
+0 00 01 00 1
+
+ u, (19) discretized with timestep ∆t = 0 .03 s. The control input is bounded componentwise as u ∈ [−3, 3] 2.
+
+Crazyflie Drone. The Crazyflie quadrotor is modeled using 6-DOF rigid body dynamics [44] with state x ∈ R12 consisting of positions, velocities, Euler angles, and angular velocities, and control in-put u = [ U1, U 2, U 3, U 4]⊤ ∈ R4 consisting of thrust U1 and moments U2, U 3, U 4. The translational dynamics are: 
+
+˙px =  c(ϕ)c(ψ)s(θ) + s(ϕ)s(ψ)w −  s(ψ)c(ϕ) − c(ψ)s(ϕ)s(θ)v + uc (ψ)c(θ) (20a) 
+
+˙py =  s(ϕ)s(ψ)s(θ) + c(ϕ)c(ψ)v −  c(ψ)s(ϕ) − s(ψ)c(ϕ)s(θ)w + us (ψ)c(θ) (20b) 
+
+˙pz = wc (ϕ)c(θ) − us (θ) + vs (ϕ)c(θ) (20c) 
+
+˙u = rv − qw + gs (θ) (20d) 
+
+˙v = pw − ry − gs (ϕ)c(θ) (20e) 
+
+˙w = qu − pv − gc (θ)c(ϕ) + U1
+
+m , (20f) and the rotational dynamics are: 
+
+˙ψ = r c(ϕ)
+
+c(θ) + q s(ϕ)
+
+c(θ) (21a) 
+
+˙θ = qc (ϕ) − rs (ϕ) (21b) 
+
+˙ϕ = p + rc (ϕ)t(θ) + qs (ϕ)t(θ) (21c) 
+
+˙p = 1
+
+Ixx 
+
+ U4 − qr (Izz − Iyy ) (21d) 
+
+˙q = 1
+
+Iyy 
+
+ U3 − pr (Ixx − Izz ) (21e) 
+
+˙r = 1
+
+Izz 
+
+ U2 − pq (Iyy − Ixx ), (21f) 16 where c(·), s(·), and t(·) denote cos( ·), sin( ·), and tan( ·), respectively; p = [ px, p y , p z ]⊤ is the position, (ϕ, θ, ψ ) are the Euler angles, and g = 9 .81m /s2 is gravitational acceleration. The motor thrust-and-moment mapping is: 
+
+
+
+U1
+
+U2
+
+U3
+
+U4
+
+ =
+
+
+
+CT CT CT CT
+
+−dC T
+
+√2 −dC T
+
+√2 dC T
+
+√2 dC T
+
+√2
+
+−dC T
+
+√2 dC T
+
+√2 dC T
+
+√2 −dC T
+
+√2
+
+−CD CD −CD CD
+
+
+
+ω21
+
+ω22
+
+ω23
+
+ω24
+
+ , (22) where ωi is the angular speed of the i-th motor. System parameters are: Ixx = Iyy = 1 .395 × 10 −5
+
+kg ·m2, Izz = 2 .173 × 10 −5 kg ·m2, m = 0 .0299 kg, CT = 3 .1582 × 10 −10 N/rpm 2, CD =7.9379 × 10 −12 N/rpm 2, and d = 0 .03973 m [44]. The dynamics are discretized with timestep 
+
+∆t = 0 .03 s. The policy outputs a normalized high-level command in [−1, 1] 4, which after scaling gives world-frame velocity targets vx, v y ∈ [−2, 2] m/s, and vz ∈ [−0.5, 0.5] m/s. 
+
+A.7 Handcrafted CBF Definitions 
+
+For the CBF-RL and CoBL-Diffusion baselines, we use handcrafted CBFs defined based on the agent’s state and obstacle positions. All CBFs are designed to certify a minimum separation distance of r between the agent and each obstacle. 
+
+Double Integrator. For a second-order system, we use a relative-degree-2 CBF. Let h0(x) = 
+
+∥p − pobs ∥2 − 4r2 denote the position-based barrier, where p and pobs are the agent and obstacle positions, respectively. The CBF is defined as: 
+
+h1(x) = ˙h0(x) + α1h0(x) = 2( p − pobs )⊤(v − vobs ) + α1h0(x), (23) where α1 = 10 .0 and v, vobs are the agent and obstacle velocities, respectively. 
+
+Dubins Car. Similarly, a relative-degree-2 CBF is used. Let h0(x) = ∥p − pobs ∥2 − 4r2. The CBF is: 
+
+h1(x) = 2( p − pobs )⊤(v − vobs ) + α1h0(x), (24) where v = [ v cos θ, v sin θ]⊤ is the agent velocity in Cartesian coordinates and α1 = 5 .0.
+
+Crazyflie. Due to the high relative degree of the 6-DOF quadrotor dynamics, a relative-degree-3 CBF is required. Starting from h0(x) = ∥p − pobs ∥2 − 4r2, we define: 
+
+h1(x) = ˙h0(x) + α1h0(x), (25) 
+
+h2(x) = ˙h1(x) + α2h1(x), (26) where α1 = 30 .0 and α2 = 50 .0. The time derivatives are computed analytically through the Crazyflie dynamics model. The constraint h2(x) ≥ 0 is enforced at each control step. 
+
+## B Evaluation 
+
+Success criteria. All metrics are computed per episode using the simulator’s geometric state with agent radius r = 0 .05 . An episode is considered unsafe if the agent overlaps any obstacle at any time step, i.e., Unsafe := max t unsafe t. An episode is considered to have reached the goal if |pt −
+
+pgoal | < 2r at any time step, i.e., Reached := max t finish t. The three reported metrics are: 
+
+Safety := 1 − Unsafe , Reaching := Reached , Success := (1 − Unsafe) · Reached . (27) Success requires the agent to reach the goal without any collision along the trajectory. 
+
+Aggregation. For each environment, we run S = 3 random seeds, evaluating each seed on N =32 independently generated environments with distinct start, goal, and obstacle layouts, yielding 
+
+S × N = 96 episodes in total. Each seed yields one mean over its 32 episodes, and we report the mean and standard deviation of those 3 per-seed means. 17 Table 6: Ablation study on predictive horizon H for Double Integrator with history length K = 12 .Mean ± std over 32 environments and 3 seeds. Method H Safe Reach Success Ours (Dyn-Head) 1 83.33 ± 4.78 90.63 ± 6.25 78.12 ± 5.42 3 88.54 ± 5.89 97.92 ± 1.47 87.50 ± 6.75 6 95.83 ± 1.47 89.58 ± 6.42 88.54 ± 6.42 9 89.58 ± 5.31 97.92 ± 1.47 87.50 ± 6.75 12 89.58 ± 3.90 100.00 ± 0.00 89.58 ± 3.90 Table 7: Dynamics-head rollout RMSE on the Double Integrator with history length T = 12 . The 
+
+H = 1 column reports the one-step RMSE; the remaining columns report the autoregressive rollout RMSE over horizons H.                                                                 
+
+> Input signal H= 1 H= 8 H= 16 H= 24 H= 32
+> GCBF+ 0.000282 0.00162 0.00210 0.00258 0.00310
+> QP 0.000913 0.00215 0.00255 0.00320 0.00393
+> LQR 0.000383 0.00143 0.00186 0.00253 0.00301
+> Actor head (BarrierFormer) 0.000350 0.00160 0.00214 0.00247 0.00301
+> Actor head + noise 0.000343 0.00159 0.00219 0.00271 0.00300
+> Constant 0.000567 0.00409 0.00395 0.00483 0.00539
+> Uniform random 0.001910 0.00431 0.00514 0.00507 0.00489
+> Matched random 0.001441 0.00449 0.00543 0.00558 0.00680
+> Polynomial 0.000652 0.00460 0.00499 0.00484 0.00538
+> Sinusoidal 0.001209 0.00365 0.00530 0.00669 0.00831
+> Zero 0.000204 0.00447 0.00667 0.00881 0.01113
+
+Horizon Selection Table 6 studies the effect of the predictive horizon H on the Double Integrator environment using the history length T = 12 . The H = 1 setting corresponds to pointwise barrier supervision without multi-step predictive rollout, and gives the lowest safety rate. Increasing the horizon from H = 1 to H = 6 improves safety from 83 .33% to 95 .83% , demonstrating the benefit of enforcing barrier constraints over predicted rollouts rather than only at the next step. However, increasing H further does not consistently improve performance when the history length is fixed. This is expected because longer rollouts accumulate dynamics-head prediction error and introduce more linearized barrier constraints in the SQP subproblem, making the resulting correction labels more sensitive to linearization error and slack relaxation. We therefore use H = 6 in the main experiments with T = 12 .
+
+Pretraining. In Phase 1, we jointly pretrain the transformer backbone, actor head, and dynam-ics head using trajectories collected from three different control policies: GCBF+ [39], a QP safety controller, and the nominal LQR controller. Together, these policies provide a diverse training distri-bution comprising learned safe actions, optimization-based safety corrections, and nominal control inputs. This diversity mitigates overfitting to the narrow action distribution induced by a single controller and helps preserve rollout accuracy as predictive-horizon CBF supervision guides ac-tor updates during Phase 2. For each transition, the executed action and observed state increment provide supervision for the dynamics head. The GCBF+ and QP trajectories also provide residual-action labels for the actor head, while the nominal LQR trajectories provide additional dynamics supervision around the nominal controller. The models with history lengths T = 12 and T = 32 
+
+use the same training data and optimization procedure. We evaluate each pretrained dynamics head on 50 independently generated episodes of 256 steps for each test input. The closed-loop inputs comprise the nominal LQR controller, the BarrierFormer ac-tor added to the nominal action, its noise-perturbed variant with additive Gaussian noise of standard deviation 0.1, GCBF+, and the QP controller. The open-loop inputs are generated independently for each action dimension, with their parameters resampled for every episode. Constant inputs hold 18 Table 8: Dynamics-head rollout RMSE on the Double Integrator with history length T = 32 . The 
+
+H = 1 column reports the one-step RMSE; the remaining columns report the autoregressive rollout RMSE over horizons H.                                                                 
+
+> Input signal H= 1 H= 8 H= 16 H= 24 H= 32
+> GCBF+ 0.000170 0.00084 0.00171 0.00246 0.00326
+> QP 0.000290 0.00169 0.00229 0.00310 0.00386
+> LQR 0.000130 0.00110 0.00176 0.00252 0.00325
+> Actor head (BarrierFormer) 0.000300 0.00089 0.00163 0.00243 0.00332
+> Actor head + noise 0.000300 0.00098 0.00164 0.00242 0.00335
+> Constant 0.000220 0.00176 0.00226 0.00285 0.00342
+> Uniform random 0.000620 0.00194 0.00217 0.00251 0.00292
+> Matched random 0.000540 0.00167 0.00231 0.00259 0.00322
+> Polynomial 0.000370 0.00203 0.00232 0.00261 0.00297
+> Sinusoidal 0.000360 0.00161 0.00248 0.00321 0.00410
+> Zero 0.000150 0.00484 0.00776 0.00961 0.01154
+
+a value sampled uniformly from [−1, 1] throughout the episode. Uniform-random inputs are sam-pled independently from U(−1, 1) at every step, while matched-random inputs are sampled from a zero-mean Gaussian distribution with standard deviation 0.3 and clipped to the action bounds. Sinu-soidal inputs use amplitudes sampled from [0 .3, 1] , frequencies from 0.5 to 6 cycles per episode, and phases from [0 , 2π]. Polynomial inputs are random cubic signals normalized to [−1, 1] , and zero-action inputs remain zero throughout the episode. These test families span closed-loop, smooth low-frequency, and broadband random inputs, providing a range of temporal structures not encoun-tered during pretraining. For each input signal, the dynamics head is applied autoregressively, and state RMSE is reported for prediction horizons H ∈ { 1, 8, 16 , 24 , 32 }, where H = 1 corresponds to one-step prediction. Tables 7 and 8 present the results for T = 12 and T = 32 , respectively. Increasing the history length to T = 32 consistently reduces prediction error on controller-based inputs through H = 24 . At H = 32 , the two history lengths perform comparably on these inputs, with mean RMSEs of 0.00321 and 0.00341 for T = 12 and T = 32 , respectively. The longer history provides a clearer benefit on unseen nonzero open-loop inputs, reducing their mean H = 32 RMSE from 0.00615 to 0.00333 , a reduction of approximately 46% . The zero-action input is the exception, for which both models accumulate similar long-horizon error. 
+
+Frozen-Backbone Ablation. To evaluate the contribution of online training of the transformer backbone and dynamics head, we evaluate a variant in which the transformer backbone and dynam-ics head are frozen after Phase 1 pretraining, and only the actor head and barrier critic are trained during Phase 2. The results reported in Table 9 show degraded performance compared to the full online training setup described in Section 4, which we attribute to two factors. First, the frozen dynamics head accumulates prediction errors relative to the true simulator as the actor head’s action distribution shifts away from the pretraining distribution; since the transformer backbone is also frozen, the latent representation zt cannot adapt to the shifting action distribution, resulting in inac-curate rollout predictions for barrier constraint evaluation. This follows the same motivation as the DAgger framework [45]: collecting data under the current policy reduces distribution shift, while here the resulting on-policy transitions allow the dynamics head to adapt to the policy’s evolving state-action distribution. Second, the actor head is a compact two-hidden-layer MLP of width 64, which has limited capacity to learn safety-aware behavior from barrier supervision alone without the adaptive attention mechanism of the transformer backbone providing updated latent representations 
+
+zt. Together, these results motivate the full Phase 2 training, in which all components are updated jointly as described in Section 4. 19 Table 9: Ablation study on freezing the transformer backbone and dynamics head after Phase 1. The frozen variant trains only the actor head and barrier critic in Phase 2, while Ours denotes the full training setup. Mean ± standard deviation across 3 seeds, with each seed evaluated on 32 environments. Best mean values are bolded.                                                               
+
+> Env. Safe Reach Success Frozen Ours Frozen Ours Frozen Ours
+> DI 79 .17 ±8.20 95 .83 ±1.47 96 .88 ±2.55 89 .58 ±6.42 77 .08 ±9.66 88 .54 ±6.42
+> DC 67 .71 ±2.25 95 .83 ±2.95 100 .00 ±0.00 92 .71 ±2.95 67 .71 ±2.25 92 .71 ±2.95
+> CF 93 .75 ±5.10 96 .88 ±2.55 89 .58 ±3.90 92 .71 ±3.90 84 .38 ±9.20 89 .58 ±6.42
+
+## C Baseline Implementation 
+
+All four baselines are re-implemented in JAX/Flax within our simulation framework using the same dynamics, observation model, obstacle configurations, and evaluation protocol. Specifically, all methods are evaluated over episodes of 256 timesteps with ∆t = 0 .03 s, on a l = 4 workspace with 8 obstacles for DI and DC, and a l = 3 workspace with 6 obstacles for CF, across 3 seeds × 32 environments. 
+
+C.1 ConBaT 
+
+We re-implement ConBaT [21] in JAX/Flax following the original formulation. ConBaT learns a safe policy from demonstrations in two stages on top of a PACT causal transformer backbone [20], and enforces safety at deployment through a conditional gradient-based action correction governed by a learned discrete-time control barrier function. 
+
+Data. Safe trajectories are collected by rolling out an LQR reference controller, and unsafe tra-jectories are collected by adding Gaussian exploration noise ( σ = 0 .5) until a collision occurs. We collect 7,500 safe and 2,500 unsafe trajectories of length 256 , sliced into context windows of length 
+
+TConBaT = 16 .
+
+Architecture. The PACT backbone processes an interleaved state-action token sequence with a GPT-2-style causal transformer (2 layers, embedding size 64, 8 heads, context TConBaT = 16 ), with a policy head and a world-model head. Two barrier critics are added: a current-state critic 
+
+C(s+ 
+
+> t
+
+) ∈ R and a future-state critic Cf (s+ 
+
+> t
+
+, a+ 
+
+> t
+
+) ∈ R, each a two-layer MLP with 128 hidden units and tanh activation. By convention, C(s+ 
+
+> t
+
+) > 0 denotes safety. 
+
+Phase I: PACT pre-training. The PACT backbone is pre-trained for 50 epochs (batch 32, Adam, learning rate 10 −4) to minimize a masked action-prediction loss on safe timesteps and a world-model next-state-embedding loss weighted by λwm = 0 .1.
+
+Phase II: Barrier critic training. With PACT frozen, the two barrier critics are trained for 10 epochs with three losses: a classification loss pushing C(s+ 
+
+> t
+
+) > γ ConBaT on safe states and C(s+t) < −γConBaT on unsafe states, a DTCBF forward-invariance loss enforcing 
+
+C(s+
+
+> t+1
+
+) ≥ (1 − αConBaT )C(s+t), and a consistency loss training Cf to predict the next-state safety score. We use γConBaT = 1 .0, αConBaT = 0 .1, and loss weights (λc, λ s, λ f ) = (1 , 5, 1) .
+
+Deployment. At each step, the policy proposes an action ˆat, whose action embedding ˆa+ 
+
+> t
+
+is eval-uated by the future-state critic. If Cf (s+ 
+
+> t
+
+, ˆa+ 
+
+> t
+
+) < 0, the predicted next state is classified as unsafe and a gradient-descent correction is applied ( ncorr = 3 steps, step size 0.05 , and regularization 
+
+λreg = 0 .1); otherwise, the proposed action is executed unchanged. 20 C.2 CBF-RL 
+
+We re-implement CBF-RL [25] in JAX/Flax following the original formulation. CBF-RL trains a PPO policy [46] under two complementary CBF-based safety mechanisms during training: a closed-form CBF-QP action filter and a barrier-inspired reward penalty. 
+
+Network architecture. The actor-critic uses a two-hidden-layer MLP with width 256 and ReLU activations. The input concatenates the robot state, relative goal vector, and flattened obstacle en-coding. Per-environment dimensions are summarized in Table 10. Table 10: CBF-RL actor-critic input and output dimensions per environment. 
+
+Environment Input dim Action dim Obstacles 
+
+Double Integrator 48 2 8 rectangular Dubins Car 48 2 8 rectangular Crazyflie 36 4 6 spherical 
+
+PPO training. Training uses PPO with GAE ( γPPO = 0 .99 , λGAE = 0 .95 , clip ϵclip = 0 .2), Adam optimizer (learning rate 3 × 10 −4), global-norm gradient clipping ( 0.5), 10 epochs and 8 mini-batches per update, and 256 parallel environments. 
+
+CBF safety filter. The handcrafted CBFs defined in Appendix A.7 are used for each environment. Writing the CBF condition as ψ = a⊤u · des + b, the closed-form filtered action is: 
+
+u = udes − min( ψ, 0) 
+
+∥a∥22
+
+a, (28) so the action is modified only when ψ < 0. A barrier penalty 10 ·min( hmin , 0) is added to the reward at each step. At inference, the closed-form CBF filter remains active as a runtime safety layer. 
+
+C.3 CoBL-Diffusion 
+
+We re-implement CoBL-Diffusion [19] in JAX/Flax following the original formulation. CoBL-Diffusion is a receding-horizon diffusion planner that generates a horizon-length control sequence guided at sampling time by gradient-based CBF and CLF terms. 
+
+Data. We collect 50 ,000 expert trajectories of length 256 per environment by rolling out the ref-erence LQR controller. Raw states are converted to (ut, pt) pairs and normalized by the arena side length l = 4 for DI/DC and l = 3 for CF. 
+
+Model and training. The denoiser is a 1-D temporal U-Net (base width 32 , channel multipliers 
+
+[1 , 2, 4, 8] ) that predicts the clean control sequence U(0) from a noised sequence, conditioned on the diffusion time step and a position trajectory initialized as the straight start-goal interpolation. A cosine β schedule with 1000 diffusion steps is used. Training minimizes a three-term objective: 
+
+L = Lsimple + Ltraj + 10 Lterm . (29) The objective consists of an ℓ1 denoising loss, a trajectory-reconstruction loss obtained by integrat-ing the denoised controls through the true dynamics, and a terminal goal-reaching loss. Training uses Adam (learning rate 2 × 10 −5, global-norm clip 5.0), batch size 512 , 1500 epochs, and an exponential moving average (EMA) of the model weights with decay 0.995 .
+
+Deployment. At inference, the planner operates in a receding-horizon fashion: it generates an 
+
+HCoBL = 80 -step control sequence, applies only the first control, and then replans from the re-sulting state. The horizon of HCoBL = 80 steps is chosen to balance planning accuracy against the computational cost of DDIM sampling with gradient guidance at each denoising step. 21 Table 11: Robustness on the Double Integrator environment under dynamics perturbations. Policies are trained using the unperturbed dynamics and evaluated without retraining. Rates are reported as percentages over 3 seeds with 32 environments per seed. For process noise, σp = σv = σ.Perturbation Value T = 12 , H = 6 
+
+Safe Reach Success 
+
+˙p = αvel v
+
+0.8 95.84 75.00 73.96 0.9 96.88 84.37 84.37 1.0 96.88 89.58 88.54 1.1 95.83 96.88 93.75 1.2 95.83 96.88 92.71 
+
+˙x = f (x, u) + w
+
+σ = 0 96.88 89.58 88.54 
+
+σ = 0 .001 98.96 89.58 89.58 
+
+σ = 0 .0025 92.71 86.46 83.33 
+
+σ = 0 .005 73.96 82.29 68.75 
+
+σ = 0 .0075 53.12 79.17 50.00 
+
+σ = 0 .01 42.71 78.13 38.54 
+
+C.4 Model Predictive Control (MPC) 
+
+We implement MPC [40] as a classical model-based non-learning baseline using CasADi with the IPOPT interior-point solver. 
+
+Optimal control problem. At each control step, the MPC solves an HMPC = 20 -step tra-jectory optimization problem (0.6, s horizon) over states X ∈ Rnx×(HMPC +1) and controls 
+
+U ∈ Rnu×HMPC . The initial state is pinned as an equality constraint, dynamics are enforced as Euler-step equality constraints, and state/control limits are imposed as box constraints. The cost combines a running and terminal quadratic position error toward the goal and a control-effort regu-larization term. The solution is warm-started at each step by shifting the previous solution, reducing IPOPT iterations from ∼50 to ∼5. Only the first control u0 is applied at each step. 
+
+Obstacle handling. For Double Integrator and Dubins Car, rectangular obstacles are approxi-mated by their circumscribed circles, imposing |pk − ci|2 ≥ (r + ri + ϵ)2 at every node. This is conservative but smooth and always feasible. For Crazyflie, spherical obstacles admit an exact dis-tance constraint. The safe/unsafe metric is always computed using the exact obstacle geometry, independent of the planner’s conservative approximation. 
+
+Robustness to model perturbations. Table 11 reports the performance of BarrierFormer under dynamics perturbations not encountered during training. The policy is trained using the unper-turbed Double Integrator dynamics and evaluated without retraining under two test-time perturba-tions. First, we introduce a parametric velocity mismatch, 
+
+˙p = αvel v,
+
+where αvel = 1 corresponds to the unperturbed dynamics, and αvel ∈ [0 .8, 1.2] changes how fast the robot moves for the same velocity state. Second, we add state-wise scaled process noise, 
+
+˙x = f (x, u) + w, w ∼ N (0, Σw), Σw = diag( σ2 
+
+> p
+
+, σ 2 
+
+> p
+
+, σ 2 
+
+> v
+
+, σ 2 
+
+> v
+
+),
+
+where σp and σv denote the position and velocity disturbance standard deviations, respectively. As shown in Table 11, under velocity mismatch, the safety rate remains high across all tested values of 
+
+αvel . The lower reaching rate at αvel = 0 .8 is expected because the robot moves more slowly and more often reaches the episode time limit before arriving at the goal. Additive process noise is more challenging: safety remains above 92% for σ ≤ 0.0025 but drops as the disturbance magnitude increases. These results are empirical robustness tests, not formal robust safety guarantees. 22 D Inference Latency Measurement 
+
+All inference latency measurements are performed on a single workstation equipped with an NVIDIA RTX 4000 Ada Generation GPU ( 20 GB ), an Intel Xeon w5-3423 CPU (12 cores, up to 4.2 GHz ), and 62 GiB of RAM, running Ubuntu 22.04. Latency is measured as the per-step wall-clock time averaged over a full rollout of 256 steps across 32 parallel environments, with a single untimed warm-up run to exclude just-in-time (JIT) compilation cost. jax.block until ready() 
+
+is called after every timed step to account for asynchronous dispatch. The per-step latency reported in Table 1 is the total batched wall time divided by the number of steps. 23
