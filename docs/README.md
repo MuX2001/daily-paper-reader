@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-26</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-27</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 31 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 32 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>18</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>19</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-26 22:26:25 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-27 22:32:41 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,10 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>2026-09-26 日报：共筛31篇，精读18篇、速读13篇，重点关注视觉-语言-动作模型与机器人规划控制。最值得看的是 FOCAL-VLA（9.0）用子任务引导几何蒸馏与隐式世界建模，以及 Expert-Play Contouring Control（9.0）实现快于示教的规划；速读中 LEMCA、ME-Dex 1.0、FORTE 均8.0。普通读者可先读这两篇精读，再按需浏览速读了解触觉感知与移动操作优化。</p>
+<p>今日共生成 32 篇推荐（精读 19 篇，速读 13 篇）</p>
+<p>精读：《Prioritized Rollouts for Efficient World Model-based Vision-Language-Action Policy Optimization》（9.0/10）, 《H-VLA: Hierarchical Vision-Language-Action Model with Key-Action Reasoning and Motion Planning in a Unified Action Space》（9.0/10）</p>
+<p>速读：《Transferring the Intelligence of VLMs to Robotic Control》（8.0/10）, 《Scenario MPC with STL Specifications and Pareto-Based Feasibility Repair》（8.0/10）, 《HEARTH: An Object-Centric RGB-Thermal-3D Dataset for Temperature-Aware Robot Manipulation》（8.0/10）</p>
+<p>这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +74,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">18 篇</strong>
+    <strong class="dpr-home-dashboard-count">19 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="FOCAL-VLA: Subtask-Guided Geometry Distillation and Implicit World Modeling for Vision-Language-Action Models">FOCAL-VLA: Subtask-Guided Geometry Distillation and Implicit World Modeling for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Expert-Play Contouring Control: Faster-than-Demonstration Planning from Slow Expert and Fast Play">Expert-Play Contouring Control: Faster-than-Demonstration Planning from Slow Expert and Fast Play</span></li><li><span class="dpr-home-dashboard-paper-title" title="H-VLA: Hierarchical Vision-Language-Action Model with Key-Action Reasoning and Motion Planning in a Unified Action Space">H-VLA: Hierarchical Vision-Language-Action Model with Key-Action Reasoning and Motion Planning in a Unified Action Space</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Prioritized Rollouts for Efficient World Model-based Vision-Language-Action Policy Optimization">Prioritized Rollouts for Efficient World Model-based Vision-Language-Action Policy Optimization</span></li><li><span class="dpr-home-dashboard-paper-title" title="H-VLA: Hierarchical Vision-Language-Action Model with Key-Action Reasoning and Motion Planning in a Unified Action Space">H-VLA: Hierarchical Vision-Language-Action Model with Key-Action Reasoning and Motion Planning in a Unified Action Space</span></li><li><span class="dpr-home-dashboard-paper-title" title="Robot World Models Are Not Invariant to How the Actions Are Written">Robot World Models Are Not Invariant to How the Actions Are Written</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>8</strong></span><span class="dpr-home-dashboard-tag">vla <strong>5</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>3</strong></span><span class="dpr-home-dashboard-tag">control <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>8</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>5</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>5</strong></span><span class="dpr-home-dashboard-tag">control <strong>1</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -87,9 +90,9 @@
     <strong class="dpr-home-dashboard-count">13 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="LEMCA: LLM-Guided Synthesis of Efficient Mode-Switching Control Architectures">LEMCA: LLM-Guided Synthesis of Efficient Mode-Switching Control Architectures</span></li><li><span class="dpr-home-dashboard-paper-title" title="ME-Dex 1.0: Bringing Heterogeneous Tactile Sensing into World Action Modeling">ME-Dex 1.0: Bringing Heterogeneous Tactile Sensing into World Action Modeling</span></li><li><span class="dpr-home-dashboard-paper-title" title="FORTE: Task-Adaptive Force Capability Optimization for Mobile Manipulators">FORTE: Task-Adaptive Force Capability Optimization for Mobile Manipulators</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Transferring the Intelligence of VLMs to Robotic Control">Transferring the Intelligence of VLMs to Robotic Control</span></li><li><span class="dpr-home-dashboard-paper-title" title="Scenario MPC with STL Specifications and Pareto-Based Feasibility Repair">Scenario MPC with STL Specifications and Pareto-Based Feasibility Repair</span></li><li><span class="dpr-home-dashboard-paper-title" title="HEARTH: An Object-Centric RGB-Thermal-3D Dataset for Temperature-Aware Robot Manipulation">HEARTH: An Object-Centric RGB-Thermal-3D Dataset for Temperature-Aware Robot Manipulation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">control <strong>5</strong></span><span class="dpr-home-dashboard-tag">vla <strong>5</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>2</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>9</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>2</strong></span><span class="dpr-home-dashboard-tag">control <strong>1</strong></span><span class="dpr-home-dashboard-tag">vla <strong>1</strong></span></div>
 </section>
 </div>
 
