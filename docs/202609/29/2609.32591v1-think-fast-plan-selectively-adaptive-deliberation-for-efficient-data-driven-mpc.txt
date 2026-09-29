@@ -1,0 +1,1540 @@
+Title: Think Fast, Plan Selectively: Adaptive Deliberation for Efficient Data-Driven MPC
+
+URL Source: https://arxiv.org/pdf/2609.32591v1
+
+Published Time: Tue, 29 Sep 2026 01:26:28 GMT
+
+Number of Pages: 32
+
+Markdown Content:
+# THINK FAST , P LAN SELECTIVELY : A DAPTIVE 
+
+# DELIBERATION FOR EFFICIENT DATA -D RIVEN MPC 
+
+Yi Xian Goh 1 Sze Jue Yang 2 Hao Luan 31Independent Researcher 
+
+> 2
+
+Faculty of Computer Science and Information Technology, Universiti Malaya 
+
+> 3
+
+School of Computing, National University of Singapore 
+
+gohyixian456@gmail.com, jasonyang429@um.edu.my, haoluan@comp.nus.edu.sg 
+
+ABSTRACT 
+
+Data-driven model predictive control (MPC) combines learned world models with online trajectory optimization, achieving strong performance in continuous con-trol. However, the per-step cost of sampling and evaluating hundreds of candi-date trajectories restricts deployment to control frequencies well below what real-time robotics demands. Motivated by the dual-process theory of human cognition, which distinguishes between fast, intuitive processing ( System 1 ) and slower, de-liberative reasoning ( System 2 ), we ask whether every decision requires the same degree of computational deliberation. We propose Fast-TD-MPC , a lightweight framework that adaptively routes between fast policy execution and test-time plan-ning, reserving costly deliberation for states where it is most needed. Fast-TD-MPC delivers competitive task performance across 103 continuous control tasks while achieving up to ∼4× faster inference. Under external disturbances, Fast-TD-MPC selectively falls back to planning, maintaining robustness comparable to the original planner. 
+
+1 INTRODUCTION 
+
+Data-driven Model Predictive Control (MPC) combines learned world models with online trajectory optimization, achieving state-of-the-art performance across diverse domains (Hansen et al., 2024; Hafner et al., 2025; Schrittwieser et al., 2020). By learning to predict environment dynamics, world models (Ha & Schmidhuber, 2018) unlock test-time planning : the ability to propose, evaluate, and optimize candidate action sequences before execution, rather than reactively mapping states to ac-tions (Hansen et al., 2022; Schrittwieser et al., 2020; Wang et al., 2025). This planning capability consistently outperforms purely reactive policies and enhances robustness in dynamic environments, driving progress in robotic manipulation and locomotion (Hansen et al., 2024; Hafner et al., 2025; 2020; Nagabandi et al., 2018; Hafner et al., 2019), autonomous driving (Guan et al., 2024; Liu et al., 2026b), and game-playing (Schrittwieser et al., 2020). Planning brings robustness, but at the cost of substantial per-step computation. At each decision step, a planner samples and evaluates hundreds of candidate trajectories, resulting in per-step latencies that exceed the control frequencies required for real-time robotic deployment and latency-sensitive tasks (Dong et al., 2025; Gangapurwala et al., 2023). When planning is slow relative to changes in the environment, the state for which an action was planned may have already changed by the time it is executed, resulting in stale-action errors (Cheng et al., 2026; Lin et al., 2025b). This raises a natural question: does every decision require the same amount of deliberation? 
+
+In most control problems, the answer is unlikely to be yes (Kahneman, 2011; Fridovich-Keil et al., 2018; Graves, 2016). Large portions of observations are familiar, and the action trajectories given 1arXiv:2609.32591v1 [cs.RO] 26 Sep 2026 State  st
+
+> enc
+> OOD
+> ID
+
+## zt
+
+> System 2
+
+## zt
+
+> System 1
+
+## zt+H
+
+> Reward
+
++Value  
+
+> Action
+
+at Environment Figure 1: Overview of Fast-TD-MPC. Fast-TD-MPC uses TD-MPC2’s MPPI planner as System 2 (the slow, robust fallback), a compact amortized MLP trained via planner imitation as System 1 (the fast, reactive policy), and a lightweight OOD detector as the gating mechanism. At each decision step, the OOD detector evaluates the current state: in-distribution (ID) states are routed to the fast and compact System 1, while out-of-distribution (OOD) states fall back to System 2 (TD-MPC2’s MPPI planner). Since the detector itself costs negligible computation, the effective per-step latency scales linearly with the fraction of timesteps that require planning. such observations are predictable. Under such circumstances, a learned, reactive policy with low latency can already provide reliable actions; repeatedly invoking a full planner for these routine observations offers little benefit relative to its cost. Planning becomes more valuable when the agent encounters unfamiliar observations, disturbances, or situations where its learned behavior is less reliable. However, many test-time planners that utilize a learned world model devote the same computational budget to every timestep, ignoring the fact that not all decisions require planning. A similar distinction arises in human decision-making. Dual-process theory (Kahneman, 2011; Daw et al., 2005; Botvinick et al., 2009) describes two complementary modes of thought: (i) a fast, intuitive System 1 that handles familiar situations through learned experience, and (ii) a slower, deliberative System 2 that reasons through complex or novel situations. Humans naturally alternate between both systems for effective decision-making. Motivated by this view, we propose Fast-TD-MPC , a framework that dynamically switches between fast reactive execution and test-time planning. Applied to TD-MPC2 (Hansen et al., 2024), Fast-TD-MPC uses the original Model Predictive Path Integral (MPPI) planner as System 2 (the slow but robust fallback), a compact amortized neural network trained via planner imitation as System 1 (the fast, reflexive policy), and a lightweight out-of-distribution (OOD) detector as the gating mechanism (Figure 1). When the current observation is familiar, System 1 provides a reliable action at low latency; when the observation is OOD, System 2 is triggered to deliberate and plan. Since the detector itself costs negligible computation, the effective per-step latency scales linearly with the fraction of timesteps that require planning. Our contributions are threefold: • We introduce Fast-TD-MPC , a framework for adaptive test-time planning in data-driven MPC. Applied to TD-MPC2 (Hansen et al., 2024), it combines the original MPPI planner as a robust System 2 with a compact policy trained through planner imitation as a fast System 1, gated by a lightweight OOD detector, without modifying the underlying world model or planner. • We conduct extensive evaluations across 103 continuous-control tasks spanning four domains: DMControl (Tassa et al., 2018) (physics simulated locomotion and manipulation), Meta-World (Yu et al., 2019) (multi-object manipulation), ManiSkill2 (Gu et al., 2023) (robotic manipulation), and MyoSuite (Caggiano et al., 2022) (physiologically realistic musculoskeletal motor control). Fast-TD-MPC achieves up to ∼4× inference speedup ( ∼2.7× on average) with <10% perfor-mance drop on 3 of 4 domains, using a single set of hyperparameters across all tasks (Figure 2). • We show that faster decision-making does not come at the expense of robustness. Under five disturbance types spanning three categories, Fast-TD-MPC selectively falls back to planning when the agent encounters out-of-distribution states, retaining 95% of TD-MPC2’s perturbed return on DMControl at half its latency. 22 PRELIMINARIES 
+
+Problem formulation. We consider the standard infinite-horizon Markov Decision Process (MDP) (Puterman, 1990) setting, characterized by a tuple (S, A, T, R, γ, p 0), where s ∈ S and 
+
+a ∈ A are continuous states and actions, T : S × A → S is the transition (dynamics) function, 
+
+R : S × A → R is a reward function associated with a particular task, γ ∈ [0 , 1) is a discount factor, and p0 is the initial state distribution. The goal is to derive a control policy π : S → A such that the expected discounted sum of rewards (return) Eπ [P∞ 
+
+> t=0
+
+γtrt] , rt = R(st, π (st)) is max-imized. In practice, each step must complete within the environment’s control cycle; slow per-step computation incurs stale-action errors and degraded return. 
+
+TD-MPC2. Our work builds on TD-MPC2 (Hansen et al., 2024), an algorithm that combines test-time planning in a latent space using MPC (Negenborn et al., 2005) with actor-critic Temporal Difference (TD) learning. TD-MPC2 consists of five components as follows ( θ denotes all learnable parameters, dz the latent state dimensionality, da the action dimensionality): • An encoder Eθ : S → Rdz mapping a state s to its latent representation z = Eθ (s).• A latent dynamics model Dθ : Rdz × A → Rdz , predicting the next latent ˆz′ = Dθ (z, a ).• A reward predictor Rθ : Rdz × A → R, computing expected rewards ˆr = Rθ (z, a ).• A policy prior πθ : Rdz → A , a stochastic maximum-entropy policy that guides planning, from which actions a ∼ πθ (· | z) are sampled. • A critic Qθ : Rdz × A → R, estimating state-action values Qθ (z, a ) ≈ Qπθ (s, a ). TD-MPC2 trains an ensemble of NQ = 5 critics and computes TD-targets as the minimum of two randomly subsampled target critics to mitigate value overestimation. The world model components Eθ , Dθ , Rθ , and Qθ are jointly optimized by minimizing a combined objective over sub-trajectories of horizon H sampled from a replay buffer B:
+
+L(θ) .
+
+= E 
+
+> (s,a,r,s ′)0: H∼B
+
+
+
+> H
+
+X
+
+> t=0
+
+λt
+
+∥ˆz′ 
+
+> t
+
+− sg( Eθ− (s′
+
+> t
+
+)) ∥2
+
+| {z }
+
+> joint-embedding prediction
+
++ CE(ˆ rt, r t)
+
+| {z }
+
+> reward prediction
+
++ CE(ˆ qt, q t)
+
+| {z }
+
+> value prediction
+
+ , (1) where ˆzt are recurrently predicted latents ( ˆz0 = Eθ (s0), ˆz′ 
+
+> t
+
+= Dθ (ˆ zt, a t)), sg is the stop-gradient operator, θ− are target parameters updated as an exponential moving average (EMA) of θ, λ ∈ (0 , 1] 
+
+is a temporal coefficient that down-weights distant predictions, qt
+
+.
+
+= rt + γ ¯Q(z′
+
+> t
+
+, π θ (z′
+
+> t
+
+)) is the TD-target with ¯Q being an EMA of the critic ensemble, and CE denotes cross-entropy with soft two-hot targets in a symlog-transformed discrete space. The policy prior πθ is trained independently by maximizing: 
+
+Lπ (θ) .
+
+= E 
+
+> (s,a )0: H∼B
+
+" HX
+
+> t=0
+
+λt [α Q θ (zt, π θ (zt)) + β H(πθ (· | zt))] 
+
+#
+
+, (2) where H is the policy entropy and α, β are coefficients balanced via moving statistics to prevent premature entropy collapse. Gradients of Lπ are taken only with respect to the parameters of πθ .At inference time, TD-MPC2 plans in the latent space using MPPI (Williams et al., 2015). Let 
+
+μ, σ ∈ RH×da be the parameters of a time-dependent multivariate Gaussian with diagonal covari-ance. Given the current state st of a decision step t, the encoder produces zt = Eθ (st), and MPPI iteratively refines the parameters (μ, σ ) over action sequences of horizon H by (i) sampling N can-didate trajectories, including a fraction from the policy prior πθ ; (ii) evaluating each via latent rollout and terminal value bootstrapping: 
+
+ˆJ = γH Qθ (zH , π θ (zH )) + 
+
+> H−1
+
+X
+
+> h=0
+
+γhRθ (zh, a h); (3) and (iii) updating (μ, σ ) via an importance weighted average over top-k elite trajectories, yielding refined parameters (μ∗ 
+
+> t
+
+, σ ∗ 
+
+> t
+
+). Only the first action at ∼ N (μ∗ 
+
+> t
+
+, σ ∗2 
+
+> t
+
+) is executed, and the process repeats the next decision step, with μ∗ 
+
+> t
+
+shifted by one position to warm-start the next iteration’s sampling. We refer readers to their paper for exact algorithmic details. 33 FAST -TD-MPC: A F RAMEWORK FOR ADAPTIVE TEST -T IME PLANNING 
+
+We study accelerating TD-MPC2 inference while preserving its robustness to states outside the ex-pert distribution. Given a pre-trained TD-MPC2 world model (with frozen parameters θ), our goal is to route each decision step to the fastest system capable of handling it, without significantly degrad-ing return. Fast-TD-MPC consists of three components, all frozen prior to deployment (Figure 1): (i) an amortized policy (System 1), (ii) the MPPI planner (System 2), and (iii) an OOD gate. 
+
+System 1: Amortized Policy. Planner amortization reduces the per-step cost of MPPI by training a lightweight feed-forward policy πS1 to imitate the planner. Given expert demonstra-tions Dexp = {(zt, a ∗ 
+
+> t
+
+)} collected via planner rollouts, we minimize the imitation objective: 
+
+min ϕ E(z,a ∗)∼D exp [ℓ(πS1 (z; ϕ), a ∗)] , where ϕ are the parameters of πS1 and ℓ is an L1 loss, with 
+
+|ˆa − a∗| denoting the element-wise absolute difference summed over da. See Appendix K for train-ing and architectural details. While this reduces inference to a single forward pass, the amortized policy cannot recover from states outside the expert distribution. We address this via OOD detection. 
+
+System 2: MPPI Planner. We use TD-MPC2’s world model and MPPI planning algorithm (Sec-tion 2) as-is. When the gate switches from System 1 to System 2 after K timesteps, the warm-start buffer is K-step stale. We explicitly zero the buffer on System 1 to System 2 transitions, forcing a cold start from the policy prior πθ , which provides fresh forward-looking candidates via the world model. The planner resumes normal warm-starting on subsequent consecutive System 2 steps. 
+
+OOD Gating. To address the failure mode of the amortized policy, we employ out-of-distribution (OOD) detection (Hendrycks & Gimpel, 2017; Lee et al., 2018) in the latent space. We employ Mahalanobis distance (Mahalanobis, 1936) as the scoring function: g(zt) = ( zt − ¯z)⊤Σ−1 
+
+> reg
+
+(zt − ¯z),where ¯z and Σ are the mean and full covariance of in-distribution (ID) latents, fitted offline with ℓ2
+
+shrinkage ( Σreg = Σ + λI, λ = 0 .01 ). To construct the ID set, we roll out πS1 and collect all visited latents {zt}. We consider two labeling modes: (i) theoretical , where all visited states are treated as ID, and (ii) reward-gated , where a state is labeled ID only if its per-step rewards meet or exceed the average per-step counterparts of TD-MPC2 expert rollouts at the same timestep. The gating is then: 
+
+at =
+
+πS1 (zt; ϕ) if g(zt) ≤ τ, πS2 (st; θ) if g(zt) > τ, (4) where τ controls the speed–robustness trade-off. For theoretical mode, τ defaults to the median 1 of all scores on a held-out validation set. For reward-gated mode, τ defaults to the midpoint between the median scores of the ID and OOD partitions. We additionally sweep multiple percentile values and report the full Pareto frontier in Section 4.2. 
+
+Latency Profile. Since g(zt) is a single matrix-vector product, the overhead of OOD detection is negligible. The effective per-step latency is: ttotal ≈ E θ + g + ρ · πS2 + (1 −ρ) · πS1 + tenv , where ρ
+
+is the S2 invocation rate, πS2 ≫ πS1 , and Eθ , g, and tenv are incurred at every step. As ρ → 0, the system approaches the speed of a purely amortized policy; as ρ → 1, it approaches the robustness of full planning. The threshold τ directly controls this trade-off. 
+
+Algorithm. Algorithm 1 summarizes the full inference procedure. All components are computed offline and frozen at deployment. 
+
+4 EXPERIMENTS 
+
+We seek to address the following research questions: • RQ1: Can Fast-TD-MPC achieve substantial inference speedup over TD-MPC2 without signifi-cant degradation in return or success rate across diverse continuous control tasks?   
+
+> 1Under Gaussian assumptions, the squared Mahalanobis distance follows a χ2distribution (Mahalanobis, 1936), which is right-skewed; the median is therefore more representative of the typical score than the mean.
+
+40 10 20 30               
+
+> Latency (ms)
+> 550 600 650 700 750 800 850
+> Return  DreamerV3 SAC
+> p50
+> p99
+> p25
+> p75
+> DMControl 010 20 30
+> Latency (ms)
+> 65 70 75 80 85 90
+> Success (%)
+> DreamerV3 SAC p50 p99 p25
+> p75
+> Meta-World 010 20 30 40
+> Latency (ms)
+> 10 20 30 40
+> Success (%)
+> DreamerV3 SAC
+> p50
+> p99
+> p25 p75
+> MyoSuite 020 40 60
+> Latency (ms)
+> 020 40 60
+> Success (%)
+> DreamerV3 SAC
+> p50
+> p99
+> p25
+> p75
+> ManiSkill2
+> TD-MPC2 ( N= 512) TD-MPC2 ( N= 64) TD-MPC2
+> S1 Fast-TD-MPC (all) Fast-TD-MPC (RG)
+
+Figure 2: Pareto frontier. Return/success rate vs. per-step latency across 4 domains. Fast-TD-MPC (colored) traces the Pareto frontier across varying OOD thresholds, matching or surpassing baselines at comparable latency on DMControl, Meta-World, and ManiSkill2. Dashed line marks 90% of TD-MPC2’s performance. DreamerV3 and SAC performance referenced from Hansen et al. (2024). Table 1: Benchmark results across 4 domains (103 tasks, 3 seeds each). Mean and 95% CI across all tasks in each domain. †Return and success rate for DreamerV3 and SAC are referenced from Hansen et al. (2024). all denotes the theoretical OOD mode; RG denotes the reward-gated 
+
+mode. See Appendix F for full results including S2 invocation rate and peak GPU memory usage. 
+
+DMControl Meta-World MyoSuite ManiSkill2 Method Return Lat. Succ. Lat. Succ. Lat. Succ. Lat. 
+
+(ms) (%) (ms) (%) (ms) (%) (ms) DreamerV3 † 735 ±93 3.2±.1 70 ±8 3.8±.1 14 ±17 4.2±.1 34 ±56 8.7±.7
+
+SAC † 631 ±108 2.0±.4 84 ±7 2.0±.2 38 ±20 2.9±.5 22 ±54 5.8±.7
+
+S2-alone (TD-MPC2) 820 ±55 27 .3±1.1 84 ±9 26 .9±.2 40 ±20 35 .5±.4 65 ±54 45 .9±4.8
+
+S2-alone ( N =64 ) 639 ±100 26 .9±1.1 85 ±7 26 .7±.2 24 ±16 35 .4±.4 63 ±53 41 .5±3.4
+
+S2 policy-only 560 ±105 1.9±.3 82 ±8 2.7±.2 18 ±15 3.8±.4 48 ±56 11 .1±2.5
+
+S1 alone 623 ±91 1.6±.2 87 ±8 2.5±.2 35 ±16 3.6±.3 19 ±39 10 .7±3.9
+
+Round-robin (S2 50%) 813 ±57 14 .4±.7 86 ±7 14 .7±.2 45 ±21 19 .3±.3 60 ±44 28 .4±5.6
+
+Round-robin (S2 33%) 782 ±66 10 .1±.5 86 ±8 10 .7±.2 41 ±18 14 .1±.3 42 ±50 22 .3±3.8
+
+Round-robin (S2 20%) 743 ±74 6.6±.4 85 ±8 7.3±.2 40 ±22 9.8±.3 38 ±48 17 .6±3.9
+
+Round-robin (S2 10%) 699 ±83 4.0±.3 86 ±8 4.9±.2 40 ±21 6.6±.3 28 ±46 14 .5±4.7
+
+Fast-TD-MPC ( all , τp50 ) 829 ±55 19 .4±2.4 85 ±8 24 .8±1.1 39 ±21 31 .4±3.6 54 ±55 33 .9±12 .1
+
+Fast-TD-MPC ( all , τp75 ) 823 ±55 12 .2±2.7 85 ±8 18 .7±1.5 37 ±21 26 .6±5.8 47 ±54 23 .3±10 .7
+
+Fast-TD-MPC ( all , τp90 ) 785 ±58 6.5±2.0 85 ±8 12 .2±1.6 37 ±21 22 .6±7.6 32 ±42 16 .0±5.2
+
+Fast-TD-MPC ( all , τp95 ) 745 ±74 3.8±1.4 85 ±8 9.8±1.5 38 ±23 19 .8±7.6 28 ±46 14 .2±3.9
+
+Fast-TD-MPC ( all , τp99 ) 650 ±92 1.9±.3 85 ±8 6.2±1.3 28 ±17 10 .9±5.8 20 ±39 11 .5±3.9
+
+Fast-TD-MPC ( RG , τp25 ) 784 ±68 10 .8±2.3 85 ±8 12 .3±1.7 39 ±22 24 .5±4.6 48 ±43 28 .5±20 .9
+
+Fast-TD-MPC ( RG , τp50 ) 764 ±70 8.1±1.8 85 ±8 10 .0±1.5 35 ±21 20 .6±5.2 43 ±43 25 .6±18 .9
+
+Fast-TD-MPC ( RG , τp75 ) 744 ±74 6.4±1.5 84 ±8 8.6±1.5 39 ±21 15 .7±4.7 39 ±51 20 .9±10 .8
+
+• RQ2: Can Fast-TD-MPC preserve the robustness of the original TD-MPC2 system under various disturbances? 
+
+We additionally analyze the speed-robustness trade-off via τ and ablate the MPPI planner warm-start strategy and OOD distance metric. 4.1 EXPERIMENTAL SETUP 
+
+We evaluate Fast-TD-MPC across 103 continuous control tasks spanning 4 domains: DMControl (Tassa et al., 2018), Meta-World (Yu et al., 2019), ManiSkill2 (Gu et al., 2023), and MyoSuite (Caggiano et al., 2022), with action spaces up to A ∈ R39 and diverse tasks from manipulation to complex locomotion. We consider the single-task setting with 3 seeds per task. All Fast-TD-MPC components are fitted independently for each task-seed pair using a single set of hyperparameters across all tasks; no per-task tuning done. See Appendix C and K for task and hyperparameter details. 
+
+Baselines. We compare against 5 TD-MPC2-derived baselines: (i) S2-alone (full TD-MPC2, 
+
+N =512 ), (ii) S2-reduced (N =64 ), (iii) S2 policy-only (no MPPI), (iv) S1 alone (amortized MLP), (v) Round-robin (S2 invoked at a fixed rate of 50%, 33%, 20%, or 10%). We evaluate 2 OOD modes (theoretical and reward-gated ) across multiple τ percentiles, and reference DreamerV3 (Hafner 5et al., 2025) and SAC (Haarnoja et al., 2018) numbers from Hansen et al. (2024). We follow Hansen et al. (2024)’s evaluation setup, and report return/success rate, per-step latency (ms), S2 invocation rate ( ρ), as well as peak GPU memory. Refer Appendix H for hardware and evaluation details. 4.2 SPEEDUP VS . P ERFORMANCE (RQ1 )We present aggregate results in Tab. 1 and Fig. 2, with per-component latency breakdowns in Tab. 2. 
+
+Pareto-optimal speed–performance trade-off. At τp50 , Fast-TD-MPC ( all ) matches TD-MPC2 within the 95% CI across all domains (829 vs. 820 on DMControl, 85% vs. 84% on Meta-World) while reducing latency by ∼1.3–1.4× (27.3 ms → 19.4 ms on DMControl, 45.9 ms → 33.9 ms on ManiSkill2). Varying τ traces a Pareto frontier: at τp75 , speedup reaches ∼2× (27.3 ms → 12.2 ms on DMControl, and 45.9 ms → 23.3 ms on ManiSkill2); at τp90 , Fast-TD-MPC achieves ∼2.7×
+
+average speedup (up to 4.2× on DMControl) with <10% performance drop on 3 of 4 domains, retaining 96% of TD-MPC2’s return on DMControl, matching its success rate on Meta-World, and retaining 93% on MyoSuite. Beyond p90 , performance degrades sharply: at τp99 , DMControl return drops to 650 ( ∼20% loss) and ManiSkill2 success to 20%, as the gate routes nearly all steps to System 1, reducing to the S1-alone regime. 
+
+State-aware gating vs. fixed scheduling. Round-robin (RR) invokes System 2 at a fixed rate regardless of state. On DMControl, gating dominates every RR operating point at matched latency, e.g., 785 return at 6.5 ms ( τp90 ) vs. 743 at 6.6 ms (RR 20%), and 745 at 3.8 ms ( τp95 ) vs. 699 at 4.0 ms (RR 10%). On ManiSkill2, the two are comparable: gating is ahead at intermediate latency, with 47% at 23.3 ms ( τp75 ) vs. 42% at 22.3 ms (RR 33%), while RR 50% is stronger at the high-latency end (60% at 28.4 ms vs. 54% at 33.9 ms for τp50 ). On Meta-World, all scheduling variants lie within 2 points (84–86%), indicating saturation. On MyoSuite, RR (S2 10%) recovers TD-MPC2’s success (40%) at 6.6 ms, whereas the gate still invokes S2 on 60% of steps at τp90 . Thus, which 
+
+timesteps are planned matters most when only a small subset of states requires planning; otherwise, fixed scheduling is a simpler alternative. 
+
+OOD mode comparison. The reward-gated mode matches the theoretical mode’s performance at lower latency across multiple domains. On Meta-World, RG τp50 achieves 85% at 10.0 ms vs. 
+
+all τp90 ’s 85% at 12.2 ms. On MyoSuite, RG τp75 achieves 39% at 15.7 ms, matching all τp50 ’s 39% at 31.4 ms and exceeding all τp90 ’s 37% at 22.6 ms. This suggests reward-gating’s tighter ID distribution produces a more precise threshold, reducing unnecessary S2 invocations on states System 1 can reliably handle. 
+
+Reference baselines. Both DreamerV3 and SAC are faster than TD-MPC2 but achieve lower re-turns, particularly on DMControl (735 and 631 vs. 820) and MyoSuite (14% and 38% vs. 40%). Among TD-MPC2-derived baselines, reducing the planner’s sample budget ( N =512 → N =64 )degrades return on DMControl by 22% and MyoSuite by 40%, while providing little latency reduc-tion, as latency is dominated by fixed GPU overhead rather than sample count. S1 alone achieves the lowest latency but degrades significantly, particularly on ManiSkill2 (19% vs. 65%) and DMControl (623 vs. 820), confirming that pure amortization without a fallback is insufficient. The policy-only variant (no MPPI) is similarly fast but performs worse than S1 on most domains, confirming that supervised distillation from MPPI yields a stronger reactive policy than the TD-MPC2 actor alone. 
+
+Runtime breakdown. Table 2 details the per-component latency breakdown. The OOD gate adds negligible overhead ( ∼0.2 ms), while System 1 is ∼65 × cheaper per invocation than System 2 ( ∼0.4 ms vs. ∼26 ms on H100). At τp50 , ρ adapts to domain difficulty (81% on H100 vs. 66% on A100), and peak GPU memory remains bounded by S2-alone. 
+
+Latency scales linearly with planning frequency. Figure 3 confirms that per-step latency scales linearly with ρ across all domains ( R2 ≥ 0.93 ), validating the runtime model: since the OOD detec-tor costs negligible computation ( ∼0.2 ms), total latency is determined by the fraction of timesteps routed to System 2. Both all and RG modes fall on the same line, confirming that τ controls only the operating point along this line, not the per-step cost structure. 60.00 0.25 0.50 0.75 1.00 (S2 invocation rate)                             
+
+> 010 20 30 Per-step latency (ms)  all R2= 0.96
+> RG R2= 0.95
+> DMControl 0.00 0.25 0.50 0.75 1.00 (S2 invocation rate)
+> 010 20 30 Per-step latency (ms)  all R2= 0.99
+> RG R2= 0.99
+> Meta-World 0.00 0.25 0.50 0.75 1.00 (S2 invocation rate)
+> 010 20 30 Per-step latency (ms)  all R2= 1.00
+> RG R2= 1.00
+> MyoSuite 0.00 0.25 0.50 0.75 1.00 (S2 invocation rate)
+> 010 20 30 40 Per-step latency (ms)  all R2= 0.95
+> RG R2= 0.93
+> ManiSkill2
+> all RG
+
+Figure 3: Per-step latency vs. S2 invocation rate ( ρ). Each point is a task-seed configuration; red denotes the theoretical (all ) OOD mode, purple denotes the reward-gated (RG ) mode. The linear relationship ( R2 ≥ 0.93 ) confirms that per-step latency scales linearly with ρ.Table 2: Per-component latency breakdown by hardware group and peak GPU memory. Re-sults are averaged within hardware groups: DMControl, Meta-World, and MyoSuite on H100; Man-iSkill2 on A100. πS1 and πS2 report per-invocation cost (zero entries excluded), ρ is the S2 invocation rate, and ttotal ≈ E θ + g + ρπ S2 + (1 −ρ)πS1 + tenv .
+
+Policy components (ms) Total ρ GPU Method Eθ g πS1 πS2 Env (ms) (%) (MB) 
+
+H100 — DMControl + Meta-World + MyoSuite S2-alone (TD-MPC2) 0.31 ±.00 — — 26 .2±.6 1.4±.2 27 .9±.7 100 95 ±0
+
+S1 alone 0.38 ±.00 — 0.49 ±.00 — 1.4±.2 2.3±.2 0 68 ±0
+
+Fast-TD-MPC ( all , τp50 ) 0.35 ±.00 0.17 ±.00 0.40 ±.01 26 .2±.5 1.4±.2 23 .3±1.4 81 ±4 90 ±2
+
+Fast-TD-MPC ( all , τp90 ) 0.35 ±.00 0.17 ±.00 0.38 ±.00 26 .3±.5 1.4±.2 10 .9±1.6 33 ±5 76 ±2
+
+A100 — ManiSkill2 S2-alone (TD-MPC2) 0.35 ±.01 — — 34 .2±.4 11 .3±4.4 45 .8±4.8 100 70 ±0
+
+S1 alone 0.37 ±.01 — 0.65 ±.01 — 9.7±3.9 10 .7±3.9 0 42 ±0
+
+Fast-TD-MPC ( all , τp50 ) 0.38 ±.01 0.21 ±.00 0.59 ±.01 34 .4±.5 11 .4±4.8 34 .9±15 .1 66 ±37 63 ±18 
+
+Fast-TD-MPC ( all , τp90 ) 0.39 ±.01 0.21 ±.00 0.60 ±.01 35 .0±.5 11 .3±2.6 17 .0±4.7 13 ±9 46 ±8
+
+4.3 ROBUSTNESS UNDER DISTURBANCES (RQ2 )We evaluate 102 of the 103 tasks under five types of externally applied disturbances, organized following the taxonomy of Gu et al. (2025) into three groups: (i) observation (observation noise: additive Gaussian on st), (ii) action (action noise: additive Gaussian on at), (iii) environment (veloc-ity kick: instantaneous impulse on qvel ; gravity shift: sustained rescaling of gravity; sustained force: continuous injection with probability p=0 .15 ). We report results for the combined setting, which applies all five disturbances simultaneously. All disturbances are applied post-training at evaluation time with per-episode stochasticity. See Appendix E for full details including the excluded task. We compare against (i) S2-alone , (ii) S2 policy-only , (iii) S1 alone , and (iv) Round-robin (50%), measuring absolute performance and degradation relative to the undisturbed setting. We present aggregate results across all 4 domains in Table 3 and Figure 4. 
+
+Speed–performance trade-off holds under disturbances. At τp90 , Fast-TD-MPC ( all ) retains 95% of TD-MPC2’s perturbed DMControl return (586 vs. 616) at 2× speedup, while on ManiSkill2, 
+
+τp50 achieves 66% success at 34.6 ms vs. TD-MPC2’s 66% at 43.1 ms. On Meta-World, all methods degrade to a similar level (47–51%), leaving little room to separate them. 
+
+OOD gating preserves robustness. Perturbations degrade TD-MPC2 substantially ( −25% return on DMControl, −39% success on Meta-World), and S1 alone even more ( −35% and −46% ), indi-cating that the amortized policy is more sensitive to distribution shift than the planner. At τp50 , where the gate routes most perturbed steps to the planner (88% on DMControl, 99% on Meta-World), Fast-TD-MPC ( all ) tracks TD-MPC2 closely: 617 vs. 616 on DMControl, 51% vs. 51% on Meta-World, 66% vs. 66% on ManiSkill2, and 36% vs. 40% on MyoSuite. This robustness stems from adaptive routing rather than a fixed planning budget: at τp90 , the S2 invocation rate rises from 18% to 45% on DMControl and from 39% to 82% on Meta-World under perturbation (Appendix G). Figure 5 illustrates this at the step level: a velocity kick at step 312 pushes g(zt) above τ , triggering S2 for several steps before the system resumes S1. 70 10 20 30            
+
+> Latency (ms)
+> 400 450 500 550 600 650
+> Return
+> p50
+> p99
+> p25
+> p75
+> DMControl 010 20 30
+> Latency (ms)
+> 47 48 49 50 51
+> Success (%)
+> p50
+> p99
+> p25 p75
+> Meta-World 010 20 30 40
+> Latency (ms)
+> 15 20 25 30 35 40
+> Success (%)
+> p50
+> p99
+> p25
+> p75
+> MyoSuite 10 20 30 40
+> Latency (ms)
+> 10 20 30 40 50 60 70
+> Success (%)  p50
+> p99
+> p25
+> p75
+> ManiSkill2
+> TD-MPC2 ( N= 512) TD-MPC2
+> S1 Fast-TD-MPC (all) Fast-TD-MPC (RG)
+
+Figure 4: Pareto frontier under disturbances. Return/success rate vs. per-step latency across 4 domains. Fast-TD-MPC (colored) matches or surpasses TD-MPC2 at lower latency on DMControl, Meta-World, and ManiSkill2, with a ∼13% performance drop on MyoSuite for up to ∼2× speedup. Table 3: Results of benchmarks with disturbances across 4 domains (102 tasks, 3 seeds each). 
+
+Mean and 95% CI across all tasks in each domain. all denotes theoretical OOD mode; RG denotes 
+
+reward-gated mode. See Appendix G for detailed results with all evaluation metrics. 
+
+DMControl Meta-World MyoSuite ManiSkill2 Method Return Lat. Succ. Lat. Succ. Lat. Succ. Lat. 
+
+(ms) (%) (ms) (%) (ms) (%) (ms) S2-alone (TD-MPC2) 616 ±104 27 .2±1.1 51 ±10 26 .8±.2 40 ±22 35 .7±.5 66 ±75 43 .1±4.7
+
+S2 policy-only 390 ±102 1.9±.3 49 ±10 2.8±.2 17 ±15 3.9±.4 63 ±66 11 .4±5.7
+
+S1 alone 405 ±98 1.7±.3 47 ±10 2.6±.2 32 ±15 3.5±.3 17 ±52 10 .4±4.2
+
+Round-robin (S2 50%) 577 ±102 14 .5±.7 49 ±11 14 .7±.2 37 ±20 19 .4±.3 58 ±89 27 .1±2.0
+
+Fast-TD-MPC ( all , τp50 ) 617 ±105 24 .5±1.9 51 ±11 27 .2±.2 36 ±20 32 .2±3.9 66 ±80 34 .6±18 .0
+
+Fast-TD-MPC ( all , τp75 ) 607 ±103 19 .3±2.9 51 ±11 25 .6±.9 38 ±22 27 .2±5.9 49 ±108 25 .5±22 .3
+
+Fast-TD-MPC ( all , τp90 ) 586 ±101 13 .6±3.0 49 ±10 22 .8±1.6 34 ±22 22 .9±7.8 46 ±86 16 .9±10 .5
+
+Fast-TD-MPC ( all , τp95 ) 537 ±102 9.8±2.6 50 ±10 21 .8±1.8 33 ±20 20 .0±7.8 32 ±62 13 .7±5.2
+
+Fast-TD-MPC ( all , τp99 ) 439 ±101 5.6±2.0 50 ±10 20 .2±2.0 30 ±18 13 .3±7.8 19 ±46 11 .2±3.1
+
+Fast-TD-MPC ( RG , τp25 ) 566 ±104 17 .5±2.6 49 ±11 20 .9±1.9 36 ±22 25 .7±4.7 62 ±55 25 .9±25 .6
+
+Fast-TD-MPC ( RG , τp50 ) 543 ±102 14 .3±2.5 50 ±10 18 .9±2.1 33 ±22 21 .4±5.6 51 ±61 23 .1±23 .6
+
+Fast-TD-MPC ( RG , τp75 ) 524 ±102 12 .2±2.3 49 ±10 17 .4±2.2 35 ±24 17 .7±5.3 43 ±60 18 .8±14 .7
+
+State-aware gating vs. fixed scheduling under disturbances. Under perturbation, Fast-TD-MPC matches or slightly exceeds RR 50% at a lower latency on DMControl (586 at 13.6 ms vs. 577 at 14.5 ms, τp90 ) and ManiSkill2 (62% at 25.9 ms vs. 58% at 27.1 ms, RG τp25 ), although differences lie within the 95% CIs. The key difference is adaptivity: the same τp90 configuration runs at 6.5 ms per step on clean DMControl episodes and increases planning only when perturbed, whereas RR 50% spends 14.4 ms per step in both conditions and degrades more ( 813 → 577 , −29% , vs. 785 → 586 ,
+
+−25% ). On Meta-World and MyoSuite, RR is on par with or better than gating at matched latency. 
+
+Reward-gated mode under disturbance. The reward-gated mode’s efficiency advantage on Meta-World and MyoSuite (Section 4.2) persists under perturbation. On Meta-World, RG τp50 and 
+
+τp75 reach 49-50% at 17.4-18.9 ms, faster than any all configuration (the fastest, τp99 , reaches 50% at 20.2 ms). On MyoSuite, RG τp75 achieves 35% at 17.7 ms, comparable to all τp50 (36% at 32.2 ms) and above all τp90 (34% at 22.9 ms). In both cases, gains come from fewer S2 invocations (e.g., 44% vs. 60–89% on MyoSuite), suggesting that reward-gating’s tighter ID distribution produces a more precise threshold, reducing unnecessary S2 invocations on states System 1 can reliably handle. 4.4 ABLATIONS 
+
+MPPI Planner Warm-Start Strategy. We compare cold starting the MPPI planner against K-shifted warm start, which salvages the first H−K steps of the stale buffer when K < H −1 and cold-starts otherwise. A paired t-test across all task-config comparisons on all 4 benchmark do-mains finds no significant difference ( p > 0.05 ) in return ( t=1 .31 , p=0 .19 ) or S2 invocation rate (t=−0.28 , p=0 .78 ). Under disturbance, return ( t=−0.78 , p=0 .44 ) and S2 rate ( t=1 .35 , p=0 .18 )remain insignificant. We adopt cold start for its simplicity. See Appendix I for full results. 
+
+OOD distance metric. We compare Mahalanobis and Tanimoto distance (Rogers & Tanimoto, 1960) for OOD gating. A paired t-test across all task-config comparisons finds no significant differ-8010 20 30            
+
+> Latency (ms) Fast-TD-MPC TD-MPC2
+> 250 260 270 280 290 300 310 320 330 340 350
+> Decision Step
+> 0200 400 600
+> OOD Score
+> p90 = 253
+> OOD Score threshold
+> Disturbance Norm S2 invoked
+> 0510 15
+> Disturbance Norm
+
+Figure 5: OOD gating dynamics. Per-step OOD score and cumulative latency for a representative episode of walker-walk-backwards under combined disturbances (DMControl, τp90 ). Top: 
+
+Cumulative latency of Fast-TD-MPC (red) vs. TD-MPC2 (teal, dashed). Bottom: OOD score (pur-ple, left axis) with τp90 threshold (red dotted). Shaded regions and grey dashed lines mark timesteps where g(zt) > τ , indicating S2 invocation. Disturbance norm (pink, right axis) shows the total perturbation magnitude per step, with a spike at step 312 from the velocity kick. ence in nominal return ( t=0 .85 , p=0 .40 ). In the theoretical mode, Tanimoto yields equal or lower latency at every τ percentile, but degrades robustness: under perturbation, Mahalanobis achieves significantly higher return ( t=2 .33 , p=0 .02 ) by routing more timesteps to the planner. We therefore adopt Mahalanobis distance as the OOD gating. See Appendix J for full results. 
+
+5 LIMITATIONS AND DISCUSSIONS 
+
+We identify three main limitations. First, the OOD gate is reactive . It detects atypical states only after they are visited, rather than anticipating them from the learned dynamics model. A predictive gate could pre-route to System 2 before state degradation occurs, further reducing wasted compu-tation on unrecoverable trajectories. Second, while the default τ is set by a fixed rule on held-out OOD scores, the optimal threshold varies across domains (e.g., locomotion vs. manipulation); real-world deployment may require tracing the Pareto frontier to identify a task-appropriate operating point. Finally, all experiments are conducted in simulation, while sim-to-real gaps exist for realistic robotic systems; we defer real-robot validation to future work. 
+
+6 RELATED WORK 
+
+Data-Driven MPC and TD-MPC2. TD-MPC2 (Hansen et al., 2024) combines latent dynam-ics modeling with MPPI planning and TD-learning, achieving state-of-the-art performance across 104 continuous control tasks, outperforming SAC (Haarnoja et al., 2018) and DreamerV3 (Hafner et al., 2025). Its ecosystem addresses training efficiency (Evers et al., 2026), humanoid locomotion (Nguyen et al., 2025; 2026b), and world model reliability (Hansen & Wang, 2026). Fast-TD-MPC builds on this framework but targets inference-time acceleration. 
+
+Accelerating Test-Time Planning. Approaches to reducing the per-step cost of MPPI fall into four categories: (i) Model reduction distills the planner into a smaller or quantized model, but MPPI still runs at every step (Kuzmenko & Shvai, 2025; Wang et al., 2025); (ii) Planner acceleration 
+
+speeds up the planning loop itself (e.g., parallelizing latent rollouts (Gao & Xu, 2026)) but does not eliminate it; (iii) Full amortization replaces the planner entirely with a feed-forward policy (Nguyen et al., 2026a), achieving large speedups but providing no fallback when the policy encounters out-of-distribution states; (iv) Conditional replanning skips planning on some timesteps: Cheng et al. (2026) adapt replanning tolerance based on model mismatch by reusing cached plans, while Lin et al. (2025b) generate action queues from the planner’s own latent rollouts with full replanning on mismatch. Fast-TD-MPC differs by combining separately amortized full policy replacement with OOD-gated fallback to the complete planner. The amortized policy is distilled from expert planner rollouts, so the planning expertise is retained in the fast path, and only the iterative optimization at inference time is eliminated. Classical event-triggered control (Tabuada, 2007; Heemels et al., 2012) and the dual-process framework (Kahneman, 2011; Daw et al., 2005; Botvinick et al., 2009) provide broader intellectual context. See Appendix L for a detailed comparison. 97 CONCLUSION 
+
+We presented Fast-TD-MPC, a framework that accelerates TD-MPC2 inference by routing in-distribution states to a compact amortized policy and falling back to the full MPPI planner only when the OOD detector flags atypical states. Across 103 continuous control tasks spanning four domains, Fast-TD-MPC achieves up to ∼4× inference speedup ( ∼2.7× on average) with <10% 
+
+performance drop on 3 of 4 domains, using a single set of hyperparameters. Under five combined external disturbance types, the gate adaptively increases planning on perturbed states, retaining 95% of TD-MPC2’s perturbed return on DMControl at half its latency. The framework is conceptually general: any model-based planner can serve as System 2, any amortized policy as System 1, and the gating decision reduces to a single transparent scalar comparison, a desirable property for safety-critical applications where auditability matters. REPRODUCIBILITY STATEMENT 
+
+Details of hyperparameters are described in the appendix. 
+
+REFERENCES 
+
+Matthew M. Botvinick, Yael Niv, and Andrew G. Barto. Hierarchically organized behavior and its neural foundations: a reinforcement learning perspective. Cognition , 113(3):262–280, 2009. Gabriel Bravo-Palacios, Jianghan Zhang, Zachary Pestrikov, Brian Plancher, and Thomas Lew. Tur-bompc: Fast, scalable, and differentiable model predictive control on the GPU. arXiv preprint arXiv:2606.24039 , 2026. Lara Bruderm¨ uller, Brandon Hung, Xinghao Zhu, Jiuguang Wang, Nick Hawes, Preston Culbertson, and Simon Le Cleac’h. Generative models from and for sampling-based MPC: A bootstrapped approach for adaptive contact-rich manipulation. IEEE Robotics and Automation Letters , 2026. doi: 10.1109/LRA.2026.3655193. Vittorio Caggiano, Huawei Wang, Guillaume Durandau, Massimo Sartori, and Vikash Kumar. MyoSuite – a contact-rich simulation suite for musculoskeletal motor control. arXiv preprint arXiv:2205.13600 , 2022. Charlie Chen, Sebastian Borgeaud, Geoffrey Irving, Jean-Baptiste Lespiau, Laurent Sifre, and John Jumper. Accelerating large language model decoding with speculative sampling. arXiv preprint arXiv:2302.01318 , 2023. Josef Chen. AEGIS: A backup reflex for physical AI. arXiv preprint arXiv:2606.06660 , 2026. Yutian Cheng, Xiaojian Ma, Xianhao Wang, Min Yang, Rongpeng Su, Hangxin Liu, Xi Chen, Shuai Li, and Qing Li. AdaReP: Adaptive re-planning under model mismatch for neural world-model predictive control. In Artificial Neural Networks and Machine Learning – ICANN 2026 , Lecture Notes in Computer Science. Springer, 2026. doi: 10.1007/978-3-032-38404-1 18. Rohan Chitnis, Yingchen Xu, Bobak Hashemi, Lucas Lehnert, Urun Dogan, Zheqing Zhu, and Olivier Delalleau. IQL-TD-MPC: Implicit Q-learning for hierarchical model predictive control. In IEEE International Conference on Robotics and Automation (ICRA) , 2024. Inkook Chun, Seungjae Lee, Michael S. Albergo, Saining Xie, and Eric Vanden-Eijnden. Dynamic test-time compute scaling in control policy: Difficulty-aware stochastic interpolant policy. In 
+
+Advances in Neural Information Processing Systems (NeurIPS) , 2025. Nathaniel D. Daw, Yael Niv, and Peter Dayan. Uncertainty-based competition between prefrontal and dorsolateral striatal systems for behavioral control. Nature Neuroscience , 8(12):1704–1711, 2005. Shengjun Kris Dong, Dima Nikiforov, Widyadewi Soedarmadji, Minh Nguyen, Vikram Jain, Christopher W. Fletcher, and Yakun Sophia Shao. Characterizing and optimizing real-time opti-mal control for embedded SoCs. In 2025 IEEE International Symposium on Workload Charac-terization (IISWC) , pp. 489–503, 2025. doi: 10.1109/iiswc66894.2025.00047. 10 Thomas Evers, Cristian Meo, Wendelin B¨ ohmer, Justin Dauwels, and Yaniv Oren. Effi-cientTDMPC: Improved MPC objectives for sample-efficient continuous control. arXiv preprint arXiv:2605.16692 , 2026. David Fridovich-Keil, Sylvia L. Herbert, Jaime F. Fisac, Sampada Deglurkar, and Claire J. Tomlin. Planning, fast and slow: A framework for adaptive real-time safe trajectory planning. In IEEE International Conference on Robotics and Automation (ICRA) , 2018. Siddhant Gangapurwala, Luigi Campanaro, and Ioannis Havoutis. Learning low-frequency motion control for robust and dynamic robot locomotion. In IEEE International Conference on Robotics and Automation (ICRA) , 2023. Yuntian Gao and Xiangyu Xu. Fast LeWorldModel. arXiv preprint arXiv:2606.26217 , 2026. Alex Graves. Adaptive computation time for recurrent neural networks. arXiv preprint arXiv:1603.08983 , 2016. Jiayuan Gu, Fanbo Xiang, Xuanlin Li, Zhan Ling, Xiqiang Liu, Tongzhou Mu, Yihe Tang, Stone Tao, Xinyue Wei, Yunchao Yao, Xiaodi Yuan, Pengwei Xie, Zhiao Huang, Rui Chen, and Hao Su. ManiSkill2: A unified benchmark for generalizable manipulation skills. In International Conference on Learning Representations (ICLR) , 2023. Shangding Gu, Laixi Shi, Muning Wen, Ming Jin, Eric Mazumdar, Yuejie Chi, Adam Wierman, and Costas Spanos. Robust gymnasium: A unified modular benchmark for robust reinforcement learning. In International Conference on Learning Representations (ICLR) , 2025. Yanchen Guan, Haicheng Liao, Zhenning Li, Jia Hu, Runze Yuan, Guohui Zhang, and Chengzhong Xu. World models for autonomous driving: An initial survey. IEEE Transactions on Intelligent Vehicles , 2024. David Ha and J¨ urgen Schmidhuber. Recurrent world models facilitate policy evolution. In Advances in Neural Information Processing Systems 31 , pp. 2451–2463. Curran Associates, Inc., 2018. Tuomas Haarnoja, Aurick Zhou, Pieter Abbeel, and Sergey Levine. Soft actor-critic: Off-policy maximum entropy deep reinforcement learning with a stochastic actor. In International Confer-ence on Machine Learning (ICML) , 2018. Danijar Hafner, Timothy Lillicrap, Ian Fischer, Ruben Villegas, David Ha, Honglak Lee, and James Davidson. Learning latent dynamics for planning from pixels. In International Conference on Machine Learning (ICML) , 2019. Danijar Hafner, Timothy Lillicrap, Jimmy Ba, and Mohammad Norouzi. Dream to control: Learn-ing behaviors by latent imagination. In International Conference on Learning Representations (ICLR) , 2020. Danijar Hafner, Jurgis Pasukonis, Jimmy Ba, and Timothy Lillicrap. Mastering diverse domains through world models. Nature , 640:647–653, 2025. Nicklas Hansen and Xiaolong Wang. Hallucination in world models is predictable and preventable. 
+
+arXiv preprint arXiv:2606.27326 , 2026. Nicklas Hansen, Hao Su, and Xiaolong Wang. TD-MPC2: Scalable, robust world models for con-tinuous control. In International Conference on Learning Representations (ICLR) , 2024. Nicklas A Hansen, Hao Su, and Xiaolong Wang. Temporal difference learning for model predictive control. In Proceedings of the 39th International Conference on Machine Learning , volume 162 of Proceedings of Machine Learning Research , pp. 8387–8406. PMLR, 2022. Kazumune Hashimoto, Shuichi Adachi, and Dimos V. Dimarogonas. Event-triggered intermittent sampling for nonlinear model predictive control. Automatica , 81:148–155, 2017. W. P. M. H. Heemels, K. H. Johansson, and P. Tabuada. An introduction to event-triggered and self-triggered control. In IEEE Conference on Decision and Control (CDC) , pp. 3270–3285, 2012. 11 Dan Hendrycks and Kevin Gimpel. A baseline for detecting misclassified and out-of-distribution examples in neural networks. In International Conference on Learning Representations (ICLR) ,2017. Hsiang-Wei Huang, Jianxu Shangguan, Junbin Lu, and Jenq-Neng Hwang. Leflow: Generative latent flow planning for world models. arXiv preprint arXiv:2608.24855 , 2026. Daniel Kahneman. Thinking, Fast and Slow . Farrar, Straus and Giroux, 2011. Ramneet Kaur, Kaustubh Sridhar, Sangdon Park, Yahan Yang, Susmit Jha, Anirban Roy, Oleg Sokolsky, and Insup Lee. CODiT: Conformal out-of-distribution detection in time-series data for cyber-physical systems. In Proceedings of the ACM/IEEE 14th International Conference on Cyber-Physical Systems (CPS-IoT Week) , 2023. Dmytro Kuzmenko and Nadiya Shvai. TD-MPC-Opt: Distilling model-based multi-task reinforce-ment learning agents. arXiv preprint arXiv:2507.01823 , 2025. Adam Labiosa and Josiah P. Hanna. When to plan: Learning to select between reactive control and deliberative planning. In Reinforcement Learning Conference (RLC) , 2026. Samuel Lavoie, Christos Tsirigotis, Max Schwarzer, Ankit Vani, Michael Noukhovitch, Kenji Kawaguchi, and Aaron Courville. Simplicial embeddings in self-supervised learning and down-stream classification. arXiv preprint arXiv:2204.00616 , 2022. Kimin Lee, Kibok Lee, Honglak Lee, and Jinwoo Shin. A simple unified framework for detecting out-of-distribution samples and adversarial attacks. In Advances in Neural Information Process-ing Systems (NeurIPS) , 2018. Yaniv Leviathan, Matan Kalman, and Yossie Matias. Fast inference from transformers via specula-tive decoding. In International Conference on Machine Learning (ICML) , 2023. Andrew Zou Li, Gokul Swamy, Yonatan Bisk, and Andrea Bajcsy. ELASTIC: Efficiently learning to adaptively scale test-time compute for generative control policies. arXiv preprint arXiv:2606.31132 , 2026a. Wenhao Li, Xiu Su, Yichao Cao, Hongyan Xu, Xiaobo Xia, Shan You, Yi Chen, and Chang Xu. VLA-ATTC: Adaptive test-time compute for VLA models with relative action critic model. arXiv preprint arXiv:2605.01194 , 2026b. Haotian Lin, Pengcheng Wang, Jeff Schneider, and Guanya Shi. TD-M(PC) 2: Improving temporal difference MPC through policy constraint. arXiv preprint arXiv:2502.03550 , 2025a. Ziyang Lin, Zixuan Sun, Sanhorn Chen, Xiaoyang Chen, and Roy Zhao. Accelerating multi-modal LLM gaming performance via input prediction and mishit correction. arXiv preprint arXiv:2512.17250 , 2025b. Ning Liu, Sen Shen, Zheng Li, Matthew D’Souza, Jen Jen Chung, and Thomas Braunl. Adaptive re-inforcement and model predictive control switching for safe human-robot cooperative navigation. 
+
+arXiv preprint arXiv:2601.16686 , 2026a. Yongzhi Liu, Yang Xiao, Zhong Cao, Zeng Kang, Sunan Zhang, Zhaozhi Dong, Guojun Yu, and Weichao Zhuang. LIDAR-AD: A decoder-free latent-interaction dreamer with action-residual chains for autonomous driving. arXiv preprint arXiv:2607.11964 , 2026b. Ilya Loshchilov and Frank Hutter. Decoupled weight decay regularization. In International Confer-ence on Learning Representations (ICLR) , 2019. Prasanta Chandra Mahalanobis. On the generalised distance in statistics. Proceedings of the Na-tional Institute of Sciences of India , 2(1):49–55, 1936. Emil Mittag, Richard Dazeley, and Peter Vamplew. OOD-RL-Bench: A benchmark framework for out-of-distribution detection in reinforcement learning. arXiv preprint arXiv:2607.12523 , 2026. 12 Aneesh Muppidi, Firas Darwish, Dylan Cope, Jo˜ ao F. Henriques, and Jakob Nicolaus Foer-ster. Finding the time to think: Learning planning budgets in real-time RL. arXiv preprint arXiv:2606.26463 , 2026. Anusha Nagabandi, Gregory Kahn, Ronald S. Fearing, and Sergey Levine. Neural network dynamics for model-based deep reinforcement learning with model-free fine-tuning. In IEEE International Conference on Robotics and Automation (ICRA) , 2018. Rudy R. Negenborn, Bart De Schutter, Marco A. Wiering, and Hans Hellendoorn. Learning-based model predictive control for Markov decision processes. IFAC Proceedings Volumes , 38(1):354– 359, 2005. 16th IFAC World Congress. Hoang Nguyen, Xiaohao Xu, and Xiaonan Huang. Latent geometry beyond search: Amortizing planning in world models. arXiv preprint arXiv:2605.08732 , 2026a. Khang Nguyen, Khai Nguyen, An T. Le, Jan Peters, Manfred Huber, Ngo Anh Vien, and Minh Nhat Vu. TD-GRPC: Temporal difference learning with group relative policy constraint for humanoid locomotion. arXiv preprint arXiv:2505.13549 , 2025. Khang Nguyen, An T. Le, Jan Peters, and Minh Nhat Vu. DoublyAware: Dual planning and policy awareness for temporal difference learning in humanoid locomotion. IEEE Robotics and Automa-tion Letters , 2026b. Mohit Prashant, Arvind Easwaran, Suman Das, and Michael Yuhas. Guaranteeing out-of-distribution detection in deep RL via transition estimation. In Proceedings of the AAAI Conference on Artificial Intelligence , 2025. Martin L. Puterman. Markov decision processes. In D. P. Heyman and M. J. Sobel (eds.), Handbooks in Operations Research and Management Science , volume 2 of Stochastic Models , pp. 331–434. North-Holland, Amsterdam, 1990. David J. Rogers and Taffee T. Tanimoto. A computer program for classifying plants. Science , 132 (3434):1115–1118, 1960. Rohit Kumar Salla, Manoj Saravanan, and Simon Stepputtis. Learning when to stop: Prefix-optimal dynamic diffusion policies for continuous control. arXiv preprint arXiv:2608.05084 , 2026. Aidan Scannell, Mohammadreza Nakhaeinezhadfard, Kalle Kujanp¨ a¨ a, Yi Zhao, Kevin Sebastian Luck, Arno Solin, and Joni Pajarinen. Discrete codebook world models for continuous control. In International Conference on Learning Representations (ICLR) , 2025. Julian Schrittwieser, Ioannis Antonoglou, Thomas Hubert, Karen Simonyan, Laurent Sifre, Simon Schmitt, Arthur Guez, Edward Lockhart, Demis Hassabis, Thore Graepel, Timothy Lillicrap, and David Silver. Mastering Atari, Go, chess and shogi by planning with a learned model. Nature ,588(7839):604–609, 2020. Jonathan Spieler and Sven Behnke. Dream-MPC: Gradient-based model predictive control with latent imagination. In International Conference on Machine Learning (ICML) , 2026. Paulo Tabuada. Event-triggered real-time scheduling of stabilizing control tasks. IEEE Transactions on Automatic Control , 52(9):1680–1685, 2007. Jinhe Tang and Weiming Zhi. AutoIntervene: Calibrated intervention for action-chunking imitation learning policies. arXiv preprint arXiv:2608.07065 , 2026. Yuval Tassa, Yotam Doron, Alistair Muldal, Tom Erez, Yazhe Li, Diego de Las Casas, David Bud-den, Abbas Abdolmaleki, Josh Merel, Andrew Lefrancq, Timothy Lillicrap, and Martin Ried-miller. DeepMind control suite. Technical report, DeepMind, 2018. Emanuel Todorov, Tom Erez, and Yuval Tassa. MuJoCo: A physics engine for model-based control. In 2012 IEEE/RSJ International Conference on Intelligent Robots and Systems , pp. 5026–5033. IEEE, 2012. 13 Yuhang Wang, Hanwei Guo, Sizhe Wang, Long Qian, and Xuguang Lan. Bootstrapped model predictive control. In The Thirteenth International Conference on Learning Representations ,2025. Zihua Wang, Zhitao Lin, Ruibo Li, Yu Zhang, Xu Yang, Siya Mi, and Xiu-Shen Wei. Open-loop planning, closed-loop verification: Speculative verification for VLA. arXiv preprint arXiv:2604.02965 , 2026. Grady Williams, Andrew Aldrich, and Evangelos Theodorou. Model predictive path integral control using covariance variable importance sampling. arXiv preprint arXiv:1509.01149 , 2015. Fanbo Xiang, Yuzhe Qin, Kaichun Mo, Yikuan Xia, Hao Zhu, Fangchen Liu, Minghua Liu, Hanwen Jiang, Yi Yuan, He Wang, and Li Yi. SAPIEN: A simulated part-based interactive environment. In 2020 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 11094– 11104. IEEE, 2020. Jiayi Yan, Francesco Fabiano, and Alessandro Abate. Dual process motion planning. arXiv preprint arXiv:2609.01260 , 2026. Tianhe Yu, Deirdre Quillen, Zhanpeng He, Ryan Julian, Karol Hausman, Chelsea Finn, and Sergey Levine. Meta-World: A benchmark and evaluation for multi-task and meta reinforcement learn-ing. In Conference on Robot Learning (CoRL) , 2019. Hongming Zhang, Ke Sun, Bo Xu, Linglong Kong, and Martin M¨ uller. A distance-based anomaly detection framework for deep reinforcement learning. Transactions on Machine Learning Re-search (TMLR) , 2024. Zesen Zhao, Minkyoung Cho, Hui Shen, Boyuan Zheng, Kunxiao Gao, Yulong Cao, and Z. Morley Mao. Test-time scaling for world action models via zero-shot geometric evaluation. arXiv preprint arXiv:2607.17454 , 2026. 14 APPENDICES 
+
+A. Method Details 15 
+
+B. Task Visualizations 16 
+
+C. Task Domains 17 
+
+D. Environment Details 19 
+
+E. Environment with Externally Applied Disturbances 19 
+
+F. Full Results 20 
+
+G. Full Results under Disturbances 20 
+
+H. Evaluation Setup and Hardware Details 20 
+
+I. MPPI Planner Warm-Start Strategy Ablation 21 
+
+J. OOD Distance Metric Ablation 22 
+
+K. Implementation Details 23 
+
+L. Extended Related Work 27 
+
+A METHOD DETAILS 
+
+Algorithm 1 summarizes the full Fast-TD-MPC inference procedure. At each decision step t, the frozen encoder Eθ maps the current state st to latent zt, and the OOD detector computes the Maha-lanobis distance g(zt). If g(zt) ≤ τ , the state is deemed in-distribution and the amortized policy πS1 
+
+produces the action in a single forward pass. Otherwise, the full MPPI planner πS2 is invoked. All components are frozen at deployment; the only runtime computation is the encoding, OOD scoring, and the selected policy’s forward pass. 
+
+Algorithm 1 Fast-TD-MPC inference 
+
+Require: Frozen encoder Eθ , amortized policy πS1 (· ; ϕ), MPPI planner πS2 (· ; θ), OOD detector 
+
+g(· ; ¯ z, Σ−1), threshold τ 
+
+> 1:
+
+s0 ∼ p0 
+
+> 2:
+
+for t = 0 , 1, . . . , T max − 1 do  
+
+> 3:
+
+zt ← E θ (st) ▷ Encode state  
+
+> 4:
+
+gt ← g(zt ; ¯ z, Σ−1) ▷ OOD score  
+
+> 5:
+
+if gt ≤ τ then  
+
+> 6:
+
+at ← πS1 (zt; ϕ) ▷ System 1: fast policy  
+
+> 7:
+
+else  
+
+> 8:
+
+at ← πS2 (zt; θ) ▷ System 2: MPPI planner  
+
+> 9:
+
+Execute at, observe st+1 
+
+15 B TASK VISUALIZATIONS 
+
+Figure 6: Task visualizations. Visualization of random states from all 103 diverse continuous control tasks used in our evaluation, spanning DMControl (Tassa et al., 2018), Meta-World (Yu et al., 2019), MyoSuite (Caggiano et al., 2022), and ManiSkill2 (Gu et al., 2023). Tasks vary greatly in objective, embodiment, and action space. See Appendix C for task details. 16 C TASK DOMAINS 
+
+We consider a total of 103 continuous control tasks from 4 task domains: DMControl (Tassa et al., 2018), Meta-World (Yu et al., 2019), MyoSuite (Caggiano et al., 2022), and ManiSkill2 (Gu et al., 2023). We provide an exhaustive list of all tasks considered, along with their details in Table 4, 5, 6 and 7 below. Visualizations of each task are provided in Appendix B. Environment details are provided in Appendix D and Appendix E.Table 4: DMControl. We consider a total 39 tasks from the DMControl domain. Observation dimension ranges from 3 - 223, with action dimensions ranging from 1 - 38. Metric: Return. Physics engine: MuJoCo. 
+
+Task Obs. dim Action dim 
+
+Acrobot Swingup 6 1Cartpole Balance 5 1Cartpole Balance Sparse 5 1Cartpole Swingup 5 1Cartpole Swingup Sparse 5 1Cheetah Jump 17 6Cheetah Run 17 6Cheetah Run Back 17 6Cheetah Run Backwards 17 6Cheetah Run Front 17 6Cup Catch 8 2Cup Spin 8 2Dog Run 223 38 Dog Stand 223 38 Dog Trot 223 38 Dog Walk 223 38 Finger Spin 9 2Finger Turn Easy 12 2Finger Turn Hard 12 2Fish Swim 24 5Hopper Hop 15 4Hopper Hop Backwards 15 4Hopper Stand 15 4Humanoid Run 67 21 Humanoid Stand 67 21 Humanoid Walk 67 21 Pendulum Spin 3 1Pendulum Swingup 3 1Quadruped Run 78 12 Quadruped Walk 78 12 Reacher Easy 6 2Reacher Hard 6 2Reacher Three Easy 8 3Reacher Three Hard 8 3Walker Run 24 6Walker Run Backwards 24 6Walker Stand 24 6Walker Walk 24 6Walker Walk Backwards 24 6
+
+17 Table 5: Meta-World. We consider a total 50 tasks from the Meta-World domain. Observation dimensions are fixed at 39, with action dimensions fixed at 4. Metric: Success rate. Physics engine: MuJoCo. 
+
+Task Obs. dim Action dim 
+
+Assembly 39 4Basketball 39 4Bin Picking 39 4Box Close 39 4Button Press 39 4Button Press Topdown 39 4Button Press Topdown Wall 39 4Button Press Wall 39 4Coffee Button 39 4Coffee Pull 39 4Coffee Push 39 4Dial Turn 39 4Disassemble 39 4Door Close 39 4Door Lock 39 4Door Open 39 4Door Unlock 39 4Drawer Close 39 4Drawer Open 39 4Faucet Close 39 4Faucet Open 39 4Hammer 39 4... ... ... Window Open 39 4
+
+Table 6: MyoSuite. We consider a total 10 tasks from the MyoSuite domain. Observation dimen-sions ranges from 83 - 115, with action dimensions fixed at 39. Metric: Success rate. Physics engine: MuJoCo. 
+
+Task Obs. dim Action dim 
+
+Myo Hand Key Turn 93 39 Myo Hand Key Turn Hard 93 39 Myo Hand Obj Hold 91 39 Myo Hand Obj Hold Hard 91 39 Myo Hand Pen Twirl 83 39 Myo Hand Pen Twirl Hard 83 39 Myo Hand Pose 108 39 Myo Hand Pose Hard 108 39 Myo Hand Reach 115 39 Myo Hand Reach Hard 115 39 
+
+Table 7: ManiSkill2. We consider a total 4 tasks from the ManiSkill2 domain. Observation dimen-sions ranges from 42 - 55, with action dimensions ranging from 4 - 7. Metric: Success rate. Physics engine: SAPIEN. 
+
+Task Obs. dim Action dim 
+
+Lift Cube 42 4Pick Cube 51 4Pick Ycb 51 7Stack Cube 55 4
+
+18 D ENVIRONMENT DETAILS 
+
+For experiments on RQ1 , we follow Hansen et al. (2024)’s setup and benchmark on DMControl, Meta-World, ManiSkill2, and MyoSuite without modification. All four domains are infinite-horizon continuous control environments with fixed episode lengths and no termination conditions. We list episode lengths, action repeats, and the performance metric used for each domain in Table 8. Following Hansen et al. (2024), we adopt a strict success criterion: an episode is successful only if its final step is successful. In object manipulation tasks, this ensures that an episode in which an object is picked up but subsequently dropped is not counted as a success. Table 8: Environment details. We list the episode length and action repeat used for each task domain, as well as the total number of environment steps and performance metrics that we use for benchmarking methods. All methods use the same values for all tasks. 
+
+DMControl Meta-World ManiSkill2 MyoSuite 
+
+Episode length 1,000 200 200 100 Action repeat 2 2 2 1Effective length 500 100 100 100 Performance metric Reward Success Success Success 
+
+E ENVIRONMENT WITH EXTERNALLY APPLIED DISTURBANCES 
+
+For experiments on RQ2 , we introduce five types of disturbances to all four benchmark domains. Table 9 details the five disturbance types, organized following the taxonomy of Gu et al. (2025) into observation, action, and environment disruptors, along with their categories and activation prob-abilities. All disturbances are applied post-training at evaluation time with per-episode stochas-ticity (seed = 42); per-episode parameters are drawn from the specified ranges using an isolated 
+
+RandomState .Table 9: Environment disturbance configurations. p denotes the per-step activation probability. 
+
+> †
+
+1–2 kicks per episode at random timesteps within 10–90% of episode length. Obs. noise and vel. kick magnitudes are relative (scaled by per-episode std). Tasks: 102 (39 DMControl + 50 MetaWorld + 10 MyoSuite + 3 ManiSkill2; pick-ycb excluded).                                                         
+
+> Disturbance Cat. pMechanism Parameter
+> Obs. noise Obs. 1.0 Relative σ·std (s)on stσ=.005
+> Act. noise Act. 1.0 Additive N(0 , σ 2)on at, clamp [−1,1] σ=.005
+> Vel. kick Env. 1.0 †Impulse on qvel at 1–2 random tmmax =.3
+> Grav. shift Env. 1.0 Sustained g←g·kper episode δ=.05
+> Sus. force Env. 0.15 Per-step force injection when active fmax =.3
+> Combined All —All five applied simultaneously —
+
+Excluded Task. The pick-ycb task (PickSingleYCB-v0) from ManiSkill2 is excluded from the perturbation evaluation due to a SAPIEN (Xiang et al., 2020) memory management bug that triggers a C-level segfault when physics-based disturbances are applied to articulated YCB mesh objects. This is a known SAPIEN limitation unrelated to our method. All other ManiSkill2 tasks are unaffected. 
+
+SAPIEN Backend Adaptation. ManiSkill2 environments are built on SAPIEN (Xiang et al., 2020), which exposes a different physics API than MuJoCo (Todorov et al., 2012). While observation noise and action noise operate on the observation and action ar-rays respectively (backend-agnostic), three perturbation types require adaptation: (i) Grav-ity shift: SAPIEN’s SceneConfig.gravity is a direct 3D vector, equivalent to Mu-JoCo’s model.opt.gravity . (ii) Velocity kick: applied via set qvel(get qvel() + 
+
+19 impulse) . (iii) Sustained force: SAPIEN does not expose qfrc applied ; we implement this as per-step velocity injection, set qvel(get qvel() + f ), producing equivalent trajectory disruption with the same magnitude and direction sampling. 
+
+F FULL RESULTS 
+
+Tables 10 – 13 present the full benchmark results for each domain, including per-step latency, S2 invocation rate ( ρ), and peak GPU memory, complementing Table 1. Tables 14 – 17 provide per-task breakdowns for four key methods. Table 10: DMControl full results. 39 tasks, 3 seeds each. Mean and 95% CI across all tasks. Return, per-step latency, S2 invocation rate ( ρ), and peak GPU memory. †Referenced from Hansen et al. (2024). all : theoretical OOD mode; RG : reward-gated mode. 
+
+Method Return Lat. (ms) ρ (%) GPU (MB) DreamerV3 † 735 ±93 3.2±.1 — —SAC † 631 ±108 2.0±.4 — —S2-alone (TD-MPC2) 820 ±55 27 .3±1.1 100 95 ±0
+
+S2-alone ( N =64 ) 639 ±100 26 .9±1.1 100 69 ±0
+
+S2 policy-only 560 ±105 1.9±.3 0 66 ±0
+
+S1 alone 623 ±91 1.6±.2 0 68 ±0
+
+Round-robin (S2 50%) 813 ±57 14 .4±.7 50 96 ±0
+
+Round-robin (S2 33%) 782 ±66 10 .1±.5 33 68 ±0
+
+Round-robin (S2 20%) 743 ±74 6.6±.4 20 96 ±0
+
+Round-robin (S2 10%) 699 ±83 4.0±.3 10 96 ±0
+
+Fast-TD-MPC ( all , τp50 ) 829 ±55 19 .4±2.4 68 ±7 85 ±3
+
+Fast-TD-MPC ( all , τp75 ) 823 ±55 12 .2±2.7 40 ±9 77 ±2
+
+Fast-TD-MPC ( all , τp90 ) 785 ±58 6.5±2.0 18 ±7 73 ±2
+
+Fast-TD-MPC ( all , τp95 ) 745 ±74 3.8±1.4 8±4 70 ±1
+
+Fast-TD-MPC ( all , τp99 ) 650 ±92 1.9±.3 1±0 69 ±0
+
+Fast-TD-MPC ( RG , τp25 ) 784 ±68 10 .8±2.3 35 ±8 77 ±2
+
+Fast-TD-MPC ( RG , τp50 ) 764 ±70 8.1±1.8 25 ±7 74 ±2
+
+Fast-TD-MPC ( RG , τp75 ) 744 ±74 6.4±1.5 18 ±5 72 ±2
+
+G FULL RESULTS UNDER DISTURBANCES 
+
+Tables 18 – 21 present the full results under disturbances for each domain, including per-step latency, S2 invocation rate ( ρ), and peak GPU memory, complementing Table 3. Tables 22 – 25 provide corresponding per-task breakdowns. 
+
+H EVALUATION SETUP AND HARDWARE DETAILS 
+
+Evaluation Metrics. We follow Hansen et al. (2024)’s setup of training on 3 seeds and evaluat-ing on the same 3 seeds, with 1 warmup + 10 evaluation episodes per task per seed. We report return/success rate, per-step latency (ms), S2 invocation rate ( ρ), and peak GPU memory. 
+
+Hardware. Per-step latency is measured with GPU synchronization at the start and end of each decision step (2 syncs), on a single CPU core with a dedicated empty GPU. DMControl, Meta-World, and MyoSuite run on an H100 node (2 × Intel Xeon Gold 6430 CPUs, 2 TB RAM, and 8× NVIDIA H100 80GB GPUs); ManiSkill2 on an A100 workstation (AMD EPYC 7V13 CPU, 216 GB RAM, 1 × A100 80GB). 20 Table 11: Meta-World full results. 50 tasks, 3 seeds each. Mean and 95% CI across all tasks. Success rate, per-step latency, S2 invocation rate ( ρ), and peak GPU memory. †Referenced from Hansen et al. (2024). all : theoretical OOD mode; RG : reward-gated mode. 
+
+Method Succ. Lat. (ms) ρ (%) GPU (MB) DreamerV3 † 70 ±8 3.8±.1 — —SAC † 84 ±7 2.0±.2 — —S2-alone (TD-MPC2) 84 ±9 26 .9±.2 100 95 ±0
+
+S2-alone ( N =64 ) 85 ±7 26 .7±.2 100 69 ±0
+
+S2 policy-only 82 ±8 2.7±.2 0 66 ±0
+
+S1 alone 87 ±8 2.5±.2 0 67 ±0
+
+Round-robin (S2 50%) 86 ±7 14 .7±.2 50 96 ±0
+
+Round-robin (S2 33%) 86 ±8 10 .7±.2 33 67 ±0
+
+Round-robin (S2 20%) 85 ±8 7.3±.2 20 96 ±0
+
+Round-robin (S2 10%) 86 ±8 4.9±.2 10 96 ±0
+
+Fast-TD-MPC ( all , τp50 ) 85 ±8 24 .8±1.1 90 ±4 95 ±1
+
+Fast-TD-MPC ( all , τp75 ) 85 ±8 18 .7±1.5 66 ±6 92 ±2
+
+Fast-TD-MPC ( all , τp90 ) 85 ±8 12 .2±1.6 39 ±6 90 ±2
+
+Fast-TD-MPC ( all , τp95 ) 85 ±8 9.8±1.5 29 ±6 88 ±2
+
+Fast-TD-MPC ( all , τp99 ) 85 ±8 6.2±1.3 15 ±5 85 ±2
+
+Fast-TD-MPC ( RG , τp25 ) 85 ±8 12 .3±1.7 40 ±7 85 ±2
+
+Fast-TD-MPC ( RG , τp50 ) 85 ±8 10 .0±1.5 30 ±6 80 ±2
+
+Fast-TD-MPC ( RG , τp75 ) 84 ±8 8.6±1.5 25 ±6 79 ±2
+
+Table 12: MyoSuite full results. 10 tasks, 3 seeds each. Mean and 95% CI across all tasks. Success rate, per-step latency, S2 invocation rate ( ρ), and peak GPU memory. †Referenced from Hansen et al. (2024). all : theoretical OOD mode; RG : reward-gated mode. 
+
+Method Succ. Lat. (ms) ρ (%) GPU (MB) DreamerV3 † 14 ±17 4.2±.1 — —SAC † 38 ±20 2.9±.5 — —S2-alone (TD-MPC2) 40 ±20 35 .5±.4 100 97 ±0
+
+S2-alone ( N =64 ) 24 ±16 35 .4±.4 100 70 ±0
+
+S2 policy-only 18 ±15 3.8±.4 0 67 ±0
+
+S1 alone 35 ±16 3.6±.3 0 69 ±0
+
+Round-robin (S2 50%) 45 ±21 19 .3±.3 50 98 ±0
+
+Round-robin (S2 33%) 41 ±18 14 .1±.3 33 68 ±0
+
+Round-robin (S2 20%) 40 ±22 9.8±.3 20 98 ±0
+
+Round-robin (S2 10%) 40 ±21 6.6±.3 10 98 ±0
+
+Fast-TD-MPC ( all , τp50 ) 39 ±21 31 .4±3.6 88 ±12 91 ±5
+
+Fast-TD-MPC ( all , τp75 ) 37 ±21 26 .6±5.8 72 ±18 93 ±4
+
+Fast-TD-MPC ( all , τp90 ) 37 ±21 22 .6±7.6 60 ±24 85 ±5
+
+Fast-TD-MPC ( all , τp95 ) 38 ±23 19 .8±7.6 51 ±24 82 ±5
+
+Fast-TD-MPC ( all , τp99 ) 28 ±17 10 .9±5.8 23 ±19 78 ±5
+
+Fast-TD-MPC ( RG , τp25 ) 39 ±22 24 .5±4.6 66 ±15 89 ±5
+
+Fast-TD-MPC ( RG , τp50 ) 35 ±21 20 .6±5.2 54 ±17 85 ±5
+
+Fast-TD-MPC ( RG , τp75 ) 39 ±21 15 .7±4.7 39 ±15 83 ±5
+
+I MPPI P LANNER WARM -S TART STRATEGY ABLATION 
+
+When the OOD gate triggers a System 1 to System 2 transition after K timesteps, the planner’s warm-start buffer ( prev mean ) contains a plan that is K steps stale. We consider two initialization strategies: 21 Table 13: ManiSkill2 full results. 4 tasks, 3 seeds each. Mean and 95% CI across all tasks. Success rate, per-step latency, S2 invocation rate ( ρ), and peak GPU memory. †Referenced from Hansen et al. (2024). all : theoretical OOD mode; RG : reward-gated mode. 
+
+Method Succ. Lat. (ms) ρ (%) GPU (MB) DreamerV3 † 34 ±56 8.7±.7 — —SAC † 22 ±54 5.8±.7 — —S2-alone (TD-MPC2) 65 ±54 45 .9±4.8 100 70 ±0
+
+S2-alone ( N =64 ) 63 ±53 41 .5±3.4 100 44 ±0
+
+S2 policy-only 48 ±56 11 .1±2.5 0 41 ±0
+
+S1 alone 19 ±39 10 .7±3.9 0 42 ±0
+
+Round-robin (S2 50%) 60 ±44 28 .4±5.6 50 72 ±0
+
+Round-robin (S2 33%) 42 ±50 22 .3±3.8 33 42 ±0
+
+Round-robin (S2 20%) 38 ±48 17 .6±3.9 20 72 ±0
+
+Round-robin (S2 10%) 28 ±46 14 .5±4.7 10 72 ±0
+
+Fast-TD-MPC ( all , τp50 ) 54 ±55 33 .9±12 .1 67 ±32 63 ±8
+
+Fast-TD-MPC ( all , τp75 ) 47 ±54 23 .3±10 .7 34 ±26 46 ±5
+
+Fast-TD-MPC ( all , τp90 ) 32 ±42 16 .0±5.2 13 ±9 46 ±5
+
+Fast-TD-MPC ( all , τp95 ) 28 ±46 14 .2±3.9 8±9 46 ±5
+
+Fast-TD-MPC ( all , τp99 ) 20 ±39 11 .5±3.9 1±2 46 ±5
+
+Fast-TD-MPC ( RG , τp25 ) 48 ±43 28 .5±20 .9 51 ±65 58 ±9
+
+Fast-TD-MPC ( RG , τp50 ) 43 ±43 25 .6±18 .9 40 ±55 51 ±8
+
+Fast-TD-MPC ( RG , τp75 ) 39 ±51 20 .9±10 .8 25 ±29 46 ±5
+
+• Cold start: Zero the buffer and discard all stale plans. The MPPI planner relies entirely on the policy prior πθ , which provides Nπ = 24 of N = 512 candidate trajectories rolled out from the current latent through the world model. • K-shifted warm start: Shift the buffer left by K positions, salvaging the first H−K future plans when K < H −1. If K ≥ H−1, no valid plan survives and the strategy degenerates to cold start. We evaluate both strategies across all 103 tasks from the 4 domains and 8 τ configurations ( theo-retical : p50 , p75 , p90 , p95 , p99 ; reward-gated : p25 , p50 , p75 ), yielding 824 paired comparisons on the clean benchmark and 816 under disturbance. A paired t-test finds no significant difference (p > 0.05 ) in return or S2 invocation rate between the two strategies on either benchmark, confirm-ing that the policy prior provides sufficient fresh candidates on S1 →S2 transitions. We adopt cold start for its simplicity. Tables 26 and 27 report the full results. 
+
+J OOD D ISTANCE METRIC ABLATION 
+
+We compare Mahalanobis distance against Tanimoto distance (Rogers & Tanimoto, 1960) as the OOD scoring function. Mahalanobis distance captures the full covariance structure of the in-distribution latents: 
+
+gmaha (zt) = ( zt − ¯z)⊤Σ−1 
+
+> reg
+
+(zt − ¯z), (5) where ¯z ∈ Rdz is the mean of the ID latents and Σreg = Σ + λI is the ℓ2-regularized covariance (see Section 3), yielding an effective metric that accounts for inter-dimension correlations. Tanimoto distance measures angular and magnitude deviation from the mean without modeling correlations: 
+
+gtan (zt) = 1 − z⊤ 
+
+> t
+
+¯z
+
+∥zt∥2 + ∥¯z∥2 − z⊤ 
+
+> t
+
+¯z , (6) where zt, ¯z ∈ Rdz and the denominator ∥zt∥2 + ∥¯z∥2 − z⊤ 
+
+> t
+
+¯z combines Euclidean and inner-product terms into a single similarity ratio. Tanimoto is computationally cheaper ( O(dz ) vs. O(d2 
+
+> z
+
+) per step) and requires no covariance inversion during fitting. Both detectors are fitted on the same System 1 rollout trajectories and evaluated under identical τ percentiles. 22 Table 14: DMControl per-task results. 39 tasks, 3 seeds each. Mean and 95% CI per task. Return and per-step latency (ms) for 4 key methods. all : theoretical OOD mode. 
+
+Task S2-alone (TD-MPC2) S1 alone Fast-TD-MPC (all, τp50 ) Fast-TD-MPC (all, τp90 )
+
+Return Lat. (ms) Return Lat. (ms) Return Lat. (ms) Return Lat. (ms) Acrobot Swingup 642 ±25 26 .2±.8 523 ±163 1.2±.0 638 ±87 9.8±3.1 582 ±155 2.6±.9
+
+Cartpole Balance Sparse 1000 26 .0±1.7 1000 1.3±.0 1000 14 .8±23 .9 1000 4.8±5.0
+
+Cartpole Balance 999 ±1 25 .8±1.4 1000 ±1 1.4±.0 999 ±1 21 .1±11 .7 999 ±1 3.4±1.2
+
+Cartpole Swingup Sparse 297 ±1189 25 .6±1.3 284 ±1216 1.2±.0 284 ±1216 17 .3±13 .9 303 ±1177 3.8±1.1
+
+Cartpole Swingup 661 ±954 26 .2±1.1 665 ±938 1.4±.1 654 ±987 14 .4±4.1 666 ±934 3.5±1.5
+
+Cheetah Jump 833 ±12 26 .4±1.1 779 ±122 1.3±.2 833 ±6 12 .4±1.4 828 ±9 3.4±2.2
+
+Cheetah Run Back 854 ±26 26 .0±2.0 585 ±576 1.2±.1 854 ±26 13 .8±14 .8 791 ±254 3.4±3.5
+
+Cheetah Run Backwards 785 ±230 25 .8±.7 696 ±197 1.1±.1 787 ±238 22 .0±17 .9 793 ±239 2.9±2.0
+
+Cheetah Run Front 762 ±150 25 .5±.4 582 ±346 1.2±.0 763 ±152 16 .0±7.9 764 ±147 3.1±.4
+
+Cheetah Run 887 ±139 25 .2±.5 450 ±605 1.1±.0 886 ±97 16 .3±19 .1 798 ±240 3.8±1.6
+
+Cup Catch 983 ±1 25 .7±1.0 975 ±20 1.3±.0 980 ±5 25 .1±.8 981 ±3 13 .6±17 .8
+
+Cup Spin 849 ±1 25 .6±.4 849 ±1 1.4±.0 849 ±1 17 .9±2.4 849 ±1 5.4±4.6
+
+Dog Run 823 ±128 34 .6±1.6 171 ±444 3.7±.9 817 ±101 26 .7±35 .5 603 ±282 11 .4±20 .8
+
+Dog Stand 966 ±76 34 .7±1.3 484 ±565 3.8±.7 934 ±119 30 .3±22 .0 821 ±543 8.8±9.2
+
+Dog Trot 943 ±51 34 .9±.4 363 ±447 3.7±.7 947 ±20 34 .7±.7 926 ±164 7.9±3.1
+
+Dog Walk 898 ±201 35 .8±.4 775 ±168 3.5±.5 893 ±224 33 .0±13 .0 826 ±131 6.2±1.9
+
+Finger Spin 986 ±2 25 .7±1.2 982 ±9 1.1±.0 988 ±5 23 .9±7.9 989 ±4 17 .1±32 .5
+
+Finger Turn Easy 930 ±208 26 .0±.6 594 ±710 1.3±.1 949 ±157 14 .4±9.7 849 ±136 2.5±2.6
+
+Finger Turn Hard 909 ±259 25 .5±.6 524 ±510 1.3±.1 942 ±142 12 .2±9.7 887 ±185 2.1±.7
+
+Fish Swim 700 ±90 25 .7±.7 520 ±298 1.3±.0 767 ±183 14 .5±5.7 545 ±318 3.7±1.1
+
+Hopper Hop Backwards 825 ±136 25 .8±1.7 789 ±187 1.2±.0 887 ±98 19 .9±8.6 906 ±131 2.4±.7
+
+Hopper Hop 490 ±169 25 .6±.7 431 ±381 1.2±.1 532 ±192 9.9±10 .0 505 ±246 2.8±1.2
+
+Hopper Stand 863 ±8 26 .0±1.6 810 ±257 1.3±.0 915 ±128 22 .4±14 .9 921 ±130 2.9±2.0
+
+Humanoid Run 453 ±974 33 .4±.4 13 ±42 1.9±.1 451 ±971 33 .7±1.0 451 ±971 33 .9±1.3
+
+Humanoid Stand 604 ±1290 33 .9±.8 37 ±71 2.1±.2 609 ±1299 34 .1±1.7 535 ±1147 15 .6±31 .0
+
+Humanoid Walk 606 ±1302 33 .7±.2 40 ±158 2.0±.2 607 ±1303 33 .3±.9 583 ±1255 10 .4±14 .8
+
+Pendulum Spin 856 ±4 25 .3±.9 857 ±60 1.2±.1 857 ±59 12 .6±2.5 857 ±59 3.5±2.1
+
+Pendulum Swingup 570 ±1227 25 .3±.7 505 ±1096 1.1±.0 559 ±1203 15 .5±15 .9 502 ±1091 3.9±.6
+
+Quadruped Run 950 ±16 26 .6±1.8 950 ±7 1.6±.1 957 ±8 25 .7±1.5 959 ±8 3.6±.3
+
+Quadruped Walk 967 ±23 25 .9±1.4 971 ±18 1.6±.0 978 ±15 26 .3±1.2 979 ±15 18 .1±12 .2
+
+Reacher Easy 981 ±7 25 .3±.2 933 ±128 1.2±.0 982 ±7 11 .7±10 .1 982 ±5 5.8±9.0
+
+Reacher Hard 978 ±0 25 .7±1.8 936 ±132 1.2±.0 976 ±13 15 .3±1.3 980 ±5 1.8±.1
+
+Reacher Three Easy 982 ±1 25 .4±.3 969 ±26 1.2±.0 984 ±1 13 .5±6.3 984 ±2 2.8±3.3
+
+Reacher Three Hard 652 ±138 25 .3±.4 684 ±238 1.2±.1 780 ±482 13 .1±2.2 750 ±500 3.4±6.8
+
+Walker Run Backwards 941 ±18 26 .3±.6 100 ±181 1.5±.0 939 ±37 25 .1±2.3 637 ±891 16 .6±27 .0
+
+Walker Run 886 ±2 26 .0±1.8 515 ±118 1.4±.1 884 ±11 7.7±7.5 646 ±294 4.1±1.5
+
+Walker Stand 989 ±6 26 .2±1.9 825 ±346 1.4±.0 993 ±9 9.5±14 .6 993 ±10 2.5±.5
+
+Walker Walk Backwards 682 ±1288 25 .9±1.2 511 ±980 1.5±.0 689 ±1274 16 .8±9.8 680 ±1303 2.9±2.1
+
+Walker Walk 982 ±0 25 .6±.9 618 ±467 1.5±.0 983 ±9 19 .5±4.8 956 ±122 2.5±.4
+
+Tables 28 and 29 report the full results. Under nominal conditions, a paired t-test across all task-config comparisons finds no significant difference in return ( t=0 .85 , p=0 .40 ), although Maha-lanobis achieves substantially higher success on Meta-World (85% vs. 70% at τp50 ). In the the-oretical mode, Tanimoto yields equal or lower latency at every τ percentile, reflecting fewer S2 invocations; in the reward-gated mode, it is often slower. Under perturbation, Mahalanobis yields significantly higher return ( t=2 .33 , p=0 .02 ) by invoking S2 more often. We therefore adopt Maha-lanobis for its stronger robustness. 
+
+K IMPLEMENTATION DETAILS 
+
+Single configuration. All Fast-TD-MPC components (architecture, training, and OOD detection) use the same hyperparameters across all 103 tasks. No per-task tuning is performed; τ is set automat-ically for each task-seed from held-out OOD scores using the same rule for all tasks (the median for 
+
+theoretical mode; the midpoint of the ID and OOD medians for reward-gated mode; see Section 3). K.1 SYSTEM 1: A MORTIZED POLICY ARCHITECTURE 
+
+Model Architecture. All components of TD-MPC2 are parameterized by MLPs with LayerNorm and Mish activations. The encoder Eθ and dynamics model Dθ additionally use Simplicial Normal-23 Table 15: Meta-World per-task results. 50 tasks, 3 seeds each. Mean and 95% CI per task. Success rate (%) and per-step latency (ms) for 4 key methods. all : theoretical OOD mode. 
+
+Task S2-alone (TD-MPC2) S1 alone Fast-TD-MPC (all, τp50 ) Fast-TD-MPC (all, τp90 )
+
+Succ. Lat. (ms) Succ. Lat. (ms) Succ. Lat. (ms) Succ. Lat. (ms) Assembly 100 26 .4±1.1 67 ±143 2.2±.2 90 ±25 27 .1±1.6 87 ±57 19 .7±24 .9
+
+Basketball 97 ±14 26 .2±.9 100 2.0±.1 90 ±43 26 .7±.1 83 ±72 20 .6±12 .0
+
+Bin Picking 100 26 .8±1.4 100 2.1±.2 97 ±14 27 .1±2.3 100 14 .5±15 .7
+
+Box Close 100 27 .6±.5 100 3.4±.6 100 27 .8±1.2 100 9.7±7.4
+
+Button Press Topdown Wall 100 26 .9±.7 100 2.7±.2 100 17 .0±9.5 100 5.9±2.0
+
+Button Press Topdown 100 26 .9±2.0 100 2.7±.3 100 15 .6±6.1 100 6.3±1.2
+
+Button Press Wall 93 ±29 27 .4±1.3 100 3.0±.3 100 24 .7±5.5 93 ±29 14 .1±16 .9
+
+Button Press 83 ±38 26 .9±1.5 100 2.9±.4 90 ±25 23 .2±15 .4 77 ±57 15 .7±18 .4
+
+Coffee Button 100 26 .0±.4 100 2.1±.4 100 23 .7±9.8 100 7.5±6.2
+
+Coffee Pull 40 ±50 28 .1±2.5 67 ±143 3.7±1.0 33 ±72 22 .2±23 .9 50 ±108 14 .3±21 .0
+
+Coffee Push 13 ±38 28 .0±1.7 33 ±143 3.5±.7 33 ±103 28 .1±1.6 30 ±129 19 .4±28 .1
+
+Dial Turn 70 ±66 26 .3±.8 100 1.8±.1 83 ±52 26 .5±1.5 83 ±72 16 .1±20 .8
+
+Disassemble 67 ±143 26 .3±.2 67 ±143 2.1±.6 67 ±143 27 .3±.8 67 ±143 8.7±5.1
+
+Door Close 100 26 .0±.3 100 2.1±.3 100 15 .7±1.3 100 5.6±1.8
+
+Door Lock 100 25 .8±1.1 100 2.0±.1 100 15 .0±6.8 100 4.9±.6
+
+Door Open 100 26 .8±.8 100 2.7±.2 93 ±29 22 .1±14 .4 90 14 .0±28 .1
+
+Door Unlock 100 26 .2±.4 100 1.8±.1 100 19 .2±8.7 100 5.7±1.5
+
+Drawer Close 100 25 .9±.7 100 1.8±.2 100 25 .5±4.0 100 12 .7±18 .4
+
+Drawer Open 100 26 .5±2.3 100 1.7±.0 100 26 .5±1.7 100 5.0±.6
+
+Faucet Close 100 25 .6±.5 100 1.7±.0 100 26 .2±.4 100 8.6±17 .3
+
+Faucet Open 100 25 .7±.3 100 1.7±.1 100 24 .0±3.3 100 9.3±18 .0
+
+Hammer 100 26 .5±1.0 100 2.3±.0 100 26 .1±3.7 100 14 .9±13 .0
+
+Hand Insert 100 27 .5±1.1 100 3.1±.1 100 26 .7±3.5 100 16 .4±21 .2
+
+Handle Press Side 100 26 .2±1.5 100 1.7±.1 100 26 .8±.7 100 14 .2±19 .4
+
+Handle Press 100 26 .5±2.4 100 1.8±.2 100 22 .0±19 .6 93 ±29 10 .0±11 .1
+
+Handle Pull Side 0 27 .2±2.7 0 2.2±.1 0 20 .4±11 .6 0 8.2±13 .2
+
+Handle Pull 0 26 .9±.8 0 2.2±.2 3±14 24 .4±5.2 0 18 .4±9.5
+
+Lever Pull 7±14 26 .6±.8 33 ±143 2.2±.3 10 ±25 18 .3±13 .9 7±14 9.3±3.0
+
+Peg Insert Side 100 26 .7±1.4 100 2.5±.6 100 27 .4±1.3 100 13 .0±27 .0
+
+Peg Unplug Side 100 26 .3±1.3 67 ±143 2.1±.0 87 ±57 27 .2±.9 97 ±14 21 .9±8.8
+
+Pick Out Of Hole 100 26 .4±.2 100 2.3±.3 100 27 .5±.9 100 8.3±6.2
+
+Pick Place Wall 100 27 .8±1.1 100 3.5±.4 100 27 .7±.7 100 12 .7±6.3
+
+Pick Place 100 27 .8±1.3 100 3.3±.0 100 28 .2±2.2 100 8.2±3.7
+
+Plate Slide Back Side 100 26 .7±2.1 100 2.1±.3 100 27 .1±2.2 100 6.6±2.5
+
+Plate Slide Back 100 26 .0±.5 100 2.0±.1 100 26 .9±.3 100 6.3±6.9
+
+Plate Slide Side 27 ±38 26 .7±.8 33 ±143 2.4±.4 33 ±143 20 .6±15 .4 33 ±143 7.8±5.1
+
+Plate Slide 100 26 .5±.5 100 2.2±.2 100 26 .1±4.6 100 7.8±11 .8
+
+Push Back 67 ±143 28 .2±1.8 67 ±143 3.0±.1 67 ±143 24 .9±8.0 67 ±143 7.4±4.2
+
+Push Wall 93 ±29 27 .8±.2 100 3.5±.2 100 28 .8±1.1 100 14 .6±18 .0
+
+Push 100 28 .3±.9 100 3.4±.2 100 28 .5±.7 100 16 .1±23 .4
+
+Reach Wall 100 26 .2±.8 100 2.1±.2 100 27 .7±1.1 100 4.5±.3
+
+Reach 90 ±43 26 .5±1.6 100 2.1±.1 83 ±72 26 .4±1.0 100 4.6±.3
+
+Shelf Place 100 28 .4±2.1 100 3.3±.5 100 26 .8±6.3 100 13 .7±12 .4
+
+Soccer 100 27 .8±1.0 100 3.2±.1 83 ±72 28 .9±2.3 100 18 .1±10 .2
+
+Stick Pull 7±29 28 .0±1.0 0 3.4±.2 33 ±143 28 .1±2.1 33 ±143 27 .4±2.0
+
+Stick Push 90 ±25 27 .9±.7 100 3.3±.1 83 ±38 27 .8±2.2 83 ±38 20 .4±10 .2
+
+Sweep Into 97 ±14 27 .4±.2 100 3.0±.1 97 ±14 28 .0±1.7 100 21 .7±19 .1
+
+Sweep 100 27 .2±1.3 100 2.8±.1 100 28 .2±2.7 100 21 .4±9.2
+
+Window Close 67 ±143 26 .0±.4 100 1.9±.4 93 ±29 17 .9±13 .1 73 ±115 9.2±15 .0
+
+Window Open 100 26 .3±1.9 100 1.9±.4 100 23 .4±11 .8 100 6.5±4.7
+
+ization (SimNorm) (Lavoie et al., 2022) on their final layer to normalize the latent representation z,biasing it towards sparsity without enforcing hard discrete constraints. Mirroring this architecture, the amortized policy πS1 is a 4-layer MLP: three intermediate layers of linear → LayerNorm →
+
+Mish, followed by a final SimNorm layer. The backbone takes the frozen latent z ∈ Rdz (dz = 512 )as input, maps to a 256-dimensional hidden representation, and a deterministic linear head produces the action. We use history length L = 1 and chunk size C = 1 (single-step prediction). Following TD-MPC2, actions are squashed with tanh at the output and dropout (rate 0.1) is applied to the first layer only. We summarize the πS1 architecture using PyTorch-like notation: 
+
+backbone = SimNormMLPBackbone( (0): NormedLinear(512, 256, act=Mish, dropout=0.1) 
+
+24 Table 16: MyoSuite per-task results. 10 tasks, 3 seeds each. Mean and 95% CI per task. Success rate (%) and per-step latency (ms) for 4 key methods. all : theoretical OOD mode. 
+
+Task S2-alone (TD-MPC2) S1 alone Fast-TD-MPC (all, τp50 ) Fast-TD-MPC (all, τp90 )
+
+Succ. Lat. (ms) Succ. Lat. (ms) Succ. Lat. (ms) Succ. Lat. (ms) MyoHand Key Turn Hard 30 ±66 36 .6±1.5 20 ±86 4.1±.5 27 ±57 16 .6±6.0 17 ±38 10 .3±2.2
+
+MyoHand Key Turn 27 ±76 36 .1±1.6 33 ±143 4.6±1.3 27 ±76 36 .1±2.3 23 ±63 34 .2±7.0
+
+MyoHand Obj Hold Hard 50 ±66 36 .0±1.4 70 ±50 4.2±.7 43 ±29 29 .7±6.3 53 ±63 16 .5±20 .0
+
+MyoHand Obj Hold 0 35 .2±.5 0 3.6±.2 0 34 .6±.7 0 31 .4±6.3
+
+MyoHand Pen Twirl Hard 47 ±29 35 .9±.8 23 ±14 3.3±.6 50 ±75 32 .5±5.2 27 ±14 12 .0±5.9
+
+MyoHand Pen Twirl 27 ±57 35 .1±2.3 33 ±143 3.1±.5 27 ±57 35 .3±1.0 27 ±57 35 .2±3.0
+
+MyoHand Pose Hard 0 34 .8±1.2 0 3.1±.4 0 28 .2±2.0 0 7.2±3.9
+
+MyoHand Pose 30 ±129 34 .6±.5 33 ±143 3.0±.2 30 ±129 35 .1±1.0 33 ±143 33 .5±3.2
+
+MyoHand Reach Hard 87 ±38 35 .4±1.5 70 ±25 3.4±.3 90 ±25 31 .6±7.7 87 ±38 10 .1±10 .8
+
+MyoHand Reach 100 35 .5±1.3 67 ±143 3.3±.1 100 34 .8±.6 100 35 .2±2.0
+
+Table 17: ManiSkill2 per-task results. 4 tasks, 3 seeds each. Mean and 95% CI per task. Success rate (%) and per-step latency (ms) for 4 key methods. all : theoretical OOD mode. 
+
+Task S2-alone (TD-MPC2) S1 alone Fast-TD-MPC (all, τp50 ) Fast-TD-MPC (all, τp90 )
+
+Succ. Lat. (ms) Succ. Lat. (ms) Succ. Lat. (ms) Succ. Lat. (ms) Lift Cube 100 46 .1±2.1 20 ±50 8.2±5.7 93 ±29 38 .1±21 .6 60 ±25 17 .0±6.5
+
+Pick Cube 87 ±57 46 .2±2.3 53 ±72 10 .7±1.3 73 ±94 25 .0±8.1 50 ±66 16 .0±1.3
+
+Pick Ycb 27 ±38 49 .3±3.8 3±14 14 .0±2.4 27 ±57 41 .9±8.0 13 ±14 19 .3±9.1
+
+Stack Cube 47 ±115 41 .9±2.0 0 9.7±.6 23 ±80 30 .5±11 .9 7±29 11 .6±2.0
+
+(1): NormedLinear(256, 256, act=Mish) (2): NormedLinear(256, 256, act=Mish) (3): NormedLinear(256, 256, act=SimNorm(dim=8)) )head = DeterministicHead( Linear(256, action_dim) )
+
+Parameter count. The backbone contains 330,752 parameters; the head contains 256 × da + da
+
+parameters. Total: ∼332K for da = 6 (DMControl cheetah) to ∼341K for da = 39 (MyoSuite). Compared to TD-MPC2’s 7.9M parameters, this represents a 23 × reduction. K.2 SYSTEM 1 T RAINING 
+
+Expert demonstrations. Expert demonstrations Dexp = {(zt, a ∗ 
+
+> t
+
+)} are collected by rolling out the pre-trained TD-MPC2 planner (3 seeds per task, 500 episodes per seed) and recording the latent 
+
+zt = Eθ (st) and the planner’s executed action a∗ 
+
+> t
+
+. Episodes are split 8:1:1 into training, validation, and testing. 
+
+Loss. We use L1 loss: ℓ(ˆ a, a ∗) = |ˆa − a∗|, where |ˆa − a∗| is the element-wise absolute difference, summed over the action dimension da.
+
+Optimizer. AdamW (Loshchilov & Hutter, 2019) with learning rate (lr) 5 × 10 −5, weight decay 
+
+10 −4, betas (0 .9, 0.999) , cosine learning rate schedule with 10% warmup and minimum lr 10 −6.
+
+Training. Batch size 512, gradient clipping at 1.0, maximum 200 epochs with early stopping (pa-tience 15, minimum delta 10 −4). All models are trained to full convergence. 25 Table 18: DMControl full results under disturbances. 39 tasks, 3 seeds each. Mean and 95% CI across all tasks. Return, per-step latency, S2 invocation rate ( ρ), and peak GPU memory. all :theoretical OOD mode; RG : reward-gated mode. 
+
+Method Return Lat. (ms) ρ (%) GPU (MB) S2-alone (TD-MPC2) 616 ±104 27 .2±1.1 100 95 ±0
+
+S2 policy-only 390 ±102 1.9±.3 0 66 ±0
+
+S1 alone 405 ±98 1.7±.3 0 68 ±0
+
+Round-robin (S2 50%) 577 ±102 14 .5±.7 50 96 ±0
+
+Fast-TD-MPC ( all , τp50 ) 617 ±105 24 .5±1.9 88 ±5 91 ±2
+
+Fast-TD-MPC ( all , τp75 ) 607 ±103 19 .3±2.9 67 ±10 86 ±3
+
+Fast-TD-MPC ( all , τp90 ) 586 ±101 13 .6±3.0 45 ±11 81 ±3
+
+Fast-TD-MPC ( all , τp95 ) 537 ±102 9.8±2.6 32 ±10 77 ±2
+
+Fast-TD-MPC ( all , τp99 ) 439 ±101 5.6±2.0 16 ±8 72 ±2
+
+Fast-TD-MPC ( RG , τp25 ) 566 ±104 17 .5±2.6 61 ±10 85 ±3
+
+Fast-TD-MPC ( RG , τp50 ) 543 ±102 14 .3±2.5 49 ±10 80 ±3
+
+Fast-TD-MPC ( RG , τp75 ) 524 ±102 12 .2±2.3 41 ±9 80 ±3
+
+Table 19: Meta-World full results under disturbances. 50 tasks, 3 seeds each. Mean and 95% CI across all tasks. Success rate, per-step latency, S2 invocation rate ( ρ), and peak GPU memory. all :theoretical OOD mode; RG : reward-gated mode. 
+
+Method Succ. Lat. (ms) ρ (%) GPU (MB) S2-alone (TD-MPC2) 51 ±10 26 .8±.2 100 95 ±0
+
+S2 policy-only 49 ±10 2.8±.2 0 66 ±0
+
+S1 alone 47 ±10 2.6±.2 0 67 ±0
+
+Round-robin (S2 50%) 49 ±11 14 .7±.2 50 96 ±0
+
+Fast-TD-MPC ( all , τp50 ) 51 ±11 27 .2±.2 99 ±0 97 ±0
+
+Fast-TD-MPC ( all , τp75 ) 51 ±11 25 .6±.9 93 ±3 96 ±1
+
+Fast-TD-MPC ( all , τp90 ) 49 ±10 22 .8±1.6 82 ±6 95 ±1
+
+Fast-TD-MPC ( all , τp95 ) 50 ±10 21 .8±1.8 78 ±7 93 ±2
+
+Fast-TD-MPC ( all , τp99 ) 50 ±10 20 .2±2.0 71 ±8 92 ±2
+
+Fast-TD-MPC ( RG , τp25 ) 49 ±11 20 .9±1.9 74 ±7 91 ±2
+
+Fast-TD-MPC ( RG , τp50 ) 50 ±10 18 .9±2.1 66 ±8 89 ±2
+
+Fast-TD-MPC ( RG , τp75 ) 49 ±10 17 .4±2.2 60 ±8 87 ±2
+
+K.3 OOD D ETECTOR 
+
+The OOD detector uses Mahalanobis distance in the frozen encoder’s latent space, operating on 
+
+dz = 512 -dimensional latent features ( zt with history length L = 1 ). The in-distribution mean ¯z
+
+and full covariance Σ are computed from 400 System 1 rollout episodes per task-seed. We apply ℓ2
+
+shrinkage: Σreg = Σ + λI with λ = 0 .01 . The scoring function is g(zt) = ( zt − ¯z)⊤Σ−1 
+
+> reg
+
+(zt − ¯z).The threshold τ is computed on a separate held-out set of 100 rollout episodes. We consider two labeling modes for constructing the ID set: • Theoretical (all ): all visited latents from System 1 rollouts are treated as in-distribution. The threshold τ defaults to the median of g(zt) scores on the held-out set. • Reward-gated (RG ): a state is labeled in-distribution only if its total per-step reward or task completion proxy obtained from the environment meets or exceeds the TD-MPC2 expert’s per-step counterpart at the same timestep. The threshold τ defaults to the midpoint between the median ID and OOD scores. 26 Table 20: MyoSuite full results under disturbances. 10 tasks, 3 seeds each. Mean and 95% CI across all tasks. Success rate, per-step latency, S2 invocation rate ( ρ), and peak GPU memory. all :theoretical OOD mode; RG : reward-gated mode. 
+
+Method Succ. Lat. (ms) ρ (%) GPU (MB) S2-alone (TD-MPC2) 40 ±22 35 .7±.5 100 97 ±0
+
+S2 policy-only 17 ±15 3.9±.4 0 67 ±0
+
+S1 alone 32 ±15 3.5±.3 0 69 ±0
+
+Round-robin (S2 50%) 37 ±20 19 .4±.3 50 98 ±0
+
+Fast-TD-MPC ( all , τp50 ) 36 ±20 32 .2±3.9 89 ±13 94 ±4
+
+Fast-TD-MPC ( all , τp75 ) 38 ±22 27 .2±5.9 74 ±19 89 ±5
+
+Fast-TD-MPC ( all , τp90 ) 34 ±22 22 .9±7.8 60 ±24 87 ±5
+
+Fast-TD-MPC ( all , τp95 ) 33 ±20 20 .0±7.8 51 ±25 81 ±5
+
+Fast-TD-MPC ( all , τp99 ) 30 ±18 13 .3±7.8 30 ±25 79 ±5
+
+Fast-TD-MPC ( RG , τp25 ) 36 ±22 25 .7±4.7 70 ±15 92 ±5
+
+Fast-TD-MPC ( RG , τp50 ) 33 ±22 21 .4±5.6 56 ±18 89 ±5
+
+Fast-TD-MPC ( RG , τp75 ) 35 ±24 17 .7±5.3 44 ±17 82 ±5
+
+Table 21: ManiSkill2 full results under disturbances. 3 tasks, 3 seeds each. Mean and 95% CI across all tasks. Success rate, per-step latency, S2 invocation rate ( ρ), and peak GPU memory. all :theoretical OOD mode; RG : reward-gated mode. 
+
+Method Succ. Lat. (ms) ρ (%) GPU (MB) S2-alone (TD-MPC2) 66 ±75 43 .1±4.7 100 70 ±0
+
+S2 policy-only 63 ±66 11 .4±5.7 0 41 ±0
+
+S1 alone 17 ±52 10 .4±4.2 0 42 ±0
+
+Round-robin (S2 50%) 58 ±89 27 .1±2.0 50 72 ±0
+
+Fast-TD-MPC ( all , τp50 ) 66 ±80 34 .6±18 .0 74 ±52 63 ±10 
+
+Fast-TD-MPC ( all , τp75 ) 49 ±108 25 .5±22 .3 44 ±65 56 ±10 
+
+Fast-TD-MPC ( all , τp90 ) 46 ±86 16 .9±10 .5 18 ±32 47 ±6
+
+Fast-TD-MPC ( all , τp95 ) 32 ±62 13 .7±5.2 10 ±18 43 ±0
+
+Fast-TD-MPC ( all , τp99 ) 19 ±46 11 .2±3.1 2±4 43 ±0
+
+Fast-TD-MPC ( RG , τp25 ) 62 ±55 25 .9±25 .6 46 ±91 53 ±10 
+
+Fast-TD-MPC ( RG , τp50 ) 51 ±61 23 .1±23 .6 37 ±84 53 ±10 
+
+Fast-TD-MPC ( RG , τp75 ) 43 ±60 18 .8±14 .7 23 ±54 50 ±8
+
+K.4 SYSTEM 2
+
+System 2. The MPPI planner (System 2) is used as-is from TD-MPC2, with default hyperparam-eters: planning horizon H = 3 , 6 refinement iterations, N = 512 samples, Nπ = 24 policy-prior trajectories, top-k = 64 elite trajectories, min/std 0.05 /2.0, temperature 0.5.
+
+L EXTENDED RELATED WORK 
+
+Data-Driven MPC and the TD-MPC Family. Data-driven model predictive control combines learned world models with online trajectory optimization for planning or data generation. TD-MPC2 (Hansen et al., 2024) combines a task-oriented latent dynamics model with MPPI planning and TD-learning, achieving state-of-the-art performance across 104 continuous control tasks with a single set of hyperparameters, outperforming strong model-free baselines such as SAC (Haarnoja et al., 2018) and model-based methods such as DreamerV3 (Hafner et al., 2025). Its growing ecosys-tem addresses training efficiency (Evers et al., 2026), humanoid locomotion (Nguyen et al., 2025; 2026b), hierarchical planning (Chitnis et al., 2024), policy constraints (Lin et al., 2025a), discrete latent representations (Scannell et al., 2025), and world model reliability (Hansen & Wang, 2026). 27 Table 22: DMControl per-task results under disturbances. 39 tasks, 3 seeds each. Mean and 95% CI per task. Return and per-step latency (ms) for 4 key methods. all : theoretical OOD mode. 
+
+Task S2-alone (TD-MPC2) S1 alone Fast-TD-MPC (all, τp50 ) Fast-TD-MPC (all, τp90 )
+
+Return Lat. (ms) Return Lat. (ms) Return Lat. (ms) Return Lat. (ms) Acrobot Swingup 443 ±44 25 .4±1.4 284 ±171 1.3±.0 386 ±31 20 .6±13 .7 368 ±207 3.8±1.5
+
+Cartpole Balance Sparse 122 ±132 25 .6±.4 118 ±128 1.3±.1 124 ±135 25 .6±.5 123 ±132 25 .5±1.2
+
+Cartpole Balance 324 ±245 25 .8±1.3 323 ±117 1.5±.0 322 ±237 25 .6±.9 325 ±242 26 .1±3.7
+
+Cartpole Swingup Sparse 9±19 25 .3±.5 4±15 1.3±.1 2±4 21 .4±11 .2 3±3 11 .9±28 .4
+
+Cartpole Swingup 244 ±151 25 .8±.4 213 ±105 1.5±.0 241 ±168 24 .5±8.0 246 ±155 18 .6±28 .0
+
+Cheetah Jump 796 ±22 25 .8±.9 660 ±250 1.3±.0 786 ±20 14 .8±2.4 787 ±61 5.1±.7
+
+Cheetah Run Back 742 ±70 25 .5±1.6 377 ±475 1.2±.0 748 ±81 21 .6±6.6 740 ±253 7.4±4.7
+
+Cheetah Run Backwards 726 ±181 25 .5±1.1 598 ±450 1.2±.0 693 ±163 23 .9±7.3 690 ±97 6.6±4.3
+
+Cheetah Run Front 674 ±105 25 .5±1.0 357 ±228 1.2±.1 642 ±115 20 .7±4.1 658 ±139 5.9±1.0
+
+Cheetah Run 843 ±90 25 .6±1.8 483 ±594 1.2±.1 853 ±124 17 .7±17 .5 785 ±296 3.8±1.7
+
+Cup Catch 981 ±2 26 .0±2.2 878 ±249 1.3±.0 969 ±43 25 .3±.4 972 ±14 24 .8±2.4
+
+Cup Spin 815 ±69 25 .7±.9 825 ±54 1.5±.1 822 ±44 26 .3±1.6 822 ±43 25 .9±.6
+
+Dog Run 587 ±449 34 .6±.8 92 ±242 3.9±.7 580 ±435 35 .2±2.2 568 ±353 29 .0±12 .6
+
+Dog Stand 948 ±128 35 .5±.8 415 ±742 4.1±.9 941 ±129 35 .4±.9 866 ±442 17 .8±26 .3
+
+Dog Trot 873 ±103 35 .5±1.6 123 ±154 4.0±.4 897 ±56 35 .3±1.0 880 ±143 28 .9±20 .6
+
+Dog Walk 861 ±303 35 .2±1.9 665 ±66 3.7±.2 879 ±295 35 .9±1.9 775 ±162 14 .4±18 .0
+
+Finger Spin 901 ±177 25 .5±.4 826 ±313 1.2±.0 904 ±170 25 .7±1.9 905 ±175 21 .9±16 .0
+
+Finger Turn Easy 831 ±47 25 .4±1.2 520 ±336 1.3±.0 856 ±209 20 .0±8.9 727 ±81 3.9±1.6
+
+Finger Turn Hard 910 ±117 25 .6±1.4 537 ±287 1.3±.0 867 ±85 17 .1±5.8 840 ±215 5.0±5.0
+
+Fish Swim 1±0 25 .1±.8 1±1 1.4±.0 1±1 26 .2±.9 1±1 9.9±14 .6
+
+Hopper Hop Backwards 761 ±104 25 .4±.2 563 ±407 1.3±.0 816 ±136 24 .6±3.0 784 ±130 6.3±.7
+
+Hopper Hop 431 ±132 25 .6±.6 350 ±407 1.3±.1 468 ±211 18 .1±5.2 392 ±372 4.8±1.8
+
+Hopper Stand 863 ±5 26 .1±1.2 818 ±240 1.4±.0 899 ±145 25 .6±1.5 924 ±132 2.8±1.5
+
+Humanoid Run 388 ±834 33 .4±1.6 7±19 2.1±.1 390 ±837 33 .6±1.0 390 ±838 33 .3±1.1
+
+Humanoid Stand 584 ±1246 34 .4±2.2 37 ±82 2.0±.0 591 ±1259 33 .7±2.3 447 ±959 14 .5±29 .5
+
+Humanoid Walk 578 ±1234 33 .0±.5 23 ±86 2.0±.1 568 ±1219 33 .6±1.6 551 ±1186 12 .1±14 .7
+
+Pendulum Spin 853 ±23 25 .9±1.0 861 ±88 1.2±.0 845 ±89 17 .4±2.0 849 ±87 3.6±2.0
+
+Pendulum Swingup 394 ±856 25 .2±1.7 441 ±950 1.2±.0 416 ±896 18 .7±14 .1 417 ±897 7.2±6.4
+
+Quadruped Run 948 ±9 26 .7±1.0 944 ±6 1.6±.0 953 ±22 25 .1±1.0 952 ±13 4.5±1.2
+
+Quadruped Walk 967 ±17 25 .8±.6 971 ±29 1.6±.0 978 ±9 26 .6±2.2 978 ±21 19 .2±14 .9
+
+Reacher Easy 74 ±97 25 .8±1.4 82 ±44 1.2±.0 62 ±35 26 .0±.5 63 ±35 23 .3±9.9
+
+Reacher Hard 6±11 25 .7±.9 5±5 1.2±.0 7±11 25 .5±.2 6±11 25 .2±2.1
+
+Reacher Three Easy 134 ±210 25 .4±.7 70 ±51 1.2±.0 128 ±52 26 .2±1.6 126 ±59 18 .3±15 .9
+
+Reacher Three Hard 7±20 25 .3±.2 4±11 1.2±.0 24 ±82 26 .2±1.7 16 ±51 25 .3±1.5
+
+Walker Run Backwards 901 ±19 25 .6±.5 92 ±154 1.5±.0 893 ±108 24 .9±3.1 681 ±912 18 .6±30 .5
+
+Walker Run 848 ±34 25 .6±.5 398 ±431 1.5±.0 839 ±43 11 .3±8.2 558 ±421 4.7±1.4
+
+Walker Stand 991 ±2 26 .2±1.5 830 ±325 1.5±.1 992 ±11 23 .4±12 .1 992 ±12 2.8±.6
+
+Walker Walk Backwards 679 ±1274 25 .8±1.4 420 ±858 1.5±.0 682 ±1303 17 .3±8.6 674 ±1281 3.4±1.7
+
+Walker Walk 979 ±7 25 .7±.6 586 ±328 1.5±.0 981 ±14 20 .0±2.0 979 ±16 2.8±.2
+
+Concurrent approaches include gradient-based planners that replace sampling-based methods with differentiable optimization (Spieler & Behnke, 2026). Fast-TD-MPC builds directly on the TD-MPC2 framework but, unlike these works, targets inference-time acceleration rather than training improvements or architectural modifications. 
+
+Planner Amortization and Speedup. A natural approach to reducing the cost of online planning is to distill the planner into a lightweight feed-forward policy. Kuzmenko & Shvai (2025) distill a 317M-parameter multi-task TD-MPC2 agent into a smaller quantized model, but MPPI still runs at every step. Wang et al. (2025) learn a policy by imitating an MPC expert via lazy reanalyze, but similarly still execute the planner at deployment, with the policy only seeding the optimization. Nguyen et al. (2026a) replace iterative planning entirely with a goal-conditioned inverse dynamics model, achieving 100-130 × cost reduction, but provide no fallback when the amortized policy fails on out-of-distribution states. Gao & Xu (2026) accelerate the planner itself by replacing autoregres-sive latent rollouts with parallel action-prefix prediction, and Huang et al. (2026) amortize iterative planning with a generative flow-matching model; both still execute the full planning loop. Brud-erm¨ uller et al. (2026) similarly amortize sampling-based MPC via flow matching but always run refinement iterations. Alternative acceleration mechanisms include GPU-parallelized MPC solvers (Bravo-Palacios et al., 2026) and gradient-based MPC in latent space (Spieler & Behnke, 2026), which are orthogonal to our approach. Fast-TD-MPC differs by training a separately amortized 
+
+28 Table 23: Meta-World per-task results under disturbances. 50 tasks, 3 seeds each. Mean and 95% CI per task. Success rate (%) and per-step latency (ms) for 4 key methods. all : theoretical OOD mode. 
+
+Task S2-alone (TD-MPC2) S1 alone Fast-TD-MPC (all, τp50 ) Fast-TD-MPC (all, τp90 )
+
+Succ. Lat. (ms) Succ. Lat. (ms) Succ. Lat. (ms) Succ. Lat. (ms) Assembly 37 ±29 26 .6±.3 23 ±63 2.3±.3 47 ±52 27 .9±3.7 33 ±38 26 .2±1.5
+
+Basketball 13 ±14 26 .2±1.2 20 ±25 2.0±.1 10 ±25 27 .4±1.3 10 ±25 26 .9±1.1
+
+Bin Picking 7±29 25 .9±.3 10 ±25 2.1±.1 7±29 26 .6±1.1 3±14 26 .5±1.0
+
+Box Close 77 ±14 27 .4±.6 53 ±63 2.9±.6 77 ±29 28 .5±.9 77 ±29 26 .8±2.6
+
+Button Press Topdown Wall 97 ±14 27 .0±.9 100 2.8±.2 100 26 .6±1.5 93 ±14 15 .3±5.6
+
+Button Press Topdown 100 26 .9±1.3 100 2.7±.2 97 ±14 27 .0±1.3 97 ±14 17 .9±7.4
+
+Button Press Wall 97 ±14 26 .7±.6 90 ±25 2.9±.1 100 27 .5±2.3 93 ±14 23 .7±7.2
+
+Button Press 67 ±29 27 .3±1.8 80 ±25 2.9±.1 77 ±29 27 .0±.6 80 ±50 21 .5±10 .9
+
+Coffee Button 20 ±50 26 .4±.4 23 ±52 2.0±.1 30 ±43 26 .3±1.3 33 ±52 25 .4±3.5
+
+Coffee Pull 50 ±25 28 .1±.5 43 ±76 3.4±.3 30 ±50 27 .7±.1 23 ±38 27 .5±.8
+
+Coffee Push 7±29 27 .9±1.7 10 ±25 3.5±.8 3±14 28 .4±2.2 13 ±29 27 .4±.8
+
+Dial Turn 77 ±52 25 .7±.0 80 ±0 1.9±.0 80 ±43 27 .2±1.1 80 ±25 25 .2±3.9
+
+Disassemble 47 ±103 26 .4±1.0 20 ±50 2.5±.3 40 ±86 27 .3±1.1 33 ±72 25 .2±3.7
+
+Door Close 90 ±43 26 .6±1.3 90 ±43 2.2±.2 90 ±43 24 .7±7.6 90 ±43 7.8±9.5
+
+Door Lock 100 26 .4±1.1 100 2.1±.0 100 27 .7±.9 100 15 .2±8.6
+
+Door Open 90 ±25 26 .8±.3 83 ±29 2.7±.2 90 ±25 26 .2±6.0 87 ±14 22 .5±8.2
+
+Door Unlock 100 26 .0±.3 100 1.9±.0 100 26 .7±.9 100 8.9±1.4
+
+Drawer Close 87 ±29 26 .9±.9 80 ±43 1.9±.3 80 ±25 26 .6±2.1 80 ±50 23 .2±9.6
+
+Drawer Open 100 25 .6±.6 87 ±57 2.0±.9 100 26 .7±1.1 100 20 .8±3.3
+
+Faucet Close 100 26 .0±1.1 100 2.0±1.0 100 26 .9±1.9 100 10 .4±18 .8
+
+Faucet Open 93 ±14 25 .9±1.0 87 ±38 1.8±.0 93 ±14 25 .5±.5 90 ±25 7.9±5.3
+
+Hammer 73 ±14 26 .7±1.5 67 ±38 2.4±.2 87 ±29 27 .1±.9 77 ±38 26 .2±1.0
+
+Hand Insert 3±14 27 .0±.2 3±14 3.2±.0 0 27 .4±.2 0 28 .1±.9
+
+Handle Press Side 93 ±29 25 .9±1.0 97 ±14 1.9±.4 97 ±14 26 .3±1.5 93 ±14 18 .0±21 .6
+
+Handle Press 100 26 .5±.3 87 ±29 2.0±.4 100 26 .1±.3 100 17 .4±22 .9
+
+Handle Pull Side 23 ±63 26 .4±1.6 0 2.3±.1 20 ±43 27 .1±1.0 20 ±50 24 .8±5.4
+
+Handle Pull 3±14 26 .5±.4 3±14 2.3±.1 7±14 27 .9±1.7 7±14 26 .0±2.3
+
+Lever Pull 3±14 26 .5±.9 7±29 2.3±.2 13 ±38 26 .5±2.7 7±29 20 .2±8.2
+
+Peg Insert Side 27 ±76 26 .9±.9 23 ±63 2.4±.2 30 ±75 27 .7±1.0 20 ±50 26 .5±.3
+
+Peg Unplug Side 67 ±29 26 .8±.6 37 ±94 2.4±.3 73 ±14 26 .9±1.3 53 ±57 26 .0±1.5
+
+Pick Out Of Hole 7±29 26 .5±.7 10 ±25 2.3±.2 10 ±25 26 .6±.9 10 ±25 26 .5±2.7
+
+Pick Place Wall 43 ±52 27 .5±.9 30 ±25 3.5±.1 37 ±14 27 .8±.9 37 ±38 27 .7±.5
+
+Pick Place 57 ±80 28 .1±1.9 43 ±38 3.3±.1 57 ±63 28 .0±1.3 53 ±52 27 .6±.3
+
+Plate Slide Back Side 50 ±75 25 .9±.2 33 ±80 2.3±.6 57 ±52 26 .9±1.4 53 ±80 22 .4±17 .3
+
+Plate Slide Back 47 ±72 26 .5±1.5 20 ±25 2.1±.0 37 ±76 27 .6±1.3 40 ±66 22 .2±5.1
+
+Plate Slide Side 33 ±29 27 .0±1.2 37 ±76 2.6±.2 37 ±63 28 .4±1.7 37 ±80 24 .0±3.0
+
+Plate Slide 100 26 .8±1.4 93 ±14 2.4±.2 100 27 .5±1.4 100 19 .9±18 .0
+
+Push Back 3±14 27 .9±1.4 13 ±38 3.2±.1 7±14 27 .9±.9 3±14 22 .2±24 .9
+
+Push Wall 43 ±52 27 .6±1.3 30 ±25 3.6±.2 57 ±14 27 .9±.6 47 ±29 28 .3±.8
+
+Push 50 ±25 27 .5±.8 40 ±0 3.4±.0 50 ±43 28 .0±.5 57 ±14 28 .4±.8
+
+Reach Wall 20 ±25 26 .3±1.1 20 ±0 2.1±.0 13 ±14 27 .0±1.3 13 ±14 25 .2±2.0
+
+Reach 13 ±38 26 .0±.5 10 ±43 2.1±.0 7±14 26 .9±1.1 10 ±43 23 .6±5.4
+
+Shelf Place 0 27 .7±.6 0 3.2±.1 0 27 .7±.7 0 27 .8±.4
+
+Soccer 7±29 28 .2±1.9 10 ±25 3.3±.2 7±29 28 .1±2.3 7±29 27 .8±2.2
+
+Stick Pull 0 27 .7±.6 0 3.6±.5 0 28 .7±1.3 0 28 .4±.6
+
+Stick Push 7±14 27 .4±1.1 7±14 3.4±.0 0 27 .7±.8 3±14 27 .6±.2
+
+Sweep Into 13 ±29 27 .4±.1 7±14 3.4±.2 13 ±14 27 .9±.9 13 ±14 28 .4±.6
+
+Sweep 10 ±25 26 .9±1.3 20 ±25 2.9±.1 10 ±25 27 .4±1.9 7±29 27 .5±.7
+
+Window Close 90 ±43 25 .8±.9 100 2.1±.4 93 ±29 25 .6±3.4 87 ±38 13 .2±14 .7
+
+Window Open 93 ±29 25 .8±.7 100 2.0±.4 100 26 .7±.5 100 13 .3±14 .0
+
+policy that can entirely replace the planner on in-distribution states, while retaining the full MPPI planner as a fallback triggered by OOD detection. 
+
+Adaptive and Intermittent Replanning. The idea of conditionally skipping replanning has a long history in classical control theory. Tabuada (2007) introduced event-triggered control, showing that a stabilizing controller need not execute at every timestep but only when a state-dependent condition is violated. Heemels et al. (2012) provided a canonical survey formalizing event-triggered and self-triggered control. Hashimoto et al. (2017) proposed intermittent MPC for nonlinear systems, deliberately skipping replanning when the system is tracking well. This is the closest classical analogue to Fast-TD-MPC’s conditional use of the fast policy. 29 Table 24: MyoSuite per-task results under disturbances. 10 tasks, 3 seeds each. Mean and 95% CI per task. Success rate (%) and per-step latency (ms) for 4 key methods. all : theoretical OOD mode.                                                                                                  
+
+> Task S2-alone (TD-MPC2) S1 alone Fast-TD-MPC (all, τp50 )Fast-TD-MPC (all, τp90 )
+> Succ. Lat. (ms) Succ. Lat. (ms) Succ. Lat. (ms) Succ. Lat. (ms) MyoHand Key Turn Hard 30 ±43 36 .9±1.417 ±38 4.1±.630 ±75 15 .2±7.97±29 10 .5±12 .4
+> MyoHand Key Turn 40 ±90 36 .4±1.647 ±125 4.3±.740 ±90 37 .0±1.543 ±103 34 .8±8.3
+> MyoHand Obj Hold Hard 70 ±25 36 .9±2.550 ±66 4.2±.860 ±25 33 .8±4.843 ±29 16 .7±7.6
+> MyoHand Obj Hold 036 .0±1.303.5±.3035 .4±1.5032 .3±12 .0
+> MyoHand Pen Twirl Hard 30 35 .4±1.927 ±38 3.2±.630 ±50 32 .7±5.033 ±38 13 .9±9.2
+> MyoHand Pen Twirl 3±14 35 .4±1.213 ±57 3.1±.43±14 35 .5±2.73±14 35 .7±3.7
+> MyoHand Pose Hard 7±29 35 .0±2.803.1±.1030 .2±7.506.2±4.6
+> MyoHand Pose 27 ±115 34 .8±.930 ±129 3.0±.127 ±115 35 .1±2.030 ±129 33 .9±3.8
+> MyoHand Reach Hard 97 ±14 34 .8±.967 ±52 3.5±.173 ±14 31 .8±3.187 ±14 8.8±8.3
+> MyoHand Reach 97 ±14 35 .6±2.267 ±143 3.4±.097 ±14 35 .2±1.697 ±14 35 .6±1.5
+
+Table 25: ManiSkill2 per-task results under disturbances. 3 tasks, 3 seeds each. Mean and 95% CI per task. Success rate (%) and per-step latency (ms) for 4 key methods. all : theoretical OOD mode. 
+
+Task S2-alone (TD-MPC2) S1 alone Fast-TD-MPC (all, τp50 ) Fast-TD-MPC (all, τp90 )
+
+Succ. Lat. (ms) Succ. Lat. (ms) Succ. Lat. (ms) Succ. Lat. (ms) Lift Cube 93 ±14 44 .3±1.2 10 ±25 8.5±2.1 93 ±14 42 .7±6.5 73 ±29 21 .8±3.0
+
+Pick Cube 70 ±90 44 .1±1.5 40 ±50 11 .6±2.5 73 ±94 28 .7±9.3 57 ±80 14 .6±2.9
+
+Stack Cube 33 ±100 40 .9±2.1 0 11 .2±.7 30 ±75 32 .4±10 .4 7±29 14 .4±6.5
+
+In the data-driven MPC setting, Cheng et al. (2026) propose AdaReP, a training-free wrapper that adapts replanning tolerance based on model mismatch, achieving over 80% fewer planner queries. However, AdaReP reuses the last cached plan rather than executing a separately learned policy, and its gate is a continuous mismatch threshold rather than a learned OOD detector. Lin et al. (2025b) apply speculative execution — a paradigm originating in LLM inference (Leviathan et al., 2023; Chen et al., 2023), directly to TD-MPC2, generating action queues from the planner’s own latent rollouts and falling back to full replanning on mismatch. This approach is comparable to Fast-TD-MPC, but differs in three key aspects: (i) the fast path uses the planner’s own predictions rather than a separately trained amortized policy, (ii) the gate is a mismatch threshold rather than a learned OOD detector, and (iii) their fast path executes open-loop action queues, whereas Fast-TD-MPC’s System 1 acts closed-loop with per-step OOD gating. 
+
+Dual-Process Control and Adaptive Computation. The dual-process framework of distinguish-ing a fast, reflexive System 1 from a slow, deliberative System 2 originates in cognitive science (Kahneman, 2011; Daw et al., 2005; Botvinick et al., 2009). A growing body of work adopts this framing for control: Labiosa & Hanna (2026) study learning when to switch between reactive con-trol and deliberative planning, while Li et al. (2026a) learn state-dependent compute schedules for generative control policies. Muppidi et al. (2026) learn planning budgets in real-time RL where the environment does not wait for the agent, directly addressing the think-vs-act trade-off that motivates Fast-TD-MPC. Within the adaptive computation paradigm, Chun et al. (2025) dynamically adjust integration steps for stochastic interpolant policies based on task difficulty, and Salla et al. (2026) learn a prefix-optimal stopping criterion for diffusion policies. Zhao et al. (2026) propose a consis-tency gate that invokes expensive Best-of-N selection only when the initial rollout appears internally inconsistent, recovering most of the benefit at a fraction of the cost: a design philosophy shared with Fast-TD-MPC. Concurrent work has proliferated in the VLA domain, including speculation-verification frameworks (Wang et al., 2026), uncertainty-driven “cognitive clutch” mechanisms (Li et al., 2026b), and learned binary gates for cheap/expensive policy switching (Chen, 2026; Liu et al., 2026a). Yan et al. (2026) apply the dual-process framework to motion planning with symbolic 30 Table 26: MPPI planner warm-start ablation across 4 domains (103 tasks, 3 seeds each). Mean and 95% CI across all tasks in each domain. all denotes the theoretical OOD mode; RG denotes the reward-gated mode. Cold start and K-shifted warm start yield equivalent results across all configurations. 
+
+DMControl Meta-World MyoSuite ManiSkill2 Config Warm-Start Return Lat. (ms) Succ. (%) Lat. (ms) Succ. (%) Lat. (ms) Succ. (%) Lat. (ms) (all , τp50 ) Cold start 829 ±55 19 .4±2.4 85 ±8 24 .8±1.1 39 ±21 31 .4±3.6 54 ±55 33 .9±12 .1
+
+K-shifted 829 ±54 19 .1±2.5 85 ±8 24 .6±1.1 38 ±22 31 .6±3.5 55 ±59 33 .9±13 .9
+
+(all , τp75 ) Cold start 823 ±55 12 .2±2.7 85 ±8 18 .7±1.5 37 ±21 26 .6±5.8 47 ±54 23 .3±10 .7
+
+K-shifted 821 ±54 12 .3±2.7 85 ±8 18 .8±1.5 39 ±22 26 .9±5.8 48 ±51 23 .5±11 .6
+
+(all , τp90 ) Cold start 785 ±58 6.5±2.0 85 ±8 12 .2±1.6 37 ±21 22 .6±7.6 32 ±42 16 .0±5.2
+
+K-shifted 785 ±63 6.5±2.0 85 ±8 12 .3±1.6 35 ±20 22 .8±7.2 32 ±42 16 .4±5.8
+
+(all , τp95 ) Cold start 745 ±74 3.8±1.4 85 ±8 9.8±1.5 38 ±23 19 .8±7.6 28 ±46 14 .2±3.9
+
+K-shifted 744 ±75 3.8±1.3 86 ±8 9.8±1.5 39 ±21 19 .8±7.3 28 ±45 14 .4±4.8
+
+(all , τp99 ) Cold start 650 ±92 1.9±.3 85 ±8 6.2±1.3 28 ±17 10 .9±5.8 20 ±39 11 .5±3.9
+
+K-shifted 645 ±93 1.8±.3 86 ±8 6.2±1.3 31 ±16 11 .0±6.0 20 ±39 11 .7±4.4
+
+(RG , τp25 ) Cold start 784 ±68 10 .8±2.3 85 ±8 12 .3±1.7 39 ±22 24 .5±4.6 48 ±43 28 .5±20 .9
+
+K-shifted 784 ±67 10 .8±2.3 85 ±8 12 .4±1.7 39 ±21 24 .4±5.0 49 ±39 29 .4±22 .8
+
+(RG , τp50 ) Cold start 764 ±70 8.1±1.8 85 ±8 10 .0±1.5 35 ±21 20 .6±5.2 43 ±43 25 .6±18 .9
+
+K-shifted 768 ±70 7.9±1.8 85 ±8 9.9±1.5 41 ±22 20 .0±5.3 46 ±43 25 .7±18 .5
+
+(RG , τp75 ) Cold start 744 ±74 6.4±1.5 84 ±8 8.6±1.5 39 ±21 15 .7±4.7 39 ±51 20 .9±10 .8
+
+K-shifted 741 ±74 6.4±1.6 84 ±8 8.6±1.5 36 ±20 16 .8±4.1 34 ±48 19 .9±10 .9
+
+Table 27: MPPI planner warm-start ablation under disturbances across 4 domains (102 tasks, 3 seeds each). Mean and 95% CI across all tasks in each domain. all denotes the theoretical OOD mode; RG denotes the reward-gated mode. Cold start and K-shifted warm start yield equivalent results under perturbation. 
+
+DMControl Meta-World MyoSuite ManiSkill2 Config Warm-Start Return Lat. (ms) Succ. (%) Lat. (ms) Succ. (%) Lat. (ms) Succ. (%) Lat. (ms) (all , τp50 ) Cold start 617 ±105 24 .5±1.9 51 ±11 27 .2±.2 36 ±20 32 .2±3.9 66 ±80 34 .6±18 .0
+
+K-shifted 618 ±105 24 .5±1.9 51 ±11 27 .1±.2 38 ±22 32 .0±3.2 69 ±75 35 .4±17 .7
+
+(all , τp75 ) Cold start 607 ±103 19 .3±2.9 51 ±11 25 .6±.9 38 ±22 27 .2±5.9 49 ±108 25 .5±22 .3
+
+K-shifted 609 ±103 19 .4±2.9 50 ±10 25 .4±.9 40 ±22 27 .1±6.1 54 ±108 25 .9±21 .4
+
+(all , τp90 ) Cold start 586 ±101 13 .6±3.0 49 ±10 22 .8±1.6 34 ±22 22 .9±7.8 46 ±86 16 .9±10 .5
+
+K-shifted 584 ±101 13 .5±3.0 50 ±11 22 .9±1.6 33 ±21 22 .4±8.0 43 ±84 17 .1±10 .0
+
+(all , τp95 ) Cold start 537 ±102 9.8±2.6 50 ±10 21 .8±1.8 33 ±20 20 .0±7.8 32 ±62 13 .7±5.2
+
+K-shifted 529 ±103 9.6±2.5 51 ±10 21 .6±1.8 32 ±22 19 .9±7.8 34 ±74 14 .2±5.7
+
+(all , τp99 ) Cold start 439 ±101 5.6±2.0 50 ±10 20 .2±2.0 30 ±18 13 .3±7.8 19 ±46 11 .2±3.1
+
+K-shifted 446 ±101 5.6±1.9 50 ±10 20 .2±2.0 31 ±17 13 .1±7.8 20 ±50 11 .1±2.7
+
+(RG , τp25 ) Cold start 566 ±104 17 .5±2.6 49 ±11 20 .9±1.9 36 ±22 25 .7±4.7 62 ±55 25 .9±25 .6
+
+K-shifted 572 ±103 17 .3±2.6 50 ±11 20 .8±1.9 36 ±22 25 .2±5.2 60 ±52 25 .6±29 .1
+
+(RG , τp50 ) Cold start 543 ±102 14 .3±2.5 50 ±10 18 .9±2.1 33 ±22 21 .4±5.6 51 ±61 23 .1±23 .6
+
+K-shifted 546 ±102 14 .2±2.5 50 ±10 18 .9±2.1 37 ±23 21 .2±5.9 59 ±49 21 .8±23 .5
+
+(RG , τp75 ) Cold start 524 ±102 12 .2±2.3 49 ±10 17 .4±2.2 35 ±24 17 .7±5.3 43 ±60 18 .8±14 .7
+
+K-shifted 523 ±102 12 .2±2.4 49 ±10 17 .4±2.1 34 ±23 18 .0±5.6 43 ±60 19 .8±14 .1
+
+solvers as System 2. However, these works operate in VLA, symbolic planning, or diffusion pol-icy domains. Fast-TD-MPC is, to our knowledge, the first to leverage the dual-process framework within MBRL, where the learned world model and MPPI planner provide a principled System 2 that other domains approximate with less grounded alternatives. 
+
+Out-of-Distribution Detection in RL. OOD detection is a mature technique in deep learning (Hendrycks & Gimpel, 2017; Lee et al., 2018), but its application to RL and control settings has received comparatively less attention. Zhang et al. (2024) introduce a distance-based anomaly de-tection framework for deep RL, directly comparable to our Mahalanobis approach. Kaur et al. 31 Table 28: OOD metric ablation across 4 domains (103 tasks, 3 seeds each). Mean and 95% CI across all tasks in each domain. all denotes the theoretical OOD mode; RG denotes the reward-gated 
+
+mode. 
+
+DMControl Meta-World MyoSuite ManiSkill2 Config Metric Return Lat. (ms) Succ. (%) Lat. (ms) Succ. (%) Lat. (ms) Succ. (%) Lat. (ms) (all , τp50 ) Maha. 829 ±55 19 .4±2.4 85 ±8 24 .8±1.1 39 ±21 31 .4±3.6 54 ±55 33 .9±12 .1
+
+Tan. 819 .9±53 .5 15 .4±2.4 69 .9±6.3 21 .5±1.2 40 .2±21 27 .8±4.5 48 .0±33 .3 24 .7±6.7
+
+(all , τp75 ) Maha. 823 ±55 12 .2±2.7 85 ±8 18 .7±1.5 37 ±21 26 .6±5.8 47 ±54 23 .3±10 .7
+
+Tan. 796 .9±56 .1 9.9±2.5 69 .4±6.3 13 .6±1.2 38 .4±21 .2 19 .1±5.5 41 .1±34 .8 18 .8±7.3
+
+(all , τp90 ) Maha. 785 ±58 6.5±2.0 85 ±8 12 .2±1.6 37 ±21 22 .6±7.6 32 ±42 16 .0±5.2
+
+Tan. 733 .8±68 .9 5.2±1.8 69 .4±6.3 6.3±0.8 38 .6±20 10 .6±3.8 28 .3±28 .3 12 .3±1.6
+
+(all , τp95 ) Maha. 745 ±74 3.8±1.4 85 ±8 9.8±1.5 38 ±23 19 .8±7.6 28 ±46 14 .2±3.9
+
+Tan. 696 .6±79 .6 3.5±0.9 69 .9±6.4 4.6±0.6 33 .7±19 .6 7.4±2.1 23 .3±24 .8 11 .4±1.8
+
+(all , τp99 ) Maha. 650 ±92 1.9±.3 85 ±8 6.2±1.3 28 ±17 10 .9±5.8 20 ±39 11 .5±3.9
+
+Tan. 650 .9±91 .2 1.9±0.2 69 .1±6.8 3.2±0.3 32 .4±18 .7 4.5±0.7 19 .5±21 .2 10 .7±2.1
+
+(RG , τp25 ) Maha. 784 ±68 10 .8±2.3 85 ±8 12 .3±1.7 39 ±22 24 .5±4.6 48 ±43 28 .5±20 .9
+
+Tan. 807 .1±58 12 .0±2.1 69 .9±6.6 12 .3±1.6 41 .1±21 .5 24 .3±4.5 46 .1±34 .5 25 .0±11 .3
+
+(RG , τp50 ) Maha. 764 ±70 8.1±1.8 85 ±8 10 .0±1.5 35 ±21 20 .6±5.2 43 ±43 25 .6±18 .9
+
+Tan. 786 .7±63 .5 8.6±1.7 69 .3±6.7 11 .4±1.5 40 .6±21 .2 19 .8±4.6 43 .4±29 .7 23 .4±10 .3
+
+(RG , τp75 ) Maha. 744 ±74 6.4±1.5 84 ±8 8.6±1.5 39 ±21 15 .7±4.7 39 ±51 20 .9±10 .8
+
+Tan. 769 .1±70 .1 6.6±1.3 69 .2±6.7 9.6±1.3 38 .1±19 .3 17 .4±4.2 38 .0±30 .7 19 .1±7.4
+
+Table 29: OOD metric ablation under disturbances across 4 domains (102 tasks, 3 seeds each). 
+
+Mean and 95% CI across all tasks in each domain. all denotes the theoretical OOD mode; RG 
+
+denotes the reward-gated mode. 
+
+DMControl Meta-World MyoSuite ManiSkill2 Config Metric Return Lat. (ms) Succ. (%) Lat. (ms) Succ. (%) Lat. (ms) Succ. (%) Lat. (ms) (all , τp50 ) Maha. 617 ±105 24 .5±1.9 51 ±11 27 .2±.2 36 ±20 32 .2±3.9 66 ±80 34 .6±18 .0
+
+Tan. 606 .0±103 .5 20 .5±2.2 42 .7±8.4 25 .9±0.8 34 .8±20 .8 27 .3±5.2 57 .9±32 .6 26 .7±8.1
+
+(all , τp75 ) Maha. 607 ±103 19 .3±2.9 51 ±11 25 .6±.9 38 ±22 27 .2±5.9 49 ±108 25 .5±22 .3
+
+Tan. 571 .4±99 .5 14 .8±2.7 43 .0±8.4 22 .0±1.7 35 .0±20 .4 19 .6±6 45 ±38 .6 19 .3±10 .8
+
+(all , τp90 ) Maha. 586 ±101 13 .6±3.0 49 ±10 22 .8±1.6 34 ±22 22 .9±7.8 46 ±86 16 .9±10 .5
+
+Tan. 503 .0±97 .8 10 .1±2.6 42 .1±8.4 14 .5±2.3 34 .3±20 .4 12 .6±4.2 31 .4±34 13 .9±3.5
+
+(all , τp95 ) Maha. 537 ±102 9.8±2.6 50 ±10 21 .8±1.8 33 ±20 20 .0±7.8 32 ±62 13 .7±5.2
+
+Tan. 461 .4±99 .9 7.8±2.4 41 .9±8.3 12 .5±2.3 33 .2±20 .1 8.2±2.9 27 .8±27 .8 11 .5±0.9
+
+(all , τp99 ) Maha. 439 ±101 5.6±2.0 50 ±10 20 .2±2.0 30 ±18 13 .3±7.8 19 ±46 11 .2±3.1
+
+Tan. 413 .3±99 .9 5.1±2.1 41 .6±8.1 10 .8±2.2 32 .7±19 .4 5.4±1.8 21 .5±23 .6 10 .0±1.1
+
+(RG , τp25 ) Maha. 566 ±104 17 .5±2.6 49 ±11 20 .9±1.9 36 ±22 25 .7±4.7 62 ±55 25 .9±25 .6
+
+Tan. 585 .2±102 .4 17 .6±2.3 42 .5±8.4 19 .2±1.9 40 .6±20 24 .1±4.8 54 .3±32 .9 21 .3±7
+
+(RG , τp50 ) Maha. 543 ±102 14 .3±2.5 50 ±10 18 .9±2.1 33 ±22 21 .4±5.6 51 ±61 23 .1±23 .6
+
+Tan. 562 .5±102 .1 14 .2±2.4 42 .7±8.5 18 .1±2 38 .6±20 .5 21 .2±4.6 53 .5±36 .7 20 .5±9
+
+(RG , τp75 ) Maha. 524 ±102 12 .2±2.3 49 ±10 17 .4±2.2 35 ±24 17 .7±5.3 43 ±60 18 .8±14 .7
+
+Tan. 539 .3±103 .2 12 .2±2.4 42 .7±8.5 16 .7±2.1 37 .6±19 .4 18 .5±4.1 45 .4±31 .7 15 .2±2.3
+
+(2023) apply conformal OOD detection to time-series data for safety-critical autonomous systems, and Tang & Zhi (2026) use OOD detection to trigger intervention in action-chunking policies — a gating mechanism analogous to Fast-TD-MPC’s, though in the VLA domain. Other works provide formal guarantees for OOD detection in deep RL via transition estimation (Prashant et al., 2025) and benchmark OOD detection methods specifically for RL (Mittag et al., 2026). Fast-TD-MPC repurposes Mahalanobis OOD detection (Lee et al., 2018) as a per-timestep routing mechanism be-tween an amortized policy and a model-based planner — using distributional shift not for anomaly alerting, but as a signal for adaptive compute allocation, a role that, to our knowledge, has not been explored. 32

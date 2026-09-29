@@ -1,0 +1,585 @@
+Title: Scope-WM: Scoped Computation for Efficient Visual World Models
+
+URL Source: https://arxiv.org/pdf/2609.33218v1
+
+Published Time: Tue, 29 Sep 2026 01:45:30 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+# Scope-WM: Scoped Computation for Efficient Visual World Models 
+
+# Chunzheng Li 1, Zesheng Jia 1, Hongda Zhang 2, Jiaying Tang 1, Yuntian Wang 1, Siao Liu 1∗,Jin Wang 1∗
+
+> 1
+
+Soochow University 
+
+> 2
+
+Fudan University 
+
+Abstract 
+
+Visual world models enable robotic planning by predict-ing future observations, but dense latent-state propagation and sample-intensive trajectory optimization incur high in-ference latency and peak memory usage, limiting real-time deployment on resource-constrained platforms. Exist-ing sparse world-model acceleration methods either rely on unguided token sparsification, which may discard planning-relevant information and restrict achievable sparsity, or in-troduce heavy auxiliary modules and cumbersome multi-stage training pipelines. In this work, we present Scope-WM, an efficient visual world model that scopes computa-tion to prediction-relevant latent regions and promising ac-tion sequences. Scope-WM distills prediction relevance into a lightweight action-conditioned selector and applies full dy-namics prediction only to a compact subset of selected to-kens. It updates the remaining tokens using a compact sum-mary of foreground states and their changes, allowing the background to perceive foreground dynamics without costly token-to-token interactions. During planning, Scope-WM pre-serves and reuses high-quality action sequences discovered during the initial MPC search, focusing subsequent search under reduced rollout budgets. The resulting pipeline requires only a one-off selector distillation followed by a single joint training stage for the sparse world model. On the challenging Push-T task, Scope-WM reduces peak GPU memory usage and planning time to 18 .1% and 14 .3% of those of dense DINO-WM, respectively, corresponding to a 6.97 × planning speedup, while maintaining competitive task performance. Further evaluations across five diverse visual planning tasks demonstrate the general applicability of Scope-WM. Code is available at https://github.com/ChunZheng2022/Scope-WM. 
+
+# Introduction 
+
+Visual model-based planning provides a general framework for robotic manipulation and control by predicting the con-sequences of candidate actions before they are executed in the physical environment (Finn and Levine 2017; Ebert et al. 2018; Hafner et al. 2019). Rather than learning only a reac-tive policy, a visual world model predicts future latent states under candidate action sequences and selects actions through model-predictive control (MPC) (Ha and Schmidhuber 2018; Chua et al. 2018; Hansen, Su, and Wang 2022). Recent approaches based on self-supervised visual representations, 
+
+> ∗
+
+Corresponding author. 
+
+Figure 1: Performance–efficiency trade-off of Scope-WM on Push-T. (a) Different token budgets yield different performance–efficiency operating points under varying spar-sity. (b) Scope-WM substantially reduces planning time and peak GPU memory over dense DINO-WM. most notably DINO-WM, further enable task-agnostic visual planning by predicting patch-level features extracted from a frozen DINOv2 encoder (Oquab et al. 2024; Zhou et al. 2025). However, this patch-level formulation is computation-ally demanding. At every MPC step, the model repeatedly propagates all visual tokens over long prediction horizons for many action sequences sampled by the cross-entropy method (CEM) (de Boer et al. 2005). Consequently, the cost of latent imagination grows with both the number of visual tokens and the rollout population, resulting in high planning latency and peak memory usage that hinder real-time deployment. A natural approach to reducing this cost is to make latent imagination sparse by applying full dynamics prediction to only a compact subset of visual tokens. Existing sparse world-model acceleration methods either rely on unguided token sparsification, which may discard planning-relevant informa-tion and limit the sparsity that can be applied safely, or intro-duce specialized auxiliary modules and cumbersome multi-stage training pipelines (Chun, Jeong, and Kim 2025; Yin et al. 2026). More fundamentally, efficient sparse imagina-tion involves more than deciding how many tokens to retain. It must determine which tokens warrant accurate dynamics prediction, how the remaining tokens should evolve without eliminating the computational savings, and how cheaper la-tent rollouts can be translated into more efficient trajectory optimization. These decisions are tightly coupled: inaccurate arXiv:2609.33218v1 [cs.CV] 27 Sep 2026 token allocation can degrade future-state prediction, expen-sive background modeling can offset the savings from spar-sity, and sample-intensive planning can remain a dominant bottleneck even when individual rollouts become cheaper. In this work, we present Scope-WM, an efficient visual world model that scopes computation to prediction-relevant latent regions and promising action sequences. Scope-WM allocates computation at three complementary levels. At the token level, it identifies a compact subset of tokens that require full dynamics prediction. At the dynamics level, it updates the remaining tokens using lightweight foreground-conditioned computation rather than dense token-to-token interactions. At the planning level, it concentrates subsequent trajectory search around high-quality action sequences dis-covered during the initial MPC search. As illustrated in Fig-ure 1, this scoped design provides flexible operating points across different compute budgets: a moderate sparse con-figuration can improve efficiency while preserving or even improving task performance, whereas a more aggressive con-figuration prioritizes latency and memory reduction while retaining competitive control performance. Concretely, these three levels are realized by Distilled Rel-evance Selection (DRS), Foreground-Delta Background Up-date (FDBU), and Elite-Bank CEM (EB-CEM), respectively. The resulting pipeline requires only a one-off selector distil-lation followed by a single joint training stage for the sparse dynamics predictor and FDBU. Evaluations demonstrate that Scope-WM substantially improves planning efficiency while maintaining competitive task performance. Our main contributions are summarized as follows: 
+
+• We formulate efficient visual world-model planning as a three-level computation-allocation problem spanning prediction-relevant token selection, foreground-aware background updating, and trajectory-search budgeting. 
+
+• We propose DRS, a lightweight action-conditioned se-lector that distills prediction relevance from a full-token teacher to focus full dynamics prediction on a compact token subset. DRS requires only one-off distillation, fol-lowed by joint training of the sparse predictor and FDBU. 
+
+• We propose FDBU, which summarizes foreground states and deltas to perform efficient token-wise background up-dates without dense foreground–background interactions. 
+
+• We identify the path-dependent behavior of low-budget CEM planning and propose EB-CEM, which front-loads the sampling budget and persistently reuses high-quality initial action sequences across MPC steps. Together, these components reduce both per-trajectory imagination cost and subsequent trajectory-search cost while preserving competitive control performance. 
+
+# Related Work 
+
+Visual world models and pretrained representations. 
+
+Visual model-based control initially predicted future ob-servations in pixel space and optimized action sequences through MPC (Finn and Levine 2017; Ebert et al. 2018). Subsequent methods moved prediction into compact la-tent spaces: World Models, PlaNet, and Dreamer learn re-current latent dynamics for control through imagined tra-jectories, while PETS and TD-MPC combine learned dy-namics with sampling-based or temporally abstract plan-ning objectives (Ha and Schmidhuber 2018; Hafner et al. 2019, 2020, 2023; Chua et al. 2018; Hansen, Su, and Wang 2022, 2024). Transformer- and diffusion-based approaches, including IRIS, Transformer-based World Models, STORM, Masked World Models, and DIAMOND, further improve latent sequence modeling and visual prediction (Micheli, Alonso, and Fleuret 2023; Robine et al. 2023; Zhang et al. 2023; Seo et al. 2022; Alonso et al. 2024). In parallel, pre-trained representations such as R3M, MVP, and VIP provide reusable features or goal-conditioned reward signals for con-trol, while DINO, DINOv2, I-JEPA, and V-JEPA learn gen-eral spatial or temporal visual representations through self-supervision (Nair et al. 2022; Xiao et al. 2022; Radosavovic et al. 2022; Ma et al. 2023; Caron et al. 2021; Oquab et al. 2024; Assran et al. 2023; Bardes et al. 2024; Assran et al. 2025). DINO-WM combines these directions by predicting future patch-level DINOv2 features and planning directly in the resulting feature space (Zhou et al. 2025). More recently, LeWorldModel learns compact global latent representations end-to-end from pixels, reducing planning cost by changing the representation and training paradigm itself (Maes et al. 2026). Scope-WM instead follows the pretrained patch-level formulation of DINO-WM and improves its efficiency by se-lectively allocating computation within spatially structured latent rollouts and trajectory search. 
+
+Sparse visual computation and imagination. Efficient Vision Transformers exploit token redundancy through learned pruning, adaptive computation, token reorganiza-tion, or token merging to reduce inference cost (Rao et al. 2021; Xu et al. 2022; Yao et al. 2026; Liang et al. 2022; Yin et al. 2022; Bolya et al. 2023). These methods are pri-marily designed for static recognition, whereas visual world-model planning requires state- and action-dependent token selection whose errors may accumulate over multi-step roll-outs. Sparse Imagination applies random patch dropping and randomized grouped attention to DINO-style world models, demonstrating that moderate sparsity can preserve planning performance while avoiding the spatial bias of fixed im-portance scores (Chun, Jeong, and Kim 2025). However, random selection remains independent of the current predic-tion objective. DDP-WM instead decomposes latent dynam-ics into sparse primary dynamics and context-driven back-ground updates, using a dynamic localization network for foreground identification and foreground-conditioned cross-attention for background correction (Yin et al. 2026). Scope-WM shares the goal of separating expensive foreground prediction from inexpensive background maintenance, but adopts lighter mechanisms: DRS distills prediction relevance into a compact token-wise selector, while FDBU replaces pairwise foreground–background interactions with a pooled foreground-state and foreground-delta context. After selec-tor distillation, the sparse predictor and background updater can therefore be optimized in a unified training stage. 
+
+Sampling-based planning. CEM is widely used with learned dynamics models because it can optimize action se-quences without differentiating through the planning objec-tive, but its cost scales directly with the number of candi-date rollouts (de Boer et al. 2005; Chua et al. 2018). iCEM improves sample efficiency through temporally correlated noise, warm starts, and elite reuse across optimization iter-ations and planning steps (Pinneri et al. 2020). EB-CEM is complementary to these techniques and focuses on the al-location of samples across receding-horizon MPC stages. It assigns a larger population to the initial broad search, stores high-quality early trajectories in a persistent bank, and sam-ples perturbed variants during later low-budget replanning. 
+
+# Method 
+
+We build Scope-WM on top of DINO-WM (Zhou et al. 2025) and describe its token-, dynamics-, and planning-level com-ponents in turn, as illustrated in Figure 2. Given an observation ot, the frozen DINOv2 encoder ex-tracts a set of N visual patch tokens 
+
+Xt = {xt,i }Ni=1 , xt,i ∈ Rdx . (1) The visual tokens are combined with proprioceptive state pt
+
+and action embedding e(at) to construct world-model tokens 
+
+zt,i = Fuse( xt,i , p t, e (at)) ∈ Rdz . (2) Given a history length H, the dense world model predicts future latent tokens conditioned on the observed history as 
+
+ˆZ2: H+1 = fθ (Z1: H ), (3) where Zt = {zt,i }Ni=1 . The dense predictor operates on all HN tokens, which is expensive during MPC because CEM requires evaluating many candidate action sequences per step. Our method reduces this cost through three com-ponents: Distilled Relevance Selection, Foreground-Delta Background Update, and Elite-Bank CEM. 
+
+Distilled Relevance Selection 
+
+A central challenge in sparse latent imagination is decid-ing which tokens should be kept. Prior work has observed that static attention-based token selection is often insuffi-cient for visual planning (Chun, Jeong, and Kim 2025). This is because prediction-relevant regions are not fixed across successive planning steps: the relevant tokens depend on the current state, the planned action, and the prediction objective. A purely visual-difference-based selector can also be prob-lematic. Although frame-level changes can highlight moving regions, they may ignore tokens that are dynamically im-portant but visually stable, such as contacts, obstacles, or structures that constrain future motion. Therefore, we use a dynamic, prediction-aware selection mechanism. 
+
+Teacher relevance target. Starting from a trained dense DINO-WM teacher, we compute its latent prediction loss: 
+
+LT = 1
+
+|Ω|
+
+X
+
+> (t,i )∈Ω
+
+ˆzT 
+
+> t,i
+
+− z⋆t,i  
+
+> 22
+
+, (4) where ˆzT 
+
+> t,i
+
+is the teacher prediction, z⋆t,i is the target latent token, and Ω denotes the supervised token set. We then es-timate the contribution of each visual token to the teacher prediction loss using a gradient-times-input score: 
+
+˜rt,i = xt,i ⊙ ∂LT
+
+∂x t,i 2
+
+. (5) The score is normalized within each frame: 
+
+qt,i = ˜rt,i + ϵ
+
+PNj=1 (˜ rt,j + ϵ) . (6) The resulting distribution qt serves as a soft relevance target. Unlike static attention masks or visual-change heuristics, this target directly reflects which tokens affect the world model’s prediction error under the current objective. 
+
+Lightweight relevance head. We train a compact rele-vance head gϕ to predict token relevance scores. For each token, the visual feature and control context are jointly pro-jected into a shared hidden space: 
+
+ht,i = ϕx(xt,i ) + ϕp(pt) + ϕa(e(at)) , st,i = gϕ(ht,i ),
+
+(7) where ϕx, ϕp, and ϕa are lightweight linear projections, and gϕ is a small MLP producing the relevance logit. The predicted relevance distribution across tokens is obtained by a temperature-scaled softmax: 
+
+πt,i = exp( st,i /T )
+
+PNj=1 exp( st,j /T ) , (8) where T is the distillation temperature. The DRS head is trained by minimizing the KL divergence from the corre-sponding teacher relevance target: 
+
+LDRS = DKL (qt ∥ πt) = 
+
+> N
+
+X
+
+> i=1
+
+qt,i log qt,i 
+
+πt,i 
+
+. (9) After distillation, the selector is fixed during sparse world-model training. At inference time, DRS selects the top-K
+
+tokens according to their predicted relevance: 
+
+mt,i = I st,i ∈ TopK  {st,j }Nj=1 , K  , (10) where mt,i ∈ { 0, 1} is the foreground mask. The resulting foreground and background token sets are 
+
+Ft = {i | mt,i = 1 }, Bt = {i | mt,i = 0 }. (11) The selector is deliberately lightweight. Since frozen DINOv2 patch tokens are already globally contextualized through self-attention, DRS can exploit image-wide visual context without an additional ViT-style mask generator. It therefore uses only a small token-wise MLP conditioned on state and action, introducing negligible rollout overhead while producing state-, action-, and prediction-aware masks. 
+
+Foreground-Delta Background Update 
+
+After selecting foreground tokens, a natural approach is to run the world model only on these tokens and keep the back-ground tokens unchanged. However, this may cause latent inconsistency: background tokens may still need small cor-rections due to object motion, contact, occlusion, or camera-frame changes. One possible solution is to use an attention-based background update module, but such a design increases Figure 2: Overview of Scope-WM. Scope-WM scopes computation at the token, dynamics, and planning levels. At the token level, the action-conditioned DRS selector identifies a compact set of prediction-relevant foreground tokens from the encoded visual state. At the dynamics level, the sparse world-model predictor applies full dynamics prediction to the selected tokens, while FDBU uses a summarized foreground-dynamics context to update the remaining background tokens through a lightweight gated residual update, producing the complete latent rollout. At the planning level, EB-CEM performs test-time action optimization by retaining and reusing high-quality elite action sequences across MPC steps. Candidate action sequences are evaluated by a planning objective that compares the predicted latent rollout with the goal latent encoded by the frozen visual encoder. computational cost and often requires staged training. We in-stead introduce a simpler module, Foreground-Delta Back-ground Update, which is lightweight and can be trained jointly with the sparse world model. Let ZFt = {zt,i | i ∈ F t} denote the selected foreground tokens. The primary sparse dynamics predictor is applied only to these tokens during latent rollout: 
+
+ˆZF 
+
+> 2: H+1
+
+= fθ (ZF 
+
+> 1: H
+
+). (12) For a Transformer predictor, this reduces the dominant atten-tion cost from O(( HN )2) to O(( HK )2), where K ≪ N .FDBU updates the remaining background tokens using the predicted foreground dynamics. For each predicted step, we compute the foreground delta: 
+
+∆Ft+1 ,i = ˆ zFt+1 ,i − zFt,i , i ∈ F t. (13) We summarize the predicted foreground state and foreground motion separately by mean pooling: 
+
+¯zFt+1 = 1
+
+K
+
+X
+
+> i∈F t
+
+ˆzFt+1 ,i , ¯∆Ft+1 = 1
+
+K
+
+X
+
+> i∈F t
+
+∆Ft+1 ,i . (14) The two summaries are fused into a foreground dynamics context to guide subsequent background updates: 
+
+ct+1 = ψc
+
+ [¯ zFt+1 , ¯∆Ft+1 ] , (15) where ψc is a small projection network. For each full-grid token zt,i , FDBU independently predicts a lightweight next-step residual update and scalar gate using the foreground dynamics context: 
+
+ut+1 ,i = ψu([ zt,i , c t+1 ]) , γt+1 ,i = σ(ψg ([ zt,i , c t+1 ])) ,
+
+(16) where ψu and ψg are lightweight MLPs and σ(·) is the sig-moid function. Only background tokens receive this update: 
+
+˜zBt+1 ,i = zt,i + α(1 − mt,i )γt+1 ,i ut+1 ,i , (17) where α controls the residual update scale. The final full-grid prediction is formed by scattering foreground predictions into the full grid and applying FDBU to the background: 
+
+˜zt+1 ,i = mt,i ˆzFt+1 ,i + (1 − mt,i )˜ zBt+1 ,i . (18) The sparse world model is trained with a full-grid latent prediction loss over all latent positions: 
+
+LWM = MSE 
+
+ eZ, Z ⋆
+
+, (19) which jointly supervises foreground prediction and FDBU background updates during sparse-model training. FDBU is integrated into the world-model training pipeline and does not require a separate training stage. 
+
+Elite-Bank CEM 
+
+CEM-based MPC is sensitive to the number of sampled ac-tion sequences. Empirically, we observe that increasing the number of samples can significantly improve success rate in the low-sample regime, but the gain quickly saturates when the sample count becomes large. Moreover, later MPC steps often provide limited recovery ability: once early actions move the agent or object into an unfavorable state, subse-quent replanning may not be able to recover. This suggests that, in this regime, improving the quality of early candidate action sequences is more important than simply increasing the number of samples at every step. Motivated by this observation, we introduce Elite-Bank CEM, a simple proposal-reuse mechanism for MPC. It leaves the planning objective and world model unchanged. Instead, it improves later CEM proposals by reusing high-quality ac-tion sequences found during the initial MPC search. Let Aj ∈ RL×da be a candidate action sequence of plan-ning horizon L, where j = 1 , . . . , M . At CEM iteration ℓ,standard CEM samples candidates from a diagonal Gaussian: 
+
+A(ℓ) 
+
+> j
+
+∼ N 
+
+
+
+μ(ℓ), diag 
+
+
+
+(σ(ℓ))2 
+
+. (20) Each candidate is evaluated by the world-model rollout cost: 
+
+C(ℓ) 
+
+> j
+
+= Jθ (A(ℓ) 
+
+> j
+
+), (21) where lower cost indicates a better action sequence. The top 
+
+Kelite candidates form the elite set: 
+
+E(ℓ) = TopK min 
+
+
+
+{A(ℓ) 
+
+> j
+
+}Mj=1 , {C(ℓ) 
+
+> j
+
+}Mj=1 , K elite 
+
+
+
+. (22) CEM then updates its Gaussian parameters: 
+
+μ(ℓ+1) = 1
+
+Kelite 
+
+X
+
+> A∈E (ℓ)
+
+A, (23) 
+
+σ(ℓ+1) = Std 
+
+
+
+E(ℓ)
+
+. (24) EB-CEM front-loads search by using a larger candidate population at the initial MPC step and a reduced popula-tion thereafter to emphasize early-stage exploration. Let Mr
+
+denote the candidate budget at MPC step r:
+
+Mr =
+
+Mfront , r = 0 ,Mlater , r > 0, Mfront > M later . (25) We use Mfront = 300 and Mlater = 100 by default. After the initial MPC step, we store the best Mb candidates from its final CEM iteration in a persistent elite bank: 
+
+B = TopM min 
+
+
+
+{Aj }Mfront  
+
+> j=1
+
+, {Jθ (Aj )}Mfront  
+
+> j=1
+
+, M b
+
+
+
+. (26) At each CEM iteration of subsequent MPC steps, a fraction 
+
+η of the reduced population is sampled locally around the banked elites to refine promising solutions: 
+
+Mlocal = ⌊ηM later ⌋, Mglobal = Mlater −Mlocal . (27) For a banked elite sequence B ∈ B , a local candidate is generated by Gaussian perturbation: 
+
+Alocal = B + λσ (ℓ) ⊙ ξ, ξ ∼ N (0 , I ), (28) where λ controls the perturbation scale. The remaining can-didates are instead sampled globally: 
+
+Aglobal ∼ N 
+
+
+
+μ(ℓ), diag 
+
+
+
+(σ(ℓ))2 
+
+. (29) The final candidate set combines the local and global samples to balance local refinement and global exploration: 
+
+A = Alocal ∪ A global . (30) This mechanism encourages the planner to preserve and re-fine promising early plans, while still keeping global explo-ration through CEM samples. Therefore, EB-CEM is com-plementary to the sparse world model: DRS and FDBU re-duce the cost of each rollout, while EB-CEM improves search quality by reallocating the rollout budget across MPC steps. 
+
+# Experiments 
+
+Setup 
+
+Environments and datasets. We evaluate Scope-WM on five visual planning tasks: PointMaze (Fu et al. 2020), Wall, Push-T (Chi et al. 2023), Rope (Zhang et al. 2024), and Granular, following the task definitions and offline datasets of DINO-WM (Zhou et al. 2025). These tasks cover naviga-tion, rigid-body manipulation, and deformable or multi-body dynamics across diverse physical interaction regimes. 
+
+Evaluation metrics. Following DINO-WM, all tasks use CEM-based MPC over latent world-model rollouts. We re-port success rate (SR, ↑) for PointMaze, Wall, and Push-T, and Chamfer Distance (CD, ↓) for Rope and Granular. For ef-ficiency, we report three complementary metrics: transition-model FLOPs, planning time, and peak GPU memory us-age. Planning time is the cumulative CEM sub-planner time across MPC steps, while peak memory is the maximum CUDA memory allocated during each evaluation run. 
+
+Baseline. We use dense DINO-WM (Zhou et al. 2025) as the baseline for direct comparison. Both methods share the encoder, data, evaluation pairs, planning objective, horizon, and action constraints unless explicitly noted. 
+
+Implementation details. PointMaze, Wall, and Push-T are trained using eight NVIDIA V100 32G GPUs, with planning evaluated on a single NVIDIA V100 GPU. Rope and Granu-lar are trained and evaluated on a single NVIDIA RTX 2080 Ti GPU due to PyFlex software compatibility. Additional im-plementation details for training and planning are included in the supplementary material. 
+
+Main Results 
+
+We first evaluate the end-to-end performance and efficiency of Scope-WM on Push-T, and then examine its planning per-formance across all five visual planning tasks. 
+
+End-to-end performance and efficiency. Table 1 com-pares dense DINO-WM with two Scope-WM operating points on Push-T. Fast applies full dynamics prediction to 
+
+98 of 196 visual tokens, improving SR from 90% to 94% 
+
+while reducing per-sample FLOPs from 31 .89 to 15 .04 G. Its planning time and peak GPU memory decrease to 38 .6% and 
+
+38 .4% of the dense baseline, respectively, yielding a 2.59 ×
+
+planning speedup. Faster further reduces full dynamics pre-diction to 32 tokens and requires only 5.27 G FLOPs per sample, a 6.05 × reduction over dense DINO-WM. It retains 
+
+88% SR while reducing planning time and peak memory to 
+
+14 .3% and 18 .1% , respectively, corresponding to a 6.97 ×
+
+planning speedup. These results show that simply adjusting the number of selected top-ranked tokens allows Scope-WM to either improve both planning performance and efficiency, or achieve substantially greater acceleration while retaining competitive task performance. 
+
+Planning performance across tasks. Table 2 compares Scope-WM with prior methods across five tasks. Under the aggressive K = 32 setting, Scope-WM achieves 98% , 88% ,and 92% SR on PointMaze, Push-T, and Wall, matching Method Full-dyn. tokens SR ( ↑) FLOPs (G, ↓) Plan time (s, ↓) Speedup ( ↑) Peak Mem. (MB, ↓) Mem. Ratio ( ↓)DINO-WM (Dense) 196 90% 31.89 240.96 1.00 × 18436 100.0% Scope-WM (Fast) 98 94% 15.04 93.06 2.59 × 7088 38.4% Scope-WM (Faster) 32 88% 5.27 34.56 6.97 × 3334 18.1% 
+
+Table 1: End-to-end performance–efficiency trade-off on Push-T. Fast and Faster apply full dynamics prediction to 98 and 32 of 
+
+196 visual tokens. FLOPs are reported per prediction sample, with memory ratios normalized to DINO-WM.                                             
+
+> Method PointMaze (SR ↑)Push-T (SR ↑)Wall (SR ↑)Rope (CD ↓)Granular (CD ↓)IRIS 74% 32% 4% 1.11 0.37 DreamerV3 100% 30% 100% 2.49 1.05 Sparse Imagination 100% 78.3% 95% ––DINO-WM 98% 90% 96% 0.41 0.26 Scope-WM (Fast, K= 98 )100% 94% 92% 0.87 0.22
+> Scope-WM (Faster, K= 32 )98% 88% 92% 0.71 0.25
+
+Table 2: Cross-task planning performance. SR ( ↑) is reported for PointMaze, Push-T, and Wall, and CD ( ↓) for Rope and Granular. Fast and Faster use 98 and 32 full-dynamics tokens. DINO-WM on PointMaze and remaining within 2 and 4 per-centage points on Push-T and Wall, respectively. It achieves a CD of 0.25 on Granular, slightly improving over DINO-WM at 0.26 . With the larger K = 98 budget, Fast reaches 
+
+100% on PointMaze, 94% on Push-T, and 0.22 CD on Gran-ular. Rope remains the most challenging task for the sparse formulation, where the best Scope-WM result is 0.71 CD, compared with 0.41 for dense DINO-WM. Overall, Scope-WM preserves strong planning performance on most tasks while substantially reducing latent-rollout computation. 
+
+Ablation Study 
+
+We conduct ablation studies on Push-T to examine the contri-bution of the proposed designs and how they interact across model prediction and trajectory optimization. 
+
+Component ablation. Table 3 first isolates the contribu-tion of the three components under the aggressive 32-token setting. Replacing DRS with random token selection reduces the success rate from 88% to 76% , showing the importance of allocating full dynamics prediction to relevant regions. Removing FDBU and directly carrying background tokens forward reduces the success rate to 56% , indicating that un-selected tokens still require lightweight adaptation to fore-ground dynamics. Replacing EB-CEM with standard CEM decreases the success rate to 82% . The complete Scope-WM achieves the highest success rate, showing that the three de-signs provide complementary benefits. 
+
+Effect of token budget. We vary the full-dynamics token budget on Push-T to characterize the performance–efficiency trade-off. As shown in Figure 3, both planning time and peak GPU memory decrease consistently as the token budget is reduced, while SR remains between 88% and 94% . The 
+
+K = 98 setting achieves the highest SR of 94% with only 
+
+38 .6% of the dense planning time and 38 .4% of its peak memory. Even at K = 32 , Scope-WM retains 88% SR while reducing these costs to 14 .3% and 18 .1% , respectively.                     
+
+> Variant Selection BG update Planner SR ( ↑)w/o DRS Random FDBU EB-CEM 76% w/o FDBU DRS Copy EB-CEM 56% w/o EB-CEM DRS FDBU CEM 82%
+> Scope-WM DRS FDBU EB-CEM 88%
+
+Table 3: Component ablation on Push-T under the 32 -token full-dynamics setting used by Scope-WM (Faster).       
+
+> Selection Background update Copy FDBU Random 72% 76% DRS 56% 88%
+
+Table 4: Interaction between DRS and FDBU on Push-T un-der the same 32-token budget and EB-CEM planner. Entries report success rate (SR, ↑). 
+
+Interaction between DRS and FDBU. DRS determines which tokens receive full dynamics prediction, while FDBU propagates foreground dynamics to the remaining latent state. Table 4 reveals an interaction between the two mech-anisms. With random selection, FDBU provides a modest improvement from 72% to 76% SR. In contrast, under DRS, replacing background copying with FDBU improves SR sub-stantially from 56% to 88%. This suggests that concentrating full dynamics prediction on prediction-relevant tokens makes effective background propagation particularly important, re-vealing a strong complementarity between DRS and FDBU. 
+
+Interaction between sparse prediction and EB-CEM. 
+
+Sparse prediction and EB-CEM act on complementary sources of planning cost: sparse prediction reduces the cost of each imagined rollout, whereas EB-CEM reallocates search effort across MPC steps. As shown in Table 5, applying EB-CEM to dense DINO-WM provides no benefit, decreasing Figure 3: Effect of the full-dynamics token budget on Push-T. Bars show planning time and peak GPU memory normalized to dense DINO-WM, with absolute values annotated above the bars. The line shows success rate as the token budget varies across configurations.                          
+
+> Model Planner Samples SR ( ↑)Plan time (s, ↓)DINO-WM CEM 100/100 90% 240.96 DINO-WM EB-CEM 300/100 84% 267.36 Scope-WM CEM 100/100 82% 30.67 Scope-WM CEM 200/200 88% 60.96 Scope-WM EB-CEM 300/100 88% 34.56
+
+Table 5: Interaction between sparse prediction and planning strategy on Push-T. Scope-WM uses the 32-token setting; sample budgets denote initial/subsequent MPC steps. SR from 90% to 84% while increasing planning time from 
+
+240 .96 to 267 .36 s. For Scope-WM, standard CEM with 100 samples requires only 30 .67 s but reaches 82% SR. Increas-ing the budget to 200 samples recovers 88% SR at a cost of 60 .96 s, whereas EB-CEM achieves the same 88% SR in only 34 .56 s. Thus, cheap sparse rollouts make front-loaded exploration affordable, while elite reuse avoids maintaining a large sampling budget throughout subsequent replanning. 
+
+Qualitative analysis. Figure 4 provides further intuition behind the three designs under the aggressive 32-token set-ting. Compared with random selection, DRS focuses full dy-namics prediction on prediction-relevant regions across the latent field (a). FDBU achieves background prediction er-rors comparable to dense updating using only the foreground dynamics context, suggesting that dense token-to-token in-teractions are unnecessary for background propagation (b). Finally, EB-CEM retains promising early trajectories to guide subsequent replanning (c). Table 6 further confirms the ben-efits of front-loaded sampling and elite reuse. 
+
+# Conclusion 
+
+We present Scope-WM, an efficient visual world-model plan-ning framework that scopes computation across token selec-tion, latent dynamics, and trajectory optimization. Scope-WM combines DRS for prediction-aware token selection, FDBU for lightweight background updates, and EB-CEM 
+
+Figure 4: Qualitative analysis of Scope-WM on Push-T. (a) DRS focuses computation on prediction-relevant regions. (b) FDBU captures background evolution without dense token-to-token interactions. (c) EB-CEM reuses promising early trajectories for subsequent replanning.              
+
+> CEM EB-CEM Early samples 100 100 300 300 Later samples 100 300 100 100 SR ( ↑)82% 82% 86% 88%
+
+Table 6: Effect of sample allocation and elite reuse on Push-T. Early and later denote initial and subsequent MPC steps. for efficient trajectory optimization. Together, these com-ponents reduce both the cost of individual imagined roll-outs and the rollout budget required during subsequent re-planning, while retaining a simple training pipeline consist-ing of one-off selector distillation followed by joint sparse world-model training. Experiments demonstrate a favorable performance–efficiency trade-off while maintaining compet-itive planning performance. On Push-T, the aggressive con-figuration achieves a 6.97 × planning speedup while reducing planning time and peak GPU memory to 14 .3% and 18 .1% 
+
+of dense DINO-WM, respectively, with only a modest change in task performance. These results highlight computation al-location according to prediction and planning relevance as a promising principle for efficient visual world-model planning under flexible token and rollout budgets. 
+
+# References 
+
+Alonso, E.; Jelley, A.; Micheli, V.; Kanervisto, A.; Storkey, A. J.; Pearce, T.; and Fleuret, F. 2024. Diffusion for World Modeling: Visual Details Matter in Atari. In Globersons, A.; Mackey, L.; Belgrave, D.; Fan, A.; Paquet, U.; Tomczak, J. M.; and Zhang, C., eds., Advances in Neural Information Processing Systems 37: Annual Conference on Neural Infor-mation Processing Systems 2024, NeurIPS 2024, Vancouver, BC, Canada, December 10 - 15, 2024 .Assran, M.; Bardes, A.; Fan, D.; Garrido, Q.; Howes, R.; Komeili, M.; Muckley, M. J.; Rizvi, A.; Roberts, C.; Sinha, K.; Zholus, A.; Arnaud, S.; Gejji, A.; Martin, A.; Hogan, F. R.; Dugas, D.; Bojanowski, P.; Khalidov, V.; Labatut, P.; Massa, F.; Szafraniec, M.; Krishnakumar, K.; Li, Y.; Ma, X.; Chandar, S.; Meier, F.; LeCun, Y.; Rabbat, M.; and Ballas, N. 2025. V-JEPA 2: Self-Supervised Video Mod-els Enable Understanding, Prediction and Planning. CoRR ,abs/2506.09985. Assran, M.; Duval, Q.; Misra, I.; Bojanowski, P.; Vincent, P.; Rabbat, M. G.; LeCun, Y.; and Ballas, N. 2023. Self-Supervised Learning from Images with a Joint-Embedding Predictive Architecture. In IEEE/CVF Conference on Com-puter Vision and Pattern Recognition, CVPR 2023, Vancou-ver, BC, Canada, June 17-24, 2023 , 15619–15629. IEEE. Bardes, A.; Garrido, Q.; Ponce, J.; Chen, X.; Rabbat, M.; LeCun, Y.; Assran, M.; and Ballas, N. 2024. Revisiting Feature Prediction for Learning Visual Representations from Video. Trans. Mach. Learn. Res. , 2024. Bolya, D.; Fu, C.; Dai, X.; Zhang, P.; Feichtenhofer, C.; and Hoffman, J. 2023. Token Merging: Your ViT But Faster. In The Eleventh International Conference on Learning Rep-resentations, ICLR 2023, Kigali, Rwanda, May 1-5, 2023 .OpenReview.net. Caron, M.; Touvron, H.; Misra, I.; Jégou, H.; Mairal, J.; Bojanowski, P.; and Joulin, A. 2021. Emerging Properties in Self-Supervised Vision Transformers. In 2021 IEEE/CVF International Conference on Computer Vision, ICCV 2021, Montreal, QC, Canada, October 10-17, 2021 , 9630–9640. IEEE. Chi, C.; Feng, S.; Du, Y.; Xu, Z.; Cousineau, E.; Burchfiel, B.; and Song, S. 2023. Diffusion Policy: Visuomotor Policy Learning via Action Diffusion. In Bekris, K. E.; Hauser, K.; Herbert, S. L.; and Yu, J., eds., Robotics: Science and Systems XIX, Daegu, Republic of Korea, July 10-14, 2023 .Chua, K.; Calandra, R.; McAllister, R.; and Levine, S. 2018. Deep Reinforcement Learning in a Handful of Trials using Probabilistic Dynamics Models. In Bengio, S.; Wallach, H. M.; Larochelle, H.; Grauman, K.; Cesa-Bianchi, N.; and Garnett, R., eds., Advances in Neural Information Processing Systems 31: Annual Conference on Neural Information Pro-cessing Systems 2018, NeurIPS 2018, December 3-8, 2018, Montréal, Canada , 4759–4770. Chun, J.; Jeong, Y.; and Kim, T. 2025. Sparse Imagina-tion for Efficient Visual World Model Planning. CoRR ,abs/2506.01392. de Boer, P.; Kroese, D. P.; Mannor, S.; and Rubinstein, R. Y. 2005. A Tutorial on the Cross-Entropy Method. Ann. Oper. Res. , 134(1): 19–67. Ebert, F.; Finn, C.; Dasari, S.; Xie, A.; Lee, A. X.; and Levine, S. 2018. Visual Foresight: Model-Based Deep Reinforce-ment Learning for Vision-Based Robotic Control. CoRR ,abs/1812.00568. Finn, C.; and Levine, S. 2017. Deep visual foresight for planning robot motion. In 2017 IEEE International Confer-ence on Robotics and Automation, ICRA 2017, Singapore, Singapore, May 29 - June 3, 2017 , 2786–2793. IEEE. Fu, J.; Kumar, A.; Nachum, O.; Tucker, G.; and Levine, S. 2020. D4RL: Datasets for Deep Data-Driven Reinforcement Learning. CoRR , abs/2004.07219. Ha, D.; and Schmidhuber, J. 2018. World Models. CoRR ,abs/1803.10122. Hafner, D.; Lillicrap, T. P.; Ba, J.; and Norouzi, M. 2020. Dream to Control: Learning Behaviors by Latent Imagina-tion. In 8th International Conference on Learning Repre-sentations, ICLR 2020, Addis Ababa, Ethiopia, April 26-30, 2020 . OpenReview.net. Hafner, D.; Lillicrap, T. P.; Fischer, I.; Villegas, R.; Ha, D.; Lee, H.; and Davidson, J. 2019. Learning Latent Dynamics for Planning from Pixels. In Chaudhuri, K.; and Salakhut-dinov, R., eds., Proceedings of the 36th International Con-ference on Machine Learning, ICML 2019, 9-15 June 2019, Long Beach, California, USA , volume 97 of Proceedings of Machine Learning Research , 2555–2565. PMLR. Hafner, D.; Pasukonis, J.; Ba, J.; and Lillicrap, T. P. 2023. Mastering Diverse Domains through World Models. CoRR ,abs/2301.04104. Hansen, N.; Su, H.; and Wang, X. 2022. Temporal Difference Learning for Model Predictive Control. In Chaudhuri, K.; Jegelka, S.; Song, L.; Szepesvári, C.; Niu, G.; and Sabato, S., eds., International Conference on Machine Learning, ICML 2022, 17-23 July 2022, Baltimore, Maryland, USA , volume 162 of Proceedings of Machine Learning Research , 8387– 8406. PMLR. Hansen, N.; Su, H.; and Wang, X. 2024. TD-MPC2: Scal-able, Robust World Models for Continuous Control. In The Twelfth International Conference on Learning Representa-tions, ICLR 2024, Vienna, Austria, May 7-11, 2024 . Open-Review.net. Liang, Y.; Ge, C.; Tong, Z.; Song, Y.; Wang, J.; and Xie, P. 2022. EViT: Expediting Vision Transformers via Token Reorganizations. In The Tenth International Conference on Learning Representations, ICLR 2022, Virtual Event, April 25-29, 2022 . OpenReview.net. Ma, Y. J.; Sodhani, S.; Jayaraman, D.; Bastani, O.; Kumar, V.; and Zhang, A. 2023. VIP: Towards Universal Visual Reward and Representation via Value-Implicit Pre-Training. In The Eleventh International Conference on Learning Rep-resentations, ICLR 2023, Kigali, Rwanda, May 1-5, 2023 .OpenReview.net. Maes, L.; Lidec, Q. L.; Scieur, D.; LeCun, Y.; and Balestriero, R. 2026. LeWorldModel: Stable End-to-End Joint-Embedding Predictive Architecture from Pixels. CoRR ,abs/2603.19312. Micheli, V.; Alonso, E.; and Fleuret, F. 2023. Transformers are Sample-Efficient World Models. In The Eleventh Interna-tional Conference on Learning Representations, ICLR 2023, Kigali, Rwanda, May 1-5, 2023 . OpenReview.net. Nair, S.; Rajeswaran, A.; Kumar, V.; Finn, C.; and Gupta, A. 2022. R3M: A Universal Visual Representation for Robot Manipulation. In Liu, K.; Kulic, D.; and Ichnowski, J., eds., 
+
+Conference on Robot Learning, CoRL 2022, 14-18 December 2022, Auckland, New Zealand , volume 205 of Proceedings of Machine Learning Research , 892–909. PMLR. Oquab, M.; Darcet, T.; Moutakanni, T.; Vo, H. V.; Szafraniec, M.; Khalidov, V.; Fernandez, P.; Haziza, D.; Massa, F.; El-Nouby, A.; Assran, M.; Ballas, N.; Galuba, W.; Howes, R.; Huang, P.; Li, S.; Misra, I.; Rabbat, M.; Sharma, V.; Syn-naeve, G.; Xu, H.; Jégou, H.; Mairal, J.; Labatut, P.; Joulin, A.; and Bojanowski, P. 2024. DINOv2: Learning Robust Visual Features without Supervision. Trans. Mach. Learn. Res. , 2024. Pinneri, C.; Sawant, S.; Blaes, S.; Achterhold, J.; Stueck-ler, J.; Rolínek, M.; and Martius, G. 2020. Sample-efficient Cross-Entropy Method for Real-time Planning. In Kober, J.; Ramos, F.; and Tomlin, C. J., eds., 4th Conference on Robot Learning, CoRL 2020, 16-18 November 2020, Virtual Event / Cambridge, MA, USA , volume 155 of Proceedings of Machine Learning Research , 1049–1065. PMLR. Radosavovic, I.; Xiao, T.; James, S.; Abbeel, P.; Malik, J.; and Darrell, T. 2022. Real-World Robot Learning with Masked Visual Pre-training. In Liu, K.; Kulic, D.; and Ichnowski, J., eds., Conference on Robot Learning, CoRL 2022, 14-18 December 2022, Auckland, New Zealand , volume 205 of Proceedings of Machine Learning Research , 416–426. PMLR. Rao, Y.; Zhao, W.; Liu, B.; Lu, J.; Zhou, J.; and Hsieh, C. 2021. DynamicViT: Efficient Vision Transformers with Dy-namic Token Sparsification. In Ranzato, M.; Beygelzimer, A.; Dauphin, Y. N.; Liang, P.; and Vaughan, J. W., eds., Ad-vances in Neural Information Processing Systems 34: Annual Conference on Neural Information Processing Systems 2021, NeurIPS 2021, December 6-14, 2021, virtual , 13937–13949. Robine, J.; Höftmann, M.; Uelwer, T.; and Harmeling, S. 2023. Transformer-based World Models Are Happy With 100k Interactions. In The Eleventh International Conference on Learning Representations, ICLR 2023, Kigali, Rwanda, May 1-5, 2023 . OpenReview.net. Seo, Y.; Hafner, D.; Liu, H.; Liu, F.; James, S.; Lee, K.; and Abbeel, P. 2022. Masked World Models for Visual Control. In Liu, K.; Kulic, D.; and Ichnowski, J., eds., Conference on Robot Learning, CoRL 2022, 14-18 December 2022, Auck-land, New Zealand , volume 205 of Proceedings of Machine Learning Research , 1332–1344. PMLR. Xiao, T.; Radosavovic, I.; Darrell, T.; and Malik, J. 2022. Masked Visual Pre-training for Motor Control. CoRR ,abs/2203.06173. Xu, Y.; Zhang, Z.; Zhang, M.; Sheng, K.; Li, K.; Dong, W.; Zhang, L.; Xu, C.; and Sun, X. 2022. Evo-ViT: Slow-Fast Token Evolution for Dynamic Vision Transformer. In Thirty-Sixth AAAI Conference on Artificial Intelligence, AAAI 2022, Thirty-Fourth Conference on Innovative Applications of Ar-tificial Intelligence, IAAI 2022, The Twelfth Symposium on Educational Advances in Artificial Intelligence, EAAI 2022 Virtual Event, February 22 - March 1, 2022 , 2964–2972. AAAI Press. Yao, G.; Zheng, J.; Wang, Z.; Zhang, W.; Han, R.; Zhao, C.; Zhang, Z.; and Liu, R. 2026. V-Pruner: A Fast and Globally-informed Token Pruning Framework for Vision Transformer. In Koenig, S.; Jenkins, C.; and Taylor, M. E., eds., Forti-eth AAAI Conference on Artificial Intelligence, Thirty-Eighth Conference on Innovative Applications of Artificial Intelli-gence, Sixteenth Symposium on Educational Advances in Ar-tificial Intelligence, AAAI 2026, Singapore, January 20-27, 2026 , 34396–34404. AAAI Press. Yin, H.; Vahdat, A.; Álvarez, J. M.; Mallya, A.; Kautz, J.; and Molchanov, P. 2022. A-ViT: Adaptive Tokens for Efficient Vision Transformer. In IEEE/CVF Conference on Computer Vision and Pattern Recognition, CVPR 2022, New Orleans, LA, USA, June 18-24, 2022 , 10799–10808. IEEE. Yin, S.; Yin, K.; Chen, W.; Liu, Y.; Li, G.; and Lin, L. 2026. DDP-WM: Disentangled Dynamics Prediction for Efficient World Models. CoRR , abs/2602.01780. Zhang, K.; Li, B.; Hauser, K.; and Li, Y. 2024. Adapti-Graph: Material-Adaptive Graph-Based Neural Dynamics for Robotic Manipulation. In Kulic, D.; Venture, G.; Bekris, K. E.; and Coronado, E., eds., Robotics: Science and Systems XX, Delft, The Netherlands, July 15-19, 2024 .Zhang, W.; Wang, G.; Sun, J.; Yuan, Y.; and Huang, G. 2023. STORM: Efficient Stochastic Transformer based World Mod-els for Reinforcement Learning. In Oh, A.; Naumann, T.; Globerson, A.; Saenko, K.; Hardt, M.; and Levine, S., eds., 
+
+Advances in Neural Information Processing Systems 36: An-nual Conference on Neural Information Processing Systems 2023, NeurIPS 2023, New Orleans, LA, USA, December 10 - 16, 2023 .Zhou, G.; Pan, H.; LeCun, Y.; and Pinto, L. 2025. DINO-WM: World Models on Pre-trained Visual Features enable Zero-shot Planning. In Singh, A.; Fazel, M.; Hsu, D.; Lacoste-Julien, S.; Berkenkamp, F.; Maharaj, T.; Wagstaff, K.; and Zhu, J., eds., Forty-second International Conference on Machine Learning, ICML 2025, Vancouver, BC, Canada, July 13-19, 2025 , volume 267 of Proceedings of Machine Learning Research . PMLR / OpenReview.net. Supplementary Material 
+
+This technical supplement provides additional implemen-tation, evaluation, and experimental details for Scope-WM. It follows the notation and task definitions of the main paper. 
+
+# A Implementation and Reproducibility Details 
+
+A.1 Training Protocol and Checkpoint Selection 
+
+All models are trained within a budget of at most 100 epochs. Because convergence speed differs across tasks, the check-point used for reporting is selected according to planning per-formance on the corresponding validation split. The Fast and Faster configurations are trained independently with K = 98 
+
+and K = 32 full-dynamics tokens, respectively; Faster is not obtained by changing the token budget only at planning time. Training proceeds in two steps. We first export gradient-times-input relevance targets from a trained dense DINO-WM teacher and train a task-specific DRS head. The distilled selector is then frozen, after which the sparse dynamics pre-dictor and FDBU are optimized jointly using the full-grid latent prediction loss described in the main paper. No sepa-rate training stage is used for FDBU. 
+
+A.2 Model and Optimization Settings 
+
+Table S1 summarizes the shared architecture and optimiza-tion settings. The frozen DINOv2 ViT-S/14 encoder produces 
+
+196 patch tokens from each 224 × 224 observation. The vi-sual decoder is disabled during model training and planning; it is used only for the qualitative visualization reported below. 
+
+A.3 DRS Distillation 
+
+For each of the five tasks, DRS is distilled from the cor-responding dense DINO-WM teacher. The teacher relevance target is computed from the full-grid latent prediction loss us-ing the gradient-times-input score defined in the main paper. The selector receives each globally contextualized DINOv2 patch token together with the action and proprioceptive em-beddings. We use the same target-export procedure, selector architecture, and distillation configuration across both rigid and deformable tasks, as summarized in Table S2. With a batch size of 8 and at most 400 exported batches, each task uses up to 3,200 trajectory windows for selector distillation.                      
+
+> Hyperparameter Setting Target type Gradient-times-input Target split Training split Export batch size 8
+> Maximum exported batches 400
+> Target-export workers 8
+> Selector hidden dimension 128
+> Distillation epochs 80
+> Distillation batch size 256
+> Optimizer AdamW Learning rate 3×10 −4
+> Weight decay 1×10 −4
+> Objective KL divergence Temperature T1.0
+> Action/proprio conditioning Enabled Selector during sparse-WM training Frozen
+
+Table S2: DRS target-export and distillation settings shared across all five tasks. 
+
+A.4 Task-Specific Training Settings 
+
+Table S3 reports the task-specific settings. PointMaze and Push-T use three observation-history frames and a frameskip of five. Wall uses one observation-history frame with the same frameskip of five. Rope and Granular use one history frame and no action subsampling. All available trajectories in the configured training directories are used. PointMaze, Wall, Rope, and Granular use a 90 /10 trajectory split generated with seed 42 , while Push-T uses the predefined training and validation directories distributed with the dataset. 
+
+A.5 Planning Configuration 
+
+Unless otherwise stated, standard CEM uses 100 candidates, 
+
+10 elites, and 10 optimization iterations. EB-CEM uses 300 
+
+candidates and 30 elites at the initial MPC step, followed by 100 candidates and 10 elites at subsequent steps. A bank of 30 candidates is saved after the initial MPC search. At later steps, 70% of the population is sampled locally around banked elites with perturbation scale 0.5, while the remaining 
+
+30% is drawn from the current CEM Gaussian. The elite bank is initialized once and is not shifted or replaced during later MPC steps. The visual decoder is not loaded during planning. Component Hyperparameter Setting Visual representation Encoder Frozen DINOv2 ViT-S/14 Input resolution 224 × 224 
+
+Visual tokens / token dimension 196 /384 
+
+Dynamics predictor Architecture 6-layer causal Transformer Attention heads / head dimension 16 /64 
+
+Feed-forward hidden dimension 2048 
+
+Transformer / embedding dropout 0.1/0
+
+Action / proprioceptive embedding dimension 10 /10 
+
+Action/proprio standardization Dataset statistics Prediction steps per world-model call 1
+
+Sparse world-model training Optimizer AdamW Predictor and action-encoder learning rate 1 × 10 −4
+
+Weight decay 0.01 
+
+Maximum training epochs 100 
+
+Latent supervision MSE over all 196 latent positions Training seed 0
+
+FDBU Foreground summaries Mean predicted state and mean foreground delta Context projection LN–Linear–GELU Update branch LN–Linear–GELU–Linear Gate branch LN–Linear–Sigmoid Hidden multiplier 2.0
+
+Residual scale α 1.0
+
+Dropout 0
+
+Table S1: Shared model and optimization settings. LN denotes layer normalization. 
+
+Task History Frameskip Global batch Training GPUs Epoch budget Train K Eval. instances Max MPC steps PointMaze 3 5 512 8 V100 ≤ 100 98 / 32 50 15 Wall 1 5 512 8 V100 ≤ 100 98 / 32 50 15 Push-T 3 5 512 8 V100 ≤ 100 98 / 32 50 15 Rope 1 1 64 1 RTX 2080 Ti 100 98 / 32 10 7Granular 1 1 64 1 RTX 2080 Ti 100 98 / 32 10 7
+
+Table S3: Task-specific training and evaluation settings. Fast and Faster are independently trained with K = 98 and K = 32 ,respectively. 
+
+Hyperparameter Setting Planning horizon 5CEM optimization iterations 10 Initial variance scale 1.0 Standard population / elites 100 /10 
+
+Initial EB-CEM population / elites 300 /30 
+
+Later EB-CEM population / elites 100 /10 
+
+Elite-bank size Mb 30 Bank-save MPC step 0Bank-use start step 1Local fraction η 0.7 Global fraction 0.3 Perturbation scale λ 0.5 Sequence shift 0Bank update mode Initial only Planning objective Final predicted latent 
+
+Table S4: CEM and EB-CEM hyperparameters used for the main Scope-WM results. The planning objective is evaluated on the final predicted latent state. PointMaze uses the visual-latent cost only (objec-tive weight α = 0 ), whereas Wall, Push-T, Rope, and Gran-ular use equal visual and proprioceptive weights ( α = 1 ). PointMaze, Wall, Rope, and Granular construct goals from random environment states, while Push-T uses a five-step segment from the validation data. 
+
+# B Evaluation Protocol 
+
+B.1 Datasets and Goal Construction 
+
+We follow the task definitions and offline datasets used by DINO-WM. All observations are resized and center-cropped to 224 × 224 , then normalized channel-wise with mean and standard deviation 0.5. Actions and proprioceptive states are standardized using dataset statistics. PointMaze and Wall use procedurally sampled initial–goal pairs under fixed evalua-tion seeds. Push-T draws a segment of length 5 × 5 + 1 
+
+simulator frames from the validation set: the first frame is used as the initial state, and the recorded low-level actions are replayed to construct the five-step goal observation. For Rope and Granular, the initial particle state is drawn from the validation data. The goal is generated using the envi-ronment’s task-specific geometric transformation. For Rope, the goal applies a random in-plane rotation and translation. For Granular, the goal applies a random scale and translation. Planning compares frozen-encoder latent features, whereas the final evaluation uses the simulator state. 
+
+B.2 Random Seeds and Number of Runs 
+
+Sparse world-model training uses seed 0, and random trajec-tory splits use seed 42 . Planning follows the official DINO-WM seed-generation rule. With planning seed 99 , evaluation instance i uses 
+
+si = 99 i + 1 , i = 0 , . . . , n − 1.
+
+PointMaze, Wall, and Push-T are evaluated on 50 fixed in-stances, while Rope and Granular are evaluated on 10 fixed instances. Every reported Scope-WM result is obtained from one selected checkpoint evaluated on the complete fixed instance set; results are not averaged across independently trained models. Within each task, all locally evaluated vari-ants use the same evaluation seeds and initial–goal construc-tion procedure. 
+
+B.3 Metrics and Efficiency Measurement 
+
+PointMaze and Wall count an episode as successful when the final positional distance to the goal is below 0.5 and 
+
+4.5, respectively. Push-T requires both a state-position dis-tance below 20 and an orientation error below π/ 9. For Rope and Granular, we report the symmetric Chamfer Distance between the final and goal particle sets using their three-dimensional coordinates: 
+
+CD( X, Y ) = 1
+
+|X|
+
+X
+
+> x∈X
+
+min  
+
+> y∈Y
+
+∥x − y∥2
+
++ 1
+
+|Y |
+
+X
+
+> y∈Y
+
+min 
+
+> x∈X
+
+∥y − x∥2.
+
+Planning time is measured as the cumulative CEM sub-planner time over all executed MPC steps. Environment step-ping, metric computation, decoding, and visualization are ex-cluded. Peak GPU memory is the maximum CUDA memory allocated during a complete evaluation run after resetting the peak-memory counter. FLOPs are measured for one world-model prediction and reported per prediction sample. The cross-task task-performance values of prior methods in the main paper are taken from their published reports. For the local Push-T efficiency comparison, dense DINO-WM and Scope-WM are evaluated on the same hardware and evaluation instances. The dense local baseline uses standard CEM with 100 candidates, 10 elites, and 10 optimization iterations. 
+
+# C Hardware and Software Environment 
+
+PointMaze, Wall, and Push-T. These models are trained using eight NVIDIA V100 GPUs, while planning evalua-tion is performed on a single 32-GB NVIDIA V100 GPU. The single-GPU platform provides 16 virtual CPU cores from an Intel Xeon Platinum 8352V processor at 2.10 GHz and 64 GB of host memory, and runs Ubuntu 22.04. The primary software environment uses Python 3.9.19, PyTorch 2.3.0, torchvision 0.18.0, CUDA 12.1, and cuDNN 8.9.2. We use Accelerate 0.26.1 for distributed training, Hydra 1.2.0 and OmegaConf 2.3.0 for configuration management, and NumPy 1.26.4. The corresponding simulation dependencies include Gym 0.23.1, D4RL 1.1, MuJoCo 3.2.7, and mujoco-py 2.1.2.14. 
+
+Rope and Granular. The deformable tasks are trained and evaluated on one NVIDIA GeForce RTX 2080 Ti GPU with 22,528 MiB of memory. The machine provides an Intel Xeon Platinum 8255C CPU at 2.50 GHz and 503 GiB of host mem-ory, and runs Ubuntu 22.04.3 LTS. The Python environment uses Python 3.12.3 and PyTorch 2.3.0+cu121 with CUDA 12.1 and cuDNN 8.9.2. The PyFlex simulator bindings are compiled separately with the CUDA 9.2 toolkit required by the available source build and loaded into the PyTorch envi-ronment through the paths provided in the code supplement. 
+
+# D Additional Efficiency Results 
+
+D.1 Efficiency Across Rigid-Body Tasks 
+
+Table S5 extends the end-to-end efficiency comparison from Push-T to PointMaze and Wall. For each task, dense DINO-WM and Scope-WM are measured on the same GPU using the same initial–goal pair and a forced full-length planning run. Planning time denotes the cumulative CEM sub-planner time across all MPC steps, consistent with the metric used in the main paper. Task success rates are taken from the corresponding complete evaluation sets reported in the main paper. Scope-WM consistently reduces planning time across the three tasks, achieving 5.84 ×, 3.03 ×, and 6.97 × speedups on PointMaze, Wall, and Push-T, respectively. The peak-memory benefit depends on the relative contributions of roll-out activations and search-population overhead. Scope-WM substantially reduces memory on PointMaze and Push-T, where dense latent rollouts incur larger activation footprints. On Wall, the dense baseline already has a small memory footprint, while EB-CEM temporarily uses a larger popula-tion at the initial MPC step. Consequently, its initial-search overhead outweighs the smaller savings from token sparsity, producing a modest absolute memory increase. These results indicate that scoped latent prediction provides the largest memory savings when dense rollout activations dominate the overall footprint, while its planning-time benefit remains consistent across tasks. 
+
+# E Additional Qualitative Results 
+
+Decoded latent rollouts. Figure S1 compares a Scope-WM latent rollout with the corresponding environment roll-out under the same planned action sequence. The decoded rollout follows the overall motion of the agent and the T-shaped object across successive steps, indicating that the sparse latent dynamics preserve task-relevant motion infor-mation. The decoder is used only for visualization and is not loaded during planning. Task Method K Plan time (s, ↓) Speedup ( ↑) Peak Mem. (MB, ↓) Mem. Ratio ( ↓) SR ( ↑)PointMaze DINO-WM 196 204.52 1.00 × 6309 100.0% 98% PointMaze Scope-WM (Faster) 32 35.01 5.84 × 3334 52.8% 98% Wall DINO-WM 196 59.44 1.00 × 1542 100.0% 96% Wall Scope-WM (Faster) 32 19.60 3.03 × 1939 125.8% 92% Push-T DINO-WM 196 240.96 1.00 × 18436 100.0% 90% Push-T Scope-WM (Faster) 32 34.56 6.97 × 3334 18.1% 88% 
+
+Table S5: End-to-end efficiency on three rigid-body planning tasks. Time and peak memory use one fixed full-length run; SR uses the complete 50 -instance set. Memory ratios are normalized per task, and the peak includes the larger initial EB-CEM population. Environment rollout 
+
+Decoded 
+
+latent 
+
+rollout 
+
+Environment rollout 
+
+Decoded 
+
+latent 
+
+rollout 
+
+> Goal
+
+Figure S1: Environment and decoded latent rollouts on Push-T. The upper row executes the planned actions in the environment; the lower row decodes the corresponding Scope-WM latent rollout with the dense DINO-WM decoder. Steps proceed left to right, and the highlighted final column is the goal. The decoder is used only for visualization. 
+
+# F Additional Token-Budget Analysis 
+
+Fast and Faster are trained independently with K = 98 and 
+
+K = 32 , respectively. To examine whether the full-dynamics token budget can instead be changed only at planning time, we evaluate each checkpoint under both token budgets. As shown in Table S6, changing K after training substantially degrades planning performance in both directions.             
+
+> Training KPlanning KSR ( ↑)98 98 94%
+> 98 32 14% 32 32 88%
+> 32 98 54%
+
+Table S6: Training–planning token-budget consistency on Push-T. Each configuration uses the same 50 fixed instances. The degradation indicates that K is part of the learned sparse-dynamics configuration rather than a freely ad-justable inference-time parameter. The sparse predictor and FDBU are jointly optimized under a particular foreground– background partition: changing K at planning time alters both the number of tokens receiving full dynamics predic-tion and the distribution of tokens handled by the background update. This creates a mismatch from the computation pat-tern observed during training. Accordingly, we train separate Fast and Faster models for their respective planning budgets.

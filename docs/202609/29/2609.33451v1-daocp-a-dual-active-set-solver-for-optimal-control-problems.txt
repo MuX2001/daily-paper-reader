@@ -1,0 +1,2032 @@
+Title: DAOCP: a dual active set solver for optimal control problems
+
+URL Source: https://arxiv.org/pdf/2609.33451v1
+
+Published Time: Tue, 29 Sep 2026 02:03:06 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# DAOCP: a dual active set solver for optimal control problems 
+
+Alberto Zaupa ∗, Samuel Erickson ∗ and Mikael Johansson ∗
+
+Abstract — We present DAOCP, a dual active set solver for lin-ear quadratic optimal control problems with stage-wise equality and inequality constraints. Active set methods are leading Model Predictive Control benchmarks for full-body robotics, but existing solvers operate on dense QPs, while typical problem dimensions favor methods that exploit the optimal control structure. DAOCP combines the warm-starting capabilities of active set algorithms with the better computational scaling of structure exploiting solvers, by relying on a generalization of the relationship between the Riccati recursion and the Cholesky factorization of the condensed Hessian. This result enables dual active set iterations to operate directly on the original optimal control problem through recursive computations, without ex-plicitly forming the condensed quadratic program. On robotics benchmarks, DAOCP is the fastest of four solvers in four of five scenarios, cutting average solve time on a 58-state Atlas model by 9 × relative to state of the art solvers DAQP and HPIPM. 
+
+I. I NTRODUCTION 
+
+Model Predictive Control (MPC) is a core methodology in robotics and increasingly used to control complex robotic systems with a large number of degrees of freedom [1], [2], [3]. Full-body MPC for humanoid and legged robots requires solving optimization problems with large state and con-trol dimensions over moderate to long prediction horizons, within tight real-time budgets. This dimensionality regime is particularly favorable for solvers that directly exploit the Optimal Control Problem (OCP) structure, rather than transforming the problem into a dense Quadratic Program (QP). At the same time, Active Set (AS) methods have a natural algorithmic advantage in MPC, due to their ability to effectively exploit warm starts on closely related problems. This is reflected by the leading performance of AS methods like DAQP [4] on robotics-inspired benchmarks [5]. Structure exploiting solvers for MPC have a long history, particularly among Interior Point methods [6], [7]. Several authors have proposed AS algorithms for OCPs [8], [9], [10], [11], but these have not led to the development of state of the art MPC solvers. Modern Active Set solvers still rely on the condensed MPC formulation [4], [12], and a competitive implementation designed specifically for OCPs remains missing. This paper presents DAOCP 1, a dual AS solver aiming to close this gap. The solver adopts the high-level algo-rithm of DAQP and Quadprog [13], but exploits the OCP structure and avoids condensing. To do so, we generalize a correspondence between the Riccati recursion and the Cholesky factorization of the condensed Hessian from [14]          
+
+> ∗The authors are with the Department of Decision and Control Systems at KTH Royal Institute of Technology, Stockholm, Sweden. Email addresses
+> {zaupa, samuelea, mikaelj }@kth.se
+> 1The solver code is available at https://github.com/AlbertoZaupa/daocp 050 100 150 200 250 300
+> simulation step
+> 10 −1
+> 10 0
+> 10 1
+> 10 2
+> Solve time (ms)
+
+Solve times for Atlas  
+
+> DAOCP HPIPM DAQP qpOASES
+> Fig. 1. Solve times for the Atlas benchmark. Timings are averaged over 50 independent runs on a per-simulation step basis.
+
+to problems with stage-wise equality constraints. On robotics benchmarks, DAOCP is the fastest of four solvers in four of five scenarios, cutting average solve time on a 58-state Atlas model by 9 × relative to DAQP and HPIPM. Figure 1 shows the closed-loop solve times on this benchmark. The remainder of the paper is organized as follows. In Section II we introduce the necessary background on MPC solvers and AS methods in particular. In Section III we present the DAOCP algorithm, with specific focus on how to exploit OCP structure of the primal problem. The solver is evaluated on a variety of robotics-inspired benchmarks in Section IV, where we demonstrate its performance advan-tages over other state of the art MPC solvers. Finally, we conclude the paper in Section V. II. B ACKGROUND 
+
+A. Solving MPC problems 
+
+In Model Predictive Control, linear quadratic Optimal Control Problems (OCPs) are solved in receding horizon fashion, meaning that at every sampling time the controller solves problems of the form minimize 
+
+> {xt},{ut}
+
+12 x⊤ 
+
+> N
+
+QN xN + q⊤ 
+
+> N
+
+xN + 
+
+> N−1
+
+X
+
+> t=0
+
+12
+
+ut
+
+xt
+
+⊤  Rt St
+
+S⊤ 
+
+> t
+
+Qt
+
+  ut
+
+xt
+
+
+
++
+
+rt
+
+qt
+
+⊤ ut
+
+xt
+
+
+
+subject to xt+1 = Atxt + Btut + wt
+
+Cxt xt + Cut ut ≤ ct
+
+CxN xN ≤ cN
+
+x0 given. (1) where t-dependent constraints are applied for t = 0 , . . . , N −
+
+1. We assume that Rt ≻ 0, QN ⪰ 0, and that the stage cost arXiv:2609.33451v1 [eess.SY] 27 Sep 2026 matrices are positive semi-definite. We denote the objective of Problem (1) by JLQR . Only the first optimal control variable is applied to the system, and the rest of the solution is used as a warm start for the following sampling time. Problem (1) can be solved with standard quadratic pro-gramming solvers after formulating it as a quadratic program (QP) in standard form minimize  
+
+> z
+> 12
+
+z⊤Hz + g⊤z
+
+subject to Gz ≤ b . (2) When doing so we can choose to either retain state variables, as in the extensive formulation, or to eliminate them through the dynamical relationship xt+1 = Atxt + Btut + wt,leading to the condensed formulation. In the former case, the problem matrices H and G are sparse, while in the latter case they are dense. Extensive form QPs can be solved with sparse QP solvers like OSQP [15] and Clarabel [16], while solvers like DAQP [4] and qpOASES [12] perform the best on condensed problems. Alternatively, one may employ dedicated solvers for OCP-structured problems, like HPIPM [7] and QPALM-OCP [17]. These approaches solve the extensive formulation by exploit-ing the specific sparsity pattern of the OCP. This is advan-tageous because it allows using dense, rather than general sparse, linear algebra techniques, which can more effectively utilize the computational resources of modern hardware. For this reason OCP solvers consistently outperform sparse QP solvers, especially for moderate to large numbers of state and control variables. The solution approaches described so far apply to linear quadratic OCPs, however they are often employed as core subroutines of solvers for nonlinear MPC and nonlinear tra-jectory optimization. For example, QP solvers are the compu-tational backbone of the Sequential Quadratic Programming (SQP) algorithms implemented in Acados [18]. In an SQP setting, dedicated OCP solvers have a particular structural advantage: because intermediate QPs are naturally generated in OCP format, dense solvers pay the extra overhead of condensing the problem at every iteration. 
+
+B. When OCP structure matters 
+
+The main numerical operations performed by optimization algorithms for QPs and OCPs can broadly be divided into two main classes: linear system factorizations and linear system solves. The former are always needed during solver setup, but may not play a critical role across solver iterations. Instead linear system solves, and related routines with similar floating point operations (flop) counts, dominate the per-iteration cost of AS and First Order methods, but are not particularly relevant for Interior Point algorithms. OCP solvers can factorize the linear system by running a finite horizon Riccati recursion, which is then used to solve the linear system through a related LQR recursion which computes the optimal state-input sequence [19]. The flop count of a classical Riccati recursion is Cf =
+
+N ( 73 n3 
+
+> x
+
++ 4 n2
+
+> x
+
+nu + 2 nxn2 
+
+> u
+
++ 13 n3
+
+> u
+
+), while the cost of the LQR recursion is Cs = N (4 n2 
+
+> x
+
++ 4 nxnu + 2 n2
+
+> u
+
+) (see [19] for more details). Comparing with the corresponding operations generally performed by dense QP solvers, which often rely on the Cholesky decomposition to factorize the linear system, one can establish the following threshold values for N , as a function of α = nx/n u
+
+Nf = p7α3 + 12 α2 + 6 α + 1 
+
+Ns = 2 α2 + 2 α + 1 . (3) When N ≥ Nf Riccati recursions are cheaper than Cholesky factorizations, while N ≥ Ns favors LQR solves over standard linear system solves. For robotics and other mechanical systems with approx-imately one input and two state variables per degree of freedom, α = 2 is a representative value, which gives 
+
+Nf ≈ 10 .8 and Ns = 13 . Given that typical values of the horizon exceed these thresholds, often by a significant margin [20], [2], [3], robotic applications are a natural fit for OCP-structure exploiting solvers. Raw flop counts however don’t give a complete picture. In fact, Riccati and LQR recursions struggle to achieve high utilization of the computational resources when nx and nu
+
+are small, due to the lack of sufficient parallelism in the matrix operations. However this is not an issue in the context of whole-body control for robotics, where nx and nu often range between 20 and 50 [21], [3], and are therefore large enough to make the proposed flops comparison meaningful. 
+
+C. Active Set algorithms 
+
+Active Set (AS) algorithms are particularly attractive for MPC because they can exploit the similarity between QPs at consecutive sampling times very effectively. These methods maintain a working set of constraints treated as equalities, which is updated until the optimality conditions are satisfied. When the changes in the optimal active set between sampling times are incremental, warm starting can substantially reduce the number of iterations [12], [4]. This is a practical advantage over Interior Point methods, which benefit notoriously little from warm starting. AS methods can also be competitive without a warm start [4], contrary to First Order methods [15] which tend to be quite unreliable in this setting, especially when high solution accuracy is required. Classical AS methods can be classified as primal or dual ,according to whether they preserve primal or dual feasibility across iterates. An advantage of dual methods is that the origin is always a feasible initial point, contrary to primal methods where a Phase I procedure is typically needed. In part for this reason, dual active set methods often outperform their primal counterparts [13], [22]. Established AS solvers such as qpOASES [12] and DAQP [4] are commonly applied to condensed MPC prob-lems. However, there are also previous works on AS algo-rithms for OCPs. In [8] the Riccati recursion is used to solve subproblems generated by a dual AS algorithm for QP relaxations arising in Mixed Integer MPC. Other works explore homotopy-based [9] and primal AS methods [10] for OCP structured problems, respectively. To the best of our knowledge, no public implementation of these algorithms is available. III. DAOCP In this section we present the DAOCP algorithm for solv-ing problems of the form (1), beginning with the high level active set procedure. Here we address a slightly different version of Problem (1), where we explicitly differentiate between stage-wise equality and inequality constraints, in order to deal with equality constraints more efficiently. More specifically, we are interested in solving minimize 
+
+> {xt},{ut}
+
+JLQR 
+
+subject to xt+1 = Atxt + Btut + wt
+
+Cxt xt + Cut ut ≤ ct
+
+Dxt xt + Dut ut = dt
+
+CxN xN ≤ cN
+
+x0 given, (4) where xt ∈ Rnx and ut ∈ Rnu . We denote the number of inequalities per stage by mt, and the number of equality constraints per stage by ρt (excluding the dynamics), and define m = PNt=0 mt, ρ = PN −1 
+
+> t=0
+
+ρt. Note that in Prob-lem (4), we do not include a terminal equality constraint of the form DN xN = dN . This is because one can implement a procedure based on a similar argument to [23], that either detects infeasibility of the equality constraints for the given 
+
+x0, or rewrites an OCP with arbitrary stage-wise and terminal equality constraints in the form of Problem (4), where the matrices Dut are full row-rank at every stage. We describe the procedure in Appendix B. In order to introduce the dual AS algorithm, it is more convenient to rewrite Problem (4) in its condensed form, obtained by eliminating state variables. We use this form only to describe the algorithm, while the implementation will exploit the original OCP structure without explicitly condensing the problem. We express state variables as 
+
+x = Ax0 + Bu + w (5) where x ∈ R(N +1) nx and u ∈ Rn, n = N n u, stack state and control variables over the horizon. The variable w collects the accumulated contributions of the affine dynamics terms 
+
+wt. Substituting the expression for x in the constraints and cost yields the condensed QP minimize  
+
+> u
+> 12
+
+u⊤Hu + g⊤u
+
+subject to Gu ≤ bEu = e . 
+
+(6) Under the cost assumptions for Problem (1), H ≻ 0, and after the equality preprocessing described above E has full row rank. Introducing dual variables only for the inequality constraints, the Lagrangian of Problem (6) is 
+
+L(u, λ ) = 12 u⊤Hu + g⊤u + I0(Eu − e) + λ⊤(Gu − b) (7) where I0(z) is zero if z = 0 and +∞ otherwise. If Problem (6) is feasible, strong duality for convex QPs with 
+
+Algorithm 1 The Dual Active Set algorithm. DAOCP ex-ploits OCP structure in the operations colored in blue.                                                                                                 
+
+> 1: W,λgiven. 2: loop
+> 3: if HWis nonsingular then
+> 4: Solve HWν=−fW
+> 5: if ν≥0then
+> 6: λW←ν;u←arg min vL(v, λ )
+> 7: if Gu≤bthen return u
+> 8: i←arg max j / ∈W (Gu−b)j
+> 9: W ← W ∪ { i}
+> 10: else
+> 11: d←ν−λW
+> 12: i←arg min j∈W :dj<0(−λj/d j)
+> 13: t← − λi/d i;λW←λW+td ;W ← W \ { i}
+> 14: end if
+> 15: else
+> 16: Find psuch that HWp= 0 and p⊤fW<0
+> 17: if p≥0then return INFEASIBLE
+> 18: i←arg min j∈W :pj<0(−λj/p j)
+> 19: t← − λi/p i;λW←λW+tp ;W ← W \ { i}
+> 20: end if
+> 21: end loop
+
+affine constraints allows us to recover its solution from the dual maximize  
+
+> λ≥0
+
+min u L(u, λ ). (8) From the equality-constrained QP optimality conditions and the block inverse formula [24, Sec. 10.1.1 and App. A.5.5], we find that Problem (8) is equivalent to the convex QP minimize 
+
+> λ≥0
+
+12 λ⊤Hλ + f ⊤λ . (9) where 
+
+H = G  H−1 − H−1E⊤(EH −1E⊤)−1EH −1 G⊤ (10) 
+
+f = b − Gu0
+
+with u0 = arg min u L(u, 0) . Note that the matrix in paren-theses in (10) is the upper-left block of the inverse equality-constrained KKT matrix. Algorithm 1 describes the AS algorithm employed by DAOCP. A working set W ⊆ {1, . . . , m } represents an equality constrained QP obtained from (9), where all λi with 
+
+i ∈ { 1, . . . , m } \ W are constrained through λi = 0 , while the remaining components of λ are free. Note that we are using the convention of representing the working set through constraints that are active in the primal problem, as in [13]. We denote by HW the matrix obtained from the rows and columns of H with index in W. Similarly, λW denotes the vector of components of λ indexed by W.Algorithm 1 is essentially identical to the algorithm em-ployed by DAQP, with the equality constraints eliminated here before applying the active-set procedure. We refer to [4], [13] for the correctness and convergence analysis, including the treatment of degeneracy. 
+
+A. Key implementation aspects 
+
+In this subsection we detail the key operations in Algo-rithm 1 which remain implicit in its mathematical formula-tion. 1) Solving unconstrained QPs: in order to solve the linear systems for ν and p in Algorithm 1, we maintain a Cholesky factorization of HW . When a constraint is added, we extend the factor by one row, while when one is removed we delete the corresponding row and column and perform a rank-one update. DAQP uses analogous updates to an LDL ⊤
+
+factorization. Note that in order to maintain the Cholesky factor of HW
+
+we do not need knowledge of the full H. Instead we only need to be able to compute the entries of H that constitute a new row of HW , after a constraint is added to W.To this end, DAQP computes a Gramian factorization of 
+
+H during solver setup. For the inequality-only formulation in [4], H = GH −1G⊤, and the chosen factorization is H =
+
+M M ⊤ with M = GL −⊤  
+
+> H
+
+, where LH = chol( H). A Gramian factorization is useful because it allows us to compute new rows of HW by simply evaluating a matrix-vector product. DAOCP instead employs a signed Gramian factorization of the form 
+
+H = MuM ⊤ 
+
+> u
+
+− Mξ M ⊤ 
+
+> ξ
+
+. (11) Moreover, we do not compute the matrices Mu and Mξ in full during solver setup. This is due to the fact that we target nonlinear or time-varying MPC applications, where changes in the problem matrices prevent reuse across sampling times. We therefore instead compute only the rows of Mu and Mξ
+
+that are actually needed, while the algorithm is running. The following Proposition characterizes the signed Gramian factorization that we employ. 
+
+Proposition 1: Let 
+
+K =
+
+H E⊤
+
+E 0
+
+
+
+(12) be the KKT matrix associated to the equality constraints of Problem (6), and let L be any matrix such that 
+
+K = L blockdiag( In, −Iρ)L⊤ .
+
+Then the dual Hessian H admits the signed Gramian factor-ization 
+
+H = MuM ⊤ 
+
+> u
+
+− Mξ M ⊤ 
+
+> ξ
+
+,
+
+where Mu and Mξ solve the linear system 
+
+L
+
+M ⊤
+
+> u
+
+M ⊤
+
+> ξ
+
+
+
+=
+
+G⊤
+
+0
+
+
+
+. (13) 
+
+Proof. The statement follows from the observation that H is the top-left block of K−1, multiplied by G on the left and 
+
+G⊤ on the right. The left factor L of the KKT matrix K defining our Gramian factorization may be chosen in different ways. For example, one option is to compute L through an LDL factorization of K. Later we describe how L can be selected so that linear systems in the form of Equation (13) can be solved efficiently. 
+
+2) Computing primal candidates: another key operation performed in Algorithm 1 is the retrieval of the primal candidate associated to the current dual multiplier λ, which we need in order to compute the residuals b − Gu, to deter-mine whether a constraint should be added to the working set. While one could retrieve u by directly minimizing the Lagrangian, we choose to do that through the relationship established by the following proposition. 
+
+Proposition 2: Let K, L, Mu, Mξ be defined as in Propo-sition 1. For a pair (W, λ ) generated by Algorithm 1, the minimizer is u = u0 + ∆ u, with ∆u solving the linear system 
+
+L⊤
+
+∆u
+
+∆ξ
+
+
+
+=
+
+−M ⊤
+
+> u, W
+
+M ⊤
+
+> ξ, W
+
+
+
+λW , (14) for some ∆ξ.
+
+Proof. The statement follows from the definitions of L, L,
+
+Mu and Mξ .
+
+3) Constraint selection: once the primal candidate is com-puted, we scan the residual b − Gu to determine which constraint should be added to the working set (if any). Classically, one may employ one of two possible heuristics: either all residuals are evaluated and the constraint with maximum violation is added, or instead we can adopt a 
+
+greedy approach, where we stop as soon as we find a violated constraint. The most-violated rule can reduce the number of iterations, while the greedy rule can reduce the cost of constraint selection. Their relative performance depends on the problem. For simplicity, we present results for the most-violated 
+
+heuristic, which is the one chosen by DAQP, but our imple-mentation allows the user to select which strategy to adopt. 
+
+B. Exploiting OCP structure 
+
+The algorithm described so far applies to a generic QP of the form (6). Now instead we describe how to rely on OCP structure to implement its main operations efficiently. The key observation is that solving linear systems with the KKT matrix K in (12) is equivalent to solving finite-horizon LQR problems with stage-wise equality constraints. In particular, for the special case of a condensed QP with no equality constraints, where L is the Cholesky factor of H,[14] established that solving Lx = b is equivalent to running the backward co-state LQR recursion [19, Algorithm 2], while solving L⊤y = x is equivalent to running the forward LQR recursion [19, Algorithm 2]. Here we generalize this result to a signed Cholesky, or LDL, factorization of K.Before introducing our main results, we define a specific form of the Riccati recursion, which is associated to OCPs in the form of Problem (4). This recursion, which is tightly related to the one in [23], follows the classical dynamic programming argument, with the cost-to-go minimization subject to Dxt xt +Dut ut = dt. These equality constraints can be satisfied for any value of xt, since Dut is full row rank by assumption. In particular, we introduce the quantities 
+
+Λt = signedchol 
+
+ Rt + B⊤ 
+
+> t
+
+Pt+1 Bt (Dut )⊤
+
+Dut 0
+
+ 
+
+(15) 
+
+Kut Kξt
+
+ = S⊤ 
+
+> t
+
++ A⊤ 
+
+> t
+
+Pt+1 Bt (Dxt )⊤ Λ−⊤  
+
+> t
+
+(16) 
+
+Pt = Qt + A⊤ 
+
+> t
+
+Pt+1 At − Kut (Kut )⊤ + Kξt (Kξt )⊤ (17) where PN = QN . The signedchol( ·) operator is defined to take as input the KKT matrix of a strictly convex, equality constrained QP 
+
+minimize 
+
+> z
+
+12 z⊤Qz + q⊤z s.t. Ez = b
+
+with full row rank E, and return a matrix factor Λ such that 
+
+Λ = 
+
+ chol( Q) 0
+
+E chol( Q)−⊤ chol( EQ −1E⊤)
+
+
+
+. (18) Recall that the main use of Equation (11) is to compute the row of HW associated to a newly added constraint. Assume that this is inequality constraint j at time step t. This in turn requires computing the corresponding rows of Mu and Mξ ,which we denote by mu and mξ , respectively. The following theorem states that by suitably choosing L in Proposition 1, 
+
+mu and mξ can be computed by running a generalization of the classical backward LQR recursion. 
+
+Theorem 1: Let (Cut )j and (Cxt )j be the rows of Cut and 
+
+Cxt corresponding to the newly added constraint. Partition 
+
+mu and mξ as 
+
+mu = y⊤ 
+
+> 0
+
+y⊤ 
+
+> 1
+
+. . . y⊤ 
+
+> N−1
+
+⊤
+
+mξ = v⊤ 
+
+> 0
+
+v⊤ 
+
+> 1
+
+. . . v⊤ 
+
+> N−1
+
+⊤
+
+where yt ∈ Rnu and vt ∈ Rρt . There exists a factorization of the KKT matrix (12) of the form 
+
+K = L blockdiag( In, −Iρ)L⊤
+
+such that the linear system (13) defining mu and mξ can be solved through the following recursion 
+
+yt
+
+vt
+
+
+
+= Λ −1
+
+> t
+
+(Cut )j
+
+0
+
+
+
+,pt = ( Cxt )j − Kut yt + Kξt vt.
+
+(19) 
+
+yτ
+
+vτ
+
+
+
+= Λ −1
+
+> τ
+
+B⊤ 
+
+> τ
+
+pτ +1 
+
+0
+
+
+
+,pτ = A⊤ 
+
+> τ
+
+pτ +1 − Kuτ yτ + Kξτ vτ
+
+(20) for τ = t − 1, . . . , 0, while vτ = 0 and yτ = 0 for τ > t .For a terminal constraint ( t = N ), initialize pN = ( CxN )j
+
+and apply (20) for τ = N − 1, . . . , 0.
+
+Proof. The theorem is proved in Appendix A. The proof generalizes the argument in [14] to equality constrained QPs. A similar result applies to the problem of solving the linear system that defines primal candidates in Equation (14). In this case, the system can be solved by running a generaliza-tion of the forward LQR recursion. 
+
+Theorem 2: For an arbitrary working set W and dual multiplier λ, partition 
+
+M ⊤ 
+
+> u, W
+
+λW = δu ⊤ 
+
+> 0
+
+δu ⊤ 
+
+> 1
+
+. . . δu ⊤ 
+
+> N−1
+
+⊤
+
+M ⊤ 
+
+> ξ, W
+
+λW = δξ ⊤ 
+
+> 0
+
+δξ ⊤ 
+
+> 1
+
+. . . δξ ⊤ 
+
+> N−1
+
+⊤ .
+
+Then the primal candidate u = arg min v L(v, λ ) can be written as u = u0 + ∆ u, where the time-indexed blocks of ∆u are obtained from the following recursion 
+
+∆ut
+
+∆ξt
+
+
+
+= Λ −⊤ 
+
+> t
+
+−(Kut )⊤∆xt − δu t
+
+(Kξt )⊤∆xt + δξ t
+
+
+
+∆xt+1 = At∆xt + Bt∆ut
+
+(21) with ∆x0 = 0 .
+
+Proof. The statement follows from a similar argument as in the proof of Theorem 1. 
+
+Remark 1: Notice that when computing a primal candi-date satisfying Equation (14) through the recursion stated by Theorem 2, we must also compute the corresponding state sequence. This allows us to evaluate the constraint residuals 
+
+b − Gu without having to form b or G.Theorems 1 and 2 together imply that we do not need to form the condensed Problem (6), since all operations in Algorithm 1 can be expressed in terms of the original OCP and the associated Riccati recursion. 
+
+C. Analyzing complexity 
+
+The most costly operations performed by the algorithm are recursions (19)–(21), as well as the linear system solves involving HW as coefficient matrix, and the matrix vector products M ⊤ 
+
+> u, W
+
+λW , M ⊤ 
+
+> ξ, W
+
+λW . Overall the iteration cost is 
+
+Citer = CAS + CLQR + Cscan , (22) where 
+
+CAS = O  |W| 2 + |W| (ρ + N n u)
+
+CLQR = O N (n2 
+
+> x
+
++ n2
+
+> u
+
+) +  
+
+> N−1
+
+X
+
+> t=0
+
+ρ2
+
+> t
+
+!
+
+Cscan = O (m(nx + nu)) .
+
+(23) The quadratic scaling of CAS with |W| means that iterations may become quite expensive when the working set is large. This is the crucial reason to exclude equality constraints from the AS algorithm: if we simply keep all equalities in the working set, then at every iteration CAS ≥ ρ2. Instead, with our approach, the quadratic cost of equality constraints is spread through the horizon as per Equation (23) (notice that 
+
+ρ2 ≥ PN −1 
+
+> t=0
+
+ρ2 
+
+> t
+
+). Nevertheless, the quadratic scaling of CAS with |W| im-plies that DAOCP is optimized for problems where the working set does not grow too large. When this design assumption fails to hold, it becomes more convenient to formulate dual subproblems as equality constrained LQR problems, implying that the cost term which is quadratic in 
+
+|W| becomes O(PNt=0 |W t|2), where Wt denotes the set of active primal constraints at time t.We find the approach taken by DAOCP to be very com-petitive on MPC problems, where, after eliminating equality constraints, our assumption on the size of the working set often holds. In future work we will explore the formulation briefly described above. D. Solver implementation 
+
+DAOCP is implemented in C, and relies on BLAS-FEO for a significant portion of the numerical linear al-gebra. BLASFEO was chosen because it is specifically designed to deliver high performance on Riccati and LQR-like routines, where several operations are performed on relatively small matrices. The solver code is available at https://github.com/AlbertoZaupa/daocp. IV. N UMERICAL EXPERIMENTS 
+
+In this section we compare DAOCP against other state of the art solvers for MPC on three robotics benchmarks. The first involves stabilizing the full-body model of an Atlas humanoid robot, taken from [25]. Then we reproduce the benchmark proposed in [26], where a nonlinear MPC controller follows time-varying reference trajectories for a quadruped robot, both in standing and trotting scenarios. Finally, we compare the solvers on two challenging reference tracking problems for quadrotors from [27]. The Atlas benchmark is a linear time-invariant MPC problem, where the robot dynamics are linearized about a reference equilibrium. The quadruped and quadrotor bench-marks instead involve a nonlinear MPC controller in Real Time Iteration (RTI) [28] fashion, implemented in Acados. We compare against DAQP [4], HPIPM [7] and qpOASES [12]. The Interior Point method HPIPM is the most established OCP solver, while DAQP and qpOASES are the most popular and competitive AS solvers for MPC. For all benchmarks the termination tolerance of HPIPM was set to 10 −3, and the chosen mode was speed abs . This configuration allowed HPIPM to deliver the best possible solve times, with no observable degradation in control perfor-mance. Otherwise all solvers were given default parameters. All benchmarks were run on a laptop equipped with an Intel Core Ultra 7 265U processor. 
+
+A. Atlas stabilization 
+
+The dynamics of the Atlas robot are described by a state space model with 58 state variables and 29 controls [25]. The horizon length for this problem is N = 30 . Because the controller uses the linear model corresponding to the reference equilibrium, the reported solve times do not include factorization costs, since they can be reused across sampling times. The closed-loop simulation is run 50 times, and the per sample timings are averaged over all runs. We report in Ta-ble I the average and worst case solve times over simulation steps. Excluding qpOASES, which does not perform partic-ularly well on this benchmark, the results are in agreement with the typical differences between Interior Point and Active Set methods: while DAQP and DAOCP are much faster than HPIPM on average, the difference is less significant in the worst case. Nevertheless, DAOCP outperforms all other solvers on both metrics. The gap in solve times between DAOCP and DAQP, which essentially implement the same high-level AS algorithm, highlights how being able to exploit OCP structure is critical                              
+
+> TABLE I ATLAS BENCHMARK SOLVE TIMES .qpOASES HPIPM DAQP DAOCP Average [ms] 3.64 1.75 0.27 0.03
+> Worst case [ms] 176.59 4.99 3.82 1.08 10 11 12 13 14 15 16 17 18 19 20
+> Horizon length N
+> 10 −1
+> 10 0
+> 10 1
+> acados solve time [ms]
+> Quadruped, trotting. Solve time over N
+> DAOCP HPIPM DAQP qpOASES P95
+> Fig. 2. Average and p95 solve times for the quadruped benchmark in the trotting scenario. Nranges from 10 to 20 . The trends are consistent with the N-linear scaling of HPIPM and DAOCP, and the hybrid quadratic-cubic scaling of DAQP and qpOASES.
+
+for this particular benchmark. In fact the horizon length N =30 greatly exceeds the thresholds Ns(2) = 13 , Nf (2) ≈ 10 .8
+
+established in Section II-B, and in particular the flop count of LQR solves is less than half of dense triangular solves. This is a key contribution to the 9 × improvement in average solve time for DAOCP, which is further explained by the difference in linear algebra backend. 
+
+B. Quadruped control 
+
+In the quadruped control benchmark from [26], the robot is modeled as a rigid body, and the control inputs are the ground-contact forces exerted through the feet. The system state has 13 components, while the control input has 12. Because nu and nx are relatively close, exploiting OCP structure is again particularly favorable, and in fact the horizon thresholds from Section II-B are quite low at 
+
+Ns, N f ≈ 5.5.The benchmark involves two types of motion: standing, where the controller is given time-varying body orientation references, and trotting, where the quadruped is walking, following a time-varying velocity reference. In the trotting scenario, the ability to deal efficiently with stage-wise equal-ity constraints is crucial, since at every sampling time the feet that are not in contact with the ground are constrained to exert null force. All solvers have this capability except qpOASES, and this in part explains its gap in performance compared with DAQP. Runtime measurements are averaged on a per-sampling time basis over 5 independent runs. Figure 2 shows the average and p95 solve times for the four solvers in the trotting scenario, for horizon lengths ranging from N = 10 TABLE II QUADRUPED SOLVE TIMES , N = 20 .Solver Motion Average [ms] Worst case [ms] HPIPM Standing 0.240 0.443 Trotting 0.391 0.804 DAQP Standing 2.575 3.835 Trotting 3.544 5.579 qpOASES Standing 3.815 19.440 Trotting 7.332 11.579 DAOCP Standing 0.188 0.329              
+
+> Trotting 0.235 0.427
+> TABLE III QUADROTOR SOLVE TIMES . D YNAMICALLY FEASIBLE TRAJECTORY .qpOASES HPIPM DAQP DAOCP Average [ μs] 132.12 87.04 111.79 81.80
+> Worst case [ μs] 143.90 100.53 117.70 88.03
+
+to N = 20 . The results highlight how HPIPM and DAOCP scale more favorably with horizon length: over the given range of N , their average solve time roughly doubles, while those of DAQP and qpOASES increase by more than a factor of 4. This is consistent with the inherent linear scaling in N
+
+of structure exploiting methods, and the quadratic scaling of dense AS iterations. Table II reports average and worst case solve times in both scenarios for N = 20 .
+
+C. Quadrotor reference tracking 
+
+In this benchmark we aim at testing the performance of DAOCP on a problem formulation where exploiting OCP structure is not clearly advantageous. The problem dimen-sions are N = 20 , nx = 13 and nu = 4 . From Section II-B, we get Nf ≈ 20 and Ns ≈ 29 , and considering the relatively small value of nu, condensing based methods are expected to have an advantage, especially when it comes to linear system solves and similar operations relevant for AS solvers. In [27, Eq. 36] the authors define a family of 144 reference trajectories and we compare the four solvers on two instances of different levels of difficulty. The first is obtained by setting 
+
+Vmax = 15 m/s, amax = 30 m/s 2, n = 1 , while the second with Vmax = 15 m/s, amax = 60 m/s 2 and n = 2 . The first trajectory was selected as one of the most challenging from the dynamically feasible subset, while the other, which is dynamically infeasible, was chosen specifically as the one where DAOCP performed the worst relative to the other solvers. Tables III and IV report the runtime breakdown for the two trajectories. Timing results were averaged on a per simulation step basis, across 400 individual runs. DAOCP is the fastest solver on the feasible trajectory, while it is outperformed by DAQP and HPIPM on the infeasible one. Across all 144 instances from [27], DAOCP was the fastest in terms of average and worst-case solve times in 40 % and 49 % of the cases, respectively. Instead HPIPM was the fastest on average 54 % of the times, and 40 % in the worst case. In the            
+
+> TABLE IV QUADROTOR SOLVE TIMES . D YNAMICALLY INFEASIBLE TRAJECTORY .qpOASES HPIPM DAQP DAOCP Average [ μs] 354.81 150.62 181.32 282.01 Worst case [ μs] 1060.89 227.94 331.81 540.51
+
+remaining few cases DAQP was the fastest, while qpOASES was never faster than all three other solvers. While dense solvers were expected to have an edge given the problem dimensions, dedicated OCP solvers were generally faster. The reason for this discrepancy is that the amount of constant work that structure exploiting solvers perform at every sample time is less than for dense solvers. This point becomes clear when comparing the performance of DAOCP and DAQP on the two trajectories. At every sample time DAQP needs to condense the problem and compute the full Gramian factorization H = M M ⊤, while DAOCP can start solving the problem right away. However, as established above, AS iterations are more expensive for DAOCP, which is therefore slower when several iterations are needed before reaching convergence, as is the case on the infeasible trajectory. V. C ONCLUSION 
+
+In this paper we presented DAOCP, a dual Active Set solver for linear quadratic OCPs. The solver is inspired by the established QP solver DAQP, and it improves its performance on OCP-structured problems by relying on the relationship between the Riccati recursion of an LQR problem with stage-wise equality constraints and a specific LDL factorization of the corresponding condensed KKT matrix. DAOCP is compared with HPIPM, DAQP and qpOASES on a set of robotics-inspired benchmarks, where it showcases compelling performance, combining the desirable features of Active Set methods and the advantages of OCP solvers in dimensionality regimes typical of robotics. APPENDIX 
+
+A. Proof of Theorem 1 
+
+Before proving the statement of Theorem 1 in full generality, we consider the special case N = 2 . This allows us to more clearly illustrate the key mechanisms that are employed in the general proof that follows. 
+
+Proof of Theorem 1, N=2. We begin by writing the KKT matrix K of Equation (12) after introducing the following time-based block ordering for its rows and columns 
+
+uN −1, ξ N −1, u N −2, ξ N −2, . . . , u 0, ξ 0
+
+where ξt blocks are associated to the rows of E that correspond to constraints at time t. We denote by ¯K the KKT matrix in this basis, which reads 
+
+¯K =
+
+
+
+R1 + B⊤ 
+
+> 1
+
+Q2B1 (Du 
+
+> 1
+
+)⊤
+
+Du 
+
+> 1
+
+0
+
+B⊤ 
+
+> 0
+
+S⊤ 
+
+> 1
+
++ B⊤ 
+
+> 0
+
+A⊤ 
+
+> 1
+
+Q2B1 B⊤ 
+
+> 0
+
+(Dx 
+
+> 1
+
+)⊤ R0 + B⊤ 
+
+> 0
+
+Q1B0 + B⊤ 
+
+> 0
+
+A⊤ 
+
+> 1
+
+Q2A1B0 (Du 
+
+> 0
+
+)⊤
+
+0 0 Du 
+
+> 0
+
+0
+
+ (24) where the top-right block is left blank because the matrix is symmetric. In the following, the submatrix of ¯K obtained from the rows associated to (uτ , ξ τ ) and the columns associated to (ut, ξ t) will be denoted as the (τ, t )-block of ¯K.We are now going to compute an LDL factorization of ¯K of the form 
+
+¯K = ¯LΣ ¯L⊤
+
+where Σ is diagonal and ¯L is lower triangular and invertible. This factorization is guaranteed to exist because H ≻ 0 and 
+
+E is full row-rank. In order to compute such an LDL factorization, we employ the classical factorization procedure which starts by identifying a block partitioning of the form 
+
+¯K =
+
+ ¯K1,1
+
+¯K0,1 ¯K0,0
+
+
+
+chosen so that we know how to factorize ¯K1,1 = ¯L1,1Σ1 ¯L⊤
+
+> 1,1
+
+. We then begin to fill in the LDL of ¯K as follows 
+
+¯L =
+
+ ¯L1,1
+
+¯L0,1 ⋆
+
+
+
+, Σ = blockdiag(Σ 1, ⋆ )
+
+where ¯L0,1 = ¯K0,1 ¯L−⊤  
+
+> 1,1
+
+Σ−11 , and the blocks denoted by ⋆ will be computed in the following steps of the procedure. We then update the bottom-right block of ¯K as 
+
+¯K0,0 ← ¯K0,0 − ¯L0,1Σ1 ¯L⊤
+
+> 0,1
+
+and iterate the same steps. We refer to the ¯K0,0 update as the Schur complement update , because ¯K0,0 − ¯L0,1Σ1 ¯L⊤ 
+
+> 0,1
+
+is the Schur complement of ¯K with respect to ¯K1,1.We now apply the described procedure to the matrix ¯K in Equation (24). Notice that the (1 , 1) -block of ¯K is a KKT matrix with standard variable ordering, with positive definite Hessian and full row-rank constraint matrix. It therefore admits a signed Cholesky factorization (as defined in Equation (18)). Define P2 = Q2 and 
+
+Λ1 = signedchol 
+
+ R1 + B⊤ 
+
+> 1
+
+P2B1 (Du 
+
+> 1
+
+)⊤
+
+Du 
+
+> 1
+
+0
+
+ 
+
+=
+
+Λuu 
+
+> 1
+
+Λξu  
+
+> 1
+
+Λξξ 
+
+> 1
+
+Ku 
+
+> 1
+
+Kξ
+
+> 1
+
+ = S⊤ 
+
+> 1
+
++ A⊤ 
+
+> 1
+
+P2B1 (Dx 
+
+> 1
+
+)⊤ Λ−⊤ 
+
+> 1
+
+J1 = blockdiag( Inu , −Iρ1 ) .
+
+Following the procedure above we can begin to fill in the LDL of ¯K as follows 
+
+¯L =
+
+
+
+Λuu 
+
+> 1
+
+Λξu  
+
+> 1
+
+Λξξ 
+
+> 1
+
+B⊤ 
+
+> 0
+
+Ku 
+
+> 1
+
+−B⊤ 
+
+> 0
+
+Kξ 
+
+> 1
+
+⋆
+
+0 0
+
+
+
+Σ = blockdiag( Inu , −Iρ1 , ⋆ ) .
+
+We then proceed to update the (0 , 0) -block of ¯K. Notice that only its top-left sub-block will be updated ¯K0,0 ←
+
+R0 + B⊤
+
+> 0
+
+ Q1 + A⊤ 
+
+> 1
+
+P2A1 − Ku 
+
+> 1
+
+(Ku 
+
+> 1
+
+)⊤ + Kξ 
+
+> 1
+
+(Kξ 
+
+> 1
+
+)⊤B0 (Du 
+
+> 0
+
+)⊤
+
+Du 
+
+> 0
+
+0
+
+
+
+=
+
+R0 + B⊤ 
+
+> 0
+
+P1B0 (Du 
+
+> 0
+
+)⊤
+
+Du 
+
+> 0
+
+0
+
+
+
+where we defined 
+
+P1 = Q1 + A⊤ 
+
+> 1
+
+P2A1 − Ku 
+
+> 1
+
+(Ku 
+
+> 1
+
+)⊤ + Kξ 
+
+> 1
+
+(Kξ 
+
+> 1
+
+)⊤ .
+
+This is the crucial step: the Schur complement update propagates the cost-to-go matrix Pt, obtained from the Riccati recursion stated in Equation (17). Then defining 
+
+Λ0 =
+
+Λuu 
+
+> 0
+
+Λξu  
+
+> 0
+
+Λξξ 
+
+> 0
+
+
+
+= signedchol 
+
+ R0 + B⊤ 
+
+> 0
+
+P1B0 (Du 
+
+> 0
+
+)⊤
+
+Du 
+
+> 0
+
+0
+
+ 
+
+J0 = blockdiag( Inu , −Iρ0 )
+
+the complete LDL factorization of ¯K is given by 
+
+¯L =
+
+
+
+Λuu 
+
+> 1
+
+Λξu  
+
+> 1
+
+Λξξ 
+
+> 1
+
+B⊤ 
+
+> 0
+
+Ku 
+
+> 1
+
+−B⊤ 
+
+> 0
+
+Kξ 
+
+> 1
+
+Λuu 
+
+> 0
+
+0 0 Λξu  
+
+> 0
+
+Λξξ 
+
+> 0
+
+
+
+Σ = blockdiag( Inu , −Iρ1 , I nu , −Iρ0 ) .
+
+(25) We now move on to show that the LDL in (25) allows us to solve the linear systems of Theorem 1 through the stated recursion. Suppose that the newly added constraint is associated to stage index t = 1 (we show the t = 1 case because it is more illustrative than t = 0 or t = 2 , but the same procedure applies in the other two cases), and call cu and cx the corresponding rows of Cu 
+
+> 1
+
+and Cx 
+
+> 1
+
+, respectively. Let g be the vector right-hand side defined by Equation (13). We reorder the slices of g according to the proposed variable ordering, and aim to solve the linear system 
+
+
+
+Λuu 
+
+> 1
+
+Λξu  
+
+> 1
+
+Λξξ 
+
+> 1
+
+B⊤ 
+
+> 0
+
+Ku 
+
+> 1
+
+−B⊤ 
+
+> 0
+
+Kξ 
+
+> 1
+
+Λuu 
+
+> 0
+
+0 0 Λξu  
+
+> 0
+
+Λξξ 
+
+> 0
+
+
+
+y1
+
+v1
+
+y0
+
+v0
+
+ =
+
+
+
+cu
+
+0
+
+B⊤ 
+
+> 0
+
+cx
+
+0
+
+ .
+
+The solution of the system above is given by y1
+
+v1
+
+
+
+= Λ −11
+
+cu
+
+0
+
+y0
+
+v0
+
+
+
+= Λ −10
+
+B⊤ 
+
+> 0
+
+p1
+
+0
+
+
+
+p1 = cx − Ku 
+
+> 1
+
+y1 + Kξ 
+
+> 1
+
+v1
+
+which is exactly the stated recursion. Finally, to conclude the proof we need to show that ¯L can be used to construct, in the original basis, a factorization of 
+
+K that reads 
+
+K = L blockdiag( In, −Iρ)L⊤ .
+
+This is easily obtained by setting L = Π ⊤ ¯LΠ where Π is the permutation matrix associated to the proposed variable reordering. The proof for the N = 2 case highlights the key fact that we rely on to construct a factorization of the KKT matrix that is related to the Riccati recursion. After reordering the rows and columns of K, when running the typical LDL factorization procedure, Schur complement updates propagate the cost-to-go matrices given by the Riccati recursion. For this reason, the obtained LDL has a specific structure that can be used when solving linear systems involving the lower triangular factor. We now move on to prove the general N ≥ 1 case through an inductive argument. As before, we first show that after variable reordering we can obtain an LDL of ¯K with specific structure, and then use this to prove that the linear system in Theorem 1 can be solved through the stated recursion. 
+
+Proof of Theorem 1. Let ¯K be the KKT matrix of Equation (12), after row-column reordering given by 
+
+uN −1, ξ N −1, u N −2, ξ N −2, . . . , u 0, ξ 0 .
+
+In the following we are going to refer to matrix products of the form Aτ . . . A s, where we use the convention Aτ . . . A s = I
+
+if τ < s . Similarly, for the transposed version A⊤ 
+
+> s
+
+. . . A ⊤ 
+
+> τ
+
+= I, if τ < s .We rely on an inductive argument based on the hypothesis that, while applying the LDL factorization procedure, before processing the (k, k )-block along the diagonal, the matrix ¯L is such that 
+
+¯Lτ,τ = Λ τ
+
+¯Ls,τ =
+
+B⊤ 
+
+> s
+
+A⊤ 
+
+> s+1
+
+· · · A⊤ 
+
+> τ−1
+
+Kuτ −B⊤ 
+
+> s
+
+A⊤ 
+
+> s+1
+
+· · · A⊤ 
+
+> τ−1
+
+Kξτ
+
+0 0
+
+ (26) for τ > k, s < τ . Moreover Στ = Jτ for τ > k , where 
+
+Jτ = blockdiag( Inu , −Iρτ ) . (27) Finally, with a slight abuse of notation, denoting by ¯K the part of the same matrix that we have yet to factorize, after applying the Schur complement updates from the LDL procedure, we assume that for τ ≤ k and s < τ 
+
+¯Kτ,τ =
+
+ ¯Hτ,τ (Duτ )⊤
+
+Duτ 0
+
+
+
+¯Ks,τ =
+
+Ms,τ Ns,τ 
+
+0 0
+
+
+
+where the first block of ¯Kτ,τ is given by 
+
+¯Hτ,τ = Rτ +
+
+> k
+
+X 
+
+> j=τ+1
+
+B⊤ 
+
+> τ
+
+A⊤  
+
+> τ+1
+
+· · · A⊤
+
+> j−1
+
+Qj Aj−1 · · · Aτ +1 Bτ
+
++ B⊤ 
+
+> τ
+
+A⊤  
+
+> τ+1
+
+· · · A⊤ 
+
+> k
+
+Pk+1 Ak · · · Aτ +1 Bτ
+
+and the two non-zero blocks of ¯Ks,τ are given by 
+
+Ms,τ = B⊤ 
+
+> s
+
+A⊤ 
+
+> s+1
+
+· · · A⊤ 
+
+> τ−1
+
+S⊤ 
+
+> τ
+
++
+
+> k
+
+X 
+
+> j=τ+1
+
+B⊤ 
+
+> s
+
+A⊤ 
+
+> s+1
+
+· · · A⊤
+
+> j−1
+
+Qj Aj−1 · · · Aτ +1 Bτ
+
++ B⊤ 
+
+> s
+
+A⊤ 
+
+> s+1
+
+· · · A⊤ 
+
+> k
+
+Pk+1 Ak · · · Aτ +1 Bτ
+
+and 
+
+Ns,τ = B⊤ 
+
+> s
+
+A⊤ 
+
+> s+1
+
+· · · A⊤ 
+
+> τ−1
+
+(Dxτ )⊤ .
+
+Here Pt, Λt, Kut and Kξt are defined as in (17), (15), (16). Notice that the hypothesis is verified when k = N − 1, which constitutes our base case. Now we proceed with the next step in the factorization procedure. By our inductive hypothesis, we have 
+
+¯Kk,k =
+
+Rk + B⊤ 
+
+> k
+
+Pk+1 Bk (Duk )⊤
+
+Duk 0
+
+
+
+and thus, from the definition of Λk and Jk
+
+¯Kk,k = Λ kJkΛ⊤ 
+
+> k
+
+.
+
+This implies that ¯Lk,k = Λ k, Σk = Jk. Then from the assumption on ¯Ks,k for s < k , we have 
+
+¯Ls,k =
+
+Ms,k Ns,k 
+
+0 0
+
+
+
+¯L−⊤  
+
+> k,k
+
+Σ−1 
+
+> k
+
+=
+
+B⊤ 
+
+> s
+
+A⊤ 
+
+> s+1
+
+· · · A⊤
+
+> k−1
+
+Kuk −B⊤ 
+
+> s
+
+A⊤ 
+
+> s+1
+
+· · · A⊤
+
+> k−1
+
+Kξk
+
+0 0
+
+
+
+.
+
+Notice that the matrices ¯Ls,k for s ≤ k have exactly the expression stated by our inductive hypothesis in Equation (26). We now update the trailing Schur complement of ¯K. Due to the sparsity pattern of ¯Ls,k , only the ¯Hτ,τ and Ms,τ blocks are updated. In particular we have 
+
+¯Hτ,τ ← Rτ +
+
+> k
+
+X 
+
+> j=τ+1
+
+B⊤ 
+
+> τ
+
+A⊤  
+
+> τ+1
+
+· · · A⊤
+
+> j−1
+
+Qj Aj−1 · · · Aτ +1 Bτ
+
++ B⊤ 
+
+> τ
+
+A⊤  
+
+> τ+1
+
+· · · A⊤
+
+> k−1
+
+
+
+A⊤ 
+
+> k
+
+Pk+1 Ak − Kuk (Kuk )⊤ + Kξk (Kξk )⊤
+
+Ak−1 · · · Aτ +1 Bτ
+
+= Rτ +
+
+> k−1
+
+X 
+
+> j=τ+1
+
+B⊤ 
+
+> τ
+
+A⊤  
+
+> τ+1
+
+· · · A⊤
+
+> j−1
+
+Qj Aj−1 · · · Aτ +1 Bτ
+
++ B⊤ 
+
+> τ
+
+A⊤  
+
+> τ+1
+
+· · · A⊤
+
+> k−1
+
+PkAk−1 · · · Aτ +1 Bτwhere we used the fact that Pk = Qk + A⊤ 
+
+> k
+
+Pk+1 Ak − Kuk (Kuk )⊤ + Kξk (Kξk )⊤. The expression for ¯Hτ,τ after the update also agrees with our inductive hypothesis. A similar computation shows that the same is true for Ms,τ , s < τ < k . This proves that the inductive hypothesis continues to hold after processing the (k, k )-block along the diagonal, and consequently we obtain the desired factorization, given by Equation (26) and τ = 0 , 1, . . . , N − 1, s < τ .We now proceed to show that we can use this factorization to solve the linear system of Theorem 1 through the recursion in (19), (20). Let t ≤ N − 1 (we address the t = N case later) be the time index associated to the constraint entering the active set, and denote by cu and cx the corresponding rows of Cut , Cxt . Denote by g the right-hand side of Equation (13), and by ¯g the same vector after reordering according to 
+
+uN −1, ξ N −1, u N −2, ξ N −2, . . . , u 0, ξ 0 .
+
+We define the τ -slice ¯gτ as the vector obtained from the entries corresponding to (uτ , ξτ ) of ¯g. Notice that 
+
+¯gτ = 0 , τ > t 
+
+¯gt =
+
+cu
+
+0
+
+
+
+¯gτ =
+
+B⊤ 
+
+> τ
+
+A⊤  
+
+> τ+1
+
+· · · A⊤
+
+> t−1
+
+cx
+
+0
+
+
+
+, τ < t . 
+
+Denote also by ¯m the vector m⊤ 
+
+> u
+
+m⊤
+
+> ξ
+
+⊤ after the same reordering, whose slices are yt and vt. Solving the system 
+
+¯L ¯m = ¯ g
+
+we see that for τ > t , yτ = 0 and vτ = 0 . Moreover 
+
+yt
+
+vt
+
+
+
+= Λ −1
+
+> t
+
+cu
+
+0
+
+
+
+.
+
+We can then update the right-hand side of the linear system with the contribution from yt and vt. From the structure of ¯Lτ,t 
+
+in Equation (26) we get 
+
+¯gτ ← ¯gτ −
+
+"
+
+B⊤ 
+
+> τ
+
+A⊤  
+
+> τ+1
+
+· · · A⊤
+
+> t−1
+
+
+
+Kut yt − Kξt vt
+
+
+
+0
+
+#
+
+=
+
+"
+
+B⊤ 
+
+> τ
+
+A⊤  
+
+> τ+1
+
+· · · A⊤
+
+> t−1
+
+
+
+cx − Kut yt + Kξt vt
+
+
+
+0
+
+#
+
+=
+
+B⊤ 
+
+> τ
+
+A⊤  
+
+> τ+1
+
+· · · A⊤
+
+> t−1
+
+pt
+
+0
+
+
+
+.
+
+where we used the definition of pt from Equation (19). Now assume that while solving the linear system, before solving for yk and vk, the remainder of the right-hand side, after applying the updates from yτ and vτ for τ > k , reads 
+
+¯gτ =
+
+B⊤ 
+
+> τ
+
+A⊤  
+
+> τ+1
+
+· · · A⊤ 
+
+> k
+
+pk+1 
+
+0
+
+
+
+.
+
+Notice that this assumption holds for the k = t − 1 case. Then we can solve for yk, vk obtaining 
+
+yk
+
+vk
+
+
+
+= Λ −1
+
+> k
+
+B⊤ 
+
+> k
+
+pk+1 
+
+0
+
+
+
+and then update the remainder of the right hand side, which gives for τ < k 
+
+¯gτ ← ¯gτ −
+
+"
+
+B⊤ 
+
+> τ
+
+A⊤  
+
+> τ+1
+
+· · · A⊤
+
+> k−1
+
+
+
+Kuk yk − Kξk vk
+
+
+
+0
+
+#
+
+=
+
+"
+
+B⊤ 
+
+> τ
+
+A⊤  
+
+> τ+1
+
+· · · A⊤
+
+> k−1
+
+
+
+A⊤ 
+
+> k
+
+pk+1 − Kuk yk + Kξk vk
+
+
+
+0
+
+#
+
+=
+
+B⊤ 
+
+> τ
+
+A⊤  
+
+> τ+1
+
+· · · A⊤
+
+> k−1
+
+pk
+
+0
+
+
+
+.
+
+Therefore the structure of the right-hand side is preserved after the update, and by induction we have that yk and vk are indeed given by the recursion in (19) and (20). Notice that the inductive argument above applies also to the t = N case, where gN = p⊤ 
+
+> N
+
+BN −1 0⊤, with pN = cx.Finally, the LDL factorization ¯K = ¯LΣ ¯L⊤ can be used to construct L = Π ⊤ ¯LΠ, where Π is the permutation matrix associated with the proposed variable reordering. The matrix L satisfies K = L blockdiag( In, −Iρ)L⊤, and thus the proof is concluded. B. Equality constrained LQR problems 
+
+Consider a generic LQR problem with stagewise equality constraints, under the cost assumptions of Problem (1), of the form 
+
+minimize  
+
+> {xt},{ut}
+> N−1
+
+X
+
+> t=0
+
+12
+
+ut
+
+xt
+
+⊤  Rt St
+
+S⊤ 
+
+> t
+
+Qt
+
+  ut
+
+xt
+
+
+
++
+
+rt
+
+qt
+
+⊤ ut
+
+xt
+
+!
+
++ 12 x⊤ 
+
+> N
+
+QN xN + q⊤ 
+
+> N
+
+xN
+
+subject to xt+1 = Atxt + Btut + wt, t = 0 , . . . , N − 1,Dut ut + Dxt xt = dt, t = 0 , . . . , N − 1,DN xN = dN ,x0 given .
+
+(28) We are going to show that the problem above can always be rewritten as minimize 
+
+> {xt},{ut}
+
+JLQR 
+
+subject to xt+1 = Atxt + Btut + wt, t = 0 , . . . , N − 1,
+
+¯Dut ut + ¯Dxt xt = ¯dt, t = 0 , . . . , N − 1,N0x0 = n0,x0 given ,
+
+(29) where all the matrices ¯Dut are full row rank. The equality N0x0 = n0, which was not present explicitly in the original formulation, establishes whether the problem is solvable for the given initial state. We employ a Dynamic Programming argument, and begin to solve the problem by optimizing over uN −1. After defining 
+
+PN = QN , pN = qN , we solve minimize  
+
+> uN−1,x N
+
+12
+
+uN −1
+
+xN −1
+
+⊤ RN −1 SN −1
+
+S⊤  
+
+> N−1
+
+QN −1
+
+  uN −1
+
+xN −1
+
+
+
++
+
+rN −1
+
+qN −1
+
+⊤ uN −1
+
+xN −1
+
+
+
++ 12 x⊤ 
+
+> N
+
+PN xN + p⊤ 
+
+> N
+
+xN
+
+subject to xN = AN −1xN −1 + BN −1uN −1 + wN −1,DuN −1uN −1 + DxN −1xN −1 = dN −1,DN xN = dN .
+
+(30) We then substitute the expression for xN given by the dynamics into the objective and the constraints. For the constraints this gives  DuN −1 DxN −1
+
+DN BN −1 DN AN −1
+
+  uN −1
+
+xN −1
+
+
+
+=
+
+ dN −1
+
+dN − DN wN −1
+
+
+
+. (31) We call the block column multiplying uN −1
+
+FN −1 =
+
+ DuN −1
+
+DN BN −1
+
+
+
+.
+
+Performing a rank-revealing transformation on FN −1, for example by Gaussian elimination with pivoting, we obtain an invertible matrix JN −1 such that 
+
+JN −1FN −1 =
+
+ ¯DuN −1
+
+0
+
+
+
+where ¯DuN −1 is full row-rank. Premultiplying both sides of (31) by this same matrix JN −1 gives 
+
+ ¯DuN −1 ¯DxN −1
+
+0 NN −1
+
+  uN −1
+
+xN −1
+
+
+
+=
+
+ ¯dN −1
+
+nN −1
+
+
+
+, (32) This transformation of the equality constraints can be interpreted as follows: given the current value of xN −1, by choosing 
+
+uN −1 appropriately we can satisfy only a subset of the constraints imposed by 
+
+DuN −1uN −1 + DxN −1xN −1 = dN −1, DN xN = dN .
+
+Our ability to satisfy all the constraints therefore becomes a condition on xN −1 itself, namely 
+
+NN −1xN −1 = nN −1. (33) At this point, Problem (30) can be solved by substituting the dynamics in the cost and solving an appropriate KKT system of the form RN −1 + B⊤ 
+
+> N−1
+
+PN BN −1 ( ¯DuN −1)⊤
+
+¯DuN −1 0
+
+  uN −1
+
+ξN −1
+
+
+
+=
+
+−gN −1(xN −1)
+
+bN −1(xN −1)
+
+
+
+. (34) where the right-hand side is an affine function of xN −1. The solution is unique because the Hessian of the KKT system is positive definite and ¯DuN −1 has full row rank. Moreover, the optimal value is quadratic in xN −1 and has the form 
+
+12 x⊤ 
+
+> N−1
+
+PN −1xN −1 + p⊤ 
+
+> N−1
+
+xN −1 + const . (35) It can be verified that PN −1 has the expression given by Equation (17) (after replacing Dut and Dxt with ¯Dut and ¯Dxt ), and that pN −1 is obtained from a recursion similar to (20). However, for the purpose of this argument we don’t need their exact value. As in usual dynamic-programming fashion, after eliminating uN −1 and xN , we obtain a problem in x1, . . . , x N −1 and 
+
+u0, . . . , u N −2 with the same structure, whose terminal cost is (35) and whose terminal constraint is (33). The same procedure can be applied recursively, with the propagated state constraint at stage t denoted by Ntxt = nt. At the initial stage this becomes N0x0 = n0, which is a constraint on the initial datum that determines whether the equality constraints are feasible. Notice that the constraint-transformation argument does not require solving for ut and xt+1 at the same time, and it can therefore be interpreted as a pre-processing step. In practice we transform the constraints while solving the Riccati to obtain 
+
+Λt (15), Kut and Kξt (16). REFERENCES [1] J. Di Carlo, P. M. Wensing, B. Katz, G. Bledt, and S. Kim, “Dynamic locomotion in the MIT cheetah 3 through convex model-predictive control,” in 2018 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , 2018, pp. 1–9. [Online]. Available: https://doi.org/10.1109/IROS.2018.8594448 [2] M. Neunert, M. St¨ auble, M. Giftthaler, C. D. Bellicoso, J. Carius, C. Gehring, M. Hutter, and J. Buchli, “Whole-body nonlinear model predictive control through contacts for quadrupeds,” IEEE Robotics and Automation Letters , vol. 3, no. 3, pp. 1458–1465, Jul. 2018. [Online]. Available: https://doi.org/10.1109/LRA.2018.2800124 [3] E. Dantec, R. Budhiraja, A. Roig, T. Lembono, G. Saurel, O. Stasse, P. Fernbach, S. Tonneau, S. Vijayakumar, S. Calinon, M. Ta¨ ıx, and N. Mansard, “Whole body model predictive control with a memory of motion: Experiments on a torque-controlled Talos,” in 2021 IEEE International Conference on Robotics and Automation (ICRA) , May 2021, pp. 8202–8208. [Online]. Available: https://doi.org/10.1109/ICRA48506.2021.9560742 [4] D. Arnstr¨ om, A. Bemporad, and D. Axehill, “A dual active-set solver for embedded quadratic programming using recursive LDL T updates,” IEEE Trans. Autom. Control , vol. 67, no. 8, pp. 4362–4369, 2022. [Online]. Available: https://doi.org/10.1109/TAC.2022.3176430 [5] S. Caron, A. Zaki, P. Otta, D. Arnstr¨ om, J. Carpentier, F. Yang, P.-A. Leziart, and J. Sousa Pinto, “qpbenchmark: Benchmark for quadratic programming solvers available in Python,” 2026. [Online]. Available: https://github.com/qpsolvers/qpbenchmark [6] Y. Wang and S. Boyd, “Fast model predictive control using online optimization,” IEEE Transactions on Control Systems Technology , vol. 18, no. 2, pp. 267–278, 2010. [7] G. Frison and M. Diehl, “HPIPM: a high-performance quadratic programming framework for model predictive control,” IFAC-PapersOnLine ,vol. 53, no. 2, pp. 6563–6569, 2020, 21st IFAC World Congress. [Online]. Available: https://doi.org/10.1016/j.ifacol.2020.12.073 [8] D. Axehill and A. Hansson, “A mixed integer dual quadratic programming algorithm tailored for MPC,” in Proceedings of the 45th IEEE Conference on Decision and Control , 2006, pp. 5693–5698. [Online]. Available: https://doi.org/10.1109/CDC.2006.377215 [9] J. Buerger and M. Cannon, “A constraint homotopy active set solver for linear–quadratic optimal control,” IEEE Transactions on Automatic Control ,vol. 69, no. 10, pp. 7205–7210, 2024. [Online]. Available: https://doi.org/10.1109/TAC.2024.3400356 [10] A. Sideris and L. A. Rodriguez, “A Riccati approach for constrained linear quadratic optimal control,” International Journal of Control , vol. 84, no. 2, pp. 370–380, 2011. [Online]. Available: https://doi.org/10.1080/00207179.2011.555883 [11] I. Nielsen, D. Ankelhed, and D. Axehill, “Low-rank modifications of Riccati factorizations with applications to model predictive control,” in 52nd IEEE Conference on Decision and Control , 2013, pp. 3684–3690. [Online]. Available: https://doi.org/10.1109/CDC.2013.6760450 [12] J. Ferreau, C. Kirches, A. Potschka, H. Bock, and M. Diehl, “qpOASES: a parametric active-set algorithm for quadratic programming,” Mathematical Programming Computation , vol. 6, no. 4, pp. 327–363, Dec. 2014. [Online]. Available: https://doi.org/10.1007/s12532-014-0071-1 [13] D. Goldfarb and A. Idnani, “A numerically stable dual method for solving strictly convex quadratic programs,” Mathematical Programming , vol. 27, no. 1, pp. 1–33, Sep. 1983. [Online]. Available: https://doi.org/10.1007/BF02591962 [14] G. Frison and J. B. Jørgensen, “A fast condensing method for solution of linear-quadratic control problems,” in 52nd IEEE Conference on Decision and Control , 2013, pp. 7715–7720. [Online]. Available: https://doi.org/10.1109/CDC.2013.6761114 [15] B. Stellato, G. Banjac, P. J. Goulart, A. Bemporad, and S. Boyd, “OSQP: An operator splitting solver for quadratic programs,” Math. Program. Comput. , vol. 12, no. 4, pp. 637–672, 2020. [Online]. Available: https://doi.org/10.1007/s12532-020-00179-2 [16] P. J. Goulart and Y. Chen, “Clarabel: An interior-point solver for conic programs with quadratic objectives,” Mathematical Programming Computation , 2026. [Online]. Available: https://doi.org/10.1007/s12532-026-00320-7 [17] K. F. Løwenstein, D. Bernardini, and P. Patrinos, “QPALM-OCP: A Newton-type proximal augmented Lagrangian solver tailored for quadratic programs arising in model predictive control,” IEEE Control Systems Letters , vol. 8, pp. 1349–1354, 2024. [Online]. Available: https://doi.org/10.1109/LCSYS.2024.3410638 [18] R. Verschueren, G. Frison, D. Kouzoupis, J. Frey, N. van Duijkeren, A. Zanelli, B. Novoselnik, T. Albin, R. Quirynen, and M. Diehl, “acados—a modular open-source framework for fast embedded optimal control,” Mathematical Programming Computation , vol. 14, no. 1, pp. 147–183, 2022. [Online]. Available: https://doi.org/10.1007/s12532-021-00208-8 [19] G. Frison and J. B. Jørgensen, “Efficient implementation of the Riccati recursion for solving linear-quadratic control problems,” in 2013 IEEE International Conference on Control Applications (CCA) , 2013, pp. 1117–1122. [Online]. Available: https://doi.org/10.1109/CCA.2013.6662901 [20] E. Dantec, M. Naveau, P. Fernbach, N. Villa, G. Saurel, O. Stasse, M. Ta¨ ıx, and N. Mansard, “Whole-body model predictive control for biped locomotion on a torque-controlled humanoid robot,” in 2022 IEEE-RAS 21st International Conference on Humanoid Robots (Humanoids) , Nov. 2022, pp. 638–644. [Online]. Available: https://doi.org/10.1109/Humanoids53995.2022.10000129 [21] J.-P. Sleiman, F. Farshidian, M. Minniti, and M. Hutter, “A unified MPC framework for whole-body dynamic locomotion and manipulation,” IEEE Robotics and Automation Letters , vol. 6, no. 3, pp. 4688–4695, Jul. 2021. [Online]. Available: https://doi.org/10.1109/LRA.2021.3068908 [22] G. Cimini and A. Bemporad, “Exact complexity certification of active-set methods for quadratic programming,” IEEE Transactions on Automatic Control , vol. 62, no. 12, pp. 6094–6109, 2017. [Online]. Available: https://doi.org/10.1109/TAC.2017.2696742 [23] L. Vanroye, J. De Schutter, and W. Decr´ e, “A generalization of the Riccati recursion for equality-constrained linear quadratic optimal control,” 
+
+Optimal Control Applications and Methods , vol. 45, no. 1, pp. 436–454, 2024. [Online]. Available: https://doi.org/10.1002/oca.3064 [24] S. Boyd and L. Vandenberghe, Convex Optimization . Cambridge University Press, 2004. [Online]. Available: https://doi.org/10.1017/CBO9780511804441 [25] A. L. Bishop, J. Z. Zhang, S. Gurumurthy, K. Tracy, and Z. Manchester, “ReLU-QP: A GPU-accelerated quadratic programming solver for model-predictive control,” in 2024 IEEE International Conference on Robotics and Automation (ICRA) , 2024, pp. 13 285–13 292. [Online]. Available: https://doi.org/10.1109/ICRA57147.2024.10611249 [26] F. Stark, J. Middelberg, D. Mronga, S. Vyas, and F. Kirchner, “Benchmarking different QP formulations and solvers for dynamic quadrupedal walking,” in 2025 IEEE International Conference on Robotics and Automation (ICRA) . IEEE, 2025, pp. 14 412–14 418. [Online]. Available: https://doi.org/10.1109/ICRA55743.2025.11128397 [27] S. Sun, A. Romero, P. Foehn, E. Kaufmann, and D. Scaramuzza, “A comparative study of nonlinear MPC and differential-flatness-based control for quadrotor agile flight,” IEEE Transactions on Robotics , vol. 38, no. 6, pp. 3357–3373, Dec. 2022. [Online]. Available: https://doi.org/10.1109/TRO.2022.3177279 [28] S. Gros, M. Zanon, R. Quirynen, A. Bemporad, and M. Diehl, “From linear to nonlinear MPC: bridging the gap via the real-time iteration,” 
+
+International Journal of Control , vol. 93, no. 1, pp. 62–80, Jan. 2020. [Online]. Available: https://doi.org/10.1080/00207179.2016.1222553
