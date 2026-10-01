@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-30</span>
+      <span class="dpr-home-dashboard-kicker">2026-10-01</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 27 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 25 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>14</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>12</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-30 23:18:33 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-10-01 23:32:33 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>2026-09-30 日报共筛出27篇，精读14篇、速读13篇，重点聚焦具身智能与机器人学习。最值得看的是两篇9分工作：MachEmbodied-U0 探索具身智能统一理解与生成，X2Real 提供面向真实世界通用策略的仿真基准。普通读者可先读这两篇精读，再按兴趣补看机器人感知增强与可进化学习方向的速读。</p>
+<p>2026-10-01 日报精选25篇机器人学习论文，精读12篇、速读13篇，聚焦语言条件操作与双臂灵巧控制。最值得看的是满分方向：FRAM用轨迹引导视觉特征选择提升紧凑语言条件机器人操作，Grasp2Twist用强化学习实现双臂灵巧开罐。普通读者可先从这两篇精读入手，再速读自动驾驶世界模型与视觉模仿学习泛化两篇拓展视野。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">14 篇</strong>
+    <strong class="dpr-home-dashboard-count">12 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="MachEmbodied-U0: Unified Understanding and Generation Model for Embodied Intelligence">MachEmbodied-U0: Unified Understanding and Generation Model for Embodied Intelligence</span></li><li><span class="dpr-home-dashboard-paper-title" title="X2Real: an eXtensive simulation benchmark for real-world generalist policies">X2Real: an eXtensive simulation benchmark for real-world generalist policies</span></li><li><span class="dpr-home-dashboard-paper-title" title="FRAM: Trajectory-Guided Visual Feature Selection for Compact Language-Conditioned Robot Manipulation">FRAM: Trajectory-Guided Visual Feature Selection for Compact Language-Conditioned Robot Manipulation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="FRAM: Trajectory-Guided Visual Feature Selection for Compact Language-Conditioned Robot Manipulation">FRAM: Trajectory-Guided Visual Feature Selection for Compact Language-Conditioned Robot Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Grasp2Twist: Learning Bimanual Dexterous Jar Opening by Reinforcement Learning">Grasp2Twist: Learning Bimanual Dexterous Jar Opening by Reinforcement Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="RecastVLA: From Past Interaction to Future Control with Adaptive Policy States">RecastVLA: From Past Interaction to Future Control with Adaptive Policy States</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>6</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>4</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>4</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>7</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>3</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>2</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -87,9 +87,9 @@
     <strong class="dpr-home-dashboard-count">13 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Robo-Harness K1: Harnessing Robot-Use Agents via Perception Augmentation">Robo-Harness K1: Harnessing Robot-Use Agents via Perception Augmentation</span></li><li><span class="dpr-home-dashboard-paper-title" title="RACaP: Agentic Reasoning, Acting, and Coding as Policies for Evolvable Robot Learning">RACaP: Agentic Reasoning, Acting, and Coding as Policies for Evolvable Robot Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="Learning Provable Neural Network Observer for Uncertain Dynamical Systems">Learning Provable Neural Network Observer for Uncertain Dynamical Systems</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="WALT: Learning World-Model-Aligned Latent Trajectories for Autonomous Driving">WALT: Learning World-Model-Aligned Latent Trajectories for Autonomous Driving</span></li><li><span class="dpr-home-dashboard-paper-title" title="An Empirical Study on What Matters for Viewpoint-Generalizable Policies in Visual Imitation Learning">An Empirical Study on What Matters for Viewpoint-Generalizable Policies in Visual Imitation Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="Notes on Generative Modeling for Feedback Control and Planning">Notes on Generative Modeling for Feedback Control and Planning</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>10</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>2</strong></span><span class="dpr-home-dashboard-tag">control <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>7</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>4</strong></span><span class="dpr-home-dashboard-tag">control <strong>2</strong></span></div>
 </section>
 </div>
 
