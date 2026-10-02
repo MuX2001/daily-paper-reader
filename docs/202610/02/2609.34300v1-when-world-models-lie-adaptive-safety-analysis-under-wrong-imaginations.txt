@@ -1,0 +1,480 @@
+Title: When World Models Lie: Adaptive Safety Analysis Under Wrong Imaginations
+
+URL Source: https://arxiv.org/pdf/2609.34300v1
+
+Published Time: Tue, 29 Sep 2026 03:10:12 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# When World Models Lie: Adaptive Safety Analysis Under Wrong Imaginations 
+
+John Cao and Somil Bansal 
+
+Abstract — World models offer a powerful substrate for safety reasoning in high-dimensional robotic systems, but they are also fallible: their predictions can be biased, miscalibrated, or confidently wrong. This creates a central challenge for latent-space safety filters, which often learn Hamilton-Jacobi safety value functions on the dynamics of a world model. If the world model is incorrect, the resulting value function can inherit its er-rors and produce overconfident safety estimates. Existing latent safety filters often rely on auxiliary signals such as ensemble disagreement or value-target consistency residuals for adapta-tion, but these signals can remain small even when the world model’s predictions deviate from observations. We propose an adaptive latent safety filter that calibrates safety reasoning using directly observed world-model error. Our method uses Adaptive Conformal Inference to construct online uncertainty sets from discrepancies between predicted and observation-inferred latent states, then evaluates safety pessimistically by minimizing the learned value function over these sets. This allows the filter to remain minimally conservative when the world model is accurate, while becoming more cautious when observations reveal model mismatch. We provide a finite-time coverage guarantee for the adaptive uncertainty radius. Through simulation and hardware experiments, we show that our method significantly reduces failures relative to state-of-the-art latent safety filters while preserving task completion. Our project page is available at https://mudhdhoo.github. io/WhenWordModelsLie_project_page/ .
+
+I. I NTRODUCTION 
+
+Robotic systems are becoming increasingly capable of performing sophisticated tasks in complex, unstructured, and human-centric environments [1], [2], [3]. As these systems become more capable, it is increasingly important to ensure that they can act without compromising the safety of their surroundings. Safety filters provide a mechanism for doing so by overriding or modifying actions that may lead to unsafe outcomes. Control Barrier Functions [4] and Hamilton-Jacobi (HJ) reachability [5] are two dominant frameworks for safety filtering, but their reliance on explicit dynamics models and safety constraints has historically limited their application in open-world settings. Latent-space safety filters have recently emerged as a promising paradigm for safety filtering from high-dimensional observations [6]. These methods learn a compact latent world model [7] and train an HJ-style safety value function using rollouts imagined by the learned latent dynamics. The resulting value function can then be used to evaluate the safety of a robot’s actions from image-based ob-servations, enabling safety filtering in settings where classical            
+
+> This research is supported in part by the NSF CAREER program (2240163), the TRI University Research Program (URP) 3.0, and the NASA ULI program. The authors are with the Department of Aeronautics and Astronautics, Stanford University.
+
+{johncao,somil }@stanford.edu WM error → Adaptive uncertainty set → Pessimistic imagination     
+
+> (a) Pickup (b) Unsafe throw
+> (c) Unsafe throw overridden (d) Task success
+> Unsafe set
+> (a) (b)
+> (c) (d) Nominal prediction Error-aware prediction
+> (a) (b) (c) (d)
+> WM error
+
+Fig. 1: Our method grounds safety adaptation directly in observed prediction error. We compare the latent state pre-dicted by the world model with the latent state inferred from the current observation, compute an uncertainty set over plausible latent prediction deviations, and then reason 
+
+pessimistically over the resulting uncertainty set. Pessimism scales with the size of the errors, providing more caution under an inaccurate world model, while being non-invasive when the model is reliable. model-based methods are difficult to apply. However, latent-space safety filtering introduces a fundamental challenge: the model used for safety reasoning is itself learned and fallible. Classical CBF and HJ reachability methods typically assume access to a known dynamics model and well-specified failure set, under which formal safety guarantees can be derived. In contrast, learned world models are only approximate representations of the real world [8]. They may be naturally erroneous even under nominal deployment conditions, and their errors can grow under distribution shift, unmodeled dynamics, or changes in the environment. Indeed, limiting errors and hallucinations in world models is an active area of research in robotics [9], [10], [11]. This is especially problematic for latent safety filters because errors in the world model can propagate into the learned safety value function. An optimistic world model may imagine benign outcomes for unsafe actions, causing the value function to become overconfident and delaying safety interventions precisely when they are needed most. Prior work has begun to address the fragility of latent arXiv:2609.34300v1 [cs.RO] 28 Sep 2026 safety filters under model error. World-model-based runtime monitors have been proposed to detect unsafe behaviors [12], but detection alone does not resolve how the robot should in-tervene safely. UNISafe [13] treats out-of-distribution latent states as unsafe by using the Jensen-R´ enyi Divergence (JRD) of a probabilistic prediction ensemble as an uncertainty score. However, as we demonstrate in our experiments, en-semble uncertainty can remain low even when predictions are systematically biased or incorrect [14], leading the system to be confidently wrong. ACoFi [15] adapts the safety threshold using the discrepancy between the learned value function and its bootstrapped training target. Yet when the value function is trained on erroneous latent dynamics, this residual may reflect self-consistency within the incorrect model rather than disagreement with the real system. As a result, auxiliary uncertainty or value-consistency signals may fail to reveal the underlying prediction errors that compromise safety. In this work, we propose an adaptive latent safety filter grounded in observed discrepancies between predicted and inferred latent states. Using Adaptive Conformal Inference (ACI) [16], we construct online uncertainty sets and min-imize the nominal safety value over these sets, adapting the filter’s conservatism to observed world-model error. Our contributions are as follows: 1) We propose an adaptive latent safety filter that uses Adaptive Conformal Inference to construct uncertainty sets from observed world-model prediction errors and evaluates safety pessimistically by minimizing the nominal value function over these sets. 2) We provide a finite-time coverage guarantee for the adaptive uncertainty radius used by our method. 3) Through both qualitative and quantitative case studies across simulation and hardware, we show how our approach overcomes the limitations of baselines and its effectiveness in reducing failures despite incorrect world models, while preserving task performance. II. P ROBLEM FORMULATION 
+
+We study the problem of online safety reasoning with fallible world models. Consider a latent world model 
+
+zt ∼ E (·| ˆzt, o t) ˆzt ∼ f (·| zt−1, a t−1), (1) where E is an encoder that infers the current latent state from the predicted latent state ˆzt and observation ot, and f is a learned latent dynamics model that autoregressively predicts the next latent state. For instance, f can be trained offline using a dataset of robot–environment interactions, consisting of observation and action trajectories [12], [6]. In this work, we are particularly concerned with the setting where the world model f might be wrong, e.g., due to learning errors or hallucinations. The system safety constraints are specified in the latent space via a failure set F = {z : l(z) < 0}, encoded via the zero-sublevel set of a margin function l. In practice, 
+
+l is learned as a binary classifier on known safe/unsafe trajectories [17]. We also assume access to a nominal safety value function V (z) that encodes the safety of a latent state under the nominal world model and can be used for monitoring, planning, or filtering. Such a value function can be trained or computed using the latent dynamics in (1), using reachability analysis for instance [6] (see Sec. III-A). However, because the latent dynamics f only approximate the true evolution of the system, the nominal value function 
+
+V may be miscalibrated during deployment. In particular, prediction errors in the world model can induce errors in the estimated safety value, causing the safety filter to be either overly conservative or, more dangerously, overconfident in unsafe regions. Our goal is to adapt the safety analysis online by using real-time observations to estimate the world model’s prediction error and compensate for its effect on the safety value. Specifically, this work aims to: 1) Estimate the prediction errors made by the world model during deployment. 2) Use this error estimate to compute an adapted safety value function ¯V that accounts for model error and reduces overconfident safety predictions. III. B ACKGROUND 
+
+A. Latent Space Safety Filters 
+
+Latent space safety filters perform HJ Reachability in the latent space of world models [6]. Given a set of failure states 
+
+F and the margin function l, HJ Reachability analysis defines the value function under a dynamics model f as the optimal control problem V (zt) = sup π inf s≥0 l(ξπzt (s)) , where ξπzt is a trajectory starting from zt and evolving under the dynamics of f under the policy π. This can be interpreted as the worst future cost incurred when using the maximally safe policy; 
+
+V < 0 therefore means that the system is doomed to fail despite the best efforts. The value function satisfies the fixed-point Bellman equation 
+
+V (zt) = min {l(zt), max  
+
+> a
+
+V (zt+1 )}. (2) In latent space safety filtering, l is learned as a classifier from a dataset of high-dimensional failure-labeled observations. The value function V (z) is learned using reinforcement learning (RL) on the world model, and (2) is replaced with the corresponding discounted contraction mapping 
+
+V (zt) = (1 − γ)l(zt) + γ min {l(zt), max  
+
+> a
+
+V (ˆ zt+1 )} (3) where ˆzt+1 ∼ f (·| zt, a t) and γ ∈ [0 , 1) is the discount factor [18]. This safety Bellman equation is used within RL as a backup target to jointly learn V (critic) and a safety policy (actor) πsafe (z) = arg max a V (z) that computes the maximally safe action at a given state. Safety filtering for a nominal policy πnom is then implemented as 
+
+at ∼ π = 1 [V (ˆ zt+1 ) > δ ] πnom + 1 [V (ˆ zt+1 ) ≤ δ] πsafe (4) where δ ≥ 0 is a user-defined safety threshold. B. Adaptive Conformal Inference 
+
+Adaptive Conformal Inference (ACI) [16] calibrates pre-diction sets online under distribution shift. Given an in-put–output pair (xt, y t), let st = St(xt, y t) be a finite nonconformity score, with larger values indicating poorer agreement with the prediction. Using a non-decreasing quan-tile function bQt fitted to observed scores, ACI constructs 
+
+Ct = {y : St(xt, y ) ≤ qt}, qt = bQt(1 − αt). (5) For a miscoverage level α ∈ (0 , 1) , the adaptive parameter is initialized as α1 = α and updated after observing yt:
+
+αt+1 = αt + λ(α − err t), err t = 1[st > q t], (6) where λ > 0 is a step size controlling the adaptation rate. Miscoverage decreases αt, inducing larger subsequent pre-diction sets, while coverage conversely allows for tighter sets. Larger λ enables faster adaptation but trades off stability. 
+
+Proposition 1 (ACI coverage [16, Proposition 4.1]) . Suppose 
+
+α1 = α ∈ (0 , 1) and the update (6) is applied with λ > 0
+
+without clipping αt. Under the conventions bQt(p) = −∞ 
+
+for p ≤ 0 and bQt(p) = + ∞ for p ≥ 1, with probability 1, for all T ∈ N,
+
+1
+
+T
+
+> T
+
+X
+
+> t=1
+
+err t − α ≤ max {α, 1 − α} + λT λ . (7) Proposition 1 puts no constraints on the distribution gener-ating the data, meaning that (7) is valid even when exchange-ability does not hold between subsequent time steps. In our method, latent prediction errors provide the nonconformity scores used to construct uncertainty sets for pessimistic safety evaluation. IV. M ETHOD 
+
+We propose an online safety-filtering framework that en-ables safety reasoning with fallible latent world models. The key idea is to avoid treating the world model prediction as a point estimate that can be trusted uniformly during deployment. Instead, we use the discrepancy between pre-dicted and inferred latent states as real-time feedback about the reliability of the world model, and use this feedback to construct a pessimistic safety value that accounts for possible model errors. At each time step, the world model predicts a latent state 
+
+ˆzt using the learned latent dynamics, while the encoder infers a latent state zt from the current observation. We define the instantaneous latent prediction error as et = || zt − ˆzt|| 2. This error provides a simple online signal of how well the latent dynamics are tracking the true system evolution. When the prediction error is small, the nominal value function can be trusted more closely. When the prediction error grows, the safety filter should become more cautious, since the nominal value function may be overconfident in regions where the world model is inaccurate. 
+
+Algorithm 1 Pessimistic Latent Safety Filtering 
+
+Require: Encoder E, dynamics f , value function V , nominal policy πnom , safety policy πsafe trust radius qmax , error buffer B, threshold δ 
+
+> 1:
+
+for t = 1 : T do  
+
+> 2:
+
+zt ∼ E (·| ˆzt, o t) ▷ Observe and encode  
+
+> 3:
+
+et = || zt − ˆzt|| 2 ▷ Compute prediction error  
+
+> 4:
+
+Append et to buffer B 
+
+> 5:
+
+Estimate uncertainty set Ut+1 (B) 
+
+> 6:
+
+ˆzt+1 ∼ f (·| zt, π nom (zt)) ▷ Estimate next state  
+
+> 7:
+
+Compute pessimistic value function 
+
+¯V (ˆ zt+1 ) = min  
+
+> z
+
+V (z) (8) s.t z ∈ U t+1  
+
+> 8:
+
+Filter the nominal action using ¯V according to (4).  
+
+> 9:
+
+end for 
+
+A. Online Safety Adaptation via Pessimistic Imaginations 
+
+We introduce pessimistic imaginations for latent safety filtering, outlined in Algorithm 1. At each time step, we compute the latent prediction error et and add it to a buffer of previously observed errors. This buffer is used to construct an uncertainty set Ut+1 around the next latent prediction 
+
+ˆzt+1 . The uncertainty set represents latent states that are plausible given the recent mismatch between the world model and the observed system behavior. Rather than evaluating safety only at the predicted latent state ˆzt+1 , we evaluate safety pessimistically over Ut+1 . In particular, we construct an adapted safety value ¯V by solving the corresponding constrained optimization problem in (8) using projected gradient descent (PGD). This procedure has an intuitive interpretation: The resulting value ¯V reflects the worst-case safety outcome among latent states that are consistent with the current estimate of model error. We then use ¯V in place of the nominal value V (ˆ zt+1 ) for filtering the proposed action. As a result, the filter remains minimally conservative when the world model is accurate, but becomes more cautious when online observations reveal that the model is unreliable. 
+
+B. Adaptive Conformal Inference for Online Uncertainty Estimation 
+
+We use ACI [16] to construct the uncertainty set Ut+1 .While Algorithm 1 is not tied to a particular uncertainty-estimation method, ACI provides a simple distribution-free mechanism for adapting uncertainty sets under non-stationary deployment conditions. This is especially useful in the context of learned world models, whose prediction errors may vary across tasks, environments, and phases of execution. We define the nonconformity score at time t as the latent prediction error 
+
+st = et = || zt − ˆzt|| 2. (9) Given a target miscoverage level α, the adaptive parameter is updated according to (6), with err t = 1 [|| zt − ˆzt|| 2 > q t].We then compute an empirical quantile qt+1 of the observed nonconformity scores and define the next uncertainty set as 
+
+Ut+1 = {z : || z − ˆzt+1 || 2 ≤ min( qt+1 , q max )}, (10) where qt+1 is the fitted ⌈(t+1)(1 −αt+1 )⌉ 
+
+> t
+
+quantile of the nonconformity scores, and qmax defines a trust-region radius that limits the pessimistic optimization to a calibrated neigh-borhood of the predicted latent state. The trust-region radius qmax controls the tradeoff between safety and conservatism. A larger radius allows the filter to guard against a broader range of model errors, but may intro-duce excessive conservatism by considering latent states that are not physically meaningful. A smaller radius keeps the pessimistic imagination closer to the learned latent manifold, but may fail to account for safety-relevant prediction errors. To choose qmax systematically, we leverage trajectory-level conformal prediction [13], [19]. We construct a calibration dataset Dcal = {τi}Ncal  
+
+> i=1
+
+with trajectories τi = {oit, a it}Tt=1 .For each trajectory τi, we compute the sequence of latent prediction errors ei
+
+> 1
+
+, . . . , e iT and define the trajectory-level 
+
+nonconformity score Qαtraj  
+
+> τi
+
+as the (1 − αtraj ) quantile of these errors. The trust region radius qmax is then chosen as the 1 − αcal quantile of the computed trajectory-level scores 
+
+{Qαtraj  
+
+> τi
+
+}Ncal 
+
+> i=1
+
+. Under exchangeability between a new trajectory 
+
+τnew and the calibration set Dcal , conformal calibration gives 
+
+P(Qαtraj  
+
+> τnew
+
+≤ qmax ) ≥ 1 − αcal . (11) This guarantee does not imply that every latent state con-sidered by the pessimistic optimization in (8) is physically realizable. Rather, it provides a principled way to choose the maximum adaptation radius so that the filter can trade off sensitivity to world-model error against unnecessary conservatism within the calibrated operating distribution. When little online data has been observed, we initialize 
+
+q1 = ∞, which makes the uncertainty radius equal to the trust-region radius qmax . Thus, the filter begins cautiously by searching over the full calibrated trust region, and then becomes more adaptive as deployment data accumulates. 
+
+C. Coverage Guarantee 
+
+The following result combines trajectory-level calibration of qmax with the online ACI update used to construct Ut+1 .
+
+Theorem 1. Let qmax be chosen using the procedure in Section IV-B, and Ut be computed using Adaptive Confor-mal Inference with radius ¯qt = min( qt, q max ). Let rT = 
+
+> max( α, 1−α)+ λT λ
+
+and 1 be the indicator function. Given a new trajectory τ , assuming exchangeability with Dcal ,
+
+P 1
+
+T
+
+> T
+
+X
+
+> t=1
+
+1[et > ¯qt] ≤ α + αtraj + rT
+
+!
+
+≥ 1 − αcal . (12) The proof for Theorem 1 is provided in the appendix. Intuitively, this theorem states that, with high probability over calibrated trajectories, the fraction of time steps at which the realized latent prediction error exceeds the adaptive uncer-tainty radius is controlled by the target online miscoverage −1.0 −0.5 0.0 0.5 1.0 −1.00 −0.75 −0.50 −0.25 0.00 0.25 0.50 0.75 1.00                          
+
+> a) Trajectories
+> Slippery zone Obstacle Filter active Collision
+> 0510 15 20 25 30 35
+> t
+> −1.5 −1.0 −0.5 0.0 0.5 1.0 1.5 2.0
+> Car enters slippery zone
+> b) Value Function
+> AcoFi adaptive threshold Threshold δ
+> Filter active
+> 0510 15 20 0.0 0.1 0.2
+> c) AcoFi Score
+> 010 20 30
+> t
+> 0246
+> d) Error and t+ 1
+> et
+> t+ 1
+> 0510 15 20 2.5 3.0 3.5 4.0
+> e) OOD Score
+> AcoFi LatentSafe UNISafe Ours
+
+Fig. 2: Case Study: Prediction errors allow our method to engage safety fallback earlier to avoid collision. Maximum pessimism is held at the start, when data is scarce. level, the trajectory-level calibration tolerance, and a finite-time adaptation term. In our setting, this bound provides a statistical basis for using Ut+1 as the set of plausible latent deviations over which the safety value is pessimistically evaluated. V. C ASE STUDIES 
+
+We evaluate our method in two simulated case studies. First, we use Dubins car to isolate the properties and benefits of error-feedback-based safety adaptation. We then perform a quantitative study on a manipulation task using a Franka Panda arm. Together, these case studies evaluate whether latent safety filters can remain effective when the world model used for safety reasoning is fallible. 
+
+Baselines. We compare our method to four baselines: 1) an unfiltered nominal policy, 2) LatentSafe [6], 3) UNISafe [13], and 4) AcoFi [15]. For all baselines, we train a DreamerV3 [20] world model for each environment, trained on a dataset of success and failure trajectories. The safety margin function is trained on the same dataset using the method in [17]. The safety filters are then trained using RL within the imagination of the world model, as described in Sec. III-A. We aim to demonstrate how our approach addresses blind spots in current methods that can otherwise lead to safety violations when the world model is incorrect. 
+
+Metrics. We evaluate methods using three metrics: 1) 
+
+Success : the number of episodes in which the intended task is achieved without safety violations; 2) Failure : the number of episodes with safety violations; 3) Incompletion : the number of episodes that neither fail nor succeed. 
+
+A. Case Study 1: Slippery Dubins Car 
+
+We evaluate error-feedback-based safety adaptation using a Dubins car with a “slippery” region that increases the car’s velocity by a factor of 1.5 relative to the training dynamics. We train a world model on a dataset of 1500 nominal trajectories collected without the slippery zone, each composed of failure-labeled observation-action pairs 
+
+{ot, a t, y t}Tt=1 , where ot is an image snapshot of the environ-ment at time t, at is the corresponding action taken, and yt is −1 0 1                 
+
+> x
+> −1 01
+> yθ∈ [0, π
+> 2)
+> −1 01
+> xθ∈ [ π
+> 2,π)
+> −1 01
+> xθ∈ [ π,3π
+> 2)
+> −1 01
+> xθ∈ [ 3π
+> 2, 2 π)
+> 2.5 3.0 3.5
+> JRD
+
+Fig. 3: Heatmap of JRD score across different positions and angles for Dubins car. The black and gray circles trace out the boundaries for the slippery zone and obstacles respectively. The score remains low across the state space despite the presence of dynamics mismatch. a failure label assigned a value of −1 when the car collides with an obstacle and 1 otherwise. The world model uses the DreamerV3 recurrent state-space model (RSSM) architecture with a CNN image encoder, while l and V are parameterized as feed-forward MLPs. The dynamics shift causes the car to travel farther per time-step than the world model anticipates. Figure 2(a–b) shows that the baselines collide because their safety estimates fail to respond sufficiently to this shift. In contrast, our latent prediction error rises upon entering the slippery region (Figure 2(d)), expanding the uncertainty set and lowering the pessimistic safety value. This triggers an early intervention that steers the car away from the obstacle. The bottom row shows the quantities used by different baselines for safety adaptation. AcoFi adapts the safety threshold online by computing a conformal score sAcoFi  
+
+> t
+
+=max( Q(zt, a t) − Rt, 0) with Q being a state-action critic relating to the value function as V (zt) = max a Q(zt, a ),and Rt = (1 − γ)l(zt) + γ min( l(zt), V (zt+1 )) being a bootstrapped value function. A quantile qt is then computed to adapt the safety threshold as δt+1 ← qt+1 + γδ + (1 −
+
+γ)l(zt+1 ). The bottom-left plot of Figure 2 displays sAcoFi 
+
+> t
+
+for the rollout. Notably, the score fails to reflect the dynamics shift introduced when the car enters the slippery zone at time 
+
+t = 10 . Instead, the score remains zero for several time steps, revealing that Q(zt, a t) ≤ Rt, i.e the bootstrapped value estimate believes the trajectory is becoming safer despite the increased velocity, resulting in no adaptation of the safety threshold (Figure 2(b)) and the subsequent collision. This occurs because a critic trained on rollouts from an incorrect world model can itself become incorrect. The score 
+
+sAcoFi  
+
+> t
+
+therefore measures self-consistency between Q and its bootstrapped target Rt, which need not reveal accumulated error in the world model. UNISafe uses the JRD score of a probabilistic ensemble to detect OOD latent states, and trains the margin l(zt)
+
+to flag states above a calibrated threshold as unsafe. This score is shown in Figure 2(e). We observe that despite the abrupt increase in velocity at t = 10 , the score does not undergo any significant change, remaining below the calibrated threshold until the moment of collision. In this case, the ensemble is confidently wrong , producing similar predictions despite the shift in the underlying system dy-namics. This is further demonstrated in Figure 3, where we Start Filter active (a) Task completed             
+
+> Start No filter intervention Intervention too late
+> 025 50 75 100 125
+> step t
+> 0.0 0.5
+> Value Function  LatentSafe Adapted
+> Ours LatentSafe
+> (a) Reconstructed latents
+> Nominal imagination Pessimistic imagination
+> min
+> z∈̂ t+ 1
+> V(z)
+
+Fig. 4: Our method imagines the worst-case outcome given the estimated uncertainty set, allowing it to adapt to errors in the world model. show the JRD score heatmap slices across different heading angles. The score remains low and below the OOD threshold despite the dynamics shift induced by the slippery region. Importantly, there is no noticeable difference between the scores inside and outside the slippery region, indicating that OOD uncertainty does not always capture inaccuracies in the world model. Our approach instead leverages the online latent prediction error et, shown in Figure 2(d). Notably, this error rises sharply when the car enters the slippery zone, as the world model predictions no longer align with the observations. Algorithm 1 expands the uncertainty set in response to this error, allowing the value function to quickly adapt (Figure 2(b)). This triggers an early safety intervention which steers the car away from the obstacle. This example highlights two benefits of adapting the value function with latent prediction error. First, the error is an observation-grounded signal of world-model inaccuracy, giving the filter a direct reactive mechanism at deployment. Second, UNISafe and AcoFi instead rely on auxiliary quan-tities trained separately from the deployed world model. If those are themselves miscalibrated, an untrustworthy model still looks trustworthy. 
+
+B. Case Study 2: Franka Panda Arm 
+
+We next study our method in a simulated manipulation task using a Franka Panda arm. The task is to pick up a globe and place it on a shelf without toppling a vase along the way. We implement this environment in ManiSkill [21], and train a world model and the safety margin function using a dataset of 3000 scripted trajectories, consisting of 1286 failed and 1714 safe examples. Each trajectory is initialized by randomizing the starting positions of the globe and vase. The observations consist of wrist-mounted and top-down camera views of the robot, along with proprioceptive inputs. Unfiltered LatentSafe AcoFi UNISafe                           
+
+> Ours
+> 100 episodes per method
+> Naturally occurring errors
+> 42 10 48 43 13 44 50 14 36 21 67 12
+> 51 38 11
+> 025 50 75 100
+> Episode outcomes (%)
+> Unfiltered LatentSafe AcoFi UNISafe
+> Ours
+> 400 episodes per method
+> Deployment-time WM shifts
+> 38.75 12.5 48.75 39.25 17.5 43.25 39.75 19.5 40.75 10.75 77.25 12
+> 40 38.5 21.5
+> Success Incomplete Failure
+
+Fig. 5: Franka Panda simulation results with a nominal diffusion policy. Our approach drastically reduces failures without suffering from overconservatism. Actions are 6-dimensional delta increments for position and orientation concatenated with a discrete gripper command. The nominal policy is a diffusion policy [22] trained using a dataset of 600 simulated trajectories. 
+
+Qualitative Evaluation. We begin by illustrating our method qualitatively through Figure 4, contrasted against LatentSafe, which does not have a mechanism for online adaptation. Due to natural errors in the world model, the nominal value function V does not accurately capture the boundary of the unsafe set. As a result, LatentSafe triggers the safety intervention only after the vase has tilted beyond the point of no return. By continuously adapting the value function using online prediction error, our method remains robust to world model inaccuracies. This enables preemptive engagement of the safety fallback, allowing the arm to place the globe on the shelf without toppling the vase. By training a reconstructor alongside the world model, we can visualize both the nominal latent prediction and the worst-case latent state found by solving (8) at the time of filter intervention. These reconstructions are shown at the bottom of Figure 4. In this example, Algorithm 1 imagines that, under the current uncertainty estimate, the proposed action could lead to the vase toppling. This explains the discrepancy between the nominal and adapted value func-tions in the bottom-right of Figure 4: our method assigns the pessimistic ¯V to be much lower than the nominal V .
+
+Quantitative Evaluation. Next, we quantitatively evaluate the performance of our method. We use qmax = 2 .0, com-puted with αcal = 0 .05 and αtraj = 0 .1 on a calibration set of size 100. For ACI, we choose α = 0 .2 with step size 
+
+λ = 0 .05 . A threshold δ = 0 .15 is used for safety filtering across all baselines, tuned to balance safety and performance. We run episodes under two types of world-model error: Start Filter engaged πnom re-takes control Task completed     
+
+> Start Filter engaged πsafe stalls arm Task incomplete
+> Ours UNISafe
+
+Fig. 6: (Top) Our method adapts the value function using estimated model errors to avoid failure while retaining task performance. (Bottom) UNISafe enables safety at the cost of frequently driving the system into OOD states where it is unable to recover.  
+
+> •
+
+Naturally occurring prediction errors: These are errors that arise from imperfect world-model learning under the nominal deployment distribution. This setting eval-uates if the safety filter can remain effective when the world model is imperfect but not explicitly perturbed.  
+
+> •
+
+Deployment-time world-model shifts: We induce ad-ditional mismatch between the world model and de-ployment observations through two probes. First, we introduce a temporal abstraction mismatch by changing the effective transition scale of the world model from its nominal ∆t = 0.1s to ∆t = 0.2s or ∆t =0.05 s. Second, we introduce observation staleness by conditioning the world model on delayed observations 
+
+ot−L in (1), with L ∈ { 0, 2, 4}. These probes alter the consistency between the model’s latent predictions and the observations received during deployment, producing systematic latent prediction errors. The results are given in Figure 5. Notably, our method achieves a comparable success rate while suffering the fewest failures in the in-distribution setting with natural world model errors. After introducing deployment-time world-model shifts, our approach still retains the highest success rate, while being significantly safer than LatentSafe and AcoFi. The rise in incompletion rates under our method reflects a division of labor, where the filter must intervene early enough for πsafe to retract the system to a recoverable state, but whether the episode then completes depends on 
+
+πnom resuming post-intervention, which it was not trained to do. The outcomes are also not equally costly, since failures are irreversible while incompletions leave the system intact and allow for continued goal-directed behavior. 0510 15 20            
+
+> Rescues (of 20)
+> In-distribution
+> 013 16 14
+> 17
+> Forceful Throw
+> 0213 1
+> 16
+> Observation Staleness
+> 0817
+> 16
+> 0510 15 20
+> Successes (of 20)  20 19 18 14 18 20 19 20
+> 16
+> 20 20 20 20
+> 17 19
+> Failure Rescued Success Preserved
+> Nominal Policy (no filter) LatentSafe UNISafe ACoFi Ours
+
+Fig. 7: Hardware evaluations on Franka Panda across three different testing conditions. Top row shows the number of failed nominal trajectories rescued (higher is better). Bottom row shows the number of successful nominal trajectories still succeeding under each method (higher is better). Scores Outcome 0.0 2.5 5.0 7.5 10.0 12.5 15.0    
+
+> Time t
+> 246810 12
+> Error and  t + 1  (ours)  WM Error
+> t+ 1
+> Filter activates
+> qt= ∞
+
+Rescued 0.0 2.5 5.0 7.5 10.0 12.5 15.0  
+
+> Time t
+> 2345
+> UNISafe OOD Score  UNISafe JRD score OOD threshold Filter activates
+
+Fail 0.18 0.19 0.20 0.21 0.22 0.0 2.5 5.0 7.5 10.0 12.5 15.0   
+
+> Time t
+> 0.00 0.01 0.02 0.03 0.04
+> ACoFi score
+> ACoFi conformal score Adapted threshold LatentSafe δ
+> Filter activates
+
+Fail 
+
+Fig. 8: By adapting the safety filter using the estimated world model errors, our method is able to rescue a failed trajectory by engaging the safety policy earlier than baselines. UNISafe attains the lowest failure rate during deployment time WM shifts, but does so at the cost of substantial conservatism resulting in frequent incompletions. This is vi-sualized in Figure 6 (bottom). UNISafe frequently classifies the latent state as OOD (yellow line repeatedly crossing the black threshold). We hypothesize that this occurs because the manipulation setting is substantially more complex than the Dubins car example, with higher-dimensional obser-vations, a larger action space, and more diverse contact-rich transitions, making ensemble disagreement more likely during deployment. Since UNISafe purposefully treats OOD states as unsafe, this results in a highly conservative value-function landscape that repeatedly triggers the safety policy, ultimately causing the robot to stall. In contrast, our method does not actively avoid OOD regions, but rather leverages observed evidence to estimate how wrong the world model is in those areas. This facilitates recovery by enabling the safety policy to retract the arm away from the vase, allowing the value function to rise and hand control back to the nominal policy (top row, Figure 6). VI. H ARDWARE EXPERIMENTS 
+
+We evaluate our method on hardware using a Franka Panda platform operating at 15 Hz, where the task is to use a dustpan to throw a tomato into a trash can. Failure is defined as the tomato landing outside the trash can. We evaluate our method by deploying it on both successful and failed trajectory replays. Each type of replay is divided into three categories, 1) In-distribution: the trajectory comes from the same distribution as the WM training dataset, 2) Forceful Throw: the tomato is suddenly jerked out of the dustpan, 
+
+3) Observation Staleness: The world model is conditioned on delayed observations ot−L in the same manner as in section V-B. We use L = 10 for all observation staleness experiments. A collection of 20 replays is collected for both success and failure in each individual category. We train a Dreamer world model and safety margin function using a dataset of 350 successful and 150 failed trajectories, collected using teleoperation. The observations consist of side and top-down views of the robot along with a wrist view and proprioception. We use δ = 0 .2 across all experiments and qmax = 4 .5, derived from a calibration dataset of 30 trajectories with αcal = αtraj = 0 .25 . ACI parameters are chosen as α = 0.2 and λ = 0.05 . Our method with PGD averages 39 .59 ms per step on an NVIDIA GeForce RTX 5090 (LatentSafe: 18 .09 ms, AcoFi: 17 .17 ms, UNISafe: 17 .42 ms), well within the 15 Hz control budget. 
+
+Metrics. Evaluation is based on the number of failed trajectories rescued, and the number of successful outcomes preserved. Results from 480 runs are shown in Figure 7. First, as expected, when the deployment setting remains within the world model’s training distribution, all methods lead to a significant number of rescues among trajectories that would otherwise fail. When the tomato is forcefully thrown, LatentSafe and ACoFi are largely unable to prevent failures, reflecting their limited ability to adapt to the sudden dy-namics mismatch. In contrast, our method maintains a high rescue rate by adapting the value function pessimistically in response to the observed world-model errors, enabling preemptive engagement of the safety fallback before the tomato is thrown out of the pan. UNISafe likewise maintains a high number of rescues, as the forceful throw is detected as an OOD action that should be safeguarded against. Under observation staleness, our method continues to enable a sig-nificant number of rescues, while performance degrades sub-stantially across all baselines. The strongest baseline achieves 
+
+50% fewer rescues than our method. We hypothesize that this is because stale observations induce incorrect latent predictions while still remaining within the world model’s learned distribution, causing UNISafe to under-respond to the resulting model error. Moreover, because these experiments use open-loop replays, UNISafe does not experience the persistent covariate shift or robot stalling observed in the closed-loop simulation study in Section V-B. This behavior is also evident in the qualitative comparison in Figure 8, which shows one rollout from the observation-staleness setting evaluated under different methods. The UNISafe JRD score remains below its OOD threshold and does not exhibit a strong response to the prediction mis-match, indicating agreement among the probabilistic en-semble despite elevated model error. Similarly, the ACoFi nonconformity score remains low in magnitude throughout the episode and does not respond noticeably to model inaccuracies. In contrast, our method directly tracks the discrepancy between the predicted and inferred latent states. Under stale observations, this error remains elevated throughout the episode and rises sharply near the end as the dustpan tilts downward, producing action inputs that are increasingly inconsistent with the stale observations (the mid-episode spike is caused by the chaotic bouncing dynamics of the tomato as the arm grasps the dustpan). This error-aware adaptation allows our method to lower the pessimistic value estimate early enough for the safety policy to prevent failure. VII. C ONCLUSIONS AND LIMITATIONS 
+
+We present a method for online adaptation of world-model based safety filters from prediction error estimates. By continuously estimating latent uncertainty sets during operation, we compute the worst-case imagination under the current estimated uncertainty. Through both qualitative and quantitative demonstrations across simulation and hardware, we show that our error-aware safety filter results in improved safety over existing methods. Our work is not without limitations. While providing additional robustness against world model errors, our method is reactive and does not provide formal safety guarantees. Solving (8) incurs additional computational cost compared with existing methods. Moreover, Theorem 1 assumes ex-changeability between deployment and calibration trajecto-ries, which can be violated under safety filtering if recovery actions are absent from the calibration set. These constitute important avenues for future research. REFERENCES [1] M. J. Kim, Y. Gao, T.-Y. Lin, Y.-C. Lin, Y. Ge, G. Lam, P. Liang, S. Song, M.-Y. Liu, C. Finn, and J. Gu, “Cosmos policy: Fine-tuning video models for visuomotor control and planning,” in International Conference on Learning Representations (ICLR) , 2026. [2] P. Intelligence, K. Black, N. Brown, J. Darpinian, K. Dhabalia, D. Driess, A. Esmail, M. Equi, C. Finn, N. Fusai, et al. , “ π0.5:a Vision-Language-Action model with Open-World generalization,” 
+
+arXiv preprint arXiv:2504.16054 , 2025. [3] G. R. Team, S. Abeyruwan, J. Ainslie, J.-B. Alayrac, M. G. Arenas, T. Armstrong, A. Balakrishna, R. Baruch, M. Bauza, M. Blokzijl, 
+
+et al. , “Gemini robotics: Bringing ai into the physical world,” arXiv preprint arXiv:2503.20020 , 2025. [4] A. D. Ames, S. Coogan, M. Egerstedt, G. Notomista, K. Sreenath, and P. Tabuada, “Control barrier functions: Theory and applications,” in 2019 18th European control conference (ECC) . Ieee, 2019, pp. 3420–3431. [5] S. Bansal, M. Chen, S. Herbert, and C. J. Tomlin, “Hamilton-jacobi reachability: A brief overview and recent advances,” in 2017 IEEE 56th annual conference on decision and control (CDC) . IEEE, 2017, pp. 2242–2253. [6] K. Nakamura, L. Peters, and A. Bajcsy, “Generalizing safety be-yond collision-avoidance via latent-space reachability analysis,” arXiv preprint arXiv:2502.00935 , 2025. [7] D. Hafner, T. Lillicrap, I. Fischer, R. Villegas, D. Ha, H. Lee, and J. Davidson, “Learning latent dynamics for planning from pixels,” in 
+
+International conference on machine learning . PMLR, 2019, pp. 2555–2565. [8] P. Abbeel, M. Quigley, and A. Y. Ng, “Using inaccurate models in reinforcement learning,” in Proceedings of the 23rd international conference on Machine learning , 2006, pp. 1–8. [9] N. Hansen and X. Wang, “Hallucination in world models is predictable and preventable,” arXiv preprint arXiv:2606.27326 , 2026. [10] C. Li, A. Krause, and M. Hutter, “Robotic world model: A neural network simulator for robust policy optimization in robotics,” arXiv preprint arXiv:2501.10100 , 2025. [11] T. An, J. Jia, G. Li, J. Li, C. Zhou, P. Liu, B. Lyu, J. Bai, X. Guo, G. Li, 
+
+et al. , “Feedback world model enables precise guidance of diffusion policy,” arXiv preprint arXiv:2605.15705 , 2026. [12] I. R. Ward, M. Ho, H. Liu, A. Feldman, J. Vincent, L. Kruse, S. Cheong, D. Eddy, M. J. Kochenderfer, and M. Schwager, “Founda-tional world models accurately detect bimanual manipulator failures,” 
+
+arXiv preprint arXiv:2603.06987 , 2026. [13] J. Seo, K. Nakamura, and A. Bajcsy, “Uncertainty-aware latent safety filters for avoiding out-of-distribution failures,” arXiv preprint arXiv:2505.00779 , 2025. [14] J. Berger, B. Frauenknecht, S. Trimpe, and B. Leibe, “Biased dreams: Limitations to epistemic uncertainty quantification in latent space models,” arXiv preprint arXiv:2604.25416 , 2026. [15] S. Huriot, I. Tabbara, and H. Sibai, “Safe control using learned safety filters and adaptive conformal inference,” arXiv preprint arXiv:2604.18482 , 2026. [16] I. Gibbs and E. Candes, “Adaptive conformal inference under dis-tribution shift,” Advances in Neural Information Processing Systems ,vol. 34, pp. 1660–1672, 2021. [17] K. Nakamura, A. L. Bishop, S. Man, A. M. Johnson, Z. Manch-ester, and A. Bajcsy, “How to train your latent control barrier func-tion: Smooth safety filtering under hard-to-model constraints,” arXiv preprint arXiv:2511.18606 , 2025. [18] J. F. Fisac, N. F. Lugovoy, V. Rubies-Royo, S. Ghosh, and C. J. Tomlin, “Bridging hamilton-jacobi safety analysis and reinforcement learning,” in 2019 International Conference on Robotics and Automation (ICRA) .IEEE, 2019, pp. 8550–8556. [19] A. Z. Ren, A. Dixit, A. Bodrova, S. Singh, S. Tu, N. Brown, P. Xu, L. Takayama, F. Xia, J. Varley, et al. , “Robots that ask for help: Uncertainty alignment for large language model planners,” arXiv preprint arXiv:2307.01928 , 2023. [20] D. Hafner, J. Pasukonis, J. Ba, and T. Lillicrap, “Mastering diverse domains through world models,” arXiv preprint arXiv:2301.04104 ,2023. [21] S. Tao, F. Xiang, A. Shukla, Y. Qin, X. Hinrichsen, X. Yuan, C. Bao, X. Lin, Y. Liu, T. kai Chan, Y. Gao, X. Li, T. Mu, N. Xiao, A. Gurha, V. N. Rajesh, Y. W. Choi, Y.-R. Chen, Z. Huang, R. Calandra, R. Chen, S. Luo, and H. Su, “Maniskill3: Gpu parallelized robotics simulation and rendering for generalizable embodied ai,” Robotics: Science and Systems , 2025. [22] C. Chi, Z. Xu, S. Feng, E. Cousineau, Y. Du, B. Burchfiel, R. Tedrake, and S. Song, “Diffusion policy: Visuomotor policy learning via action diffusion,” The International Journal of Robotics Research , vol. 44, no. 10-11, pp. 1684–1704, 2025. 
+
+VIII. A PPENDIX 
+
+Proof of Theorem 1. We begin by noting the equivalence of the events 
+
+{Qαtraj  
+
+> τ
+
+≤ qmax } = { 1
+
+T
+
+> T
+
+X
+
+> t=1
+
+1[et > q max ] ≤ αtraj }. (13) From Proposition 1, we have that with probability 11
+
+T
+
+> T
+
+X
+
+> t=1
+
+1[et > q t] − α ≤ rT . (14) Combining (13) and (14) gives 
+
+P 1
+
+T
+
+> T
+
+X
+
+> t=1
+
+1[et > q t] + 1[et > q max ] ≤ α + αtraj + rT
+
+!
+
+≥≥ 1 − αcal . (15) Lastly, the inequality 1[et > ¯qt] ≤ 1[et > q t] + 1[et > q max ]
+
+allows us to upper-bound the left-hand side of (15) with 
+
+P 1
+
+T
+
+> T
+
+X
+
+> t=1
+
+1[et > ¯qt] ≤ α + αtraj + rT
+
+!
+
+, (16) giving us (12). ■

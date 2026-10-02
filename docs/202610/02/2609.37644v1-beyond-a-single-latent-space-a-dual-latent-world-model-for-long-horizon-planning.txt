@@ -1,0 +1,904 @@
+Title: Beyond a single latent space: a dual-latent world model for long-horizon planning
+
+URL Source: https://arxiv.org/pdf/2609.37644v1
+
+Published Time: Wed, 30 Sep 2026 01:59:03 GMT
+
+Number of Pages: 31
+
+Markdown Content:
+# BEYOND A SINGLE LATENT SPACE : A D UAL -L ATENT 
+
+# WORLD MODEL FOR LONG -H ORIZON PLANNING 
+
+Delin Zhao 1,2 , Zhengrong Yue 4, Shaobin Zhuang 4, Junlin He 2, Xiaoyu Chen 3,Zikang Wang 4, Yuxin Liu 3, Limin Wang 1, Yali Wang 3,* 
+
+> 1
+
+Nanjing University 
+
+> 2
+
+Shenzhen University of Advanced Technology 
+
+> 3
+
+Shenzhen Institutes of Advanced Technology, Chinese Academy of Sciences 
+
+> 4
+
+Shanghai Jiao Tong University 
+
+> *
+
+Corresponding author. 
+
+## ABSTRACT 
+
+Latent world models often struggle with long-horizon planning, even when their short-term predictions are accurate. Prediction errors accumulate during recur-sive rollout, while distance concentration in high-dimensional latent spaces can weaken the distinction between states at different distances from a goal. We introduce the Dual-Latent World Model (Dual-WM), which separates local ex-ecution from long-range planning through two distinct state representations and dynamics models. The low-level model captures fine-grained action-conditioned transitions, while the high-level model uses learned macro-actions to plan over longer temporal spans. We further propose Long-Horizon Representation Learn-ing with Weighted Rollout (LoRe), which supervises self-generated predictions at both levels. Motivated by an analysis of recursive error propagation, LoRe uses exponential horizon weights with separate decay rates to balance multi-step supervision at each temporal scale. During planning, the high-level model gener-ates latent subgoals, and the low-level model refines them into actions for precise execution. We evaluate from-scratch Dual-WM on five goal-conditioned visual control tasks against the task-wise strongest baselines without actor-guided pro-posals. At goal offsets of 50 and 100 environment steps, mean success increases from 75.9% to 84.4% and from 61.4% to 69.5%, respectively. At offset 100, Dual-WM outperforms these baselines on all five tasks and improves mean suc-cess over LeWM by 30.8 percentage points. Ablations and supporting analyses provide evidence that the proposed design learns more informative state represen-tations for goal evaluation and improves consistency under recursive prediction. These results highlight the value of separating temporal roles and training across multiple horizons for reliable latent planning. Our core implementation is avail-able at https://github.com/DeLin1001/Dual-WM-Official .
+
+## 1 INTRODUCTION 
+
+Latent world models provide a compact space in which an agent can predict the consequences of its actions (Hafner et al., 2019; 2023; Hansen et al., 2024) and evaluate progress toward a goal. These two uses impose distinct demands on the representation: it must support accurate action-conditioned transitions, while its distances must remain informative for ranking candidate futures. Local predic-tive accuracy, however, does not guarantee consistent rollouts or informative goal distances over long horizons. This gap appears in two forms. First, repeatedly composing a locally trained transition model can ac-cumulate prediction errors, causing imagined trajectories to diverge from their true evolution (Chen et al., 2026; Du et al., 2026; Huo et al., 2026). Second, even accurately predicted candidate futures can be difficult to rank (Wang et al., 2026a; Hu et al., 2026). In high-dimensional, isotropically regularized representations (Maes et al., 2026; Sobal et al., 2025; Zhao et al., 2026), latent distances can concentrate around a dimension-dependent baseline as temporal correlations decay (Aggarwal et al., 2001; Thil et al., 2026; Wu et al., 2026), leaving distant candidates with nearly indistinguish-1arXiv:2609.37644v1 [cs.AI] 29 Sep 2026 Low Level         
+
+> Predictor
+> Pred Loss
+> action
+> N-step Weighted rollout
+> High Level
+> Predictor
+> Pred Loss
+> macro
+> action
+> M-step Weighted rollout
+> BA
+> C
+> init
+> Ground-
+> truth
+> future
+> init
+> goal
+> goal
+> Recursive
+> rollout
+> Task distance-A* (px)
+> Normalized latent distance to goal
+> Rollout steps
+> Normalized latent prediction error
+> One step teacher forcing
+> Weighted Rollout-LoRe
+> High Level: Coarse temporal scale; Long-range route planning
+> Low Level: Fine temporal scale; Precise local execution
+> High level
+> guide
+> High
+> level
+> planning
+> Low
+> level
+> planning
+> AB
+> C
+> Errors accumulate under
+> recursive prediction
+> Different path lengths to goal,
+> nearly identical latent costs
+> Failed mode 1: Goal costs collapse
+> Failed mode 2: Recursive rollout drifts
+> (a) Long-Horizon Failure Modes (b) Latent-Space Diagnosis (c) Dual-Latent World Model
+> Single latent space
+> Dual latent-high level
+
+Figure 1: Overview of the long-horizon planning problem and our dual-latent solution. (a) Two failure modes in a single latent space: goal costs collapse for distant states, and recursive rollouts drift from the ground-truth future. (b) Latent-space diagnostics: the high-level space preserves task-distance contrast, while weighted rollout training reduces multi-step prediction error relative to one-step teacher forcing. (c) Dual-WM assigns coarse route planning to a high-level latent and precise local execution to a low-level latent. able goal costs. One-step prediction constrains transitions between neighboring states, but does not directly require distances between remote states to reflect task progress. Long-horizon planning therefore requires both predictive consistency and a geometry that supports meaningful compar-isons beyond local neighborhoods. Without both, a planner may either imagine the wrong future or mis-rank otherwise accurate candidate futures. Appendix A.1 relates these requirements through a simple condition for preserving candidate rankings. Figure 1 illustrates both failure modes on held-out TwoRoom data. Existing approaches address these challenges through improvements to predictive accuracy, search efficiency, and temporal abstraction. Flat world models strengthen prediction (Du et al., 2026; Gao & Xu, 2026; Huo et al., 2026; Liu et al., 2026a; Rakhimov et al., 2026) or introduce proposals and subgoals to facilitate search (Cheng et al., 2026; Wang et al., 2026c; Sun et al., 2026; Huang et al., 2026). Hierarchical models shorten the effective rollout depth by predicting temporally extended transitions (Zhang et al., 2026a; Masip et al., 2026; Liu et al., 2026b; Barbeau et al., 2026; Gumbsch et al., 2024). However, in approaches that retain a shared latent space (Caselli et al., 2026; Thil et al., 2026), both local execution and long-range goal evaluation still depend on the same state geometry; shortening the rollout leaves this geometry unchanged, so when distances saturate, distant candidates remain nearly indistinguishable. The underlying issue is that the same state geometry must support two different temporal roles. Precise local control requires sensitivity to small state changes that affect immediate action outcomes (Zhang et al., 2026b; Shi et al., 2026). Long-range planning instead requires comparisons that are not dominated by locally important variations and that remain informative about progress toward distant goals (Bai & Xiong, 2026; Hu et al., 2026). A shared representation must accommodate both demands within the same geometry, although local prediction objectives do not directly enforce long-range discrimination. We therefore separate representations by temporal role, allowing each space to organize state differences according to the transitions and planning decisions it supports. We introduce Dual-Latent World Model (Dual-WM), which couples a low-level representation and dynamics model for primitive actions with a distinct high-level representation and dynamics model for learned macro-actions. Macro-Action Prior Shaping (MAPS) regularizes the macro-action pos-terior toward a standard Gaussian prior to support sampling and optimization during planning. We introduce L ORE (Long-Horizon Representation Learning with Weighted Rollout) to improve recur-2sive consistency and constrain state relations beyond one-step neighborhoods. LORE supervises self-generated rollouts at both scales using separately parameterized horizon weights. At inference time, Dual-WM first plans high-level latent subgoals, then refines them into primitive actions, and finally switches to direct low-level planning for precise goal convergence. Our main contributions are threefold: • We introduce Dual-WM , a world model that separates state representations and dynamics by temporal role. Macro-Action Prior Shaping (MAPS) regularizes learned macro-actions for sampling-based search, while hierarchical planning connects long-range guidance to precise local execution. • We propose LORE, a training mechanism that supervises self-generated rollouts at both temporal scales with separately parameterized horizon weights, extending predictive su-pervision beyond one-step transitions. • We evaluate Dual-WM on five goal-conditioned visual planning tasks spanning continuous control and discrete-action, game-like planning, with comparisons against flat and hierar-chical world models and diagnostics of the learned representations. 
+
+## 2 RELATED WORK 
+
+Latent prediction and control. Latent dynamics support planning from pixels and policy learn-ing in imagined trajectories (Hafner et al., 2019; 2023; Hansen et al., 2024). Our setting is reconstruction-free, goal-conditioned planning: DINO-WM predicts pretrained visual features (Zhou et al., 2024), PLDM learns from reward-free trajectories (Sobal et al., 2025), and LeWM jointly learns an encoder and predictor with anti-collapse regularization (Maes et al., 2026). Beyond one-step prediction, VLWM, Fast-LeWM, and Flow-JEPA change how extended futures are pre-dicted (Du et al., 2026; Gao & Xu, 2026; Huo et al., 2026). LoRe instead retains recursive dynamics and supervises their self-generated rollouts at both temporal scales, with separate decayed horizon weights. 
+
+Geometry and temporal abstraction. Planning-oriented objectives reshape representations through action alignment, physical-state distances, reachability, or temporal ordering (Wang et al., 2026a; Hu et al., 2026; Li et al., 2026; Bai & Xiong, 2026). SD-JEPA separates progression and con-tent within an embedding (Thil et al., 2026). Dual-WM separates dynamical roles: each state space has its own predictor and action timescale, and the high-level encoder maps predicted low-level win-dows into the subgoal space. HWM and Hi-LeWM are close hierarchical precedents (Zhang et al., 2026a; Caselli et al., 2026); both retain a shared latent-state interface across scales. Our learned cross-space interface allows macro-action subgoals and final primitive-action control to use differ-ent representations. HWM’s reported autoregressive objective uses uniform rollout weights, while RC-aux permits horizon-weighted open-loop supervision (Li et al., 2026). LoRe uses scale-specific exponential decay motivated by recursive error propagation. Appendix C and Table 2 detail these connections and complementary approaches to action search. 
+
+## 3 METHOD 
+
+Dual-WM assigns local execution and long-range planning to different state spaces, then couples them through a learned projection used during subgoal refinement. Figures 2 and 3 show training and three-stage planning. We first define the two dynamics models and their macro-action interface, then describe L ORE and the planner that uses them. 3.1 PROBLEM SETTING AND NOTATION 
+
+We learn from an offline dataset D of observation–action trajectories. In the model-level notation 
+
+(o0, a 0, o 1, . . . , a T −1, o T ), t indexes low-level model steps. At deployment, the agent receives the current observation ot and a goal observation og , and selects primitive actions by planning with the learned models. No task reward or ground-truth state-distance target is required by the predictive objectives below. Each low-level model input at represents f consecutive environment actions, so one low-level model step covers f environment steps. We write a macro-action segment as 3LoRe  LoRe  LoRe  LoRe  LoRe      
+
+> LoRe LoRe
+> Ground
+> Truth
+> ··· ···
+> MAPS MAPS
+> Pred
+> Pred
+> LoRe: Lo ng-Horizon Re presentation
+> Learning with Weighted Rollout
+> Pred
+> Pred
+> ··· ···
+> Dual-Timescale
+> Hierarchical
+> Latent World
+> Modeling
+> High Level
+> Low
+> Level
+
+Figure 2: Training the dual-timescale latent world model. The low-level encoder EL and predic-tor PL model fine-scale transitions, while EH encodes length-k low-level latent windows and PH
+
+models temporally extended transitions. The action encoder EA produces macro-actions, MAPS regularizes their posterior, and L ORE supervises self-generated predictions at both levels. 
+
+At = ( at, . . . , a t+k−1), where k is its span in low-level model steps and the number of low-level latents in each high-level input window. Thus, one high-level transition covers k low-level model steps, or kf environment steps. In the diagrams, τ indexes high-level transitions: advancing from 
+
+τ to τ + 1 corresponds to advancing from t to t + k in the low-level time index. For clarity, we describe fixed k within a model configuration. We use N and M for the low- and high-level training rollout lengths, respectively, and HL, H H for their planning horizons. We suppress any additional context-window arguments in the predictor notation. 3.2 DUAL -LATENT DYNAMICS AND MACRO -ACTIONS 
+
+Let W Lt denote the length-k window of low-level latents associated with high-level state t. When only one frame is available, its low-level latent is repeated to fill this window. The observation encoder EL and high-level state encoder EH define 
+
+zLt = EL(ot) ∈ RdL , zHt = EH (W Lt ) ∈ RdH . (1) The two spaces have separate dynamics predictors: 
+
+ˆzLt+1 = PL(zLt , a t), ˆzHt+k = PH (zHt , u t). (2) Here ut ∈ Rdu summarizes At through a posterior qϕ(ut | At) parameterized by the macro-action encoder EA. Low-level prediction preserves distinctions needed for primitive action outcomes. High-level prediction is trained against states separated by k low-level model steps, allowing its geometry to emphasize distinctions relevant at that temporal scale. Both levels share the visual backbone, with EH mapping low-level windows into the state space used for high-level prediction and goal evaluation. During training, the high-level branch receives EH (sg( W Lt )) , where sg preserves its argument’s value and stops its gradient. High-level losses therefore update the high-level modules without changing EL or PL. Low-level learning retains its fine-scale predictive objective, while EH learns how to organize the supplied features for macro-action dynamics. 
+
+Macro-action prior shaping. A macro-action space learned only on encoded dataset segments need not be well behaved under unconstrained search. MAPS adds 
+
+LMAPS = EAt∼D DKL (qϕ(ut | At) ∥ N (0 , I du )) . (3) The high-level prediction loss encourages ut to retain information about the segment’s effect, while the KL penalty gives candidate generation a common prior. At planning time, macro-actions are optimization variables; their posterior encoder is needed for training, not for encoding unknown future actions. MAPS therefore regularizes the macro-action interface for sampling-based planning, complementing the state representations used for goal evaluation. 43.3 HORIZON -WEIGHTED SELF -GENERATED ROLLOUTS 
+
+LORE trains each dynamics model on the recursive predictions it will use during planning, while controlling how different rollout horizons contribute to learning. The two scales use separately parameterized weights because low-level and high-level prediction operate over different temporal spans and can exhibit different error-amplification rates. Let s ∈ { L, H } index the temporal scale, with ∆L = 1 and ∆H = k, measured in low-level model steps. For a common loss expression, let 
+
+nL = N and nH = M . Write bLt = at and bHt = ut. Starting from an encoded anchor, we generate 
+
+ˆzst|t = zst , ˆzst+h∆s|t = Ps
+
+
+
+ˆzst+( h−1)∆ s|t, b st+( h−1)∆ s
+
+
+
+. (4) The low-level rollout uses the recorded low-level action inputs. The high-level rollout uses macro-actions encoded from the corresponding recorded segments. After initialization, neither rollout is reset to an observed future state. Future observations supply targets zst+h∆s :
+
+Ls 
+
+> LoRe
+
+= ED,q ϕ
+
+> ns
+
+X
+
+> h=1
+
+wsh ˆzst+h∆s|t − zst+h∆s
+
+> 22
+
+, wsh = exp( −αsh)
+
+Pns 
+
+> j=1
+
+exp( −αsj) . (5) The expectation over qϕ applies to the high-level rollout. The loss differentiates through the recur-sive prediction chain and the encoded future targets; no additional stop-gradient is applied to those targets. The branch boundary above still prevents high-level target and prediction losses from updat-ing the low-level encoder. Each scale has its own horizon ns and decay αs ≥ 0: one high-level step covers k low-level model steps, or kf environment steps, so equal step indices do not represent equal physical horizons. Uniform weighting is recovered at αs = 0 , and finite decay retains supervision at every included horizon. 
+
+From recursive error to horizon weights. Following Asadi et al. (2018), fix a control sequence and a shared encoded starting state. Suppose Ps is Ls-Lipschitz on the encoded and predicted inputs encountered, with one-step residual at most ϵs. For esh = ∥ˆzst+h∆s|t − zst+h∆s ∥2 and es 
+
+> 0
+
+= 0 , the prediction error satisfies 
+
+esh+1 ≤ Lsesh + ϵs, esh ≤ ϵsSh(Ls), Sh(L) = 
+
+> h−1
+
+X
+
+> j=0
+
+Lj . (6) The reference weights vsh ∝ Sh(Ls)−2 equalize weighted squared-error bounds. When Ls > 1,their long-horizon behavior approaches geometric decay, motivating the exponential family in Eq. (5). Finite decay tempers amplified distant errors while retaining multi-step supervision; sepa-rate decays accommodate the two scales’ different error growth. Appendix B gives the finite-horizon derivation and its extension to history-conditioned predictors. The full training objective combines predictive supervision, macro-action prior shaping, and state regularization: 
+
+L = λLLL 
+
+> LoRe
+
++ λH LH 
+
+> LoRe
+
++ βLMAPS + Lreg . (7) Here Lreg is the isotropic Gaussian state regularizer for anti-collapse, following LeWM (Maes et al., 2026), with the regularization weights at both levels included in this term. The h = 1 terms provide one-step supervision within the LoRe losses. 3.4 COARSE -TO -FINE PLANNING ACROSS THE TWO SPACES 
+
+Let Φ(m) 
+
+> s
+
+(z, B ) denote m recursive applications of Ps starting from z under an action sequence B.The planning horizons HL, H H need not equal the training horizons N, M . Encode the current and goal observations in the low-level space, and their corresponding latent windows with EH to obtain the high-level representations. 
+
+Stage 1: High-level route planning. We optimize a macro-action sequence U =(u0, . . . , u HH −1) using 
+
+U ⋆ ≈ arg min  
+
+> U
+
+Φ(HH ) 
+
+> H
+
+(zHt , U ) − zHg
+
+> 22
+
+. (8) CEM generates and updates candidates in the continuous macro-action space regularized by MAPS. Intermediate predictions under U ⋆ provide a sequence of high-level subgoals ˜zH 
+
+> 1
+
+, . . . , ˜zHHH . A route spanning kH H low-level model steps, or kf H H environment steps, requires HH high-level transi-tions, reducing the prediction depth of the route search before low-level refinement. 5Cost   
+
+> Solver
+> Cost
+> Solver
+> Update macro actions
+> Update actions
+> Cost
+> Solver
+> Stage 2: High-Level-Guided Low-Level Refinement Stage 3: Direct Low-Level Goal Convergence
+> Update actions
+> High-Level States
+> as Subgoals
+> Repeat
+> stage 2
+> for all
+> subgoals
+> Current
+> Observed
+> Latent
+> Stage 1: High-Level Route Planning
+
+Figure 3: Three-stage planning with the trained dual-latent world model. Stage 1 plans a high-level route and produces latent subgoals; Stage 2 refines subgoals with low-level actions while comparing latent windows through EH ; Stage 3 performs direct low-level goal convergence. 
+
+Stage 2: High-level-guided low-level refinement. Given the selected subgoal ˜zHj , let cW Lt (A)
+
+denote the length-k latent window constructed from the low-level rollout for comparison with that subgoal. We optimize a sequence of low-level action inputs A = ( a0, . . . , a HL−1) through 
+
+A⋆ ≈ arg min  
+
+> A
+
+EH
+
+cW Lt (A)
+
+
+
+− ˜zHj
+
+> 22
+
+. (9) The dynamics remain low-level, but the comparison is high-level. This projection is the coupling between the two state spaces: the low-level plan is evaluated by how its latent window matches the abstract subgoal, without requiring an inverse map from zH to zL or a decoder from macro-actions to primitive actions. Execution is grounded again in the new observation, and refinement proceeds toward successive subgoals. 
+
+Stage 3: Direct low-level goal convergence. After a fixed number of high-level-guided refine-ment rounds, the planner switches to direct low-level goal convergence, replacing the projected subgoal cost by 
+
+A⋆ ≈ arg min  
+
+> A
+
+Φ(HL) 
+
+> L
+
+(zLt , A ) − zLg
+
+> 22
+
+. (10) States that match in the high-level space can still differ in details that matter for completion. Direct low-level goal matching retains sensitivity to those differences. The three stages thus use high-level dynamics to choose a route, low-level dynamics with projected costs to execute it, and low-level costs to finish precisely. 
+
+## 4 EXPERIMENTS 
+
+Our experiments first assess (Q1) whether Dual-WM improves long-horizon goal reaching across five visual control tasks. We then examine the two challenges motivating our design: (Q2) whether latent goal distances distinguish progress over long ranges, and (Q3) whether recursive predictions retain task-relevant physical-state information. Finally, controlled ablations assess (Q4) the contri-butions of the learned high-level representation, rollout training, and macro-action prior shaping. 4.1 EXPERIMENTAL SETUP 
+
+We evaluate visual, goal-conditioned planning on TwoRoom, Reacher, Sokoban-Long, PushT, and Cube-Single (Figure 6). Our evaluation includes Sokoban-Long, a game-like environment with discrete actions, to assess whether the benefits of dual-latent planning extend beyond continuous-control tasks. Goal-reaching success is reported at the displayed offsets. Here, a goal offset m
+
+6Table 1: Success (%) at goal offsets 50 and 100 environment steps. Dual-WM uses the from-scratch variant throughout. Best other selects the highest non-Dual-WM mean without actor-guided proposals separately for each task and offset, with the selected method shown beside each value. The external controller is included. Bold marks the largest displayed mean per task/offset. Full results and uncertainty are in Tables 5–7.                                                      
+
+> Offset 50 Offset 100 Task LeWM Best other Dual-WM LeWM Best other Dual-WM TwoRoom 61.50 94.83 (Gemini) 99.33 27.00 90.00 (Gemini) 92.50
+> Reacher 85.33 92.33 (INTACT) 98.67 75.67 84.83 (Gemini) 93.30
+> Sokoban-Long 41.50 52.00 (Gemini) 75.17 16.33 35.00 (Gemini) 52.33
+> PushT 56.00 78.00 (HWM) 86.17 20.00 31.00 (HWM) 41.33
+> Cube-Single 51.33 62.17 (DINO-WM) 62.67 54.17 66.33 (Fast-LeWM) 67.83
+> Mean 59.1 75.9 84.4 38.6 61.4 69.5
+> INTACT denotes its Pure CEM variant. Means weight the five tasks equally.
+
+denotes m original environment steps between the initial and goal observations in the dataset. Our trained and reproduced entries in the full planning tables are evaluated with three planning seeds (0, 1, and 42 ), using 200 goal-reaching tasks per task and offset for each seed. Each seed selects a new task set, shared across methods with identical episode IDs, start states, and goals, and also fixes the planner’s search randomness. For each task and offset, all methods evaluated by us use identical environment-step budgets, success criteria, and early-termination rules. Entries shown with ± report the mean and standard deviation across these seeded evaluations, which vary both task sampling and search randomness (Appendix J); quoted results retain the reporting convention of the original publication. PushT additionally includes offset 75 because it is the long-horizon setting reported for HWM. The baselines are LeWM (Maes et al., 2026), DINO-WM (Zhou et al., 2024), PLDM (Sobal et al., 2025), HWM (Zhang et al., 2026a), Hi-LeWM (Caselli et al., 2026), Fast-LeWM (Gao & Xu, 2026), RC-aux (Li et al., 2026), two INTACT variants (Sun et al., 2026), JEPA-WM (Terver et al., 2025), VLWM (Du et al., 2026), and our Gemini 3.8 Flash closed-loop controller. Table 1 summarizes the extended-offset comparison. Appendix E reports all task-level results, and Appendix J distinguishes the baseline settings. Training and planning configurations are in Appendix D. 4.2 Q1: D OES DUAL -WM IMPROVE LONG -HORIZON PLANNING ?Table 1 compares the same from-scratch Dual-WM variant against LeWM and the strongest non-Dual-WM result without actor-guided proposals on each task. INTACT uses Pure CEM in this comparison; Actor+CEM is compared separately with actor-guided Dual-WM in Table 8. Full re-sults and protocols are in Appendices E and J. The task-wise aggregate selects the strongest eligible result from flat models, hierarchical models, and the external controller for each task and offset. 
+
+Strong performance across tasks and action spaces. At offsets 50 and 100 , Dual-WM averages 
+
+84 .4% and 69 .5% , compared with 75 .9% and 61 .4% for the task-wise best non-Dual-WM aggregate without actor-guided proposals. At offset 100 , it exceeds LeWM on every task, improving the mean by 30 .8 percentage points before rounding. TwoRoom and Sokoban-Long illustrate the long-range benefit: Dual-WM reaches 92 .50% and 52 .33% , versus 27 .00% and 16 .33% for LeWM. Sokoban-Long uses discrete actions in a game-like environment, extending the evidence beyond continuous control. At offset 25 , the same model reaches 100% , 99 .0% , and 98 .0% on TwoRoom, Reacher, and PushT, respectively. On PushT, it also attains 86 .17% at offset 50 and 62 .00% at offset 75 , compared with HWM’s 78% and 61% . At offset 100 , it reaches 41 .33% versus 31 .00% for our reproduced HWM, a gain of 10 .33 percentage points (Table 7). 
+
+Hierarchical planning and complementary action priors. At offset 100 , the full from-scratch configuration exceeds the low-level-only variant by 23 .83 , 4.13 , 6.50 , 21 .50 , and 6.33 percentage points on TwoRoom, Reacher, Sokoban-Long, PushT, and Cube-Single, respectively; both configu-rations use the same low-level checkpoint. With actor-guided proposals on Cube-Single, Dual-WM 7reaches 82 .50% at offset 100 , compared with 80 .67% for INTACT (Actor+CEM) (Table 8). This comparison uses the INTACT actor in both methods and is separate from Table 1. 
+
+Success across planning budgets. On TwoRoom at offset 100 , a four-budget sweep compares suc-cess against measured planning time per environment step (Figure 7). Dual-WM achieves higher success at lower measured planning time: 90% at 92 .4 ms per environment step, versus 84% at 
+
+247 .7 ms for the low-level-only variant. A larger budget yields 98% success at 214 .0 ms. 4.3 Q2: D O LATENT GOAL DISTANCES DISTINGUISH LONG -RANGE PROGRESS ?We test whether the latent goal distance remains discriminative beyond local neighborhoods. To compare representations of different widths, we normalize the Euclidean distance by √2D, where 
+
+D is the corresponding latent dimension. The independent isotropic-Gaussian root-mean-square ref-erence is one. Appendix A gives the reference calculation. Figure 13 shows that LeWM approaches this reference after a short physical range, whereas the learned low- and high-level spaces preserve substantially more ordering over long-range TwoRoom paths. The same pattern is visible in Reacher configuration space, with the high-level representation showing the strongest rank correlation. Spatial diagnostics in Appendix G support this pattern across navigation, joint configuration, and manipulation. TwoRoom distance fields preserve goal-directed variation across rooms (Figure 14). On Reacher, high-level goal distances correlate more strongly with wrapped joint-angle distance than the low-level and LeWM representations (Spearman 0.562 , 0.318 , and 0.190 ). On PushT, Dual-WM-H gives the largest improvements in position correlation and both pairwise goal-ordering measures, although its orientation correlation is statistically indistinguishable from LeWM. The ben-efit is therefore clearest in goal discrimination, rather than uniform improvement in every physical-distance correlation. 4.4 Q3: D OES ROLLOUT TRAINING PRESERVE PHYSICAL -STATE INFORMATION ?To test whether recursively predicted states retain task information, we compare one-step and rollout-trained low-level checkpoints with horizon-resolved physical probes. Separate ridge probes are fitted on predicted latents for each checkpoint and target, with disjoint episodes for fitting, val-idation, and evaluation (Appendix G). The rollout-trained checkpoint has lower point estimates at every horizon for all four quantities (Figure 17). The separation is clearest for Reacher joint config-uration and fingertip position, and PushT block position; PushT orientation has wider uncertainty. These results support the role of recursive training in retaining task-relevant state information during multi-step prediction. 4.5 Q4: W HICH DESIGN CHOICES IMPROVE PLANNING SUCCESS ?On TwoRoom, we test the latent-space design and LoRe scale activation with the full hierarchical planner. Horizon and weighting studies use low-level-only planning to isolate low-level rollout train-ing; MAPS is evaluated with the hierarchical planner. Planning results average three planning seeds and are shown without error bars. Within each study, unablated settings remain at their defaults. 
+
+Learned window interfaces improve planning. Shared-Identity and Endpoint-MLP use endpoint latents; Window-Concat directly concatenates the same length-k window used by Dual-WM. All retain the same low-level checkpoint and coarse-to-fine planner. At offset 100 , Dual-WM achieves 
+
+93% success versus 41% for Window-Concat, a 52 -percentage-point gap with the same input win-dow. Endpoint-MLP and Shared-Identity achieve 69% and 47% , respectively (Figure 4). In the farthest distance bin, Dual-WM-H reaches 84 .9% goal-ordering accuracy versus 51 .0% for Window-Concat (Figure 18, Appendix H). Together, these results support learning a high-level representation for long-range goal evaluation, rather than relying on window context alone. 
+
+LoRe benefits both temporal scales. We retain both dynamics models and hierarchical planning, varying only which levels receive LoRe instead of one-step supervision (Figure 5). At offset 100 ,dual-scale LoRe raises success from 48% with one-step supervision to 92% . Low- and high-level LoRe alone yield 79% and 76% , respectively. Both-scale training improves over the stronger single-scale setting by 13 percentage points. Low-level LoRe already reaches 100% at offset 25 , whereas the benefit of also supervising high-level rollouts is clearest at longer offsets. These are training switches, not removal of either planning branch. 850 100 Goal offset (env. steps) 025 50 75 100 Success rate (%) 
+
+> Shared-Identity Endpoint-MLP Window-Concat Separated
+
+Figure 4: Latent-space design on TwoRoom. All variants share the low-level checkpoint and hierarchical planning. Window-Concat directly concatenates the same window used by Sepa-rated (Dual-WM). Bars show mean success. 25 50 100 Goal offset (env. steps) 020 40 60 80 100 Success rate (%) 
+
+> One-step both LoRe: low LoRe: high LoRe: both
+
+Figure 5: LoRe scales on TwoRoom. Both model levels and hierarchical planning are re-tained; inactive levels use one-step supervision. Bars show mean success. 
+
+Low-level rollout length and weighting. Under low-level-only planning, offset-100 success rises from 32% at N = 1 to 69% at N = 5 , then falls to 37% at N = 10 . At N = 5 , exponential weighting gives 69% , versus 62% for linear and 54% for uniform weights. These studies favor moderate rollout lengths with decayed supervision. Full sweeps and physical-state probes are in Appendix H. 
+
+Macro-action prior shaping. At offset 100 , deterministic macro-action encoding achieves 67% 
+
+success, versus 81% for stochastic encoding without MAPS ( β = 0 ). Adding MAPS raises success to 93 .5% at β = 10 −2, despite higher one-step and six-step latent MSE than at β = 0 . This pattern is consistent with MAPS shaping a macro-action space better suited to search, rather than simply minimizing prediction error. Further increasing β to 5 × 10 −2 reduces success to 91 .5% (Figure 21, Appendix H). 
+
+## 5 CONCLUSION 
+
+Long-horizon latent planning requires both reliable recursive predictions and goal distances that distinguish progress beyond local neighborhoods. Dual-WM addresses these requirements through distinct representations and dynamics for local execution and long-range planning, coupled by a learned window interface. LoRe trains recursive predictions at both scales, while MAPS organizes the macro-action space for search. Across five visual control tasks spanning continuous and discrete actions, this design improves extended-offset goal reaching. The representation diagnostics and ablations support complementary roles for long-range goal discrimination, recursive consistency, and precise low-level convergence. Together, these findings suggest that the usefulness of a world model for planning depends on how its representations, predictive training, and goal-evaluation metrics are organized across temporal scales. Our evaluation uses offline data and fixed temporal abstraction, and gains depend on the task and action-proposal mechanism. Adaptive temporal scales and evaluation beyond the present offline setting are natural next steps. 9REFERENCES 
+
+Charu C. Aggarwal, Alexander Hinneburg, and Daniel A. Keim. On the surprising behavior of distance metrics in high dimensional space. In International Conference on Database Theory (ICDT) , volume 1973 of Lecture Notes in Computer Science , pp. 420–434, 2001. doi: 10.1007/ 3-540-44503-X 27. Guo An, Zijing Wu, Honghua Dong, Yuhao Yan, Zixuan Gui, Haochong Chen, Shanzhao Ruan, Xiang Wang, Yurong Ling, and Qi Tian. Diagnosing JEPA world models with action-conditioned predictive consistency. arXiv preprint arXiv:2608.12939 , 2026. Fabio Arnez and Alexandra Gomez-Villa. The SIGReg objective as variational free energy: A theoretical active-inference account of JEPA world models. arXiv preprint arXiv:2607.13612 ,2026. Kavosh Asadi, Dipendra Misra, and Michael Littman. Lipschitz continuity in model-based rein-forcement learning. In Jennifer Dy and Andreas Krause (eds.), Proceedings of the 35th In-ternational Conference on Machine Learning , volume 80 of Proceedings of Machine Learning Research , pp. 264–273. PMLR, 2018. URL https://proceedings.mlr.press/v80/ asadi18a.html .Jiaxin Bai and Jiaxuan Xiong. Temporal-distance JEPA: Plan-aware representation learning for latent world model predictive control. arXiv preprint arXiv:2607.25337 , 2026. Samuel Barbeau, Simon Roy, Giovanni Beltrame, Christian Desrosiers, and Nicolas Thome. Latent goal prediction from language for model-based planning. arXiv preprint arXiv:2606.20627 , 2026. Niccol` o Caselli, Francesco Massafra, Samuele Punzo, Salvatore Lo Sardo, Ippokratis Pantelidis, and Sathya Kamesh Bhethanabhotla. Mind the gap: Promises and pitfalls of hierarchical planning in LeWorldModel. arXiv preprint arXiv:2607.12547 , 2026. Taiye Chen, Qi Zhang, and Yisen Wang. Mitigating compounding error via video representation regularization. arXiv preprint arXiv:2607.27036 , 2026. Letian Cheng, Qi Zhang, and Yisen Wang. SAGE: Subgoal-conditioned action generation for latent world model planning. arXiv preprint arXiv:2607.17973 , 2026. Jingyi Cui, Qi Zhang, Hongwei Wen, and Yisen Wang. A generalization theory for JEPA-based world models. arXiv preprint arXiv:2606.27014 , 2026. Tianqi Du, Qi Zhang, Yifei Wang, and Yisen Wang. Beyond the next step: Variable-length latent world models for long-horizon planning. arXiv preprint arXiv:2606.21775 , 2026. Baoqi Gao, Ruize Han, Miao Wang, and Song Wang. IMWM: Intuition models complement world models for latent planning. arXiv preprint arXiv:2606.01626 , 2026. Yuntian Gao and Xiangyu Xu. Fast LeWorldModel. arXiv preprint arXiv:2606.26217 , 2026. Christian Gumbsch, Noor Sajid, Georg Martius, and Martin V. Butz. Learning hierarchical world models with adaptive temporal abstractions from discrete latent dynamics. In International Con-ference on Learning Representations (ICLR) , 2024. Danijar Hafner, Timothy Lillicrap, Ian Fischer, Ruben Villegas, David Ha, Honglak Lee, and James Davidson. Learning latent dynamics for planning from pixels. In International Conference on Machine Learning (ICML) , volume 97 of Proceedings of Machine Learning Research , pp. 2555– 2565. PMLR, 2019. Danijar Hafner, Jurgis Pasukonis, Jimmy Ba, and Timothy Lillicrap. Mastering diverse domains through world models. arXiv preprint arXiv:2301.04104 , 2023. Nicklas Hansen, Hao Su, and Xiaolong Wang. TD-MPC2: Scalable, robust world models for con-tinuous control. In International Conference on Learning Representations (ICLR) , 2024. Jiaming Hu, Yan Zheng, and Tian Wang. SCALE: State-calibrated latent embeddings for JEPA planning in the right geometry. arXiv preprint arXiv:2608.16287 , 2026. 10 Hsiang-Wei Huang, Jianxu Shangguan, Junbin Lu, and Jenq-Neng Hwang. LeFlow: Generative latent flow planning for world models. arXiv preprint arXiv:2608.24855 , 2026. Yanchen Huo, Ziying Song, and Yadan Luo. Flow-JEPA: Flow matching for robust latent dynamics in JEPA world models. arXiv preprint arXiv:2608.29029 , 2026. David Klindt, Yann LeCun, and Randall Balestriero. When does LeJEPA learn a world model? 
+
+arXiv preprint arXiv:2605.26379 , 2026. Wenyuan Li, Guang Li, Keisuke Maeda, Takahiro Ogawa, and Miki Haseyama. Predictive but not plannable: RC-aux for latent world models. arXiv preprint arXiv:2605.07278 , 2026. Dongxiu Liu, Haoyi Niu, Peng Cheng, Yuan Gao, Xirui Kang, Sangli Teng, Koushil Sreenath, and Xianyuan Zhan. ODEWorld: A continuous predictive architecture via physical-time flow. arXiv preprint arXiv:2607.27924 , 2026a. Zihan Liu, Yuzhe Zhuang, Yuanzu Li, Wanshuang Gou, Jiahong Liu, Min Zhou, and Menglin Yang. ProWorld: Progress-aware hyperbolic world models for long-horizon visual goal reaching. arXiv preprint arXiv:2608.01926 , 2026b. Lucas Maes, Quentin Le Lidec, Damien Scieur, Yann LeCun, and Randall Balestriero. LeWorld-Model: Stable end-to-end joint-embedding predictive architecture from pixels. arXiv preprint arXiv:2603.19312 , 2026. Sergi Masip, Jonathan Swinnen, Yutong Hu, Renaud Detry, and Tinne Tuytelaars. FF-JEPA: Long-horizon planning in world models with latent planners. arXiv preprint arXiv:2606.09311 , 2026. Hoang Nguyen, Xiaohao Xu, and Xiaonan Huang. Latent geometry beyond search: Amortizing planning in world models. arXiv preprint arXiv:2605.08732 , 2026. Phu Pham and Aniket Bera. Latent energy action planning with world models. arXiv preprint arXiv:2609.03294 , 2026. Ruslan Rakhimov, George Bredis, Yuriy Maksyuta, and Daniil Gavrilov. Qantara: Bridge-flow training for multi-paradigm JEPA control. arXiv preprint arXiv:2607.04978 , 2026. Yuhong Shi, Zhenhao Chu, Jie Wei, Jun Hao, Jianyi Liu, and Jingwen Fu. Overcoming statistical bias in action-controllable world models. arXiv preprint arXiv:2608.04653 , 2026. Vlad Sobal, Wancong Zhang, Kyunghyun Cho, Randall Balestriero, Tim G. J. Rudner, and Yann LeCun. Learning from reward-free offline data: A case for planning with latent dynamics models. In Advances in Neural Information Processing Systems (NeurIPS) , 2025. Armin Sommer and Jannik Schilling. Reinforced planning with latent world models. arXiv preprint arXiv:2608.18669 , 2026. Junhan Sun, Hao Zhao, and Guofeng Zhang. INTACT: Isomorphic intent-to-action learning for search-free world models. arXiv preprint arXiv:2607.26056 , 2026. Basile Terver, Tsung-Yen Yang, Jean Ponce, Adrien Bardes, and Yann LeCun. What drives success in physical planning with joint-embedding predictive world models? arXiv preprint arXiv:2512.24497 , 2025. Lucas Thil, Jesse Read, Rim Kaddah, and Guillaume Doquet. Subspace-decomposed JEPAs: Dis-entangling progression and content in latent world models. arXiv preprint arXiv:2605.31111 ,2026. Donna Vakalis. The intervention gap in latent world models. arXiv preprint arXiv:2608.29998 ,2026. Jiawei Wang, Ke Rui, Yushen Zuo, Yichun Feng, and Minglei Li. Decision-metric alignment in latent world models: Diagnostics and action-conditioned objectives for MPC planning. arXiv preprint arXiv:2608.18746 , 2026a. 11 Ying Wang, Oumayma Bounou, Yann LeCun, and Mengye Ren. AdaJEPA: An adaptive latent world model. arXiv preprint arXiv:2606.32026 , 2026b. Yuhai Wang, Jiawei Xia, Rongxuan Zhou, Xiao Hu, Yongliang Shi, Jing Du, and Yang Ye. PRISM: PRior-guided imagination sampling in world models. arXiv preprint arXiv:2606.07974 , 2026c. Haiyu Wu, Randall Balestriero, and Morgan Levine. VIScore: Diagnosing planning-relevant quality in latent world models. arXiv preprint arXiv:2608.11174 , 2026. Hanzhe You, Yonggang Zhang, Maohao Ran, Zhiqin Yang, Zhenyuan Zhang, Wei Xue, Jun Song, Xinmei Tian, and Yike Guo. A control theory of predictability in latent world models. arXiv preprint arXiv:2607.10362 , 2026. Wancong Zhang, Basile Terver, Artem Zholus, Soham Chitnis, Harsh Sutaria, Mido Assran, Randall Balestriero, Amir Bar, Adrien Bardes, Yann LeCun, and Nicolas Ballas. Hierarchical planning with latent world models. arXiv preprint arXiv:2604.03208 , 2026a. Zhenghao Zhang, Yuanxiang Wang, Zhenyu Guan, Yujia Yang, Bingkang Shi, Tianyu Zong, Hongzhu Yi, Guoqing Chao, Xingchen Chen, Tiankun Yang, Chenxi Bao, Tao Yu, Jingjing Zhou, and Jungang Xu. Delta-JEPA: Learning action-sensitive world models via latent difference de-coding. arXiv preprint arXiv:2606.31232 , 2026b. Kai Zhao, Dongliang Nie, Yuchen Lin, Zhehan Luo, Yixiao Gu, Deng-Ping Fan, and Dan Zeng. Sub-JEPA: Subspace gaussian regularization for stable end-to-end world models. arXiv preprint arXiv:2605.09241 , 2026. Gehan Zheng, Matthew Johnson-Roberson, and Weiming Zhi. ContactGuard: Pre-contact execution monitoring with action-conditioned latent world models. arXiv preprint arXiv:2608.13438 , 2026. Gaoyue Zhou, Hengkai Pan, Yann LeCun, and Lerrel Pinto. DINO-WM: World models on pre-trained visual features enable zero-shot planning. arXiv preprint arXiv:2411.04983 , 2024. 12 A LATENT DISTANCE CONCENTRATION : A NALYSIS 
+
+Consider z ∈ Rd with independent components distributed as N (0 , 1) . Its squared norm follows a chi-squared distribution, 
+
+∥z∥2 =
+
+> d
+
+X
+
+> i=1
+
+z2 
+
+> i
+
+∼ χ2
+
+> d
+
+, f (x; d) = xd/ 2−1e−x/ 2
+
+2d/ 2Γ( d/ 2) , x > 0.
+
+Consequently, 
+
+E∥z∥2 = d, Var  ∥z∥2 = 2 d, 
+
+pVar( ∥z∥2)
+
+E[∥z∥2] =
+
+r 2
+
+d .
+
+Thus the norm has approximate standard deviation 1/√2 and relative fluctuation 1/√2d; for d =192 , it concentrates near √192 ≈ 13 .86 .For independent x, y ∈ Rd with the same standard-normal components, x − y has components distributed as N (0 , 2) , so 
+
+∥x − y∥2 ∼ 2χ2
+
+> d
+
+, E∥x − y∥2 = 2 d, Var  ∥x − y∥2 = 8 d. 
+
+The distance itself has 
+
+E[∥x − y∥] = 2 Γ(( d + 1) /2) Γ( d/ 2) , Var( ∥x − y∥) = 2 d − E[∥x − y∥]2.
+
+For d = 192 , the exact mean is approximately 19 .5704 , close to √2d = √384 ≈ 19 .5959 , and the standard deviation is about 0.9993 . These values provide an independent-Gaussian reference for evaluating distance contrast in learned representations. A useful distinction is between marginal regularization and temporal dependence. If encoded states have zero mean and identity covariance, define ρh = d−1E[z⊤ 
+
+> t
+
+zt+h]. Then 
+
+E∥zt − zt+h∥22 = 2 d(1 − ρh). (11) As ρh decreases toward zero, the mean squared distance approaches 2d. Gaussian marginals alone do not imply independence, and one-step training does not mathematically force temporal corre-lations to vanish. Rather, it supplies no explicit requirement that remote-state distances rank task progress; a plateau near the reference is consistent with weakened temporal discrimination in the planner’s distance. When norms concentrate, cosine similarity and squared Euclidean distance carry closely related information: 
+
+∥x − y∥22 = ∥x∥22 + ∥y∥22 − 2∥x∥2∥y∥2 cos( x, y ).
+
+Changing between these metrics therefore need not restore useful contrast. Learned costs or addi-tional supervision may exploit task information that the original metric underweights. The analysis therefore concerns the contrast available to the planner’s chosen distance. A.1 CANDIDATE RANKING UNDER PREDICTION ERROR 
+
+Fix a latent space, a goal zg , and two candidate control sequences B1, B 2 over the same execution horizon. Let zi be the encoded endpoint of the actual trajectory under Bi, and ˆzi the corresponding model prediction from the same initial observation. We condition on the realized trajectories if transitions are stochastic. Define 
+
+ci = ∥zi − zg ∥2, ˆci = ∥ˆzi − zg ∥2, ∥ˆzi − zi∥2 ≤ εi, i ∈ { 1, 2}. (12) The unsquared distances simplify the analysis and induce the same candidate ordering as the squared distances used by the planner. The reverse triangle inequality gives |ˆci − ci| ≤ εi.13 Pairwise ranking condition. Suppose c1 < c 2, with margin m = c2 − c1. Then 
+
+m > ε 1 + ε2 =⇒ ˆc1 < ˆc2. (13) Indeed, 
+
+ˆc2 − ˆc1 ≥ (c2 − ε2) − (c1 + ε1) = m − ε1 − ε2 > 0.
+
+This sufficient condition connects the two requirements for long-horizon planning. Recursive pre-diction error increases the uncertainty in candidate costs, while reduced goal-distance contrast can shrink the margin available to distinguish them. A smaller margin therefore requires a tighter pre-diction error bound to certify the same ordering. The condition is sufficient; smaller or cancelling cost errors can also preserve the ranking. For primitive-action candidates at horizon h, the low-level bound in Eq. (6) gives, under its assump-tions, the common endpoint-error bound and sufficient margin 
+
+ε1 = ε2 = ϵLh−1X
+
+> j=0
+
+LjL, m > 2ϵLh−1X
+
+> j=0
+
+LjL
+
+when both candidates satisfy the same residual and sensitivity bounds. This relates prediction accu-racy to the resolution required by the goal cost. The condition applies to candidates with defined actual endpoints and compares their ordering un-der the chosen latent cost. Its connection to task progress is examined through the goal-geometry diagnostics in Section 4.3. For nonzero total error, the ratio m/ (ε1 + ε2) is invariant to a common positive rescaling of the latent space. 
+
+## B FINITE -H ORIZON ROLLOUT WEIGHTING 
+
+This section develops the weighting rationale in Section 3.3 by analyzing error propagation for fixed predictors over finite rollout horizons and the resulting trade-off in supervision across horizons. B.1 PROPAGATION ALONG A FIXED TRAJECTORY 
+
+Suppress the scale index and fix the controls, including any sampled macro-actions. Let xh denote the encoded input state after h steps, and let Fh be the learned update with the corresponding control held fixed. For a single-state predictor, xh = zt+h∆ and Fh is P with that control supplied. For a history-conditioned predictor, xh stacks the latent history, and Fh shifts this history and appends the predicted latent. Any observed initial context and control history are shared by the encoded and predicted sequences. Write ˆxh+1 = Fh(ˆ xh), ˆx0 = x0, and suppose 
+
+∥Fh(ˆ xh) − Fh(xh)∥2 ≤ L∥ˆxh − xh∥2, rh+1 := ∥Fh(xh) − xh+1 ∥2 ≤ ϵ (14) for the steps considered, with L ≥ 0. The first condition must hold across the compared encoded and predicted inputs, not only on data states. The second measures a residual along the realized trajectory; it does not require an exact Markov dynamics map in the compressed latent space. For history inputs, L bounds the complete shift-and-predict update, not just the predictor’s dependence on its newest input. 
+
+Finite-horizon bound. Let dh = ∥ˆxh − xh∥2. The triangle inequality gives dh+1 ≤ Ld h + rh+1 .Induction from d0 = 0 yields 
+
+dh ≤
+
+> h
+
+X
+
+> i=1
+
+Lh−iri ≤ ϵS h(L), Sh(L) = 
+
+(Lh − 1) /(L − 1) , L̸ = 1 ,h, L = 1 . (15) The newest latent is a coordinate block of xh, so its Euclidean error is at most dh. This recovers the endpoint bound in Eq. (6) for either input convention. The constants are conditional bounds on the rollouts considered, not measured global properties of our models. No cancellation of the local residuals is assumed, so the bound can be conservative. 14 B.2 A FINITE -HORIZON REFERENCE FOR WEIGHTING 
+
+Let n denote the rollout length of the scale under consideration, with n = N at the low level and 
+
+n = M at the high level. For fixed n, consider equalizing contributions of the squared upper envelope [ϵS h(L)] 2. Since Sh(L) > 0 for h ≥ 1, the following normalized weights equalize these contributions at every horizon: 
+
+vh = Sh(L)−2
+
+Pnj=1 Sj (L)−2 satisfy vh[ϵS h(L)] 2 = ϵ2
+
+Pnj=1 Sj (L)−2 (16) This identity balances the squared-error upper envelope at fixed model parameters. We use its asymptotic behavior to motivate the exponential weighting family implemented in Eq. (5). For L > 1 and Lh ≫ 1, Sh(L)−2 ∼ (L − 1) 2L−2h. The reference’s adjacent-horizon decay is 
+
+− log vh+1 
+
+vh
+
+= 2 log Sh+1 (L)
+
+Sh(L) , 1 ≤ h < n, (17) which approaches 2 log L in the expanding regime. At L = 1 , vh ∝ h−2; for 0 ≤ L < 1, the unnormalized reference Sh(L)−2 tends to (1 − L)2. When h|L − 1| ≪ 1, Sh(L) ≈ h even if L > 1.Finite training horizons therefore need not reach the exponential regime, which is another reason not to prescribe α = 2 log L.B.3 DECAY AND THE BALANCE OF HORIZON SUPERVISION 
+
+Even if L and ϵ were known, reducing a weighted upper bound alone would not identify a useful balance of supervision. With these constants and n fixed, define 
+
+Un(α, L ) = ϵ2
+
+> n
+
+X
+
+> h=1
+
+wh(α)Sh(L)2, ∂U n
+
+∂α = −ϵ2 Cov w(α)
+
+ h, S h(L)2 ≤ 0. (18) The derivative follows from ∂αwh = wh(Pnj=1 jw j − h). The covariance is nonnegative because both arguments are nondecreasing in h; explicitly it equals 12
+
+P 
+
+> i,j
+
+wiwj (i − j)[ Si(L)2 − Sj (L)2] ≥
+
+0. Thus larger decay never increases this envelope objective, even though it suppresses the compo-sitions that multi-step training is meant to constrain. To quantify the effect on terminal supervision, fix the model and let Eh be its expected squared roll-out error under the same data and macro-action distribution as Eq. (5). Assuming these expectations are finite, nonnegativity and the limit of the weights give 
+
+En ≤ LLoRe 
+
+wn
+
+, lim  
+
+> α→∞
+
+LLoRe = E1 for fixed n > 1. (19) As wn becomes small, a given bound on the weighted loss gives a weaker bound on terminal error, and the limiting objective is one-step prediction. Both this relation and the derivative in Eq. (18) hold at fixed model parameters; the effect of retraining is assessed empirically. 
+
+Time units in the two scales. For a horizon of τ = hf ∆s environment steps, the unnormalized weight is e−αsh = e−(αs/(f ∆s)) τ . A common relative decay per environment step, η, would imply 
+
+αL = f η and αH = kf η , hence αH = kα L. This only matches physical decay rates; the sampled horizons and normalization constants can still differ. Moreover, the two predictors can have different residuals and sensitivities. We therefore parameterize their decays separately. 
+
+## C EXTENDED RELATED WORK 
+
+C.1 LATENT WORLD MODELS FOR CONTROL 
+
+Latent dynamics support planning from pixels and policy learning in imagined trajectories (Hafner et al., 2019; 2023; Hansen et al., 2024). Our setting is closest to reconstruction-free, goal-conditioned planning: DINO-WM predicts pretrained visual features (Zhou et al., 2024), PLDM 15 learns dynamics from reward-free offline trajectories (Sobal et al., 2025), and LeWM learns an en-coder and predictor jointly with an anti-collapse regularizer (Maes et al., 2026). These methods establish the predictive latent interface on which we build. Dual-WM changes how that interface is organized across temporal scales: the representation used for primitive transitions need not also define the geometry used to evaluate distant subgoals. C.2 PREDICTION BEYOND ONE -STEP TRAINING 
+
+Long-horizon prediction can be improved by changing the prediction interface or by training on recursively generated states. VLWM predicts outcomes of variable-length action sequences (Du et al., 2026); Fast-LeWM predicts action-prefix outcomes in parallel from an observed anchor (Gao & Xu, 2026); Flow-JEPA generates future latent sequences with conditional flow matching (Huo et al., 2026). These approaches reduce dependence on a long chain of local transitions. Open-loop training instead retains recursive dynamics and supervises the resulting trajectory. HWM’s stated autoregressive objective sums rollout errors uniformly across horizons (Zhang et al., 2026a). RC-aux formulates general horizon-weighted open-loop prediction (Li et al., 2026); its released default implementation uses normalized linear weights that increase with the horizon. In contrast, L ORE
+
+uses geometrically decaying weights motivated by the error-amplification envelope of recursive pre-diction. It applies separate decay profiles to primitive-action and macro-action dynamics, so both are trained on self-generated trajectories while balancing the influence of near- and distant-horizon errors (Section 3.3). C.3 REPRESENTATION GEOMETRY FOR GOAL EVALUATION 
+
+Accurate prediction and state decodability do not guarantee that a latent distance ranks plans cor-rectly. DA-LeWM studies decision-metric alignment and uses action-conditioned auxiliary objec-tives (Wang et al., 2026a); SCALE aligns latent distances with distances in task-relevant state vari-ables (Hu et al., 2026). RC-aux learns budget-conditioned reachability (Li et al., 2026), while TD-JEPA mines a directed temporal cost from trajectory order (Bai & Xiong, 2026). These objectives can reshape representations as well as change planning costs. We instead use a dedicated high-level latent state space with predictive supervision across extended transitions, without introducing a state-distance target or a learned reachability head. SD-JEPA is especially relevant: it separates progression and content coordinates within one em-bedding and supplies explicit temporal triplet supervision (Thil et al., 2026). Dual-WM separates 
+
+dynamical roles : each state space has its own predictor and action timescale, and the high-level en-coder also maps low-level predictions into the subgoal space during planning. The resulting separa-tion governs both prediction and goal matching: long-range subgoals are evaluated in the high-level latent state space, while final goal convergence uses the low-level latent state space. Section 4.3 reports the empirical geometry diagnostic; Appendix A provides its concentration reference. C.4 TEMPORAL ABSTRACTION AND HIERARCHICAL PLANNING 
+
+HWM learns dynamics at multiple temporal resolutions within a shared latent space and transfers predicted subgoals directly to low-level MPC (Zhang et al., 2026a). Hi-LeWM adds macro-action dynamics on top of a frozen LeWM encoder and low-level predictor while retaining that latent interface (Caselli et al., 2026). Both are close precedents for our macro-action planner. Dual-WM changes the coupling: a learned map EH produces a distinct high-level state, and primitive-action plans are evaluated by mapping their predicted latent windows into that space. The final approach to the goal uses the low-level distance directly. This permits coarse subgoal matching and fine final control to use different geometries while retaining a common visual input. Table 2 situates these hierarchical approaches relative to the flat LeWM baseline; additional work on prediction, search, and model reliability is discussed in Appendix C. C.5 AMORTIZING TEST -TIME SEARCH 
+
+A complementary line of work reduces the cost of test-time action selection. Sun et al. (2026) train an end-to-end intent-to-action interface that produces actions without test-time search, with an optional local CEM that uses far fewer sampled sequences than a global search. Wang et al. (2026c) 16 Table 2: LeWM and hierarchical latent world models with learned macro-actions.                
+
+> Method State spaces Dynamics trained Prediction training LeWM Single Primitive One-step transition HWM Shared across scales Primitive + macro Uniform-weight rollout Hi-LeWM Shared; low frozen Macro only One-step waypoint
+> Dual-WM Separate across scales Primitive + macro Scale-specific decayed rollout
+
+attach a state-conditioned Gaussian action prior to a frozen encoder and fuse it into the planner’s sampling distribution in closed form, so that search concentrates where the prior is confident, and Gao et al. (2026) pair the world model with a retrieval-and-scoring intuition model, showing that even an idealized predictor still fails under a finite search budget. Rakhimov et al. (2026) and Sommer & Schilling (2026) learn the search itself, the latter training a critic and an optimizer entirely on imagined rollouts of a pretrained model. Huang et al. (2026) amortize planning into a reusable latent trajectory prior that a flow model proposes and a frozen world model verifies, and Nguyen et al. (2026) show that with a suitably regularized geometry the planner can be replaced outright by a goal-conditioned inverse dynamics model. Pham & Bera (2026) instead keep CEM in the loop but optimize the whole action horizon as a differentiable variable through a frozen model. These methods are complementary to ours: they change how candidate actions are proposed or refined, whereas we change the latent space and the rollout supervision in which candidates are evaluated. C.6 RELIABILITY AND DIAGNOSIS 
+
+A separate line asks when latent planning fails rather than how to improve it, and provides the diagnostics that motivate our analysis. Wu et al. (2026) decompose planning-relevant quality into the reachability and capacity of the predictor given encoded features plus planner hallucination, and find these correlate with success far better than latent straightness or probing accuracy. An et al. (2026) use bisimulation to measure how far a clean history and a visually perturbed view diverge under a shared action sequence, turning perturbation robustness into a screening tool. Vakalis (2026) show that reward fit neither reveals nor guarantees intervention fidelity, and Wang et al. (2026b) adapt a world model online from the transitions it actually observes when plans fail. In contact-rich settings, Zheng et al. (2026) roll a policy’s planned chunk forward in latent space to abort before contact rather than after. We adopt the diagnostic stance of this line: our analysis of distance saturation and of per-horizon rollout error is intended as a measurement of the two failure modes, not only as a motivation for the architecture. C.7 THEORY 
+
+Several recent results bound what a latent predictive model can and cannot guarantee. Klindt et al. (2026) prove linear identifiability of the true latent degrees of freedom for a class of stationary additive-noise worlds, and show that the Gaussian is the unique latent distribution for which this holds, which gives a principled reading of the isotropic-Gaussian regularizer our model inherits. Cui et al. (2026) link JEPA pretraining error to downstream planning regret through an action-conditioned co-occurrence factorization, exposing a latent-dimension trade-off between approxima-tion and sample error. You et al. (2026) recast model selection as the gap between predicted and true plan cost at the committed plan, and Arnez & Gomez-Villa (2026) place the isotropic Gaussian state-regularization objective in an active-inference hierarchy of anti-collapse regularizers. Our analysis in Appendix A is of the same diagnostic character: it characterizes a reference regime in which distances can lose contrast for ordering candidates. The complementary analysis in Section 3.3 connects recursive error propagation to horizon weighting. 
+
+## D TRAINING AND PLANNING CONFIGURATIONS 
+
+Data and training. Table 3 summarizes the from-scratch configuration. Each dataset is split 9:1 
+
+into training and test episodes. Images are resized to 224 × 224 and use ImageNet normalization, without cropping or data augmentation. We use AdamW with weight decay 10 −3, prediction-loss 17 weights λL = λH = 1 , and MAPS coefficient β = 10 −2 on all tasks. The high-level state-regularization weight is 0.30 ; the low-level weights are listed in the table. Table 3: Task-specific training configurations. Paired entries are low/high level. Environment-step counts are approximate dataset totals; N, M count model transitions at their respective scales.                                                                               
+
+> Setting TwoRoom Reacher Sokoban-Long PushT Cube-Single Episodes 10,000 10,000 2,500 18,685 10,000 Environment steps 921,000 2,010,000 395,000 2,337,000 2,010,000
+> f55155
+> k33222
+> N/M 5/6 3/6 10/8 3/6 6/6
+> αL/α H0.5/0.5 0.2/0.5 0.1/0.5 0.2/0.5 0.05/0.5 Low-level regularization weight 0.30 0.30 0.25 0.09 0.15 Low-level learning rate 5×10 −52×10 −52.5×10 −510 −55×10 −6
+> High-level learning rate 5×10 −55×10 −55×10 −53×10 −55×10 −5
+> Batch size (L/H) 256/256 256/256 512/512 256/512 512/256 Epochs (L/H) 5/5 2/5 5/5 6/6 5/5
+
+Model architecture. The from-scratch visual encoder EL is a 12-layer ViT-Tiny with 14 × 14 
+
+patches and width 192 , producing dL = 192 latent states. The low-level predictor PL is a six-layer, 16-head causal Transformer with latent width 192 and a three-state history; actions condition the predictor through adaptive layer normalization. The high-level encoder EH is a four-layer, eight-head bidirectional Transformer over k low-level states, using the final token as its dH = 192 output. The high-level predictor PH also has six layers, 16 heads, and latent width 192 , with context consist-ing of the current high-level state and macro-action. The macro-action encoder EA uses a four-layer, eight-head bidirectional Transformer and mean pooling to parameterize a diagonal-Gaussian poste-rior with du = 16 . Its sampled macro-action is projected to width 192 for conditioning PH .
+
+VFM-adaptor variant. This variant freezes DINOv2-S/14 and learns a width-384 adaptor. Pixel patch tokens attend to frozen DINO tokens through two six-head cross-attention layers, with zero-initialized feature modulation and MLP blocks of expansion ratio four. Attention pooling with one learned query and an MLP projection head with batch normalization produce the low-level state. The adaptor and low-level predictor are trained with LoRe, supplemented by spatial-structure and semantic-consistency losses weighted 0.1 each. High-level training then follows the from-scratch procedure. Task-specific training hyperparameters follow Table 3. 
+
+Planning. Table 4 lists the planning horizons. On all tasks, low-level CEM uses 300 candidates per iteration, 30 iterations, and 30 elites; high-level CEM uses 100 candidates, 20 iterations, and 10 
+
+elites. Sokoban-Long uses categorical low-level search, while the other tasks use Gaussian low-level search; high-level macro-action search is Gaussian throughout. At goal offsets 25 , 50 , 75 , and 100 ,the maximum execution budgets are 50 , 75 , 100 , and 125 environment steps, respectively, wherever the offset is evaluated. Table 4: Planning horizons. HL counts low-level model steps and HH counts high-level macro-steps. 
+
+TwoRoom Reacher Sokoban-Long PushT Cube-Single 
+
+HL 8 5 12 5 5
+
+HH 6 6 8 6 6
+
+## E FULL PLANNING RESULTS 
+
+Tables 5–7 report all task-level results and goal offsets. Entries marked † are our reproduced evalu-ations; quoted entries retain their original reporting conventions. Our evaluations use three planning seeds, with means and standard deviations computed across seed-specific task sets and search ran-domness. Within each seed, methods share the same evaluation tasks and environment-step budgets (Appendix J). Bold marks a Dual-WM variant only when it attains the highest reported mean in the column, including ties. A dash denotes an unavailable result. 18 Figure 6: The evaluation environments: TwoRoom, Reacher, Sokoban-Long, PushT and Cube-Single (left to right). Table 5: Goal-reaching success rates (%) on TwoRoom (left) and Reacher (right); columns are goal offsets measured in original environment steps. † denotes results reproduced by us.                                                                                                                                                                                                
+
+> Method TwoRoom Reacher 25 50 100 25 50 100 LeWM 87.0 61 .50 ±1.22 †27 .00 ±0.82 †86.0 85 .33 ±0.62 †75 .67 ±0.62 †
+> DINO-WM 100.0 60 .50 ±0.71 †32 .17 ±0.94 †79.0 67 .00 ±0.71 †34 .17 ±1.03 †
+> HWM 100 †73 .67 ±1.03 †48 .33 ±0.94 †–––PLDM 97 ––78 ––Fast-LeWM 98 67 .17 ±1.25 †38 .67 ±0.62 †90.0 81 .33 ±0.94 †79 .33 ±0.62 †
+> RC-aux 98 .0±1.466 .33 ±1.18 †21 .50 ±0.82 †87 .2±6.485 .50 ±1.41 †81 .67 ±1.03 †
+> INTACT Pure CEM 82 .89 ±0.84 24 .00 ±1.08 †3.50 ±0.71 †83 .67 ±0.67 92 .33 ±1.03 †81 .17 ±0.85 †
+> INTACT Actor+CEM 98 .00 ±1.15 73 .33 ±0.94 †63 .00 ±1.08 †86 .67 ±0.88 97 .33 ±0.62 †93 .00 ±0.82 †
+> VLWM 96 80 68 –––Gemini controller 98 .00 ±0.41 †94 .83 ±0.85 †90 .00 ±0.82 †89 .00 ±0.41 †86 .17 ±0.47 †84 .83 ±0.62 †
+> Dual-WM
+> From scratch 100.0 99 .33 ±0.94 92 .5±0.71 99 .0±0.82 98 .67 ±0.62 93 .3±1.03
+> VFM adaptor 100.0 99 .67 ±0.47 93 .33 ±0.24 99 .33 ±0.24 98 .83 ±0.24 98 .5±0.4
+> Low-level only 100.0 92 .17 ±0.62 68 .67 ±1.25 98 .67 ±0.24 95 .5±0.489 .17 ±0.24
+
+Dual-WM variants. From scratch jointly trains the visual encoder and low-level predictor, with the high-level branch learning from their representations. VFM adaptor freezes a pretrained visual encoder and trains an adaptor together with the low-level predictor, followed by high-level training. Low-level only plans with primitive actions without high-level subgoal guidance, using the same low-level checkpoint as the full model. With INTACT actor adds actor-guided proposals to low-level search on Cube-Single. The main cross-task comparison always uses the from-scratch variant. The VFM-adaptor variant is strongest on Reacher, reaching 98 .50% at offset 100 , but underper-forms the from-scratch model on PushT. The benefit of pretrained visual features is therefore task-dependent. Cube-Single success is nonmonotone in dataset offset for several methods: temporal separation along a recorded trajectory is not itself a measure of minimum control difficulty. The discrete-action representation and planner for Sokoban-Long are described in Appendix I. E.1 ACTOR -GUIDED COMPARISON ON CUBE -S INGLE 
+
+Table 8 separates the action-proposal mechanism from the world-model comparison. Without ac-tor guidance, both methods use CEM; with actor guidance, both use the INTACT actor. Dual-WM retains its dual-latent dynamics and hierarchical planner in either setting. At offset 100 , actor guid-ance improves both methods. At offset 50 , it improves INTACT but lowers Dual-WM success from 
+
+62 .67% to 58 .50% , showing that its benefit depends on the evaluation setting. These results com-plement the non-actor-guided aggregate in the main text. 19 Table 6: Goal-reaching success rates (%) on Sokoban-Long; columns are goal offsets measured in original environment steps. † denotes results reproduced by us. 
+
+Method 25 50 100 LeWM 68 .17 ± 0.62 † 41 .50 ± 0.71 † 16 .33 ± 0.47 †
+
+Gemini 69 .67 ± 0.85 † 52 .00 ± 0.82 † 35 .00 ± 0.41 †
+
+Dual-WM 
+
+From scratch 87 .83 ± 0.62 75 .17 ± 0.85 52 .33 ± 0.94 
+
+VFM adaptor 83 .67 ± 0.24 68 .83 ± 0.85 48 .00 ± 0.41 
+
+Low-level only 87 .00 ± 0.00 70 .17 ± 0.24 45 .83 ± 0.85 
+
+Table 7: Goal-reaching success rates (%) on PushT (left) and Cube-Single (right); columns are goal offsets measured in original environment steps. PushT carries the offset-75 column because HWM reports its long-horizon result at offset 75 . On Cube-Single, Dual-WM (with INTACT actor) adds the INTACT actor as an action prior for low-level planning; all other Dual-WM rows use plain CEM. 
+
+† denotes results reproduced by us. 
+
+Method PushT Cube-Single 25 50 75 100 25 50 100 LeWM 96.0 56 .00 ± 0.71 † 45 .67 ± 0.62 † 20 .00 ± 0.82 † 74.0 51 .33 ± 1.03 † 54 .17 ± 0.62 †
+
+DINO-WM 74.0 55 .33 ± 0.62 † 38 .17 ± 0.85 † 12 .00 ± 0.71 † 86.0 62 .17 ± 0.24 † 62 .33 ± 0.47 †
+
+PLDM 78 – – – 65 – –HWM 89 78 61 31 .00 ± 1.41 † – – –Hi-LeWM 90 .7 ± 6.2 42 .0 ± 6.8 15 .3 ± 4.1 – – – –Fast-LeWM 98.0 41 .00 ± 1.41 † 29 .17 ± 1.18 † 9.50 ± 0.82 † 82 53 .17 ± 0.94 † 66 .33 ± 1.31 †
+
+RC-aux 90 .8 ± 3.3 – – – 76 .0 ± 7.5 50 .17 ± 2.25 † 65 .33 ± 1.89 †
+
+INTACT Pure CEM 88 .44 ± 1.17 33 .67 ± 1.89 † 17 .83 ± 0.94 † 5.67 ± 1.65 † 68 .44 ± 0.77 53 .50 ± 1.08 † 61 .17 ± 1.31 †
+
+INTACT Actor+CEM 93 .56 ± 0.96 47 .83 ± 0.85 † 24 .00 ± 0.41 † 11 .50 ± 0.71 † 96 .89 ± 0.19 57 .17 ± 1.03 † 80 .67 ± 0.24 †
+
+JEPA-WM 70 .2 ± 2.8 38 .17 ± 1.25 † 16 .00 ± 0.82 † 5.33 ± 1.18 † – – –VLWM 94 60 20 12 74 54 50 Gemini controller 22 .67 ± 0.24 † 10 .83 ± 0.47 † 8.00 ± 1.41 † 2.17 ± 1.31 † 56 .17 ± 1.18 † 35 .17 ± 0.85 † 30 .17 ± 1.03 †
+
+Dual-WM 
+
+From scratch 98 .00 ± 0.71 86 .17 ± 0.62 62 .00 ± 0.41 41 .33 ± 1.31 74 .00 ± 0.41 62 .67 ± 0.62 67 .83 ± 0.47 
+
+VFM adaptor 67 .17 ± 0.24 39 .83 ± 0.85 23 .33 ± 0.94 11 .67 ± 1.03 79 .33 ± 0.85 62 .83 ± 0.94 68 .00 ± 0.71 
+
+Low-level only 97 .83 ± 1.03 62 .67 ± 0.47 53 .33 ± 0.85 19 .83 ± 0.94 74 .33 ± 1.03 55 .00 ± 0.71 61 .50 ± 1.08 
+
+With INTACT actor – – – – 97 .33 ± 0.24 58 .50 ± 0.41 82 .50 ± 0.71 
+
+Table 8: Cube-Single success (%) grouped by method, with and without actor-guided proposals. Columns are goal offsets in environment steps. INTACT’s offset-25 results are quoted; the remaining entries are our evaluations. Bold marks a Dual-WM variant only when it attains the highest mean in the column. 
+
+Variant 25 50 100 
+
+INTACT 
+
+Pure CEM 68 .44 ± 0.77 53 .50 ± 1.08 61 .17 ± 1.31 
+
+Actor+CEM 96 .89 ± 0.19 57 .17 ± 1.03 80 .67 ± 0.24 
+
+Dual-WM 
+
+Pure CEM 74 .00 ± 0.41 62 .67 ± 0.62 67 .83 ± 0.47 
+
+With INTACT actor 97 .33 ± 0.24 58 .50 ± 0.41 82 .50 ± 0.71 
+
+20 E.2 SUCCESS –TIME TRADEOFF ON TWO ROOM 
+
+We evaluate four planning-budget settings for Dual-WM, its low-level-only variant, LeWM, and HWM at goal offset 100 , with an execution budget of 125 environment steps. Each setting uses 200 
+
+matched tasks per planning seed ( 0, 1, and 42 ). Figure 7 reports mean success and standard deviation across these seeds. Planning time per environment step is cumulative planning time divided by the number of environment steps actually executed. All methods run on an Intel Xeon E5-2680 v4 CPU and an NVIDIA RTX A6000 GPU in FP32 precision. Table 9 lists the CEM settings for each budget tier. 50 100 150 200 250    
+
+> Planning time per environment step (ms)
+> 020 40 60 80 100
+> Success rate (%)
+> Dual-WM Low-level only LeWM HWM
+
+Figure 7: Success–time tradeoff on TwoRoom at goal offset 100 and an execution budget of 125 en-vironment steps. Each method has four measured planning-budget settings; lines connect successive settings. Error bars show ± one standard deviation across three planning seeds. Dual-WM achieves 90 –98% success over the measured range. At nearly equal planning times, Dual-WM attains 90% at 92 .4 ms and the low-level-only variant attains 68% at 93 .3 ms. Even at its largest tested budget ( 247 .7 ms), the low-level-only variant reaches 84% . LeWM remains at 40% 
+
+across its four settings, while HWM improves from 7% to 33% as planning time increases. These measurements support the benefit of dual-latent planning across the tested range of planning costs. Table 9: CEM settings for the TwoRoom planning-budget sweep. Each entry lists candidates / elites / iterations. Tiers correspond to successive points on each method’s curve in Figure 7.                             
+
+> Method / level Tier 1 Tier 2 Tier 3 Tier 4 Dual-WM high 30/10/7 40/10/8 80/10/16 100/10/20 Dual-WM low 60/30/7 80/30/8 160/30/16 192/30/20 Low-level only 60/30/7 96/30/9 192/30/20 256/30/25 LeWM 60/30/7 96/30/9 192/30/20 256/30/25 HWM high 30/10/7 40/10/8 80/10/12 80/10/12 HWM low 30/30/3 35/30/3 40/30/3 60/30/3
+
+## F QUALITATIVE EXECUTION ACROSS FIVE TASKS 
+
+Figures 8–12 show selected executions of LeWM and full from-scratch Dual-WM from matched initial states and goals, with a common budget of 125 environment steps. An offset of 100 means that the initial and goal frames are separated by 100 environment steps within the same dataset episode. Because the data-collection policies include substantial randomness, these trajectories need not be direct routes to the sampled goals, which can often be reached in fewer than 100 steps. Each row contains ten observation frames and the goal image; timestamps count environment steps and are shared between methods. After termination, the final recorded observation is repeated at later timestamps for temporal alignment, including two intermediate timestamps before t = 100 .21 t=0 t=16 t=32 t=50 t=60 t=70 t=74 t=85 t=90 t=100 Goal 
+
+> LeWM Dual-WM
+
+Figure 8: TwoRoom execution. Dual-WM navigates through the doorway and approaches the goal in the other room; LeWM remains on the starting side of the wall. t=0 t=16 t=32 t=50 t=60 t=70 t=73 t=85 t=90 t=100 Goal 
+
+> LeWM Dual-WM
+
+Figure 9: PushT execution. Dual-WM changes the block configuration toward the sampled goal, while LeWM leaves it near its initial configuration. The green shape is a fixed renderer reference; the task goal is the rightmost image. t=0 t=5 t=10 t=20 t=25 t=32 t=43 t=60 t=80 t=100 Goal 
+
+> LeWM Dual-WM
+
+Figure 10: Reacher execution. Dual-WM brings the arm toward the goal configuration; LeWM moves the arm but retains a different configuration. t=0 t=4 t=8 t=16 t=20 t=26 t=32 t=60 t=80 t=100 Goal 
+
+> LeWM Dual-WM
+
+Figure 11: Cube-Single execution. Dual-WM brings the gripper and object toward the goal arrange-ment, whereas LeWM changes the gripper pose without completing the required object movement. 22 t=0 t=6 t=11 t=13 t=15 t=16 t=17 t=40 t=70 t=100 Goal 
+
+> LeWM Dual-WM
+
+Figure 12: Sokoban-Long execution. Dual-WM navigates to a box and performs a sequence of aligned pushes toward the goal, while LeWM does not complete the required box movement. This supplemental held-out source pair lies outside the standard 200 -task sample. 
+
+Long-range goal discrimination. The navigation and manipulation examples expose the need to distinguish useful intermediate states from states that merely remain near the starting configuration. In TwoRoom, progress requires a route through the doorway before local convergence to the goal. In PushT and Sokoban-Long, the agent must establish an appropriate contact or pushing configu-ration before moving the object toward its target. These behaviors complement the goal-ordering and distance-field results in Sections 4.3 and 4.5: a representation that preserves long-range goal structure can guide intermediate choices, while the low-level representation supports precise action refinement. 
+
+Maintaining useful predictions during execution. Completing these sequences also requires action-conditioned predictions that remain informative across repeated planning updates. Dual-WM’s progress through distinct configurations provides a behavioral counterpart to the recursive physical-state probes in Section 4.4 and the LoRe scale ablation in Figure 5. Taken together, the ex-ecution examples and quantitative diagnostics support the complementary roles of long-range goal discrimination and multi-step predictive consistency in goal-directed control. 
+
+## G ADDITIONAL REPRESENTATION DIAGNOSTICS 0 40 80 120 A* path distance (px) 0.25 0.50 0.75 1.00 1.25 Normalized latent distance        
+
+> (a) TwoRoom
+> All-pair Spearman ρ
+> LeWM 0.34 [0.27, 0.41] Dual-WM-L 0.73 [0.68, 0.78] Dual-WM-H 0.86 [0.82, 0.89] 0.0 0.8 1.6 2.4 Wrapped joint-angle L2 (rad) 0.25 0.50 0.75 1.00
+> (b) Reacher
+> All-pair Spearman ρ
+> LeWM 0.15 [0.10, 0.20] Dual-WM-L 0.28 [0.24, 0.32] Dual-WM-H 0.60 [0.56, 0.64] LeWM Dual-WM-L Dual-WM-H
+
+Figure 13: Latent-distance concentration on held-out state pairs. We plot dimension-normalized Euclidean latent distance against A* endpoint path distance in TwoRoom (left) and wrapped joint-angle distance in Reacher (right). Curves are equal-width-bin means and shaded regions are 95% episode-bootstrap confidence intervals. The displayed task-relevant ranges are 0–150 px and 0–3 rad, respectively; annotated rank correlations use all held-out pairs. Only bins with at least 100 valid pairs are displayed. The dotted line marks the independent isotropic-Gaussian reference. These diagnostics complement the held-out distance curves in Section 4.3. TwoRoom visualizes obstacle-aware goal geometry, Reacher examines configuration-space ordering, and PushT tests goal discrimination in contact-rich manipulation. 23 A* ground truth LeWM 
+
+> 050 100 150 200 250 300 350
+> A* path length (px)
+> 0.0 0.2 0.4 0.6 0.8 1.0 1.2 1.4 1.6
+> Normalized latent distance  z za 2 / 2D
+
+Dual-WM-L Dual-WM-H Figure 14: TwoRoom distance fields for three prespecified members of a geometry-only nine-anchor maximin set; stars mark the query states. Each row contains one A* reference followed by LeWM, Dual-WM-L and Dual-WM-H latent distances normalized by √2D. All A* panels share one path-length scale, and all model panels share one latent-distance scale. The wall-safe Gaussian bandwidth (σ = 10 px) is selected by blocked spatial cross-validation over all three models and all nine anchors, without using A* similarity or visual appearance. −π             
+
+> 0
+> π
+> −π
+> 0
+> π
+> −π0π
+> −π
+> 0
+> π
+> −π0π−π0π−π0π
+> 0.0 0.5 1.0 1.5 2.0 2.5 3.0 3.5 4.0
+> Wrapped joint-angle L2 (rad)
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Normalized latent distance  ‖z − za‖2/√ 2D
+> θ1 (rad)
+> Ground truth LeWM Dual-WM-L Dual-WM-H
+
+Figure 15: Reacher distance fields for three query states (rows). Columns show wrapped joint-angle distance, LeWM, Dual-WM-L, and Dual-WM-H. Model distances are normalized by √2D.Sparse grid cells are interpolated and lightly smoothed for visualization; all reported correlations are computed only on the 1,118 observed cells with at least ten samples. 24 −0.05 0.00 0.05 0.10 0.15 0.20    
+
+> Improvement over LeWM
+> Position: Spearman ρ
+> Position: ordering Orientation: Spearman ρ
+> Orientation: ordering
+> Dual-WM-L Dual-WM-H
+
+Figure 16: PushT goal-geometry improvements relative to LeWM on 128 held-out episodes. Dots are paired differences for Dual-WM-L and Dual-WM-H; error bars are 95% episode-cluster boot-strap confidence intervals (2,000 draws). Positive values favor Dual-WM. Correlations use physical goal distance, while ordering accuracy measures which state in a same-episode pair is closer to the goal; exact physical ties are excluded. 
+
+Physical-state probe protocol. For each checkpoint and physical target, a single ridge probe is fitted on predicted latents pooled across all five horizons from training episodes. Its regularization is selected on disjoint validation episodes, and it is evaluated on disjoint test episodes. Probe fitting and evaluation therefore use the same predicted-latent regime. Figure 17 reports the resulting task-native errors. 
+
+## H COMPONENT -STUDY PROTOCOLS AND SENSITIVITY RESULTS 
+
+Evaluation and units. The TwoRoom component studies use goal offsets of 25 , 50 , and 100 
+
+original environment steps, with execution budgets of 50 , 75 , and 125 steps, respectively. Planning results average three planning seeds. The component figures display means without uncertainty bars. The latent-space and LoRe scale studies use the full hierarchical planner, whereas the rollout-horizon and weighting studies use low-level-only planning. The 69% result at N = 5 therefore evaluates the low-level planner, not the full Dual-WM configuration used in the scale study. Training rollout lengths N, M , evaluation rollout lengths, and goal offsets have different meanings: N counts low-level model transitions, whereas goal offsets count original environment steps. 
+
+Controlled variants. Within each ablation, settings other than the indicated factor remain at their defaults. Shared-Identity passes the low-level endpoint latent zLt directly to the high-level predictor. Endpoint-MLP maps that endpoint through a three-layer MLP with hidden width 2048 to a distinct 
+
+192 -dimensional high-level state used for both prediction and planning. Window-Concat uses the same length-k low-level latent window W Lt as Dual-WM, but replaces EH with direct concate-nation. Its high-level state is vec( W Lt ) ∈ Rkd L , and its high-level predictor learns to predict the next macro-step window in this space. All variants retain high-level planning followed by low-level refinement and use the same frozen low-level checkpoint. Apart from the state interface and its asso-ciated dimensions and architecture, training data, objectives, training duration, and planning settings are identical. On TwoRoom, k = 3 and dL = 192 : Shared-Identity, Endpoint-MLP, and Dual-WM use 192 -dimensional high-level states, while Window-Concat uses 576 dimensions. Shared-Identity and Endpoint-MLP test endpoint-based interfaces, while Window-Concat controls for the temporal context supplied to the learned window interface. At offsets 50 and 100 , Window-Concat achieves 
+
+69% and 41% success, compared with 100% and 93% for Dual-WM (Figure 4). 25 10 20 30 40 50              
+
+> Rollout horizon (env. steps)
+> 0.02 0.03 0.04
+> Error (rad)
+> (a) Reacher: joint configuration
+> 10 20 30 40 50
+> Rollout horizon (env. steps)
+> 0.004 0.006 0.008 0.010
+> Error (native units)
+> (b) Reacher: fingertip position
+> 10 20 30 40 50
+> Rollout horizon (env. steps)
+> 7.5 10.0 12.5 15.0 17.5
+> Error (px)
+> (c) PushT: block position
+> 10 20 30 40 50
+> Rollout horizon (env. steps)
+> 0.10 0.15 0.20
+> Error (rad)
+> (d) PushT: block orientation
+> One-step Rollout-trained
+
+Figure 17: Physical state decoded from recursively predicted low-level latents. A single horizon-pooled ridge probe is fitted separately for each checkpoint and physical target, selected on disjoint validation episodes, and evaluated on disjoint test episodes. Curves report mean task-native error and shaded regions show 95% episode-cluster bootstrap confidence intervals. The rollout-trained checkpoint has lower point estimates at all horizons; PushT orientation has the widest uncertainty. 
+
+Goal-ordering protocol. For a goal g and two observed states s1, s 2, ordering is correct when the sign of the difference between their latent goal distances agrees with the sign of dA∗(s1, g ) −
+
+dA∗(s2, g ). Pairs with equal A* distance are excluded. The comparison uses the same held-out state pairs and goals for all representations. Pairs are grouped by [dA∗(s1, g ) + dA∗(s2, g )] /2 into [0 , 30) ,
+
+[30 , 60) , [60 , 90) , [90 , 120) , and [120 , 150] px bins. Ordering is averaged within episodes and then across episodes. Window-based representations receive observation context ending at each candi-date state; endpoint-based representations encode its final observation. Dual-WM-H and Window-Concat use the same window. For a single goal image, its low-level latent is repeated to form the goal window before encoding or concatenation, respectively. No future observation window is used for this diagnostic. LeWM and Dual-WM-L are contextual references; Dual-WM-H, Endpoint-MLP, Shared-Identity, and Window-Concat are the four planning representations evaluated in the inter-face ablation. In the nearest bin, Dual-WM-L reaches 99 .8% ordering accuracy versus 94 .2% for Dual-WM-H and 93 .5% for Window-Concat. In the farthest bin, Dual-WM-H retains 84 .9% , com-pared with 73 .6% for Endpoint-MLP, 56 .6% for Shared-Identity, 55 .6% for Dual-WM-L, 52 .4% 
+
+for LeWM, and 51 .0% for Window-Concat. The widening gap between Dual-WM-H and Window-Concat shows that equal window context does not yield equally informative long-range goal rank-ings. Together with the planning results, this supports learning a high-level geometry for distant subgoal evaluation while retaining the low-level representation for local goal convergence. 
+
+LoRe scale activation. The one-step configuration retains both dynamics models and supervises one transition at each level. The low-only and high-only configurations activate LoRe at the indi-cated level while retaining one-step supervision at the other. Both activates recursive supervision at both levels. These training comparisons retain the hierarchical planner; they are distinct from the low-level-only planning variant in the main result tables. 26 15 45 75 105 135 Mean A* goal-distance bin center (px) 50 60 70 80 90 100 Goal-ordering accuracy (%) 
+
+> Dual-WM-H Shared-Identity LeWM (ref.) Endpoint-MLP Window-Concat Dual-WM-L (ref.)
+
+Figure 18: Goal ordering on TwoRoom. Accuracy compares latent and A* goal-distance rankings; bins use mean goal distance. Dual-WM-H and Window-Concat use identical observation windows, with learned encoding and direct concatenation, respectively. Dashed curves are contextual refer-ences. Corresponding planning success is shown in Figure 4. 
+
+Low-level training horizon and probing. The horizon study uses low-level-only planning, varies 
+
+N ∈ { 1, 3, 5, 8, 10 }, and evaluates predicted low-level states at horizons 1, 2, 3, 5, 7, 10 . A posi-tion probe is fitted on predicted latents pooled across horizons, with disjoint episodes for fitting, validation, and evaluation. This measures how much position information remains accessible after recursive prediction, rather than the raw discrepancy between latent vectors from different models. At evaluation horizon 10 , position error is 12 .0 px for N = 1 , 5.7 px for N = 5 , and 8.9 px for 
+
+N = 10 , consistent with the planning advantage of a moderate training horizon in this study. 1 3 5 8 10 Training rollout N       
+
+> 025 50 75 100 Success rate (%)
+> Goal offset 25 50 100 1235710 Evaluation rollout (low-level model steps) 0246810 12 Position error (px)
+> N=1 N=3 N=5 N=8 N=10
+
+Figure 19: Low-level training-horizon sensitivity on TwoRoom. Left: mean success using low-level-only planning at goal offsets 25 , 50 , and 100 environment steps. Right: mean position-probe error over recursive low-level predictions. Both panels compare N ∈ { 1, 3, 5, 8, 10 }; the right horizontal axis is evaluation rollout length, not training length. 
+
+Low-level rollout-weighting profiles. This study also uses low-level-only planning. For horizon 
+
+N , uniform weights are wh = 1 /N , and linearly decreasing weights are wh = 2( N −h+1) /[N (N +1)] , for h = 1 , . . . , N . Thus, at N = 5 , the linear profile is (5 , 4, 3, 2, 1) /15 . The exponential profile is defined in Eq. (5). 27 25 50 100 Goal offset (env. steps) 025 50 75 100 Success rate (%) 
+
+Uniform Linear Exponential Figure 20: Rollout-weighting comparison on TwoRoom at training horizon N = 5 . Bars show mean success across low-level-only planning runs. The difference between profiles grows as the goal offset increases. Det. 0   
+
+> 10 −4
+> 10 −3
+> 10 −2
+> 5×10 −2
+> Encoding / β
+> 025 50 75 100 Success rate (%) Det. 0
+> 10 −4
+> 10 −3
+> 10 −2
+> 5×10 −2
+> Encoding / β
+> 0.00 0.02 0.04 One-step MSE Det. 0
+> 10 −4
+> 10 −3
+> 10 −2
+> 5×10 −2
+> Encoding / β
+> 0.00 0.05 0.10 Six-step MSE
+
+Figure 21: Macro-action prior shaping on TwoRoom. Left: mean success at goal offset 100 . Middle and right: mean one-step and six-step latent MSE. Det. denotes deterministic macro-action en-coding; numeric labels denote stochastic encoding with the indicated MAPS coefficient, including 
+
+β = 0 without the KL penalty. All panels show the same six configurations. Raw MSE is measured in each learned latent space. 
+
+## I SOKOBAN -L ONG : D ISCRETE -A CTION IMPLEMENTATION 
+
+Sokoban-Long extends the evaluation to discrete-action, game-like planning. The world model uses vector-valued action inputs at both temporal scales, while the low-level search distribution is selected according to the environment’s action space. 
+
+Action representation and preprocessing. The environment has a Discrete(5) action space: 
+
+0 is no-op, 1 up, 2 down, 3 left, and 4 right. The frame skip is f = 1 , so one low-level model step corresponds to one environment step. Actions are stored as five-dimensional one-hot vectors. The low-level action encoder therefore has input width f × action dim = 5 , and the macro-action encoder EA receives a k × 5 window of one-hot actions. It encodes these k discrete actions into a continuous macro-action posterior. This uses the same encoder design and training objectives as the continuous-action setting, with the appropriate action input width. One-hot action columns are excluded from data normalization; only the proprioceptive fields are normalized. In particular, statistics of the five action columns are not applied to scalar environment action indices. 28 Categorical low-level search. For a discrete action space, the low-level planner selects categor-ical CEM instead of Gaussian CEM. It maintains a categorical distribution over the five actions at each planning step and samples candidate action sequences using Gumbel-max. Each candidate is converted to a one-hot sequence before latent rollout, matching the action representation used during training. Candidates are ranked by the planning cost, and the distribution is refitted to the empirical action frequencies of the elite sequences. Laplace smoothing and exponential-moving-average up-dates prevent premature concentration of the search distribution. High-level-guided refinement uses the projected subgoal cost in Eq. (9); the final stage uses Eq. (10). The low-level search uses 300 candidates per iteration, 30 iterations, and 30 elites, with planning horizon HL = 12 . During high-level-guided refinement, only the first action is executed before replanning from the new observation. In the final stage, the categorical plan is cached and reused over a four-environment-step execution horizon before replanning. The selected one-hot actions are converted back to scalar action indices for execution, without action denormalization. For warm starts, unseeded sample rows use a sentinel value of −1. Zero-filling these rows would instead designate action 0 and bias the search toward no-op. The sentinel marks missing warm-start entries and is not an environment action. 
+
+Continuous high-level search. The macro-action u ∈ R16 remains continuous even though the underlying actions are discrete. High-level planning uses Gaussian CEM over the continuous macro-action space, with 100 candidates per iteration, 20 iterations, and 10 elites. Each candidate contains 
+
+HH macro-actions; this horizon corresponds to u horizon in the implementation. We reserve 
+
+M for the high-level training rollout length in the paper. High-level search evaluates continuous macro-actions, while the low-level planner searches discrete actions to realize its latent subgoals. This separation allows the same hierarchical planning procedure to support both action-space types through the low-level solver selection. 
+
+## J BASELINE DESCRIPTIONS AND EVALUATION PROTOCOLS 
+
+Tables 5–7 compare world-model planners and an external visual controller. This appendix distin-guishes their representation learning, action-generation mechanisms, and evaluation sources. Pub-lished entries retain their original evaluation conventions; entries marked † are our reproduced plan-ning evaluations. 
+
+Matched evaluation tasks and execution protocol. For every task and goal offset evaluated by us, each planning seed ( 0, 1, or 42 ) determines a set of 200 goal-reaching tasks. All methods receive exactly the same episode IDs, start states, and goals within that seed. Each seed resamples the task set and fixes the CEM search random stream, yielding repeatable per-task outcomes for a given planner. The reported standard deviation captures variation across these seeded evaluations in both task sampling and search randomness. For a given task and offset, all methods evaluated by us use the same maximum number of environ-ment steps, success criteria, and early-termination rules. This shared protocol applies to Dual-WM and all reproduced baselines. Results quoted from prior publications retain their original protocols; the search configurations used in our evaluations are specified below. 
+
+Model sources for reproduced results. For entries marked †, DINO-WM and HWM are trained on the same datasets as Dual-WM using their authors’ released code. LeWM, Fast-LeWM, RC-aux, INTACT, and JEPA-WM use the authors’ released checkpoints and are evaluated on our matched test tasks. JEPA-WM’s offset-25 result is quoted, whereas its offset-50 , 75 , and 100 results are our evaluations of the released model. Our CEM-based baseline evaluations use 300 candidates, 
+
+30 iterations, and 30 elites for low-level action search. High-level macro-action search uses 100 
+
+candidates, 20 iterations, and 10 elites. Results without the reproduction marker retain the reporting convention of the original publication, apart from our own Dual-WM results. 
+
+Latent dynamics baselines. LeWM (Maes et al., 2026) trains an encoder and a predictor jointly with an anti-collapse regularizer, and plans in the resulting latent space. DINO-WM (Zhou et al., 2024) predicts the features of a pretrained DINO encoder instead of reconstructing pixels. 29 PLDM (Sobal et al., 2025) learns dynamics from reward-free offline trajectories and is reported at offset 25 . JEPA-WM (Terver et al., 2025) is reported on PushT at offsets 25 , 50 , 75 and 100 .
+
+Hierarchical and multi-step baselines. HWM (Zhang et al., 2026a) learns two temporal scales inside one shared latent space. We reproduce its TwoRoom results at offsets 25 , 50 , and 100 , and its PushT result at offset 100 . The PushT results at offsets 25 , 50 , and 75 are quoted from the original publication; the offset-75 result motivates the extra column. Hi-LeWM (Caselli et al., 2026) adds hierarchical planning on top of LeWM and is reported on PushT at offsets 25 , 50 and 75 .
+
+Fast-LeWM (Gao & Xu, 2026) predicts action-prefix outcomes in parallel from an observed anchor. 
+
+RC-aux (Li et al., 2026) keeps recursive dynamics and supervises them open-loop with a horizon-weighted auxiliary objective. VLWM (Du et al., 2026) predicts the outcome of variable-length action sequences and is reported on TwoRoom, PushT and Cube-Single. 
+
+Actor-guided planning. INTACT (Sun et al., 2026) learns an intent-to-action interface from action-labeled trajectories. We distinguish Pure CEM, which searches without actor-guided propos-als, from Actor+CEM, which uses the learned action interface to guide search. The offset-25 entries are quoted from the original paper and retain its reporting convention. The offset-50 , offset-75 ,and offset-100 entries are our reproduced evaluations. Dual-WM with the INTACT actor is a sepa-rate extension on Cube-Single: it adds actor-guided low-level proposals while retaining dual-latent dynamics and hierarchical planning. It is excluded from the from-scratch cross-task aggregate. 
+
+External visual controller. We also evaluate a Gemini 3.8 Flash controller as a closed-loop ref-erence. The controller receives the current observation, goal image, and action space, and produces an action chunk. We execute five environment steps before requesting a new plan. It provides an external visual-control reference alongside the learned world-model planners. The discrete-action implementation and execution schedule of Dual-WM are described in Appendix I. 
+
+Cross-task aggregation. For goal offset m, let St,b (m) be the reported mean success of method b
+
+on task t. We compute 
+
+Sb(m) = 15
+
+> 5
+
+X
+
+> t=1
+
+St,b (m), Sbest (m) = 15
+
+> 5
+
+X
+
+> t=1
+
+max  
+
+> b∈B t(m)
+
+St,b (m),
+
+where Bt(m) contains non-Dual-WM methods with a reported result for that task and offset and without actor-guided proposals. The same eligibility rule applies on every task: INTACT uses Pure CEM, and Actor+CEM is excluded. The external Gemini controller is retained. The selection uses available reported results. At offset 50 , the selected methods are Gemini on TwoRoom and Sokoban-Long, INTACT (Pure CEM) on Reacher, HWM on PushT, and DINO-WM on Cube-Single. At offset 
+
+100 , they are Gemini on TwoRoom, Reacher, and Sokoban-Long, HWM on PushT, and Fast-LeWM on Cube-Single. The resulting means are 75 .9% and 61 .4% . All Dual-WM aggregate values use the from-scratch variant. Aggregates are computed before rounding to one decimal place. For completeness, allowing actor-guided competitors in the task-wise selection raises these aggre-gates to 76 .9% and 65 .9% . At offset 50 , INTACT (Actor+CEM) replaces Pure CEM on Reacher. At offset 100 , it replaces Gemini on Reacher and Fast-LeWM on Cube-Single. This broader compari-son is distinct from the proposal grouping used in the main table. 30 K ADDITIONAL TWO ROOM DISTANCE FIELDS 
+
+The six query states not displayed in Figure 14 are collected below under the same smoothing and shared color-scale protocol. Each star marks the corresponding query state. A* ground truth LeWM  
+
+> 050 100 150 200 250 300 350
+> A* path length (px)
+> 0.0 0.2 0.4 0.6 0.8 1.0 1.2 1.4 1.6
+> Normalized latent distance  z za 2 / 2D
+> Dual-WM-L Dual-WM-H
+
+Figure 22: Additional TwoRoom distance fields for the six remaining query states. Each row con-tains one A* reference followed by LeWM, Dual-WM-L and Dual-WM-H. The A* column and the three model columns use the same respective shared scales as Figure 14. 31
