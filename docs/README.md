@@ -41,7 +41,7 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-10-02</span>
+      <span class="dpr-home-dashboard-kicker">2026-10-03</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
     <strong class="dpr-home-dashboard-count">共 32 篇</strong>
@@ -51,7 +51,7 @@
     <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>19</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-10-02 23:20:44 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-10-03 22:11:47 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,10 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>2026-10-02 日报共筛出 32 篇论文，精读 19 篇、速读 13 篇，重点覆盖非线性最优控制与多旋翼无人机控制。最值得看的是两篇 9.0 分精读：Newton 方法在非线性最优控制中的收敛性分析，以及利用空速管-静压传感的多旋翼风场预视模型预测控制。普通读者可优先从这两篇入手，再顺带浏览 8.0 分的采样系统反馈镇定与机器人操作方向速读论文。</p>
+<p>今日共生成 32 篇推荐（精读 19 篇，速读 13 篇）</p>
+<p>精读：《FRAM: Trajectory-Guided Visual Feature Selection for Compact Language-Conditioned Robot Manipulation》（9.0/10）, 《RecastVLA: From Past Interaction to Future Control with Adaptive Policy States》（9.0/10）</p>
+<p>速读：《Alignment-Guided Flow Transformer for Efficient Vision-Language-Action Policy Learning》（8.0/10）, 《Zero-Shot Reactive Obstacle Avoidance for Generative Robot Policies》（8.0/10）, 《Rethinking Causal Action Tokenization with Conditional Annealing in Flow Matching》（8.0/10）</p>
+<p>这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -74,9 +77,9 @@
     <strong class="dpr-home-dashboard-count">19 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Convergence Analysis of Newton Methods for Nonlinear Optimal Control Problems">Convergence Analysis of Newton Methods for Nonlinear Optimal Control Problems</span></li><li><span class="dpr-home-dashboard-paper-title" title="Onboard Wind-Preview Model Predictive Control Using Pitot-Static Sensing for Multirotor UAVs">Onboard Wind-Preview Model Predictive Control Using Pitot-Static Sensing for Multirotor UAVs</span></li><li><span class="dpr-home-dashboard-paper-title" title="CollisionSplatting: Collision-Aware Motion Planning in 3DGS Scenes with Image-Conditioned Objectives and Adjustable Conservatism">CollisionSplatting: Collision-Aware Motion Planning in 3DGS Scenes with Image-Conditioned Objectives and Adjustable Conservatism</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="FRAM: Trajectory-Guided Visual Feature Selection for Compact Language-Conditioned Robot Manipulation">FRAM: Trajectory-Guided Visual Feature Selection for Compact Language-Conditioned Robot Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="RecastVLA: From Past Interaction to Future Control with Adaptive Policy States">RecastVLA: From Past Interaction to Future Control with Adaptive Policy States</span></li><li><span class="dpr-home-dashboard-paper-title" title="Federated Subspace Guided Vision-Language-Action Policy Distillation for Non-IID Multi-Robot Manipulation">Federated Subspace Guided Vision-Language-Action Policy Distillation for Non-IID Multi-Robot Manipulation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>6</strong></span><span class="dpr-home-dashboard-tag">control <strong>5</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>5</strong></span><span class="dpr-home-dashboard-tag">vla <strong>3</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>8</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>7</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>4</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -87,9 +90,9 @@
     <strong class="dpr-home-dashboard-count">13 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Feedback Stabilization for Sampled Linear Systems with Control-linear Noise">Feedback Stabilization for Sampled Linear Systems with Control-linear Noise</span></li><li><span class="dpr-home-dashboard-paper-title" title="FRAM: Trajectory-Guided Visual Feature Selection for Compact Language-Conditioned Robot Manipulation">FRAM: Trajectory-Guided Visual Feature Selection for Compact Language-Conditioned Robot Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Federated Subspace Guided Vision-Language-Action Policy Distillation for Non-IID Multi-Robot Manipulation">Federated Subspace Guided Vision-Language-Action Policy Distillation for Non-IID Multi-Robot Manipulation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Alignment-Guided Flow Transformer for Efficient Vision-Language-Action Policy Learning">Alignment-Guided Flow Transformer for Efficient Vision-Language-Action Policy Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="Zero-Shot Reactive Obstacle Avoidance for Generative Robot Policies">Zero-Shot Reactive Obstacle Avoidance for Generative Robot Policies</span></li><li><span class="dpr-home-dashboard-paper-title" title="Rethinking Causal Action Tokenization with Conditional Annealing in Flow Matching">Rethinking Causal Action Tokenization with Conditional Annealing in Flow Matching</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">control <strong>6</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>4</strong></span><span class="dpr-home-dashboard-tag">vla <strong>2</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>6</strong></span><span class="dpr-home-dashboard-tag">control <strong>3</strong></span><span class="dpr-home-dashboard-tag">vla <strong>3</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>1</strong></span></div>
 </section>
 </div>
 

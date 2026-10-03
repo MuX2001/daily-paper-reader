@@ -1,0 +1,1151 @@
+Title: Action Chunking Proximal Policy Optimization with Feedback Correction
+
+URL Source: https://arxiv.org/pdf/2609.36250v1
+
+Published Time: Wed, 30 Sep 2026 00:34:40 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# Action Chunking Proximal Policy Optimization with Feedback Correction 
+
+Sanghyun Hahn ∗
+
+Cornell University 
+
+steve0221@cs.cornell.edu 
+
+Jonghyun Choi 
+
+Seoul National University 
+
+jonghyunchoi@snu.ac.kr 
+
+## Abstract 
+
+Action chunking provides temporal abstraction in reinforcement learning by se-lecting short action sequences instead of individual actions, but many existing approaches face two limitations in high-dimensional robotic control. First, many rely on value functions over action chunks, which can be difficult to learn as action dimensionality and chunk length grow. Second, executing chunks open-loop re-moves within-chunk feedback, limiting reactivity in contact-rich tasks. We present Action Chunking PPO (ACPPO), a PPO extension that uses a chunked actor while retaining a standard state-value critic, thereby avoiding chunked Q-functions. We further propose ACPPO-Corr, which augments the chunk planner with a stepwise feedback corrector that adjusts planned actions online within each chunk. Across 25 simulated robotics tasks from IsaacGym and Bi-DexHands, spanning locomotion, arm manipulation, and dexterous hand-object interaction, ACPPO-Corr achieves the strongest aggregate performance among evaluated methods and performs best on both decision-frequency-sensitive and decision-frequency-neutral task subsets. Ablations show that moderate chunk lengths work best and that corrector regu-larization is important for balancing chunk-level planning with local feedback. These results suggest that action chunking can be effective in online PPO when chunk-level planning is paired with closed-loop correction. The code is available at: https://github.com/hshhahn/ACPPO.git 
+
+## 1 Introduction 
+
+Action Chunking [1, 2, 3, 4, 5, 6] has been a popular design choice in robot imitation learning, where the policy predicts a sequence of actions instead of a single action at each decision step. This reduces the effective control horizon at inference, mitigates compounding errors in the continuous action space [7, 8], and captures non-Markovian behaviors inherent in human demonstrations [1]. Recent work has incorporated action chunking into reinforcement learning (RL), treating action chunks as temporally extended actions in a semi-Markov decision process [9, 10, 11, 12, 13, 14, 15, 16] or exploiting chunked critics [17, 18, 19]. Compared to stepwise control, action chunking RL can offer several advantages. First, multi-step actions shorten the decision horizon and accelerate reward propagation, which is beneficial in long-horizon problems [10, 12, 15]. Second, chunked policies allow temporally coherent exploration, which can lead to deeper state-space coverage and improved exploration efficiency [10, 14, 11]. However, these benefits come with two major challenges when applied to high-dimensional robotic control: chunked action-value function learning and the loss of within-chunk reactivity. First, most prior action-chunking RL methods rely on chunked Q-functions, Q(st, a t:t+h−1), requiring the critic to evaluate high-dimensional action sequences. Prior work shows that this can make value learning more difficult, cause overestimation and instability, and make policy extraction increasingly 
+
+> ∗Work done at Seoul National University 40th Conference on Neural Information Processing Systems (NeurIPS 2026). arXiv:2609.36250v1 [cs.LG] 28 Sep 2026
+
+challenging as the chunk length grows [17, 15, 16]. As a result, some prior approaches rely on offline pre-training [10, 15, 17] or use heavier architectures, such as transformers, to model long action sequences [14, 18]. This limitation is particularly important in our setting, where the policy must operate in high-dimensional environments, and obtaining a reliable offline dataset is challenging. Second, executing a predicted action chunk in an open-loop manner causes the loss of within-chunk reactivity: after the action sequence has been selected, the actions cannot adapt to environmental stochasticity, contact changes, or unexpected perturbations. This loss of within-chunk feedback is especially problematic in contact-rich robotic manipulation, including dexterous hand control [20], where contact dynamics can change rapidly and successful control often depends on timely closed-loop correction [21, 22]. In this work, we propose Action Chunking PPO (ACPPO), an extension of PPO that brings action chunking into a fully online, on-policy RL setting while keeping a standard state-value critic. ACPPO introduces temporal abstraction to the actor through a chunked planner that predicts short action sequences, while retaining the state-only critic of PPO [23]. The critic itself is not chunked: it remains a standard state-value function V (s), while the PPO surrogate uses a chunk-level advantage computed from an h-step chunk return. Thus, ACPPO introduces multi-step actor credit assignment without learning a chunked Q-function. Building on this formulation, we propose ACPPO-Corr, which adds a stepwise feedback corrector that adjusts the planned actions every step. This combines low-frequency chunk planning with high-frequency closed-loop control, recovering within-chunk reactivity while maintaining the benefits of action chunking. Crucially, instead of relying on prior demonstrations, offline pre-training, or a frozen pretrained chunked policy, we jointly train the planner and corrector within a single fully online, on-policy RL framework. Empirically, ACPPO-Corr achieves the strongest performance across 25 simulated robotics tasks from IsaacGym [24] and Bi-DexHands [25], including both decision-frequency-sensitive and decision-frequency-neutral subsets. 
+
+## 2 Related Work 
+
+Action Chunking in Reinforcement Learning. Multi-step returns have been a popular choice in RL for trading off the bias of one-step TD targets against the variance of Monte Carlo returns [26]. Recent action chunking RL methods extend this idea to temporally extended control by learning over short action sequences, often through chunked critics or action-sequence policies. One line of work focuses on critic-side temporal abstraction while keeping a stepwise policy or omitting an explicit actor [17, 19, 27, 18]. These methods move temporal abstraction to the critic by learning values over short action sequences, reducing the compounding errors from the bootstrapped value estimates [27]. A second line of work jointly learns chunked actors and chunked critics in offline, offline-to-online, or online settings [12, 10, 15, 13, 14]. These methods benefit from chunked actors, which produce temporally coherent action sequences and can encourage coherent exploration. Despite differences in their settings, a large fraction of these methods rely on chunked Q-functions and are based on off-policy reinforcement learning methods, often augmented with heavier architectures, such as transformers. This limitation is particularly important in our setting: in high-dimensional continuous control, collecting expert demonstrations is costly, whereas parallel simulators make online rollouts practical [24, 28]. Consequently, PPO-type on-policy methods remain strong baselines on high-DoF manipulation benchmarks [29, 25]. Our work studies action chunking in a fully online, on-policy PPO setting with a chunked actor and a standard state-value critic. This differs both from online chunked actor-critic methods based on chunked Q-functions [14, 13], and from VLA post-training that applies PPO-style updates to pretrained action-chunking policies while relying on expert demonstrations [11]. In contrast to chunked Q-learning, the critic input in ACPPO does not grow with the chunk length: the critic remains Vϕ(s), and chunking is applied by the actor and the chunked advantage rather than through a chunked Q-function Q(s, a t:t+h−1).
+
+Residual correction and reactive execution. A related line of work addresses the loss of reactivity or execution mismatch in chunked policies, either by learning corrective residuals or by modifying real-time inference. Classical residual RL augments a frozen controller with a learned corrective policy [30]. In robot learning from demonstrations, Ankile et al. [31] learn a closed-loop residual policy on top of a frozen behavior-cloning chunked planner, and Ankile et al. [32] study off-policy residual fine-tuning of such frozen base policies on high-DoF robots. For pretrained chunked 2policies, Xue et al. [21] combine a slow chunk-level planner with a fast tactile controller, while Liu et al. [33] improve reactivity through test-time closed-loop resampling of chunk predictions. For real-time deployment of pretrained chunked policies, Black et al. [34] generate the next chunk while executing the current one, Sendai et al. [35] add a per-step correction head to off-the-shelf VLA action chunks, and Wang et al. [36] learn corrective adjustments on top of a pretrained policy through masked action chunking. ACPPO-Corr is closest to this line of work, but differs in the learning setup: instead of correcting a pretrained, frozen chunked policy, we jointly train a chunk planner and a stepwise corrector within a fully online, on-policy RL formulation. Therefore, the corrector is not an add-on execution module, but part of the policy optimized jointly with the chunk planner from scratch. 
+
+## 3 Preliminaries 
+
+Problem setup. We consider a Markov decision process (MDP) [37] M = ( S, A, P, r, γ ), where 
+
+st ∈ S is the state, at ∈ A is the action, rt = r(st, a t) is the reward, and P (st+1 | st, a t) is the transition kernel. The behavior of the agent is determined by a stochastic policy πθ (at | st), and the objective is to maximize the expected discounted return 
+
+J(πθ ) = Eτ ∼πθ
+
+" ∞X
+
+> t=0
+
+γtrt
+
+#
+
+.
+
+For continuous action spaces, we assume A ⊂ Rda and parameterize the policy as a diagonal Gaussian. 
+
+Proximal Policy Optimization. Given a batch of trajectories collected by a policy πθold , Proximal Policy Optimization (PPO) [23] performs multiple epochs of first-order updates on a clipped surrogate objective that controls the deviation of πθ from πθold . Defining the importance ratio 
+
+ρt(θ) = πθ (at | st)
+
+πθold (at | st) ,
+
+PPO maximizes the surrogate: 
+
+JPPO (θ) = E
+
+h
+
+min 
+
+
+
+ρt(θ) ˆAt, clip( ρt(θ), 1 − ϵ, 1 + ϵ) ˆAt
+
+i 
+
+,
+
+where ˆAt is the advantage estimate. To compute this advantage, a state-value critic Vϕ(st) is trained jointly with the actor. We define the one-step temporal-difference residual as 
+
+δt = rt + γV ϕ(st+1 ) − Vϕ(st).
+
+ˆAt is obtained by the Generalized Advantage Estimate (GAE) [38] 
+
+ˆAt = ˆAGAE  
+
+> t
+
+= δt + γλ ˆAGAE  
+
+> t+1
+
+.
+
+Finally, the corresponding value target to train the critic is 
+
+ˆRt = ˆAGAE  
+
+> t
+
++ Vϕ(st).
+
+Multi-step returns and control. An h-step bootstrapped return aggregates rewards over a short horizon: 
+
+G(h) 
+
+> t
+
+=
+
+> h−1
+
+X
+
+> j=0
+
+γj rt+j + γhVϕ(st+h).
+
+These multi-step returns interpolate between one-step TD targets and Monte Carlo returns, yielding a bias-variance tradeoff. In our setting, a chunk-level planner (chunked actor) predicts an open-loop action sequence of length h
+
+ut0:t0+h−1 = [ ut0,0, . . . , u t0,h −1] ∈ Rh×da ,
+
+where ut0,k denotes the action associated with the k-th step of the chunk. We use u for planned chunk actions and a for the action executed in the environment. 3Figure 1: Stepwise comparison between PPO, ACPPO, and ACPPO-Corr. PPO runs the policy closed-loop. ACPPO runs the policy open-loop. ACPPO-Corr corrects the open-loop policy with a closed-loop feedback corrector. In ACPPO-Corr, the open-loop policy and the closed-loop corrector are jointly trained. 
+
+## 4 Method 
+
+We first introduce Action Chunking PPO (ACPPO) , which brings action chunking into PPO while keeping a standard state-value critic. This avoids chunked Q-functions and keeps the learning setup fully online and on-policy. We then extend ACPPO to ACPPO-Corr by adding a stepwise feedback corrector for tasks where within-chunk reactivity is important. 
+
+4.1 Action Chunking PPO (ACPPO) 
+
+For any step t, let 
+
+t0 =
+
+ th
+
+
+
+h, k = t − t0 ∈ { 0, . . . , h − 1},
+
+where t0 is the start of the current chunk and k is the within-chunk index. At chunk boundaries, a chunked planner π(h) 
+
+> θpl
+
+predicts an h step action sequence 
+
+ut0:t0+h−1 = π(h) 
+
+> θpl
+
+(st0 ) = [ ut0,0, . . . , u t0,h −1] ∈ Rh×da .
+
+At step t = t0 + k, ACPPO uses the k-th planned action ut0,k as the policy mean and samples the executed action at from a Gaussian. In this way, temporal abstraction is introduced at the actor side, while the critic remains state only. Accordingly, we also form the advantage and the importance sampling ratio at the chunk level. The critic is trained with the standard PPO value loss using stepwise GAE returns. 
+
+Chunked advantage. Instead of using separate advantages at each timestep, ACPPO calculates a single chunked advantage at the chunk-start [9]. We define the h-step chunked advantage as 
+
+Aπh (st0 , at0:t0+h−1) := E
+
+
+
+> h−1
+
+X
+
+> j=0
+
+γj rt0+j + γhV π (st0+h) − V π (st0 ) st0 , at0:t0+h−1
+
+ .
+
+In practice, we estimate it as a combination of the h-step chunk head and a standard GAE tail at the next chunk boundary: 
+
+ˆAchunk  
+
+> t0
+
+=
+
+> h−1
+
+X
+
+> j=0
+
+γj δt0+j + γh ˆAGAE 
+
+> t0+h
+
+, (1) where δt := rt +γV ϕ(st+1 )−Vϕ(st) is the stepwise residual and ˆAGAE  
+
+> t
+
+is the standard stepwise GAE. Appendix C shows that the h-step head telescopes intermediate value terms with a bias–variance tradeoff as the chunk length increases. 4Algorithm 1 ACPPO-Corr 
+
+Require: planner πθpl , corrector/value network πθco ,ϕ , chunk length h, rollout horizon T 
+
+> 1:
+
+for e = 1 , . . . , N do   
+
+> 2: FREEZE pl
+
+← 1{e ≤ Nwarm } 
+
+> 3:
+
+for t = 0 , . . . , T − 1 do  
+
+> 4:
+
+if t mod h = 0 then  
+
+> 5:
+
+t0 ← t, ut0:t0+h−1 ← πθpl (st0 ) ▷ plan an action chunk  
+
+> 6:
+
+end if  
+
+> 7:
+
+k ← t − t0 
+
+> 8:
+
+(ct, σ t, V t) ← πθco ,ϕ (st) ▷ add closed-loop correction  
+
+> 9:
+
+Sample at ∼ N (ut0,k + ct, diag( σ2 
+
+> t
+
+))  
+
+> 10:
+
+Execute at and store (st, s t0 , a t, r t, d t, log π(at), V t, k ) 
+
+> 11:
+
+end for  
+
+> 12:
+
+Compute stepwise GAE ˆAGAE  
+
+> t
+
+and chunked advantages ˆAchunk  
+
+> t0
+
+using Eq. 1  
+
+> 13:
+
+For mid-chunk terminations, mask the remaining chunk suffix  
+
+> 14:
+
+for each PPO minibatch do  
+
+> 15:
+
+if not FREEZE pl then  
+
+> 16:
+
+Evaluate Ltotal (Eq. 3) with planner-side stop-grads: ut0,k + sg( ct), sg( σt) 
+
+> 17:
+
+Update θpl with Adam  
+
+> 18:
+
+end if  
+
+> 19:
+
+Evaluate Ltotal using corrector-side stop-gradients: sg( ut0,k ) + ct, σ t 
+
+> 20:
+
+Update (θco , ϕ ) with Adam  
+
+> 21:
+
+end for  
+
+> 22:
+
+end for Projected state critic. When executing chunked actions, the exact value of a mid-chunk step may depend on active chunk variables zt such as the chunk-start state, planned chunk, and within-chunk index. Let eV π (st, z t) denote the exact augmented-state value. Under a squared value loss, the best state-only predictor is 
+
+V π 
+
+> ∗
+
+(s) = E
+
+h eV π (st, z t) | st = s
+
+i
+
+,
+
+where the expectation is over chunk variables induced by the current policy. Our critic Vϕ(s)
+
+approximates this projection. In Eq. 1, the h-step actor advantage uses only the boundary evaluations 
+
+Vϕ(st0 ) and Vϕ(st0+h), with intermediate value terms telescoping as shown in Appendix C. 
+
+Chunked importance sampling ratio. ACPPO uses the importance ratio of the joint chunk distribution rather than per-step ratios. Let Tt0 ⊂ { 0, . . . , h − 1} denote the valid chunk prefix [39] before any mid-chunk episode termination. 
+
+ρ(h) 
+
+> t0
+
+(θ) = π(h) 
+
+> θ
+
+(at0:t0+h−1 | st0 )
+
+π(h) 
+
+> θold
+
+(at0:t0+h−1 | st0 ) = Y
+
+> k∈T t0
+
+π(h) 
+
+> θ,k
+
+(at0+k | st0 )
+
+π(h)
+
+> θold ,k
+
+(at0+k | st0 ) .
+
+The clipped chunk-level surrogate becomes 
+
+Jchunk (θ) = Et0
+
+h
+
+min 
+
+
+
+ρ(h) 
+
+> t0
+
+(θ) ˆAchunk  
+
+> t0
+
+, clip 
+
+
+
+ρ(h) 
+
+> t0
+
+(θ), 1 − ϵ, 1 + ϵ
+
+ ˆAchunk 
+
+> t0
+
+i 
+
+.
+
+If the action at offset j terminates the episode, then Tt0 = {0, . . . , j } and the remaining offsets are masked. In vectorized rollouts, a mid-chunk terminated environment is held as inactive padding until the next global chunk boundary, where a new planner is called. 
+
+4.2 ACPPO-Corr: ACPPO With a Stepwise Feedback Corrector Adding the stepwise corrector. ACPPO addresses the first part of the problem: it brings ac-tion chunking into the PPO framework with a standard value critic, avoiding the need to train 
+
+Q(st, a t:t+h−1). However, ACPPO still executes the planned chunk open loop once the chunk has started. In dexterous manipulation and locomotion, this can be a limitation since contacts and object motion can change quickly [16, 33, 21]. In such settings, low-frequency planning can be useful, but low-frequency reacting is not always sufficient. 5To recover within-chunk reactivity, we keep the ACPPO planner for chunk-level means and add a corrector πθco that observes the current state at every control step: 
+
+(ct, σ t) = πθco (st).
+
+Here, ct is a stepwise correction to the planner mean, while σt is the stepwise exploration scale. The executed Gaussian policy becomes 
+
+πθ (at | st, s t0 , k ) = N  ut0,k + ct, diag( σ2 
+
+> t
+
+) ,
+
+where θ = ( θpl , θ co ). Here, the planner provides chunk-level structure, while the corrector provides stepwise feedback and stepwise exploration inside the chunk. 
+
+Corrected importance sampling ratio. ACPPO-Corr uses the same chunked advantage in Eq. 1, but the chunked importance sampling ratio is now also conditioned on the current state. For a valid chunk prefix Tt0 [39], the importance ratio is 
+
+ρcorr  
+
+> t0
+
+(θ) = Y
+
+> k∈T t0
+
+πθ (at0+k | st0+k, s t0 , k )
+
+πθold (at0+k | st0+k, s t0 , k ) . (2) In practice, the adaptive KL scheduling of PPO [23] and short chunk lengths keep the empirical clip fraction close to PPO. The full diagnostics are reported in Appendix D. 
+
+Decoupled planner and corrector updates. We decouple planner and corrector optimization with stop gradients. Let sg( ·) denote stop gradient. For each minibatch, we evaluate the chunk surrogate with two policy parameterizations: 
+
+πmθ (at | st, s t0 , k ) = 
+
+(N  ut0,k + sg( ct), diag(sg( σt)2) , m = pl ,
+
+N  sg( ut0,k ) + ct, diag( σ2 
+
+> t
+
+) , m = co .
+
+Using the chunk-level surrogate with ρcorr  
+
+> t0
+
+, we write a single training objective: 
+
+Ltotal = −Jθ 
+
+> chunk
+
++ cv Lvalue − ceH[πco  
+
+> θ
+
+] + λbLbound 
+
+| {z }
+
+> Standard PPO Regularizers
+
++ λr Et
+
+∥ct∥22
+
+| {z }
+
+> Corrector Regularizer
+
+. (3) The critic loss is Lvalue = Et[( Vϕ(st) − ˆRt)2], H denotes the policy entropy, Lbound is the action-bound regularizer [24], and the corrector regularizer term penalizes large corrections. In the planner pass, only ut0,k receives actor gradients; in the corrector/value pass, ct, σt, and Vϕ are updated, using the two Adam updates shown in Algorithm 1. 
+
+Value warm-up. In all experiments, we use a short warm-up stage before full joint training. Specifically, we freeze the chunk planner for the first N/ 20 epochs and continue optimizing the corrector/value branch; after warm-up, we unfreeze the planner and train all modules jointly with separate Adam optimizers. This allows the value function to create stable advantage estimates before the chunk-level planner begins to learn from it. 
+
+## 5 Experiments 
+
+Benchmark. We evaluate ACPPO-Corr on 25 simulated robotics tasks, comprising 9 tasks from IsaacGym [24] and 16 tasks from Bi-DexHands [25]. The benchmark spans locomotion, arm manipulation, and dexterous hand-object interaction with different horizons and contact dynamics. This diversity is particularly important in our setting, since the effect of action chunking and reduced decision frequency can vary across different tasks. 
+
+Algorithms. We compare ACPPO-Corr against five baselines: PPO [23], the stepwise on-policy reference; PPO-Repeat [40], PPO with repeated actions, which isolates the effect of reduced decision frequency; SAC [41], a standard off-policy actor-critic; QC-FQL [10], the action chunking RL comparator; and ACPPO, which removes the proposed feedback corrector. The chunk length and action repetition frequency are fixed to h = 4 . In implementation, ACPPO-Corr uses a reduced-width planner/corrector design to keep model size comparable to PPO. Appendix A.2 reports the model sizes and the computational efficiency of each algorithm. 6(a) Training Curve (25 Tasks)                           
+
+> Method Sensitive Neutral
+> PPO 1.00 [1.00, 1.00] 1.00 [1.00, 1.00]
+> PPO-Repeat 0.61 [0.55, 0.68] 0.97 [0.92, 1.02]
+> SAC 0.33 [0.21, 0.44] 0.59 [0.49, 0.68]
+> QC-FQL 0.76 [0.64, 0.87] 0.77 [0.66, 0.87]
+> ACPPO 0.92 [0.87, 0.97] 0.97 [0.85, 1.10]
+> ACPPO-Corr 1.33 [1.24, 1.43] 1.24 [1.15, 1.34]
+
+(b) Frequency-Sensitivity Split Performance 
+
+Figure 2: Benchmark results. (a) Normalized IQM Scores over training across all 25 tasks. Shaded regions show pointwise 95% seed-bootstrap intervals with tasks fixed. ACPPO-Corr achieves best aggregated performance, improving over PPO by 30 .4% in final normalized IQM. (b) Final relative IQM with 95% seed-bootstrap intervals with tasks fixed on the frequency-sensitive and frequency-neutral subsets, computed as the ratio to PPO’s IQM on the same task set. 
+
+Hyperparameters. For PPO-family baselines and SAC, we use the published task-specific hyper-parameters from prior benchmark implementations [42, 25]. ACPPO-Corr inherits the PPO hyper-parameters and introduces the corrector regularization weight λr. We select λr ∈ { 0.03 , 0.1, 0.3}
+
+using preliminary per-task tuning runs, then fix the selected value for the reported evaluation. To match the tuning budget, we tune the QC-FQL behavior regularization coefficient α ∈ { 1, 3, 10 }
+
+using the same protocol. Details are given in Appendix A.3, and full hyperparameters are given in Appendix A.7. 
+
+Metrics. Based on the task success indicator in IsaacGym and Bi-DexHands, we use two different metrics. For goal reaching tasks, where performance is defined by completion of the target behavior, we use the final success rate (0 − 1) . For progress-based control tasks, where performance is captured by the accumulated reward, we use episodic return. We then normalize each task score as 
+
+Rnorm = ( R − Rlow )/(Rhigh − Rlow ), where Rlow and Rhigh are the task-specific lower and upper bound values reported at Appendix A.7. Each method is evaluated with 5 random seeds on every task, and we report the interquartile mean (IQM) [43] across all tasks. For the final relative IQM, we compute the ratio between a method’s final IQM and PPO’s final IQM on the same task set. 
+
+5.1 Benchmark Results Overall Performance. Figure 2a summarizes the main benchmark results. ACPPO-Corr achieves best aggregated performance, improving over PPO by 30 .4% in final normalized IQM. Both ACPPO and PPO-Repeat underperform PPO on the full benchmark, indicating that the gains of ACPPO-Corr cannot be explained by reduced decision frequency alone. ACPPO-Corr also substantially outperforms QC-FQL, our main chunked-action RL baseline, suggesting that actor-side chunking with a standard state-value critic is effective when paired with stepwise feedback correction in this online PPO setting. Soft Actor-Critic [41] performs poorly overall, consistent with prior reports on Bi-DexHands [25]; this reflects the difficulty of off-policy Q-learning in high-dimensional, contact-rich continuous action spaces. The full learning curves are shown in Appendix A.6, and the visualizations are displayed in Figure 3. 
+
+Frequency Sensitivity. Prior work [40, 44] has shown that performance can depend strongly on interaction frequency and action repetition. Therefore, we partition tasks according to their sensitivity to reduced decision frequency. For each task e, we compute 
+
+∆freq  
+
+> e
+
+= SPPO  
+
+> e
+
+− SPPO-Repeat 
+
+> e
+
+SPPO 
+
+> e
+
+,
+
+where Se denotes the final normalized score (without IQM) on task e. A larger ∆freq  
+
+> e
+
+indicates that the task is more sensitive to changes in decision frequency. We exclude four tasks with near-7Figure 3: Rollout snapshots of PPO, ACPPO, and ACPPO-Corr on AllegroHand . ACPPO-Corr reaches the target orientation the fastest, where ACPPO drops the cube and PPO requires additional 128 environment interactions to reach the target.  
+
+> (a) Advantage estimate and corrector regularization (b) Sensitivity to chunk length
+
+Figure 4: Ablations on chunked advantage, corrector regularization, and chunk length. (a) Chunked GAE and corrector regularization improve both performance and stability. (b) h = 1 removes multi-step chunking while retaining the ACPPO-Corr pipeline. Moderate chunk lengths perform best, with h = 4 giving the strongest aggregate performance. zero PPO scores to ensure numerical stability of this ratio. Using a threshold of ∆freq  
+
+> e
+
+> 0.3, we split the remaining 21 tasks into 11 frequency-sensitive tasks and 10 frequency-neutral tasks. The frequency-sensitivity split results are elaborated in Appendix A.1. Figure 2b reports the final relative IQM under this split, computed as the ratio of IQMs within each subset. On frequency-neutral tasks, PPO and PPO-Repeat perform similarly, as expected when reduced decision frequency has limited effect. On frequency-sensitive tasks, PPO-Repeat suffers a large performance drop, confirming that naive action repetition can be harmful when tasks require frequent feedback. Using the win/tie/loss defined in Appendix A.1, ACPPO-Corr is within the top group on 10/10 frequency-neutral tasks and 9/11 frequency-sensitive tasks. This suggests that ACPPO-Corr preserves the benefits of chunk-level planning while avoiding the performance degradation caused by open-loop execution: the stepwise corrector provides within-chunk reactivity on tasks where reduced decision frequency is harmful. 8Figure 5: Sensitivity to the corrector regularizer λr on three representative tasks. Different tasks prefer different regularization strengths: λr is a relevant method-specific hyperparameter. 
+
+5.2 Ablation Study Effect of the corrector regularizer. The corrector regularizer in Eq. 3 prevents the corrector from dominating the action plans. Without this term, the corrector can absorb most of the action signal, causing the chunked planner to contribute little and making ACPPO-Corr behave like a mostly stepwise reactive policy. ACPPO-Corr-NoReg of Figure 4a compares ACPPO-Corr with and without the corrector regularizer. The regularized variant achieves stronger aggregate performance, showing that balancing the planner and corrector is crucial for effective chunked control. 
+
+Effect of within-chunk feedback. To ablate the observations received during chunk execution, we replace the corrector’s current-state input st with the chunk-start state st0 , keeping the architecture unchanged. Applying this change only at evaluation retains 84 .0% of ACPPO-Corr’s performance, and training from scratch retains 88 .1% of ACPPO-Corr’s performance. Retraining partially recovers performance, but the remaining gap supports the benefit of within-chunk feedback. 
+
+Effect of the chunked advantage. We next ablate the chunked advantage used to train the ACPPO-Corr policy. We compare ACPPO-Corr, which uses Eq. 1 as the advantage estimate against a variant that replaces the chunked advantage with standard stepwise GAE. As shown in Figure 4a, ACPPO-Corr achieves stronger aggregate performance than ACPPO-Corr-Stepadv. This suggests that the policy-gradient signal should match the temporal abstraction of the actor: because the planner selects an entire action chunk, assigning a single temporally extended advantage to the chunk decision provides more coherent credit assignment than using separate stepwise advantages. This result is also consistent with the analysis in Appendix C, where the chunked estimator reduces reliance on intermediate value estimates, but uses a coarser and potentially higher-variance chunk-level credit signal. 
+
+Sensitivity to the chunk length. To study the effect of the chunk length h, we evaluate chunk lengths h ∈ { 1, 2, 4, 8} and compare it to the performance of PPO. Since the rollout horizon length is 8 for most environments in the task set, we restrict the comparison to chunk lengths that divide this horizon. The h = 1 setting removes chunking while retaining the ACPPO-Corr pipeline: it analyzes whether the gains are explained by decomposing the policy into two branches. Figure 4b shows that 
+
+h = 1 improves only marginally over PPO and remains below the chunked variants. Performance improves substantially for h > 1, with h = 4 achieving the strongest aggregate performance. This suggests that the main gains of ACPPO-Corr come from combining chunk-level planning with stepwise feedback correction, rather than from the corrector alone. 
+
+Sensitivity to the corrector regularizer hyperparameter. To study the effect of the corrector regularization coefficient λr, we select three representative tasks and sweep λr ∈ { 0.03 , 0.1, 0.3}.Figure 5 shows that the best-performing value is task-dependent: stronger regularization works better on AllegroHand, while weaker regularization performs better on Humanoid and ShadowHand. This sweep shows that the appropriate strength of the corrector regularizer varies across tasks. To visualize how λr changes the division between the planner and the corrector, we also report the final correction ratio rcorr = ∥ct0+k∥2/∥ut0,k ∥2. Table 1 shows that larger λr consistently reduces 
+
+rcorr , confirming that the regularizer prevents the feedback corrector from dominating the chunk planner. 9Table 1: Final correction ratios across tasks and regularization strengths λr .               
+
+> Task λr= 0 .03 λr= 0 .1λr= 0 .3
+> AllegroHand 0.222 0.053 0.007 Humanoid 0.021 0.009 0.002 ShadowHand 0.163 0.029 0.009
+
+Table 2: Longer-horizon evaluation. Entries are the means of per-task score ratios to PPO.                
+
+> Method h= 4 h= 8 h= 16
+> ACPPO-Corr 1.39 1.32 1.21 ACPPO 1.14 1.07 0.68 QC-FQL 0.88 0.87 0.29
+
+Longer chunk horizons. We extend the chunk-length evaluation to h ∈ { 4, 8, 16 } on the five tasks whose rollout horizons support these lengths. As shown in Table 2, ACPPO-Corr degrades less as h
+
+increases, retaining a mean score ratio to PPO of 1.21 at h = 16 , compared with 0.68 for ACPPO and 
+
+0.29 for QC-FQL. We additionally evaluate h = 32 on FrankaCubeStack and Humanoid in Table 8. ACPPO-Corr achieves nontrivial scores, while ACPPO and QC-FQL each obtain at most 0.02 on either task. These results support the benefit of feedback correction over longer execution windows, although moderate chunk lengths remain preferable. 
+
+## 6 Conclusion & Limitations 
+
+We presented ACPPO, an action-chunking variant of PPO with a standard state-value critic, and ACPPO-Corr, which augments chunk-level planning with a stepwise feedback corrector. This design brings temporal abstraction into a fully online, on-policy PPO framework while providing within-chunk reactivity which is important in contact-rich robotic control. Across 25 simulated robotics tasks spanning IsaacGym and Bi-DexHands, ACPPO-Corr achieved the strongest overall benchmark performance and remained best on both frequency-sensitive and frequency-neutral task subsets, suggesting the impact of action chunking and closed-loop action corrections. The open-loop ACPPO baseline underperforms PPO on the full benchmark, indicating that actor-side chunking alone is not sufficient for these contact-rich tasks. Our ablations further indicate that moderate chunk lengths are most effective and that regularizing the corrector helps balance the division between the chunk planner and the feedback corrector. Overall, these results suggest that action chunking can be made effective in PPO when open-loop temporal structure is paired with closed-loop correction. However, several limitations remain. First, our study is limited to continuous robotics control tasks: ACPPO-Corr assumes a continuous action space where additive corrections and magnitude penalties are meaningful, and therefore does not directly apply to discrete or semantically discontinuous action spaces such as token-level NLP. Furthermore, our experiments are conducted only in simulated robotics environments with state-based observations. Finally, the chunked importance sampling ratio may become less stable as the chunk length increases. While clipping remained stable for short chunk lengths, increased clipping was observed in h = 8 . Applying ACPPO-Corr to substantially longer chunks may require additional stabilization. Important directions for future work include adaptive chunk lengths, sim-to-real transfer, and extensions to latent-action formulations for application beyond continuous control. 
+
+## References 
+
+[1] Tony Z Zhao, Vikash Kumar, Sergey Levine, and Chelsea Finn. Learning fine-grained bimanual manipulation with low-cost hardware. In ICML Workshop on New Frontiers in Learning, Control, and Dynamical Systems , 2023. [2] Homanga Bharadhwaj, Jay Vakil, Mohit Sharma, Abhinav Gupta, Shubham Tulsiani, and Vikash Kumar. Roboagent: Generalization and efficiency in robot manipulation via semantic augmentations and action chunking. In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pages 4788–4795. IEEE, 2024. [3] Cheng Chi, Zhenjia Xu, Siyuan Feng, Eric Cousineau, Yilun Du, Benjamin Burchfiel, Russ Tedrake, and Shuran Song. Diffusion policy: Visuomotor policy learning via action diffusion. 
+
+The International Journal of Robotics Research , 44(10-11):1684–1704, 2025. 10 [4] Kevin Black, Noah Brown, Danny Driess, Adnan Esmail, Michael Equi, Chelsea Finn, Niccolo Fusai, Lachy Groom, Karol Hausman, Brian Ichter, et al. π0: A vision-language-action flow model for general robot control. Robotics: Science and Systems , 2025. [5] Moo Jin Kim, Chelsea Finn, and Percy Liang. Fine-tuning vision-language-action models: Optimizing speed and success. Robotics: Science and Systems , 2025. [6] Jason Lee, Jiafei Duan, Haoquan Fang, Yuquan Deng, Boyang Li, Shuo Liu, Bohan Fang, Jieyu Zhang, Yi Ru Wang, Sangho Lee, et al. Molmoact: Action reasoning models that can reason in space. In Workshop on Making Sense of Data in Robotics: Composition, Curation, and Interpretability at Scale at CoRL 2025 , 2025. [7] Max Simchowitz, Daniel Pfrommer, and Ali Jadbabaie. The pitfalls of imitation learning when actions are continuous. In The Thirty Eighth Annual Conference on Learning Theory , pages 5248–5351. PMLR, 2025. [8] Thomas T Zhang, Daniel Pfrommer, Chaoyi Pan, Nikolai Matni, and Max Simchowitz. Action chunking and exploratory data collection yield exponential improvements in behavior cloning for continuous control. arXiv preprint arXiv:2507.09061 , 2025. [9] Richard S Sutton, Doina Precup, and Satinder Singh. Between MDPs and semi-MDPs: A framework for temporal abstraction in reinforcement learning. Artificial Intelligence , 112(1): 181–211, 1999. [10] Qiyang Li, Zhiyuan Zhou, and Sergey Levine. Reinforcement learning with action chunking. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025. URL 
+
+https://openreview.net/forum?id=XUks1Y96NR .[11] Si-Cheng Wang, Tian-Yu Xiang, Xiao-Hu Zhou, Mei-Jiang Gui, Xiao-Liang Xie, Shi-Qi Liu, Shuang-Yi Wang, Ao-Qun Jin, and Zeng-Guang Hou. Vla model post-training via action-chunked ppo and self behavior cloning. arXiv preprint arXiv:2509.25718 , 2025. [12] Kwanyoung Park, Seohong Park, Youngwoon Lee, and Sergey Levine. Scalable offline model-based RL with action chunks. In The Fourteenth International Conference on Learning Repre-sentations , 2026. URL https://openreview.net/forum?id=WXGb9unEHo .[13] Jiarui Yang, Bin Zhu, Jingjing Chen, and Yu-Gang Jiang. Actor-critic for continuous action chunks: A reinforcement learning framework for long-horizon robotic manipulation with sparse reward. arXiv preprint arXiv:2508.11143 , 2025. [14] CF Nagy, Onur Celik, Emiliyan Gospodinov, Florian Seligmann, Weiran Liao, Aryan Kaushik, and Gerhard Neumann. Sear: Sample efficient action chunking reinforcement learning. arXiv preprint arXiv:2603.01891 , 2026. [15] Changyeon Kim, Haeone Lee, Younggyo Seo, Kimin Lee, and Yuke Zhu. DEAS: DEtached value learning with action sequence for scalable offline RL. In The Fourteenth International Conference on Learning Representations , 2026. URL https://openreview.net/forum? id=bVTaAXeBmE .[16] Qiyang Li, Seohong Park, and Sergey Levine. Decoupled q-chunking. In The Fourteenth International Conference on Learning Representations , 2026. URL https://openreview. net/forum?id=aqGNdZQL9l .[17] Younggyo Seo and Pieter Abbeel. Coarse-to-fine q-network with action sequence for data-efficient reinforcement learning. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025. URL https://openreview.net/forum?id=VoFXUNc9Zh .[18] Ge Li, Dong Tian, Hongyi Zhou, Xinkai Jiang, Rudolf Lioutikov, and Gerhard Neumann. TOP-ERL: Transformer-based off-policy episodic reinforcement learning. In The Thirteenth International Conference on Learning Representations , 2025. URL https://openreview. net/forum?id=N4NhVN30ph .11 [19] Dong Tian, Onur Celik, and Gerhard Neumann. Chunking the critic: A transformer-based soft actor-critic with n-step returns. In The Fourteenth International Conference on Learning Representations , 2026. URL https://openreview.net/forum?id=rb5eTktqbc .[20] Roland S Johansson and J Randall Flanagan. Coding and use of tactile signals from the fingertips in object manipulation tasks. Nature Reviews Neuroscience , 10(5):345–359, 2009. [21] Han Xue, Jieji Ren, Wendi Chen, Gu Zhang, Yuan Fang, Guoying Gu, Huazhe Xu, and Cewu Lu. Reactive diffusion policy: Slow-fast visual-tactile policy learning for contact-rich manipulation. In Proceedings of Robotics: Science and Systems (RSS) , 2025. [22] Yuhang Zheng, Songen Gu, Weize Li, Yupeng Zheng, Yujie Zang, Shuai Tian, Xiang Li, Ce Hao, Chen Gao, Si Liu, Haoran Li, Yilun Chen, Shuicheng Yan, and Wenchao Ding. Omnivta: Visuo-tactile world modeling for contact-rich robotic manipulation, 2026. URL 
+
+https://arxiv.org/abs/2603.19201 .[23] John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347 , 2017. [24] Viktor Makoviychuk, Lukasz Wawrzyniak, Yunrong Guo, Michelle Lu, Kier Storey, Miles Macklin, David Hoeller, Nikita Rudin, Arthur Allshire, Ankur Handa, and Gavriel State. Isaac gym: High performance gpu-based physics simulation for robot learning, 2021. [25] Yuanpei Chen, Tianhao Wu, Shengjie Wang, Xidong Feng, Jiechuan Jiang, Zongqing Lu, Stephen McAleer, Hao Dong, Song-Chun Zhu, and Yaodong Yang. Towards human-level bimanual dexterous manipulation with reinforcement learning. Advances in Neural Information Processing Systems , 35:5150–5163, 2022. [26] Richard S Sutton. Learning to predict by the methods of temporal differences. Machine learning ,3(1):9–44, 1988. [27] Gwanwoo Song, Kwanyoung Park, and Youngwoon Lee. Chunk-guided q-learning. arXiv preprint arXiv:2603.13971 , 2026. [28] Nikita Rudin, David Hoeller, Philipp Reist, and Marco Hutter. Learning to walk in minutes using massively parallel deep reinforcement learning. In Conference on robot learning , pages 91–100. PMLR, 2022. [29] Aravind Rajeswaran, Vikash Kumar, Abhishek Gupta, Giulia Vezzani, John Schulman, Emanuel Todorov, and Sergey Levine. Learning complex dexterous manipulation with deep reinforcement learning and demonstrations. Robotics: Science and Systems XIV , 2018. [30] Tobias Johannink, Shikhar Bahl, Ashvin Nair, Jianlan Luo, Avinash Kumar, Matthias Loskyll, Juan Aparicio Ojea, Eugen Solowjow, and Sergey Levine. Residual reinforcement learning for robot control. In 2019 international conference on robotics and automation (ICRA) , pages 6023–6029. IEEE, 2019. [31] Lars Ankile, Anthony Simeonov, Idan Shenfeld, Marcel Torne, and Pulkit Agrawal. From imitation to refinement-residual rl for precise assembly. In 2025 IEEE International Conference on Robotics and Automation (ICRA) , pages 01–08. IEEE, 2025. [32] Lars Ankile, Zhenyu Jiang, Rocky Duan, Guanya Shi, Pieter Abbeel, and Anusha Nagabandi. Residual off-policy rl for finetuning behavior cloning policies. arXiv preprint arXiv:2509.19301 ,2025. [33] Yuejiang Liu, Jubayer Ibn Hamid, Annie Xie, Yoonho Lee, Max Du, and Chelsea Finn. Bidirec-tional decoding: Improving action chunking via guided test-time sampling. In The Thirteenth International Conference on Learning Representations , 2025. [34] Kevin Black, Manuel Y Galliker, and Sergey Levine. Real-time execution of action chunking flow policies. arXiv preprint arXiv:2506.07339 , 2025. [35] Kohei Sendai, Maxime Alvarez, Tatsuya Matsushima, Yutaka Matsuo, and Yusuke Iwasawa. Leave no observation behind: Real-time correction for vla action chunks. arXiv preprint arXiv:2509.23224 , 2025. 12 [36] Haoxuan Wang, Gengyu Zhang, Yan Yan, Yuzhang Shang, Ramana Rao Kompella, and Gaowen Liu. Real-time robot execution with masked action chunking. arXiv preprint arXiv:2601.20130 ,2026. [37] Richard S Sutton and Andrew G Barto. Reinforcement learning: An introduction , volume 1. MIT press Cambridge, 1998. [38] John Schulman, Philipp Moritz, Sergey Levine, Michael Jordan, and Pieter Abbeel. High-dimensional continuous control using generalized advantage estimation. arXiv preprint arXiv:1506.02438 , 2015. [39] Kevin Black, Allen Z Ren, Michael Equi, and Sergey Levine. Training-time action conditioning for efficient real-time chunking. arXiv preprint arXiv:2512.05964 , 2025. [40] Sahil Sharma, Aravind S Lakshminarayanan, and Balaraman Ravindran. Learning to repeat: Fine grained action repetition for deep reinforcement learning. In International Conference on Learning Representations , 2017. [41] Tuomas Haarnoja, Aurick Zhou, Pieter Abbeel, and Sergey Levine. Soft actor-critic: Off-policy maximum entropy deep reinforcement learning with a stochastic actor. In International conference on machine learning , pages 1861–1870. Pmlr, 2018. [42] Chi-Chang Lee, Zhang-Wei Hong, and Pulkit Agrawal. Going beyond heuristics by imposing policy improvement as a constraint. In The Thirty-eighth Annual Conference on Neural Informa-tion Processing Systems , 2024. URL https://openreview.net/forum?id=vBGMbFgvsX .[43] Rishabh Agarwal, Max Schwarzer, Pablo Samuel Castro, Aaron C Courville, and Marc Belle-mare. Deep reinforcement learning at the edge of the statistical precipice. Advances in neural information processing systems , 34:29304–29320, 2021. [44] Amirmohammad Karimi, Jun Jin, Jun Luo, A Rupam Mahmood, Martin Jagersand, and Samuele Tosatto. Dynamic decision frequency with continuous options. In 2023 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 7545–7552. IEEE, 2023. 13 A Experiment Details 
+
+A.1 Benchmarks 
+
+We use the composition of 9 tasks from IsaacGym [24], and 16 tasks from Bi-DexHands [25]. For the frequency-sensitivity analysis only, we exclude four tasks whose PPO scores are near zero, since the relative frequency-sensitivity ratio ∆freq  
+
+> e
+
+becomes numerically unstable. The total task sets and the frequency-sensitivity splits are displayed in Table 3. We also report a per-task win/tie/loss status for ACPPO-Corr. For each task e, let Se,m denote the final normalized score of method m, averaged over five seeds. We compare ACPPO-Corr against the strongest baseline method on the same task: 
+
+∆WTL  
+
+> e
+
+= Se, ACPPO -Corr − max  
+
+> m̸=ACPPO -Corr
+
+Se,m .
+
+We mark a task as a win if ∆WTL  
+
+> e
+
+> 0.03 , a tie if |∆WTL  
+
+> e
+
+| ≤ 0.03 , and a loss if ∆WTL  
+
+> e
+
+< −0.03 .Table 3: Task assignment for the frequency-sensitivity split and per-task win/tie/loss status of ACPPO-Corr. Superscripts denote ACPPO-Corr’s status against the strongest competing method on each task: W = win, T = tie, L = loss. 
+
+Group Tasks # W/T/L Neutral FrankaCabinet W , Ingenuity T , ShadowHandDoorOpenInward W ,ShadowHandDoorCloseInward T , ShadowHandDoorOpenOutward T ,ShadowHandScissors W , QuadCopter T , ShadowHandGraspAndPlace W ,ShadowHandOver T , ShadowHandBlockStack W
+
+10 5/5/0 Sensitive ShadowHandSpin W , ShadowHandBottleCap L, Humanoid W , Anymal T ,ShadowHand W , AllegroHand W , Ant W , ShadowHandUpsideDown L,ShadowHandCatchOver2Underarm W , ShadowHandCatchAbreast W ,FrankaCubeStack T
+
+11 7/2/2 Excluded ShadowHandLiftUnderarm W , ShadowHandDoorCloseOutward L,ShadowHandKettle L, ShadowHandPushBlock T
+
+4 1/1/2 All tasks – 25 13/8/4 
+
+A.2 Model Size and Computational Overhead 
+
+The MLP widths are task-dependent and follow the standard configurations used in Lee et al. [42]. For PPO and PPO-Repeat, we inherit the default task-specific PPO actor and state-value critic architectures. ACPPO keeps the same PPO architecture, except that the actor output dimension is expanded from da to hd a to predict an action chunk. For methods with multiple actor or critic branches, we use reduced-width MLPs, with the first layer of the MLP divided in half to keep the total model size comparable. Table 4 summarizes the network components used by each method. Table 5 reports representative parameter counts and training throughput under our benchmark implementation. All experiments were conducted on a single RTX A6000 GPU. Table 4: Network components used per algorithm. Halved MLP configuration is used for methods with multiple actor or critic branches. 
+
+Algorithm Network components 
+
+PPO 1 full-size actor + 1 full-size value critic ACPPO 1 full-size chunked actor + 1 full-size value critic ACPPO-Corr 1 chunk planner + 1 corrector + 1 full-size value critic SAC 1 actor + 2 Q-functions + 2 target Q-functions QC-FQL 1 chunked actor + 2 Q-functions + 2 target Q-functions + 1 flow network 
+
+14 Table 5: Training throughput and model size. Steps/sec includes rollout and optimization. Parameter counts include policy/value networks and, for off-policy methods, target critic networks used during training.             
+
+> Algorithm Steps/sec Parameters
+> PPO 47,894 1,463,785 ACPPO 45,579 1,484,065 ACPPO-Corr 41,714 1,557,258 SAC 39,049 2,024,428 QC-FQL 34,595 3,287,492
+
+A.3 Hyperparameter Selection 
+
+Unless otherwise stated, all chunked methods use chunk length h = 4 in the main benchmark. The effect of varying h is studied separately in Section 5.2. For PPO and SAC, we inherit the task-specific hyperparameters from Lee et al. [42] and Chen et al. [25]. PPO-Repeat and ACPPO use the same hyperparameters and network architecture as PPO. ACPPO-Corr introduces one additional hyperparameter, the corrector regularization coefficient λr.For each environment, we select λr from {0.03 , 0.1, 0.3} using preliminary tuning runs, then use the selected value for the reported five seed runs. For QC-FQL, we use the same three-value tuning budget and select the behavior regularization coefficient from α ∈ { 1, 3, 10 } following the same procedure as ACPPO-Corr. We find that α = 1 
+
+performs best in most environments. This is expected in our fully online setting: early rollouts are noisy and non-expert, so strong behavior cloning to the replay buffer can constrain policy improvement. Reducing the behavior regularization allows the policy to deviate from early low-quality behavior while still retaining the stabilizing effect of the regularizer. The selected coefficient for each environment was chosen using preliminary tuning runs and then fixed for the reported five-seed evaluation. The selected values per environment for both algorithms are reported in Appendix A.7. 
+
+A.4 Action Chunking RL Baselines 
+
+Several related chunk-correction and real-time execution methods are not included as direct base-lines because they assume a different training interface from our benchmark. In particular, many methods operate on frozen behavior-cloned chunked policies, require demonstrations or pretrained VLA/diffusion policies, use visual or tactile observations not available in our state-based benchmark, or modify test-time chunk resampling rather than online RL training from scratch. Including such methods would require adding offline data, pretrained policies, or different observation modalities, which would break the online state-based comparison. We therefore focus the main benchmark on methods that can be trained from scratch under a matched online protocol, and include QC-FQL as the closest chunked-action RL comparator. 
+
+A.5 Aggregation 
+
+For each method, task, and seed, we first normalize the evaluation curve using the task-specific bounds in Appendix A.7, smooth the curve, and interpolate it onto a common training-progress grid. If multiple runs share the same method-task-seed tuple, we average them before aggregation. Let 
+
+xm,e,s (p) denote the resulting normalized score for method m, task e, seed s, and training progress p.At each progress point p, we aggregate performance using the interquartile mean (IQM) [43] over the set of task-seed scores 
+
+Xm(p) = {xm,e,s (p) : e ∈ E , s ∈ S} .
+
+The solid learning curve reports 
+
+IQM m(p) = IQM( Xm(p)) ,
+
+where IQM is the mean of the middle 50% of scores after sorting. 15 Uncertainty intervals are computed by seed bootstrap with the task set fixed. For each bootstrap replicate, we resample the five seed slots with replacement, recompute IQM m(p) at every progress point using the resampled task-seed scores, and report the pointwise 2.5 and 97.5 percentiles. Thus, the shaded regions reflect variability due to random seeds under the fixed benchmark suite, not uncertainty over a broader distribution of tasks. Final performance is computed analogously from the last finite value of each normalized task-seed curve. For PPO-normalized performance on a task subset E′, we recompute the method IQM and PPO IQM under the same bootstrap seed resample and report 
+
+RelIQM m = IQM m
+
+IQM PPO 
+
+.
+
+Bootstrap intervals for relative IQM are obtained from the corresponding bootstrap distribution of this ratio. 
+
+A.6 Full Training Curve 
+
+Figure 6: Full training curves on IsaacGym and Bi-DexHands. 16 A.7 Per Task Hyperparameters 
+
+Table 6: Per-task selected hyperparameters and normalization bounds. λr denotes the corrector regularization coefficient for ACPPO-Corr at each chunk length, α denotes the behavior regularization coefficient for QC-FQL, and Rlow , R high are the task-specific bounds used in normalized IQM computation. 
+
+Task λr (h = 1) λr (h = 2) λr (h = 4) λr (h = 8) QC-FQL α Rlow Rhigh 
+
+FrankaCabinet 0.1 0.1 0.1 0.1 3 0 1
+
+ShadowHandDoorOpenInward 0.1 0.3 0.1 0.1 1 0 1
+
+ShadowHandDoorCloseInward 0.3 0.1 0.1 0.1 1 0 1
+
+ShadowHandDoorOpenOutward 0.3 0.3 0.3 0.3 1 0 1
+
+ShadowHandScissors 0.3 0.3 0.3 0.3 1 0 1
+
+Ingenuity 0.1 0.1 0.1 0.1 1 0 14000 
+
+QuadCopter 0.3 0.3 0.3 0.3 1 0 1500 
+
+ShadowHandGraspAndPlace 0.1 0.1 0.1 0.1 1 0 1
+
+ShadowHandOver 0.1 0.1 0.1 0.03 1 0 1
+
+ShadowHandBlockStack 0.3 0.3 0.3 0.1 1 0 1
+
+ShadowHandSpin 0.3 0.3 0.3 0.3 1 0 1
+
+ShadowHandBottleCap 0.03 0.03 0.03 0.03 1 0 1
+
+Anymal 0.3 0.3 0.3 0.3 1 0 75 
+
+ShadowHand 0.03 0.03 0.03 0.03 1 0 1
+
+Humanoid 0.1 0.1 0.1 0.1 10 -1 62841 
+
+Ant 0.3 0.3 0.3 0.3 1 -2 61341 
+
+ShadowHandUpsideDown 0.1 0.03 0.03 0.03 1 0 1
+
+ShadowHandCatchOver2Underarm 0.3 0.3 0.3 0.3 1 0 1
+
+AllegroHand 0.1 0.1 0.3 0.1 1 0 1
+
+FrankaCubeStack 0.3 0.3 0.3 0.3 1 0 1
+
+ShadowHandCatchAbreast 0.03 0.03 0.03 0.03 1 0 1
+
+ShadowHandLiftUnderarm 0.1 0.1 0.3 0.3 1 0 1
+
+ShadowHandKettle 0.3 0.3 0.3 0.3 1 0 1
+
+ShadowHandPushBlock 0.3 0.3 0.3 0.3 1 0 1
+
+ShadowHandDoorCloseOutward 0.3 0.3 0.3 0.3 1 0 1
+
+A.8 Simulation and Control Frequencies 
+
+Table 7: Simulation and control timescales. The ShadowHand row includes all ShadowHand-prefixed tasks. Task Physics (Hz) Action repeat Control (Hz) h = 4 (s) AllegroHand 120 4 30 0.133 Ant 120 2 60 0.067 Anymal 100 2 50 0.080 FrankaCabinet 60 1 60 0.067 FrankaCubeStack 120 2 60 0.067 Humanoid 120 2 60 0.067 Ingenuity 200 2 100 0.040 QuadCopter 200 2 100 0.040 ShadowHand tasks 120 2 60 0.067 
+
+A.9 Longer-horizon evaluation. 
+
+Ingenuity, FrankaCabinet, and Ant use rollout horizon T = 16 ; FrankaCubeStack and Humanoid use T = 32 . All five tasks are evaluated at h ∈ { 4, 8, 16 }, and the latter two also support h = 32 .Table 8 gives the per-task score ratios to PPO. 17 Table 8: Per-task score ratios to PPO at longer chunk lengths. A dash denotes an unevaluated setting due to the rollout horizon. Method Task h = 4 h = 8 h = 16 h = 32 
+
+ACPPO-Corr FrankaCubeStack 2.21 2.17 1.72 1.09 Humanoid 1.11 1.07 0.97 0.65 Ingenuity 0.99 1.00 0.99 –FrankaCabinet 1.56 1.39 1.48 –Ant 1.06 0.97 0.88 –ACPPO FrankaCubeStack 2.11 1.90 1.37 0.00 Humanoid 1.00 0.71 0.52 0.02 Ingenuity 0.99 0.57 0.37 –FrankaCabinet 1.08 1.48 0.72 –Ant 0.53 0.68 0.43 –QC-FQL FrankaCubeStack 0.75 1.59 1.12 0.00 Humanoid 0.29 0.53 0.20 0.01 Ingenuity 1.06 0.78 0.01 –FrankaCabinet 1.53 0.98 0.00 –Ant 0.78 0.48 0.10 –
+
+A.10 Task dependence and failures. 
+
+The benefit of ACPPO-Corr varies with the need for temporally coherent actions and within-chunk feedback. On AllegroHand and ShadowHandSpin , ACPPO-Corr achieves 1.45 and 3.76 times PPO’s score, respectively. Both tasks require coherent multi-step in-hand manipulation while continuously adapting to object slip and changing finger contacts. On FrankaCabinet and FrankaCubeStack , open-loop ACPPO already performs well: their lower-dimensional manipulation and relatively stable parallel-gripper contacts reduce the need for within-chunk correction. ACPPO-Corr underperforms PPO on ShadowHandUpsideDown and ShadowHandBottleCap ,achieving 0.706 and 0.829 times PPO’s score. We hypothesize that failures in these tasks require abandoning the current manipulation plan. A slipping pen may require an immediate reconfiguration of all fingers, and a failed cap grasp may require releasing and establishing a new contact pose. However, since ACPPO-Corr generates actions by correcting the planned sequence, it may remain biased toward the current manipulation mode and therefore underperform PPO. For ShadowHandPushBlock , all evaluated methods obtained zero success, consistent with the behavior observed in the original benchmark [42]. We suspect that the existing reward signal and exploration budget provide insufficient guidance for discovering the coordinated two-hand pushing behavior. However, because none of the evaluated methods solves the task, we cannot conclusively attribute the failure to a particular component of the algorithms. For ShadowHandDoorCloseOutward , the case is different: QC-FQL shows nonzero performance, whereas the other evaluated methods remain near zero. One possibility is that QC-FQL’s flow-based actor better represents useful chunk distributions, or that its off-policy replay retains rare successful trajectories more effectively. However, QC-FQL differs in its policy class, replay-based data usage, Q-function optimization, and objective, making it difficult to explain it as a single factor. 
+
+## B Closed-loop Chunked Importance Ratio 
+
+Closed-loop chunk likelihood. Although the planner is evaluated only at chunk boundaries, ACPPO-Corr defines a valid stochastic policy at every control step. For a chunk starting at t0, let 
+
+k = t − t0 and let Tt0 ⊆ { 0, . . . , h − 1} denote the valid set of executed offsets before any mid-chunk termination. The planner outputs the chunk mean sequence 
+
+uθ,t 0 = uθ,t 0,0, . . . , u θ,t 0,h −1
+
+ = πpl  
+
+> θ
+
+(st0 ),
+
+18 and the corrector outputs a state-dependent correction and exploration scale 
+
+(cθ (st), σ θ (st)) = πco  
+
+> θ
+
+(st).
+
+The executed policy inside the chunk is therefore 
+
+πθ (at | st, s t0 , k ) = N  at; uθ,t 0,k + cθ (st), diag( σθ (st)2) .
+
+For a realized chunk prefix, the probability density of the sampled segment under πθ is 
+
+pθ (τt0 | st0 ) = Y
+
+> k∈T t0
+
+πθ (at0+k | st0+k, s t0 , k )P (st0+k+1 | st0+k, a t0+k), (4) where the transition kernel P is independent of the policy parameters. Hence, for the same sampled trajectory segment, the likelihood ratio between the current policy and the behavior policy is 
+
+pθ (τt0 | st0 )
+
+pθold (τt0 | st0 ) = Y
+
+> k∈T t0
+
+πθ (at0+k | st0+k, s t0 , k )
+
+πθold (at0+k | st0+k, s t0 , k ) .
+
+Therefore, the product ratio in Eq. 2 is the correct likelihood ratio for the sampled closed-loop chunk, even though the corrector observes the current state inside the chunk. If the episode terminates inside a chunk, the product is taken only over the executed prefix Tt0 and the remaining offsets are masked. 
+
+Unclipped on-policy interpretation. For a chunk-start state st0 , define the h-step bootstrapped target 
+
+G(h) 
+
+> t0
+
+=
+
+> h−1
+
+X
+
+> k=0
+
+γkrt0+k + γhV π (st0+h),
+
+and the corresponding chunk-level advantage 
+
+Aπh (st0 , τ t0 ) = G(h) 
+
+> t0
+
+− V π (st0 ).
+
+Since the transition terms in Eq. 4 do not depend on θ, the score of the sampled chunk prefix is 
+
+∇θ log pθ (τt0 | st0 ) = X
+
+> k∈T t0
+
+∇θ log πθ (at0+k | st0+k, s t0 , k ).
+
+Therefore, in the unclipped on-policy actor update, and treating the value target as fixed as in standard actor–critic methods, the chunk-level likelihood-ratio contribution takes the form 
+
+ X
+
+> k∈T t0
+
+∇θ log πθ (at0+k | st0+k, s t0 , k )
+
+ Aπh (st0 , τ t0 ).
+
+## C Chunked Advantage: Value-Error Cancellation and Tradeoff 
+
+Setup. Let V π 
+
+> ∗
+
+denote the projected state value from Section 4.1. For notational simplicity, we write it as V π in this appendix, and define the critic approximation error e(s) := Vϕ(s) − V π (s). Let 
+
+δt := rt + γV ϕ(st+1 ) − Vϕ(st), ˜δt := rt + γV π (st+1 ) − V π (st).
+
+Then 
+
+δt − ˜δt = γe (st+1 ) − e(st). (5) 
+
+Stepwise GAE. Let α := γλ . Standard stepwise GAE and its oracle counterpart are 
+
+ˆAGAE  
+
+> t
+
+:= 
+
+> ∞
+
+X
+
+> j=0
+
+αj δt+j , ˜AGAE  
+
+> t
+
+:= 
+
+> ∞
+
+X
+
+> j=0
+
+αj ˜δt+j .
+
+Using Eq. 5, their difference is 
+
+ˆAGAE  
+
+> t
+
+− ˜AGAE  
+
+> t
+
+=
+
+> ∞
+
+X
+
+> j=0
+
+αj (γe (st+j+1 ) − e(st+j )) = −e(st) + γ(1 − λ)
+
+> ∞
+
+X
+
+> j=1
+
+(γλ )j−1e(st+j ). (6) 19 The first term is the start-state value error. The second term is the recursive bootstrap error from future critic errors. Define 
+
+Ft := γ(1 − λ)
+
+> ∞
+
+X
+
+> j=1
+
+(γλ )j−1e(st+j ).
+
+Then 
+
+ˆAGAE  
+
+> t
+
+− ˜AGAE  
+
+> t
+
+= −e(st) + Ft.
+
+If ∥e∥∞ ≤ ϵ, the recursive term is bounded by 
+
+|Ft| ≤ γ(1 − λ)1 − γλ ϵ. (7) 
+
+Chunked advantage. For a chunk beginning at t0, ACPPO uses 
+
+ˆAchunk  
+
+> t0
+
+=
+
+> h−1
+
+X
+
+> j=0
+
+γj δt0+j + γh ˆAGAE 
+
+> t0+h
+
+,
+
+with oracle counterpart 
+
+˜Achunk  
+
+> t0
+
+=
+
+> h−1
+
+X
+
+> j=0
+
+γj ˜δt0+j + γh ˜AGAE 
+
+> t0+h
+
+.
+
+Subtracting the two estimators gives 
+
+ˆAchunk  
+
+> t0
+
+− ˜Achunk  
+
+> t0
+
+=
+
+> h−1
+
+X
+
+> j=0
+
+γj (γe (st0+j+1 ) − e(st0+j )) + γh  ˆAGAE  
+
+> t0+h
+
+− ˜AGAE 
+
+> t0+h
+
+
+
+. (8) The first term telescopes: 
+
+> h−1
+
+X
+
+> j=0
+
+γj (γe (st0+j+1 ) − e(st0+j )) = γhe(st0+h) − e(st0 ).
+
+Using Eq. 6 at time t0 + h,
+
+ˆAGAE  
+
+> t0+h
+
+− ˜AGAE  
+
+> t0+h
+
+= −e(st0+h) + Ft0+h.
+
+Substituting this expression into Eq. 8 yields 
+
+ˆAchunk  
+
+> t0
+
+− ˜Achunk  
+
+> t0
+
+=  γhe(st0+h) − e(st0 ) + γh (−e(st0+h) + Ft0+h)= −e(st0 ) + γhFt0+h.
+
+The intermediate value errors e(st0+1 ), . . . , e (st0+h) cancel. If ∥e∥∞ ≤ ϵ, then 
+
+γhFt0+h ≤ γh+1 (1 − λ)1 − γλ ϵ. 
+
+Compared with the recursive term in stepwise GAE in Eq. 7, the remaining recursive bootstrap-error contribution is discounted by an additional factor of γh.
+
+Tradeoff. This cancellation does not imply that the chunked advantage is uniformly better. Inside the first h steps, the chunked estimator uses weights γj rather than the stepwise GAE weights (γλ )j .For λ < 1, these weights are larger, making the estimator closer to an h-step Monte Carlo target within the chunk. This can increase variance when rewards or transitions are noisy, especially for larger h. In addition, all actions in the chunk receive the same chunk-level advantage, which coarsens within-chunk credit assignment. These tradeoffs motivate using short chunks and comparing chunked/stepwise advantages. 20 Table 9: Chunk-level clipping diagnostics. 
+
+Method Chunk length Clip fraction 
+
+PPO – 0.365 ACPPO-Corr 2 0.364 ACPPO-Corr 4 0.369 ACPPO-Corr 8 0.408 
+
+## D Chunked Importance Sampling Ratio Clipping 
+
+Chunked importance sampling ratio. The ACPPO chunked importance ratio can be written as 
+
+ρ(h) 
+
+> t0
+
+(θ) = π(h) 
+
+> θ
+
+(at0:t0+h−1 | st0 )
+
+π(h) 
+
+> θold
+
+(at0:t0+h−1 | st0 ) = Y
+
+> k∈T t0
+
+π(h) 
+
+> θ,k
+
+(at0+k | st0 )
+
+π(h)
+
+> θold ,k
+
+(at0+k | st0 ) ,
+
+where π(h) 
+
+> θ,k
+
+denotes the marginal Gaussian for the k-th action in the chunk and Tt0 is the valid prefix of the chunk before any mid-chunk termination. PPO clipping is applied to the total chunked importance sampling ratio ρ(h) 
+
+> t0
+
+(θ), not independently to each factor. For ACPPO-Corr, the corrector observes the current state inside the chunk, so the likelihood factorizes along the realized closed-loop trajectory: 
+
+ρcorr  
+
+> t0
+
+(θ) = Y
+
+> k∈T t0
+
+πθ (at0+k | st0+k, s t0 , k )
+
+πθold (at0+k | st0+k, s t0 , k ) ,
+
+If the episode terminates inside a chunk, the product is truncated at the termination boundary and the remaining steps are masked from the regularizers. 
+
+Stability of the chunked importance sampling ratio. Although the chunk ratio is a product of per-step likelihood ratios, its log-ratio is a sum: 
+
+log ρ(h) 
+
+> t0
+
+=
+
+> h−1
+
+X
+
+> k=0
+
+ℓt0+k, ℓt = log πθ (at | · ) − log πθold (at | · ).
+
+For intuition, consider Gaussian policies with fixed covariance and small policy updates. The mean and the variance can be formulated as the KL divergence between likelihoods: 
+
+E[ℓt] = −KL( πθold (· | · ) ∥ πθ (· | · )) , Var( ℓt) = 2 KL( πθold (· | · ) ∥ πθ (· | · )) .
+
+The variability of the chunk log-ratio is controlled by the accumulated KL over the chunk: 
+
+Var 
+
+h
+
+log ρ(h)
+
+> t0
+
+i
+
+≈ 2
+
+> h−1
+
+X
+
+> k=0
+
+KL t0+k.
+
+Following common PPO implementations, we adapt the learning rate based on the measured KL divergence: 
+
+η ←
+
+
+
+η/ 1.5, if 1
+
+> h
+
+Ph−1 
+
+> k=0
+
+KL t0+k > 2κ, 
+
+1.5η, if 1
+
+> h
+
+Ph−1 
+
+> k=0
+
+KL t0+k < 0.5κ, η, otherwise .
+
+where η is the learning rate and κ is the KL threshold. Since the KL is controlled during PPO updates and our chunks are short, the chunked importance sampling ratio remains stable in practice. The clip fractions per chunk length are displayed in Table 9. For the main setting h = 4 , ACPPO-Corr has a clip fraction of 0.369 , close to PPO’s 0.365 . The clip fraction increases for h = 8 , consistent with a larger accumulated chunk KL, but remains stable in our experiments. 21
