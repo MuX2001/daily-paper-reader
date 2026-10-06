@@ -1,0 +1,831 @@
+HiWE: Hierarchical World Knowledge Model with Visual Keypoint Enhancement
+for Zero-Shot 3D Path Planning
+Guoqing Ma 1,2,4, Mingqi Yuan 3, Chen Gao 5, Jiayu Chen 3, Shan Yu 1,4 †
+∗1 Institute of Automation, Chinese Academy of Sciences, Beijing, China
+2 School of Future Technology, University of Chinese Academy of Sciences
+3 The University of Hong Kong, Hong Kong SAR, China
+4 State Key Laboratory of Brain Cognition and Brain-inspired Intelligence Technology, CAS
+5 Department of Electronic Engineering, Tsinghua University, China
+Abstract
+Robot demonstration generation requires a system to identify
+where an interaction should occur, plan a feasible motion, and
+execute the required contact. HiWE connects these decisions
+through a point-based interface between visual grounding and
+language-based planning. PointVLM is instruction-tuned to
+associate task-relevant objects with image coordinates using
+a mixture of point annotations, segmentation-derived sam-
+ples, robot observations, and visual question answering data.
+Depth measurements lift these predictions into a semantic
+3D representation. A language planner, 3DLLM, uses this
+representation to specify end-effector waypoints and gripper
+commands, while a hybrid grasping module resolves local
+grasp poses. The evaluation covers 14 simulated manipulation
+tasks and four physical-robot tasks, together with ablations of
+the visual training data, spatial inputs, and grasp selection.
+Here, zero-shot execution refers to deployment without task-
+specific demonstration training; the visual model uses existing
+robot data during fine-tuning. This paper describes the origi-
+nal point-based formulation of the framework; its relationship
+to the subsequent GeneralVLA extension is detailed in the
+introduction.
+Introduction
+Collecting a successful robot demonstration requires more
+than recognizing an object or describing an intended action.
+A system must locate an interaction region, relate that region
+to the geometry of the scene, and execute a motion that re-
+spects the object and its surroundings. Errors at any of these
+stages can invalidate the resulting demonstration. This pa-
+per studies how an explicit point representation can connect
+visual grounding to motion planning for this purpose.
+Action-predicting vision-language models, such as Open-
+VLA (Kim et al. 2024), learn from observations paired with
+robot actions. Large datasets expand the range of available
+training experience (O’Neill et al. 2024; Khazatsky et al.
+2024), but collecting deployment-specific demonstrations re-
+mains costly. An alternative is to divide the problem into
+∗†Corresponding author: shan.yu@nlpr.ia.ac.cn
+Copyright © 2027, Association for the Advancement of Artificial
+Intelligence (www.aaai.org). All rights reserved.
+components with different supervision requirements: image-
+space grounding can use point or region annotations, a lan-
+guage model can reason over a spatial description, and a
+controller can handle execution. The usefulness of this divi-
+sion depends on what information passes between the com-
+ponents.
+HiWE (Hierarchical World Knowledge Model with Visual
+Keypoint Enhancement) uses PointVLM to predict object-
+associated image coordinates. Depth measurements convert
+these coordinates into 3D points for 3DLLM, which gen-
+erates a sequence of waypoints and gripper commands. A
+hybrid grasping module (HGM) selects local grasp poses for
+execution. We use “world knowledge” to describe the pre-
+trained models’ semantic and spatial priors; this terminology
+does not imply that HiWE learns an explicit transition model
+of the environment.
+Relationship to GeneralVLA.
+HiWE is the original for-
+mulation of the framework, and GeneralVLA (Ma et al. 2026)
+is a subsequent extension that changes perception and adds
+experience-based planning. This relationship concerns the
+development of the methods, rather than their order of ap-
+pearance on arXiv. HiWE uses PointVLM for direct coordi-
+nate prediction and 3DLLM for planning from the current
+instruction and scene. GeneralVLA introduces ASM, which
+combines language-conditioned segmentation with iterative
+refinement, and a KnowledgeBank that retrieves and accumu-
+lates experience across executions. The three-stage organi-
+zation, the spatial planning interface, and HGM are common
+to the two manuscripts. We describe these common compo-
+nents here as part of the original system, while identifying
+segmentation refinement and persistent experience retrieval
+as features of the extension. Some experimental values and
+implementation descriptions also occur in both manuscripts,
+as noted alongside the relevant results.
+The present evaluation examines point localization, the
+composition of PointVLM’s training data, and the spatial
+information supplied to the planner. It also measures task
+execution in simulation and on a physical robot. Throughout
+this paper, “zero-shot” concerns deployment without task-
+specific demonstration training. It does not mean that ev-
+ery component is untrained or that no robot data are used:
+arXiv:2609.39323v1  [cs.RO]  30 Sep 2026
+
+
+HiWE
+Generalization: High
+Low-Level 
+Policy
+a
+PointVLM
+3DLLM
+Web Data
+Synthetic Data
+Other robot
+Data: Large-Scale Off-Domain Data
+Imitation Learning
+Low-Level Policy
+Generalization: Low
+Data: In-Domain Robot 
+Demonstrations
+a
+VLA Models
+Generalization: Medium
+Data: Large-Scale
+Robot Data
+Data: In-Domain Robot
+Demonstrations
+Vision-Language-Action Model
+a
+Figure 1: Interfaces for robot manipulation. HiWE exposes task-relevant points and planned trajectories between perception
+and execution. This separation allows the visual component to be trained on annotations that do not require deployment-specific
+action trajectories.
+Table 1: Scope of the original system and its subsequent
+extension. Shared components are not independent evidence
+of a new architecture.
+Component
+HiWE
+GeneralVLA
+Perception
+PointVLM coordinate
+prediction
+ASM
+segmentation
+and refinement
+Planning
+Current task and 3D
+scene points
+3D
+scene
+planning
+with KnowledgeBank
+Experience
+No persistent retrieval
+in 3DLLM
+Retrieval,
+construc-
+tion, consolidation
+Execution
+HGM grasp selection
+HGM grasp selection
+PointVLM is fine-tuned using existing datasets, including
+robot observations from outside the deployment environ-
+ment.
+This paper presents the original system and its evaluation
+through three contributions:
+• A point-based interface that connects an instruction-tuned
+visual model to a language planner and a grasp execution
+module, separating visual supervision from deployment-
+specific action demonstrations.
+• A concrete implementation comprising PointVLM train-
+ing, depth-based spatial grounding, 3DLLM waypoint
+generation, and HGM grasp selection.
+• An evaluation on simulated and physical manipulation
+tasks, with ablations of visual training data, planner in-
+puts, and grasp selection, and a study of demonstration-
+based policy training.
+The experiments characterize this original configuration.
+They do not isolate the incremental benefit of GeneralVLA’s
+segmentation or memory extensions; that would require a
+controlled comparison under matched conditions.
+Related Work
+Language
+models
+as
+robot
+planners.
+Code-as-
+Policies (Liang et al. 2023) represents a plan as executable
+code calling control functions. VoxPoser (Huang et al.
+2023) connects language to geometric planning through
+3D value maps, while Scaling-up (Ha, Florence, and Song
+2023) uses language-guided interaction to obtain data for
+policy learning. These systems provide different interfaces
+between semantic decisions and robot execution. HiWE
+uses an ordered sequence of spatial waypoints and gripper
+commands; its evaluation compares the resulting system
+against these baselines under the inputs specified in the
+experiments.
+Learning actions from vision and language. Models in-
+cluding RT-1 and OpenVLA learn action predictions condi-
+tioned on observations and instructions (Brohan et al. 2023;
+Kim et al. 2024). LLARVA additionally predicts trajecto-
+ries as part of its learning formulation (Niu et al. 2024).
+HiWE instead exposes an intermediate spatial description
+to a separate planner and execution module. This changes
+the interfaces and supervision used by the system; it does not
+guarantee that reasoning, visual accuracy, or execution speed
+will improve in every setting.
+Points and trajectories as intermediate representations.
+Affordance prediction connects object semantics to possible
+interaction locations (Sundaresan et al. 2023; Nasiriany et al.
+2024; Yuan et al. 2024b). RoboPoint is particularly relevant
+to PointVLM because it supplies point-based visual supervi-
+sion. Trajectory specifications also provide a way to condition
+policies (Gu et al. 2024), and point tracking makes motion
+information available from image sequences (Doersch et al.
+2023; Yuan et al. 2024a; Wen et al. 2024). GeneralVLA (Ma
+et al. 2026) is the closest architectural comparison because it
+combines semantic affordances, 3D planning, and grasp-pose
+selection. As the subsequent extension of HiWE, it retains the
+
+
+3DLLM resoning
+3DLLM
+Instruction:”Clean the table.”
+3D keypoints
+(0.78,0.34)
+Draw
+3D Path
+(b) Mid-level Path Prediction
+(0.78,0.34,0.31)
+Policy input
+Instruction: "Put the 
+object in the bowl."
+Image
+(c) Low-level Action Excution
+at
+ot
+Depth/3D
+Observation
++Path
+Low-Level 3D Policy
+HGM
+PointVLM input
+Vision Language Model
+Instruction:”What’s the main points
+ for the task?”
+First Image o1
+VLM response:
+mustard (0.51,0.29)(0.51,0.32)  
+can (0.46,0.23)
+ball (0.46,0.23)
+cube (0.46,0.23)
+plate (0.46,0.23)(0.63,0.32) 
+Image Encoder
+Projection MLP
+Tokenizer
+(a) High-level Visual Understanding
+2D keypoints
+Figure 2: HiWE data interfaces. PointVLM associates task-relevant objects with image points. Depth supplies their 3D
+coordinates for 3DLLM, which outputs waypoints and gripper commands. HGM provides local grasp poses for the execution
+stage. The overall decomposition and grasping component are also described in GeneralVLA (Ma et al. 2026).
+planning and execution backbone while developing the per-
+ception and experience-reuse mechanisms. The relationship
+is summarized in Table 1.
+HiWE: Point-Based Grounding and Planning
+System interfaces
+HiWE passes explicit spatial information between percep-
+tion, planning, and execution (Figure 2). PointVLM receives
+an image and task instruction and returns object-associated
+image points. Depth supplies a 3D location for each point.
+The resulting semantic scene description is the input to
+3DLLM, whose output consists of end-effector waypoints
+and gripper commands. HGM resolves local grasp poses be-
+fore a motion planner executes the commands. GeneralVLA
+retains this overall organization while extending the percep-
+tion and planning components (Ma et al. 2026).
+PointVLM: predicting interaction locations
+PointVLM provides the geometric anchors used by the sub-
+sequent planner. Given a task instruction, it identifies rele-
+vant objects and represents each object by a set of image
+coordinates, {object : (x0, y0), . . . , (xn, yn)}. Associating
+several points with an object gives the planner information
+about its spatial extent after depth projection. The output is
+a coordinate sequence; HiWE does not use the segmentation
+decoder or segmentation-feedback loop described for ASM
+in GeneralVLA.
+Training. The visual backbone is QWen-VL-7B (Wang et al.
+2024). Following the instruction-tuning formulation of (Liu
+et al. 2023), the manuscript’s implementation updates the
+MLP projector and vision-language transformer while keep-
+ing the image encoder and tokenizer fixed. Responses are
+generated autoregressively, with a boundary token delimit-
+ing the instruction and answer. Point supervision specifies
+where an interaction can occur, while language supervision
+supports interpretation of the instruction.
+Supervision sources. The training mixture contains five
+sources (??). RoboPoint (Yuan et al. 2024b) contributes 347k
+point-prediction examples. For LVIS (Gupta, Dollár, and Gir-
+shick 2019), points are sampled inside segmentation masks
+and paired with object semantics. Robot observations come
+from Open X-Embodiment (O’Neill et al. 2024) and SIM-
+PLER (Li et al. 2024); these sources are outside the deploy-
+ment environment. Finally, 667K visual question-answering
+conversations (Kafle and Kanan 2017) provide language-
+based supervision. The contribution of each source is evalu-
+ated in Table 4. Additional implementation details appear in
+Appendix ??.
+3DLLM: planning from a spatial description
+Depth and camera geometry lift PointVLM’s image coordi-
+nates into 3D. Each coordinate remains associated with its
+object name, so 3DLLM receives a task instruction together
+with a compact, semantic description of the scene. The plan-
+ner specifies an ordered sequence of spatial waypoints in-
+terleaved with commands to open or close the gripper. This
+interface can express several interaction stages within one
+plan.
+Multiple points help describe an object’s orientation and
+extent; obstacle points supply context for choosing a route.
+These inputs are evaluated separately in Table 6. They in-
+form the proposed motion but do not guarantee collision-free
+execution. Unlike the KnowledgeBank-equipped planner in
+GeneralVLA (Ma et al. 2026), the HiWE planner described
+here does not retrieve or consolidate a persistent collection
+of previous experiences. It plans from the current instruction
+and scene description. Training a separate behavior-cloning
+policy on successful demonstrations, described in the ap-
+pendix, is distinct from such retrieval during planning.
+HGM: resolving local grasp geometry
+A waypoint specifies where the end effector should move,
+but a successful grasp also requires an appropriate orienta-
+tion and contact configuration. HGM uses the task-relevant
+3D points to restrict the region of interest in the RGB-D
+reconstruction. The grasp predictor (Yuan et al. 2023) then
+
+
+generates candidate poses in the resulting object-centered
+point cloud.
+HGM rejects candidates that fail its collision check and se-
+lects the remaining candidate whose grasp center is nearest
+to the object center. This is a selection heuristic rather than
+a guarantee of a globally optimal grasp. The selected pose is
+combined with the planned waypoints and passed to the mo-
+tion planner for execution. HGM is part of the original HiWE
+pipeline and also appears in the GeneralVLA extension; the
+ablation in Table 7 evaluates its role within HiWE.
+Experiments
+We evaluate the original HiWE configuration through task
+execution, point localization, component ablations, and be-
+havior cloning from generated demonstrations. The configu-
+ration uses PointVLM and current-scene 3DLLM planning,
+without the ASM or KnowledgeBank extensions.
+Relationship between the reported experiments.
+The
+baseline entries for VoxPoser, CAP, and Scaling-up in Ta-
+ble 2, and the CAP and RoboPoint entries in Table 5, also
+appear in GeneralVLA (Ma et al. 2026). They are reported
+here to contextualize HiWE’s results and should not be in-
+terpreted as evidence of an independent replication across
+the two manuscripts. The tables do not provide a controlled
+comparison of HiWE against the later extension.
+Implementation details. PointVLM extracts the object-
+associated coordinates used to construct the planner input.
+The implementation represents each object with at least three
+points to expose more spatial information than a single loca-
+tion. DeepSeek R1 receives the textual 3D scene description
+and generates the motion plan. The output is limited to 20
+spatial waypoints to bound the length of the generated plan.
+Full prompts are included in the Appendix. PointVLM uses
+the front-camera view in these experiments. The image input
+has a resolution of 256 × 256.
+Zero-shot performance in simulation
+The simulation evaluation covers 14 tasks, including grasp-
+ing and non-prehensile interactions. We measure task success
+under the specified environment and baseline inputs.
+Benchmark and execution. The 14 RLBench tasks (James
+et al. 2020) vary in object identity, placement, and the num-
+ber of required interactions. The simulator is CoppeliaSim,
+accessed through PyRep, with a Franka Panda arm and paral-
+lel gripper. The environment provides four RGB-D cameras;
+the front view supplies the PointVLM input described above.
+A motion planner (Sucan, Moll, and Kavraki 2012) converts
+the requested waypoints into executable robot motion. Task-
+specific success conditions are listed in the appendix.
+Comparison methods and their inputs. We include Code-
+as-Policies (CAP) (Liang et al. 2023), Scaling-up-Distilling-
+Down (Ha, Florence, and Song 2023), and VoxPoser (Huang
+et al. 2023). Their control interfaces differ: CAP composes
+programs from supplied action primitives; Scaling-up per-
+forms language-guided exploration with 6-DoF primitives;
+VoxPoser obtains motion targets from spatial value maps. In
+this evaluation, CAP and Scaling-up receive simulator states
+and object models, and VoxPoser receives segmented ob-
+ject point clouds. These inputs differ from HiWE’s learned
+grounding, so the table compares the specified complete sys-
+tems rather than isolating planner quality. This benchmark
+protocol and its baseline results are shared with the Gener-
+alVLA report (Ma et al. 2026).
+Coverage and limitations. Table 2 reports a nonzero suc-
+cess rate for HiWE on every tested task. The corresponding
+coverage is 10 tasks for Scaling-up, 9 for VoxPoser, and 7 for
+CAP. HiWE has the highest reported mean on 10 tasks; the
+remaining tasks show that its advantage is not uniform. In
+particular, non-prehensile interactions and fine manipulation
+expose the need for more accurate pose estimates or adjust-
+ments during execution. The illustrated rollouts (Figure 3)
+show examples with multiple objects and interaction stages,
+rather than establishing performance on every such task.
+Real-world experiments
+Hardware and trial design. Physical tests use an Agilex-
+2.0 Piper arm with a parallel gripper and an Intel Re-
+alSense L515 LiDAR RGB-D camera viewing the workspace
+from above. Language instructions specify four tasks:
+move_spray_bottle, open_drawer, open_jar, and sort_object.
+Each task has three trials of ten episodes, with object poses
+varied across episodes. Table 5 summarizes the resulting
+success rates.
+Observed behavior. HiWE succeeds in at least some
+episodes of all four tasks and has a higher reported success
+rate than both listed baselines. The examples in ?? illustrate
+the role of spatial planning: bottle placement uses the inferred
+bottle height, while drawer opening requires a motion consis-
+tent with the drawer’s orientation. In the evaluated baseline
+configurations, RoboPoint supplies localization without the
+trajectory-planning stage, and CAP lacks a supplied drawer-
+opening primitive. These implementation choices constrain
+what can be concluded from the comparison.
+Ablation Study
+Point location accuracy of PointVLM
+Point localization is measured by the fraction of predicted
+points that fall within the annotated target mask. Table 3
+reports the mean and standard deviation across 3 runs.
+PointVLM obtains the highest value among the listed models;
+this metric evaluates localization rather than the feasibility
+of a complete robot motion.
+Table 4 removes each supervision source in turn. Every
+removal lowers the reported RoboRefIt accuracy, with the
+largest decrease occurring when LVIS is omitted. The result
+supports using segmentation-derived semantic point annota-
+tions in the training mixture.
+Information required by 3DLLM
+The planner ablations vary the dimensionality of the coor-
+dinates, the number of points describing each object, and
+the inclusion of obstacles (Table 6). The 2D variant plans in
+image coordinates before converting the path into 3D. The
+one-point variant removes the geometric extent supplied by
+multiple points. The no-obstacle variant retains the target
+
+
+Table 2: Task-averaged success rate % for zero-shot evaluation. HiWE outperformed other baselines in 10 out of 14 simulation
+tasks from RLBench (James et al. 2020). Each task was evaluated over 3 seeds to obtain the task-averaged success rate and
+standard deviations.
+Method
+Put_block
+Play_jenga
+Open_jar
+Close_box
+Open_box
+Pickup_cup
+Push_block
+VoxPoser (Huang et al. 2023)
+70.70±2.31
+0.00±0.00
+0.00±0.00
+0.00±0.00
+0.00±0.00
+26.70±14.00
+25.33±8.33
+CAP (Liang et al. 2023)
+84.00±16.00
+0.00±0.00
+0.00±0.00
+0.00±0.00
+0.00±0.00
+14.67±4.62
+8.00±4.00
+Scaling-up (Ha, Florence, and Song 2023)
+77.33±6.11
+0.00±0.00
+78.67±11.55
+0.00±0.00
+0.00±0.00
+9.33±2.26
+5.33±6.11
+HiWE (Ours)
+93.33±4.16
+82.00±10.39
+84.00±6.00
+48.67±12.06
+34.67±16.77
+88.67±3.06
+23.33±10.07
+HiWE w/o FT
+75.33±7.57
+60.67±9.45
+71.33±10.07
+31.33±9.02
+8.67±3.06
+74.67±6.11
+14.67±11.02
+Method
+Take_umbrella
+Sort_mustard
+Open_wine
+Lamp_on
+Put_knife
+Pick_&_lift
+Insert_block
+VoxPoser (Huang et al. 2023)
+33.33±8.33
+96.00±6.93
+8.00±4.00
+57.30±12.22
+92.00±4.00
+96.00±0.00
+0.00±0.00
+CAP (Liang et al. 2023)
+4.00±4.00
+0.00±0.00
+0.00±0.00
+64.00±6.93
+14.67±8.33
+100.00±0.00
+0.00±0.00
+Scaling-up (Ha, Florence, and Song 2023)
+6.67±2.31
+41.33±12.86
+33.33±20.13
+60.00±8.00
+24.00±0.00
+100.00±0.00
+0.00±0.00
+HiWE (Ours)
+64.67±15.01
+73.67±15.50
+45.33±11.02
+72.67±14.05
+60.00±14.00
+87.33±10.26
+36.67±5.03
+HiWE w/o FT
+50.67±11.02
+59.33±8.33
+26.67±8.08
+62.67±13.32
+45.33±5.03
+69.33±15.14
+14.67±7.02
+Table 3: Quantitative comparisons on object reference
+(RoboRefIt). The metric is percentage of predicted points
+within the target mask.
+Qwen-VL LLaVA-NeXT SpaceLLaVA GPT-4o PointVLM
+24.1±0.9
+20.0±0.9
+21.3±0.9
+15.3±1.3
+52.1±1.2
+Table 4: Ablation on the data composition. Results on Ro-
+boRefIt show that best results are achieved when all of the
+data sources are combined during instruction-tuning.
+No VQA No LVIS No Pixel No Sim No Robo
+All
+42.5±3.7 25.8±2.1 32.6±5.3 46.6±3.2 47.8±3.3 52.1±1.2
+object but omits surrounding obstacle information. These
+changes test whether the available scene description is suffi-
+cient for interactions such as extracting an umbrella along the
+direction permitted by its stand. The full representation per-
+forms best or ties for best on the two reported tasks. Obstacle
+information has a clear effect on Take umbrella, whereas its
+removal leaves the reported Put block result unchanged. The
+results therefore support task-dependent benefits rather than
+universal necessity of every input.
+Ablation study of the HGM module
+Table 7 tests the information and selection rules used by
+HGM on Play jenga and Take umbrella. Removing RGB
+leaves depth-only grasp estimation. Removing the semantic
+3D points eliminates the target-object guidance. The filter-
+C ablation disables collision rejection; the filter-N ablation
+samples a remaining candidate randomly instead of using
+the nearest-center rule. The full HGM configuration has the
+highest reported mean on both tasks. Removing target-point
+guidance yields no successful trials in this evaluation, while
+the other ablations reduce success without eliminating it.
+These findings concern the tested tasks and do not imply
+that each modality is indispensable for every manipulation
+problem.
+Table 5: Zero-shot success rates (%) in real-world manip-
+ulation. HiWE consistently outperforms Code as Policies
+(CAP) (Liang et al. 2023) and RoboPoint across four repre-
+sentative tasks.
+Method
+Move Spray
+Bottle
+Open
+Drawer
+Open
+Jar
+Sort
+Object
+CAP
+6.67
+0.00
+36.67
+70.00
+RoboPoint
+0.00
+0.00
+20.00
+63.33
+HiWE
+60.00
+33.33
+56.67
+80.00
+Table 6: Ablation Study on 3DLLM for Trajectory Planning
+Method
+Take umbrella
+Put block
+3DLLM-2D
+2.00±2.00
+19.33±5.03
+3DLLM-1point
+26.67±3.06
+82.00±4.00
+3DLLM w/o obstacle
+23.33±7.02
+93.33±4.16
+3DLLM
+64.67±15.01
+93.33±4.16
+Data scaling
+We examine how the performance of an RVT-2 policy
+changes as more HiWE demonstrations are supplied for train-
+ing. The comparison uses demonstrations generated by RL-
+Bench as a reference. The reported linear fits have slopes
+of 0.543 for HiWE-generated demonstrations and 0.156 for
+RLBench-generated demonstrations. These coefficients sum-
+marize the evaluated range and are not a general scaling law.
+Table 7: Ablation Study on the HGM Module
+Method
+Play jenga
+Take umbrella
+HGM w/o rgb
+56.67±7.57
+34.00±12.49
+HGM w/o 3D point
+0.00±0.00
+0.00±0.00
+HGM w/o filter-C
+59.33±5.03
+54.67±15.01
+HGM w/o filter-N
+78.67±7.57
+52.00±14.00
+HGM
+82.00±10.39
+64.67±15.01
+
+
+VLM
+3D LLM
+Low-Level Policy
+pick up the mustard 
+and put it into the 
+red box
+push the button with 
+red cushion and 
+bottom right button 
+stack two brown 
+block on the top of 
+green pad
+Figure 3: Illustrative manipulation sequences. The displayed stages connect object localization, a spatial motion plan, and
+robot execution for scenes involving several interactions.
+Figure 4: The multi-view robustness of PointVLM. This
+assists 3DLLM in reasoning about the direction for pulling
+out the block.
+Conclusion
+HiWE establishes a point-based pipeline for connecting vi-
+sual grounding, spatial language planning, and grasp exe-
+cution. The original system uses a fine-tuned PointVLM to
+produce geometric anchors, 3DLLM to plan from the cur-
+rent scene, and HGM to resolve grasp poses. Its evaluation
+examines manipulation success, the visual supervision mix-
+ture, and the spatial information needed for planning. Suc-
+cessful executions also provide demonstrations for policy
+training. GeneralVLA subsequently extends this framework
+through affordance segmentation and persistent experience
+retrieval (Ma et al. 2026); these mechanisms are outside the
+HiWE configuration evaluated here. Remaining limitations
+include errors in point localization, incomplete geometric
+descriptions, and grasp execution failures. Zero-shot deploy-
+ment should be understood in the stated task-specific sense,
+since existing robot observations are part of the visual train-
+ing data.
+References
+Brohan, A.; Brown, N.; Carbajal, J.; Chebotar, Y.; Dabis,
+J.; Finn, C.; Gopalakrishnan, K.; Hausman, K.; Herzog, A.;
+Hsu, J.; Ibarz, J.; Ichter, B.; Irpan, A.; Jackson, T.; Jesmonth,
+S.; Joshi, N. J.; et al. 2023. RT-1: Robotics Transformer
+for Real-World Control at Scale. In Bekris, K. E.; Hauser,
+K.; Herbert, S. L.; and Yu, J., eds., Robotics: Science and
+Systems XIX, Daegu, Republic of Korea, July 10-14, 2023.
+Doersch, C.; Yang, Y.; Vecerík, M.; Gokay, D.; Gupta, A.;
+Aytar, Y.; Carreira, J.; and Zisserman, A. 2023. TAPIR:
+Tracking Any Point with per-frame Initialization and tempo-
+ral Refinement. In IEEE/CVF International Conference on
+Computer Vision, ICCV 2023, Paris, France, October 1-6,
+2023, 10027–10038. IEEE.
+Gu, J.; Kirmani, S.; Wohlhart, P.; Lu, Y.; Arenas, M. G.;
+Rao, K.; Yu, W.; Fu, C.; Gopalakrishnan, K.; et al. 2024.
+RT-Trajectory: Robotic Task Generalization via Hindsight
+Trajectory Sketches. In The Twelfth International Conference
+on Learning Representations, ICLR 2024, Vienna, Austria,
+May 7-11, 2024. OpenReview.net.
+Gupta, A.; Dollár, P.; and Girshick, R. B. 2019. LVIS: A
+
+
+Dataset for Large Vocabulary Instance Segmentation.
+In
+IEEE Conference on Computer Vision and Pattern Recogni-
+tion, CVPR 2019, Long Beach, CA, USA, June 16-20, 2019,
+5356–5364. Computer Vision Foundation / IEEE.
+Ha, H.; Florence, P.; and Song, S. 2023. Scaling Up and
+Distilling Down: Language-Guided Robot Skill Acquisition.
+In Tan, J.; Toussaint, M.; and Darvish, K., eds., Conference
+on Robot Learning, CoRL 2023, 6-9 November 2023, Atlanta,
+GA, USA, volume 229 of Proceedings of Machine Learning
+Research, 3766–3777. PMLR.
+Huang, W.; Wang, C.; Zhang, R.; Li, Y.; Wu, J.; and Fei-Fei,
+L. 2023. VoxPoser: Composable 3D Value Maps for Robotic
+Manipulation with Language Models. In Tan, J.; Toussaint,
+M.; and Darvish, K., eds., Conference on Robot Learning,
+CoRL 2023, 6-9 November 2023, Atlanta, GA, USA, volume
+229 of Proceedings of Machine Learning Research, 540–
+562. PMLR.
+James, S.; Ma, Z.; Arrojo, D. R.; and Davison, A. J. 2020.
+RLBench: The Robot Learning Benchmark & Learning En-
+vironment. IEEE Robotics Autom. Lett., 5(2): 3019–3026.
+Kafle, K.; and Kanan, C. 2017. An Analysis of Visual Ques-
+tion Answering Algorithms. In IEEE International Confer-
+ence on Computer Vision, ICCV 2017, Venice, Italy, October
+22-29, 2017, 1983–1991. IEEE Computer Society.
+Khazatsky, A.; Pertsch, K.; Nair, S.; Balakrishna, A.; Dasari,
+S.; Karamcheti, S.; Nasiriany, S.; Srirama, M. K.; Chen,
+L. Y.; Ellis, K.; Fagan, P. D.; Hejna, J.; Itkina, M.; Lepert,
+M.; et al. 2024. DROID: A Large-Scale In-The-Wild Robot
+Manipulation Dataset. In Kulic, D.; Venture, G.; Bekris,
+K. E.; and Coronado, E., eds., Robotics: Science and Systems
+XX, Delft, The Netherlands, July 15-19, 2024.
+Kim, M. J.; Pertsch, K.; Karamcheti, S.; Xiao, T.; Balakr-
+ishna, A.; Nair, S.; Rafailov, R.; Foster, E. P.; Sanketi, P. R.;
+Vuong, Q.; Kollar, T.; Burchfiel, B.; Tedrake, R.; Sadigh, D.;
+Levine, S.; Liang, P.; and Finn, C. 2024. OpenVLA: An
+Open-Source Vision-Language-Action Model. In Agrawal,
+P.; Kroemer, O.; and Burgard, W., eds., Conference on Robot
+Learning, 6-9 November 2024, Munich, Germany, volume
+270 of Proceedings of Machine Learning Research, 2679–
+2713. PMLR.
+Li, X.; Hsu, K.; Gu, J.; Mees, O.; Pertsch, K.; Walke, H. R.;
+Fu, C.; Lunawat, I.; Sieh, I.; Kirmani, S.; Levine, S.; Wu, J.;
+Finn, C.; Su, H.; Vuong, Q.; and Xiao, T. 2024. Evaluating
+Real-World Robot Manipulation Policies in Simulation. In
+Agrawal, P.; Kroemer, O.; and Burgard, W., eds., Conference
+on Robot Learning, 6-9 November 2024, Munich, Germany,
+volume 270 of Proceedings of Machine Learning Research,
+3705–3728. PMLR.
+Liang, J.; Huang, W.; Xia, F.; Xu, P.; Hausman, K.; Ichter, B.;
+Florence, P.; and Zeng, A. 2023. Code as Policies: Language
+Model Programs for Embodied Control. In IEEE Interna-
+tional Conference on Robotics and Automation, ICRA 2023,
+London, UK, May 29 - June 2, 2023, 9493–9500. IEEE.
+Liu, H.; Li, C.; Wu, Q.; and Lee, Y. J. 2023. Visual Instruction
+Tuning. In Oh, A.; Naumann, T.; Globerson, A.; Saenko, K.;
+Hardt, M.; and Levine, S., eds., Advances in Neural Informa-
+tion Processing Systems 36: Annual Conference on Neural
+Information Processing Systems 2023, NeurIPS 2023, New
+Orleans, LA, USA, December 10 - 16, 2023.
+Ma, G.; Wang, S.; Zhang, Z.; Yu, S.; and Tang, H. 2026.
+GeneralVLA: Generalizable Vision-Language-Action Mod-
+els with Knowledge-Guided Trajectory Planning. Version 1,
+arXiv:2602.04315.
+Nasiriany, S.; Xia, F.; Yu, W.; Xiao, T.; Liang, J.; Dasgupta,
+I.; Xie, A.; Driess, D.; Wahid, A.; et al. 2024. PIVOT: It-
+erative Visual Prompting Elicits Actionable Knowledge for
+VLMs. In Forty-first International Conference on Machine
+Learning, ICML 2024, Vienna, Austria, July 21-27, 2024.
+OpenReview.net.
+Niu, D.; Sharma, Y.; Biamby, G.; Quenum, J.; Bai, Y.; Shi, B.;
+Darrell, T.; and Herzig, R. 2024. LLARVA: Vision-Action
+Instruction Tuning Enhances Robot Learning. In Agrawal,
+P.; Kroemer, O.; and Burgard, W., eds., Conference on Robot
+Learning, 6-9 November 2024, Munich, Germany, volume
+270 of Proceedings of Machine Learning Research, 3333–
+3355. PMLR.
+O’Neill, A.; Rehman, A.; Maddukuri, A.; Gupta, A.;
+Padalkar, A.; Lee, A.; Pooley, A.; Gupta, A.; Mandlekar,
+A.; Jain, A.; Tung, A.; Bewley, A.; et al. 2024. Open X-
+Embodiment: Robotic Learning Datasets and RT-X Models
+: Open X-Embodiment Collaboration. In IEEE International
+Conference on Robotics and Automation, ICRA 2024, Yoko-
+hama, Japan, May 13-17, 2024, 6892–6903. IEEE.
+Sucan, I. A.; Moll, M.; and Kavraki, L. E. 2012. The Open
+Motion Planning Library.
+IEEE Robotics Autom. Mag.,
+19(4): 72–82.
+Sundaresan, P.; Belkhale, S.; Sadigh, D.; and Bohg, J. 2023.
+KITE: Keypoint-Conditioned Policies for Semantic Manip-
+ulation. In Tan, J.; Toussaint, M.; and Darvish, K., eds.,
+Conference on Robot Learning, CoRL 2023, 6-9 November
+2023, Atlanta, GA, USA, volume 229 of Proceedings of Ma-
+chine Learning Research, 1006–1021. PMLR.
+Wang, P.; Bai, S.; Tan, S.; Wang, S.; Fan, Z.; Bai, J.; Chen,
+K.; Liu, X.; Wang, J.; Ge, W.; Fan, Y.; Dang, K.; Du, M.; Ren,
+X.; Men, R.; Liu, D.; Zhou, C.; Zhou, J.; and Lin, J. 2024.
+Qwen2-VL: Enhancing Vision-Language Model’s Percep-
+tion of the World at Any Resolution. CoRR, abs/2409.12191.
+Wen, C.; Lin, X.; So, J. I. R.; Chen, K.; Dou, Q.; Gao, Y.;
+and Abbeel, P. 2024. Any-point Trajectory Modeling for
+Policy Learning. In Kulic, D.; Venture, G.; Bekris, K. E.;
+and Coronado, E., eds., Robotics: Science and Systems XX,
+Delft, The Netherlands, July 15-19, 2024.
+Yuan, C.; Wen, C.; Zhang, T.; and Gao, Y. 2024a. General
+Flow as Foundation Affordance for Scalable Robot Learn-
+ing. In Agrawal, P.; Kroemer, O.; and Burgard, W., eds.,
+Conference on Robot Learning, 6-9 November 2024, Munich,
+Germany, volume 270 of Proceedings of Machine Learning
+Research, 1541–1566. PMLR.
+Yuan, W.; Duan, J.; Blukis, V.; Pumacay, W.; Krishna, R.;
+Murali, A.; Mousavian, A.; and Fox, D. 2024b. RoboPoint:
+A Vision-Language Model for Spatial Affordance Prediction
+in Robotics. In Agrawal, P.; Kroemer, O.; and Burgard, W.,
+eds., Conference on Robot Learning, 6-9 November 2024,
+
+
+Munich, Germany, volume 270 of Proceedings of Machine
+Learning Research, 4005–4020. PMLR.
+Yuan, W.; Murali, A.; Mousavian, A.; and Fox, D. 2023.
+M2T2: Multi-Task Masked Transformer for Object-centric
+Pick and Place. In Tan, J.; Toussaint, M.; and Darvish, K.,
+eds., Conference on Robot Learning, CoRL 2023, 6-9 Novem-
+ber 2023, Atlanta, GA, USA, volume 229 of Proceedings of
+Machine Learning Research, 3619–3630. PMLR.
