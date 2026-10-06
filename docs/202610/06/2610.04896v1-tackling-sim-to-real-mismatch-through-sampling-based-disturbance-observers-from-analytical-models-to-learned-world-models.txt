@@ -1,0 +1,973 @@
+Title: Tackling Sim-to-Real Mismatch Through Sampling-Based Disturbance Observers: From Analytical Models to Learned World Models
+
+URL Source: https://arxiv.org/pdf/2610.04896v1
+
+Published Time: Tue, 06 Oct 2026 01:18:47 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# Tackling Sim-to-Real Mismatch Through Sampling-Based Disturbance Observers: From Analytical Models to Learned World Models 
+
+Tianqi Zhu 1, Jun Yang 2, Jianliang Mao 3, Cong Li 2, and Shihua Li 1
+
+Abstract 
+
+Robotic controllers increasingly rely on analytical models, simulators, cost-query interfaces, and learned world models. However, physical deployment can deviate from nominal assumptions, and additional disturbances may arise even when the model itself is accurate. In control systems, disturbance observers (DOB) are widely used to estimate such unmeasured effects from nominal models and measured feedback. Classical DOB formulations are generally built around explicit plant models. This paper develops the sampling-based disturbance observer (SDOB), extending the DOB principle to a broader range of models, including simulators and learned world models, through state-rollout or cost-query interfaces. SDOB separates two observable channels: state-effect disturbances, for which the feedback state differs from its prediction, and cost disturbances, for which the same query state receives different costs as the perceived environment changes. Diverse simulation and real-robot experiments across traditional and learned models demonstrate the effectiveness of SDOB in compensating for sim-to-real mismatch and improving control performance. 
+
+Keywords 
+
+Sampling-based disturbance observer, sim-to-real, sampling-based model predictive control, world models 
+
+1 Introduction 
+
+From early model-based control to modern robotics built on simulators and learned models, deployment has always involved discrepancies between simulator models and physical plant. In classical systems, these discrepancies appear as parameter uncertainty, unmodeled dynamics, and external disturbances (Ohnishi et al. 1996; Chen et al. 2016); in contemporary robotics, the same problem is often discussed as the sim-to-real gap (OpenAI et al. 2020; Jaquier et al. 2025). Such discrepancies can degrade tracking performance and closed-loop stability. If a disturbance is measurable, feedforward compensation can often reduce its influence. In practice, the relevant disturbances are often unmeasured or entangled with model uncertainty. Classical DOB formulations estimate these effects in systems described by explicit plant or low-dimensional state-space models (Ohnishi et al. 1996; Chen et al. 2016; Sariyildiz et al. 2020). Conventional MPC operates within the same model-based setting, optimizing behavior over a finite horizon using explicit dynamics and constraints (Garcia et al. 1989; Mayne et al. 2000; Ostafew et al. 2016). DOB estimates can therefore be incorporated into its prediction and optimization loop, for example by correcting output predictions (Yang et al. 2015). However, modern robotic systems increasingly use sampling-based MPC when the dynamics or costs are highly nonlinear, nonsmooth, or accessible only through simulators. Sampling-based MPC evaluates candidate action sequences through forward rollouts. Methods such as model predictive path integral control (MPPI) (Williams et al. 2018a; Carius et al. 2022; Koptev et al. 2024) and the cross-entropy method (CEM) (Rubinstein 1997; Kobilarov 2012; Pinneri et al. 2021) rank these candidates using scalar trajectory costs. Because they require only forward rollouts and scalar costs, these methods can use nonlinear simulators without analytic derivatives. At the same time, rollout evaluation has expanded beyond analytical dynamics to perception-derived cost maps and signed-distance fields (Hornung et al. 2013; Oleynikova et al. 2017; Zucker et al. 2013), while world models (Hafner et al. 2019, 2020) learn action-conditioned latent dynamics for prediction and planning. This flexibility allows MPC to use a broader range of models, but it also makes disturbance estimation less direct. The resulting interfaces may provide neither an invertible plant representation nor a clearly defined input-equivalent disturbance channel. Unmodeled effects are therefore revealed through deviations in the feedback state or changes in the costs assigned to queried states, for example after contact, perception updates, or obstacle motion. The controller observes these effects only after executing an action and receiving feedback. Taken together, these changes leave a mismatch between the information required by classical DOB formulations and the interfaces exposed by modern predictive models. To address this interface mismatch, we present SDOB as a framework for feedback-based disturbance compensation in analytical models, simulators, and learned predictors exposed through rollout or cost-query interfaces. We refer to each member of this family as a modern model. The                
+
+> 1School of Automation, Key Laboratory of Measurement and Control of CSE, Ministry of Education, Southeast University, Nanjing 210096, China
+> 2Robotics and Autonomous Systems Thrust, Systems Hub, The Hong Kong University of Science and Technology (Guangzhou), Guangzhou 511453, China
+> 3Faculty of Artificial Intelligence, Shanghai University of Electric Power, Shanghai 200090, China
+> Corresponding author:
+> Jun Yang, The Hong Kong University of Science and Technology (Guangzhou), Guangzhou 511453, China; Jianliang Mao, Shanghai University of Electric Power, Shanghai 200090, China. Email: jy@hkust-gz.edu.cn (Jun Yang); jl mao@shiep.edu.cn (Jianliang Mao)
+
+1arXiv:2610.04896v1 [cs.RO] 4 Oct 2026 state channel fits feedback transitions within a task-defined disturbance parameterization, while the cost channel models local transport of environment-dependent costs. Together, these channels specify how observed mismatch enters subsequent rollout and cost evaluation. SDOB therefore targets locally persistent, task-relevant mismatch rather than complete identification of the sim-to-real gap. The main contributions are: 1) A new interface-level disturbance representation is introduced for modern models. Unlike conventional DOB formulations that primarily describe distur-bances through plant dynamics and state evolution, SDOB separates observable deployment mismatch into two complementary channels: a state-effect dis-turbance that alters rollout states and a cost dis-turbance that changes costs at fixed query states. This extends disturbance observation to environment-dependent cost evaluation. 2) Based on this representation, SDOB introduces a next-generation approach to disturbance observation that operates through forward rollouts and cost queries. Unlike classical DOB designs built on explicit transfer functions or state-space equations, SDOB does not require access to the analytical expressions of the underlying model. It estimates both disturbance channels online and incorporates their effects into future state propagation and cost evaluation, without plant inversion or model retraining. 3) The framework is extensively validated across diverse simulation environments and real-robot platforms, spanning analytical-model disturbance compensation, moving-obstacle navigation, latent and visual world-model planning, mobile-robot navigation, dual-arm obstacle avoidance, and humanoid dual-arm manipu-lation with PointWorld, demonstrating its applicability across different model classes and robotic tasks. The remainder of this article is organized as follows. Section 2 reviews related work. Section 3 introduces the classical DOB formulation used as a reference. Section 4 presents SDOB, including its deployment-oriented interpretation, two disturbance channels, and compensation interfaces. Section 5 reports the simulation and real-robot experiments. Section 6 concludes the article and discusses its limitations and future directions. 
+
+2 Related Work 
+
+SDOB connects disturbance observation, sampling-based MPC, dynamic environment estimation and cost prediction, sim-to-real adaptation, and world models. Disturbance observation provides the observer principle, sampling-based MPC provides rollout and cost evaluation interfaces, and sim-to-real adaptation motivates correction under deployment mismatch. Dynamic environment estimation and cost prediction provide the context for the cost disturbance channel. World models represent a frontier class within the modern models defined above and provide learned, action-conditioned representations for predicting future states. 
+
+2.1 DOB-Based Control 
+
+Classical DOB-based control estimates input disturbances from a nominal plant, commonly through an inverse model and low pass filtering, to improve motion control robustness (Ohnishi et al. 1996; Shim and Jo 2009; Sariyildiz et al. 2020; Park and Back 2024). Nonlinear DOB formulations extend this principle to robotic dynamical systems (Chen et al. 2000a,b; Mohammadi et al. 2013; Chen et al. 2016). Active disturbance rejection control (ADRC) and extended state observer (ESO) methods likewise estimate lumped uncertainty in feedback loops (Han 2009; Gao 2003), while DOB-enhanced predictive control incorporates disturbance estimates into prediction and optimization (Yang et al. 2015). Many classical DOB formulations assume an explicit plant model and a predefined disturbance channel. These assumptions are difficult to retain when control operates on images, latent or object centric states, or rollout distributions available only through forward simulation and cost evaluation. 
+
+2.2 Sampling-Based MPC 
+
+Sampling-based MPC optimizes candidate action sequences through forward rollouts and ranks, weights, or refits them using trajectory costs (Theodorou et al. 2010; Williams et al. 2015, 2018a; Pinneri et al. 2021). Requiring only simulated futures and scalar costs makes it suitable for nonlinear, nonsmooth, and black box models. Tube-MPPI uses MPPI to generate a nominal trajectory and an ancillary tracking controller to keep the actual state within a tube around that trajectory (Williams et al. 2018b). Robust model predictive path integral control (RMPPI) extends this architecture with augmented rollouts of the nominal and actual dynamics, tracking-aware importance sampling, and safety logic for nominal-state propagation (Gandhi et al. 2021). Parameter uncertainty can be incorporated directly into path integral control (Abraham et al. 2020), while Shield-MPPI integrates control barrier functions for safety (Yin et al. 2023). 
+
+2.3 Dynamic Environment Estimation and Cost Prediction 
+
+Planning in dynamic environments requires anticipating how environmental motion changes collision risks and trajectory costs. Dynamic occupancy grids estimate occupancy and motion (Nuss et al. 2018), while Occupancy Flow Fields jointly predict their future evolution (Mahjourian et al. 2022). ImplicitO supports continuous occupancy and flow queries at selected locations, avoiding dense scene prediction (Agro et al. 2023). To evaluate candidate trajectories, neural motion planners learn spatiotemporal cost volumes (Zeng et al. 2019), while QuAD queries predicted occupancy at planning-relevant locations (Biswas et al. 2024). These methods primarily focus on predicting occupancy or planning costs, with less emphasis on treating cost changes at fixed query states as a distinct disturbance channel for online estimation and compensation. 
+
+2.4 Sim-to-Real Adaptation 
+
+Sim-to-real adaptation takes a complementary approach by changing the training distribution, system model, or 2Controller Reference  
+
+> Disturbance
+> Low-pass Filter
+> Nominal Plant Inverse Plant
+> Disturbance Observer Figure 1. Classical frequency-domain DOB control structure.
+
+simulator. Domain randomization broadens the training variation (Tobin et al. 2017), system identification calibrates the dynamics (Tan et al. 2018), and feedback driven simulator adaptation updates the simulator from real experience (Chebotar et al. 2019). Adaptation methods can align latent representations under unknown target appearances (Yoneda et al. 2022), while ManiDreams propagates perceptual, parametric, and structural uncertainty through task specific predictive models (Wang et al. 2026). Such methods adapt the simulator, representation, policy, or predictive state, but remain tied to variations represented during training or adaptation. Greater simulator fidelity also does not guarantee that method rankings or task outcomes transfer to hardware (Kadian et al. 2020), particularly when learned states do not map directly to physical variables. 
+
+2.5 World Models for Prediction and Planning 
+
+World models learn action conditioned representations for imagined futures, from early latent models (Ha and Schmidhuber 2018) to PlaNet (Hafner et al. 2019), Dreamer (Hafner et al. 2020, 2025), and TD-MPC2 (Hansen et al. 2024). Learned dynamics for manipulation (Ai et al. 2025), broader predictive architectures (LeCun 2022), V-JEPA (Bardes et al. 2024), and PointWorld (Huang et al. 2026) extend this direction toward feature level and 3D action conditioned representations. These models improve prediction, but nominal replanning does not usually preserve recurring execution mismatch as an explicit disturbance. Actuator bias, contact mismatch, object drift, and environmental change can therefore reappear as rollout error at every control cycle. These developments motivate extending disturbance observation to a broader range of predictive models. To establish the conceptual basis for this extension, the next section revisits the basic principle of classical DOBs. 
+
+3 Preliminaries 
+
+3.1 Disturbance Observer 
+
+Figure. 1 shows the classical frequency-domain DOB structure. For clarity, consider a single-input single-output plant with a matched input-side disturbance: 
+
+y(s) = G(s) ( u(s) + d(s)) (1) where G(s) is the actual physical plant, u(s) is the applied control input, and d(s) is an unknown disturbance entering through the same channel as the input. In this formulation, Gn(s) denotes the nominal plant model used for disturbance estimation. The nominal inverse G−1 
+
+> n
+
+(s) maps the measured output back to an input-equivalent quantity, which is then compared with the applied input and filtered before compensation (Ohnishi et al. 1996; Chen et al. 2016; Sariyildiz et al. 2020). The DOB estimate is 
+
+ˆd(s) = Q(s)  G−1 
+
+> n
+
+(s)y(s) − u(s) , (2) where Q(s) is a stable low-pass filter. The estimate is then used in the input channel as 
+
+u(s) = uc(s) − ˆd(s), (3) where uc(s) is the baseline controller output before disturbance compensation. 
+
+Example: discrete-time integrator. A minimal discrete-time example is a scalar integrator with a matched disturbance, 
+
+yk+1 = yk + uk + dk, (4) with nominal prediction 
+
+ˆyk+1 |k = yk + uk. (5) After executing uk and observing yk+1 , the one-step prediction error is 
+
+ek+1 = yk+1 − ˆyk+1 |k = yk+1 − yk − uk. (6) If the nominal model is exact and measurement noise is ignored, then ek+1 = dk. In practice, this residual is passed through a discrete low-pass filter, for example 
+
+ˆdk = (1 − α) ˆdk−1 + αe k+1 , 0 < α ≤ 1, (7) and the next input can be compensated using the previous disturbance estimate, 
+
+uk = uc,k − ˆdk−1. (8) The observer thus uses the filtered prediction error to compensate for the disturbance in the next control step. 
+
+4 Sampling-Based Disturbance Observer 
+
+As shown in Figure. 2, SDOB extends the classical DOB principle to models accessed through forward rollouts or cost queries. It uses the mismatch between a model query and the following feedback to estimate a correction for the next control step. 
+
+4.1 Model and Forward Equations 
+
+Let X denote the known state space, U the input space, Q
+
+the cost-query space, E the perceived-environment space, and D the disturbance space. At the beginning of step k,the controller has the latest feedback state xfb  
+
+> k
+
+, the perceived environment Ek, and the cost-query function ck. Once the feedback state is passed to the controller, we write xk ≜ xfb  
+
+> k
+
+.For a query state q ∈ Q ,
+
+ck(q) ≜ c(q, Ek). (9) 3Model Classes Disturbance Channels SDOB  
+
+> 3...
+> Classical Control Model (State-Space Model or Transfer Function)
+> 1
+> Robot Cost Model ( State-Space Model + Cost Function) World Model ( Learned Latent Dynamics) 3
+
+State-effect Disturbance   
+
+> State Prediction Real State Subject to Disturbance
+> Load Bias Friction External Force
+
+Cost Disturbance 
+
+Sampling-based Disturbance Observer  
+
+> Moving Constraint Moving Goal
+
+Model-flexible Model-flexible 
+
+State-cost Aware State-cost Aware 
+
+Plug-and-play Plug-and-play  
+
+> 2
+
+No Training No Training 
+
+Online Observation Online Observation Figure 2. Overview of SDOB: model classes, disturbance channels, and key advantages. exk
+
+xk 1 xfb  
+
+> k
+
+xk|k 1
+
+uk 1dxk 1
+
+(a) State-effect disturbance 
+
+(b) Cost disturbance 
+
+Figure 3. Two disturbance channels used by SDOB. (a) Illustration under the state-effect disturbance dxk−1. (b) Illustration under the cost disturbance dck−1.
+
+Here, ck(q) evaluates the query state q in the current perceived environment Ek. The query state collects the information needed for cost evaluation, such as a vehicle pose or joint configuration for collision checking. It is obtained from the known state x through a task-specific mapping: 
+
+q = Π q (x), Πq : X → Q . (10) The nominal transition model is Fx : X × U → X . The task also supplies a disturbance-enabled rollout interface 
+
+F dx : X × U × D → X , F dx (x, u, 0) = Fx(x, u).
+
+(11) The choice of F dx determines the disturbance effects that the state channel can estimate. For example, F dx may incorporate an input bias or an additive residual in the predicted state. For each task, we first specify how the disturbance affects the model prediction based on the available knowledge of the system. The interface F dx then allows candidate disturbance values to be evaluated through forward prediction. SDOB compares the predicted transitions with the observed feedback to estimate a disturbance correction for subsequent rollouts. The resulting estimate is therefore a control-equivalent state effect, not necessarily a measured force or a unique physical parameter. At the beginning of step k, the most recently completed transition is from k − 1 to k. Its nominal state prediction and nominal cost-query function are 
+
+ˆxk|k−1 = Fx(xk−1, uk−1), (12) 
+
+ˆck|k−1(q) = ck−1(q) = c(q, Ek−1). (13) After uk−1 is executed, the feedback process returns the current state xfb  
+
+> k
+
+and perceived environment Ek. With an unknown state-effect disturbance, the completed transition and the current cost query can be written as 
+
+xfb  
+
+> k
+
+= F dx (xk−1, uk−1, dxk−1),ck(q) = c(q, Ek). (14) Thus ˆxk|k−1 and ˆck|k−1 are formed before execution, whereas xfb  
+
+> k
+
+, Ek, and ck(q) become available afterward. Here 
+
+dxk−1 denotes the unknown state-side effect acting over the completed interval. 
+
+4.2 Two Disturbance Channels 
+
+SDOB separates mismatch by where it appears. A state-effect disturbance changes the feedback state, for example through load, friction, contact, or actuator bias. A cost disturbance changes the cost assigned to the same query state as the perceived environment changes. This second channel is useful when a point cloud, occupancy layer, or collision 4uk − 1    
+
+> ✓valid −dmax
+> ✓valid −0.6 dmax
+
+× invalid (wrong sign) +0.4 dmax 
+
+× invalid (exceeds magnitude) −1.8 dmax Figure 4. Physical admissibility of sampled state-effect disturbances. 
+
+model is available for queries but is not maintained as a compact dynamic state. As illustrated in Figure. 3, 
+
+dk−1 = ( dxk−1, dck−1(·)) (15) where dxk−1 denotes a state-effect disturbance and dck−1(q)
+
+denotes the cost disturbance at query state q. In this work, 
+
+dck−1(·) is a query-dependent vector field that describes the apparent local transport rate of the queried cost, rather than the physical velocity of an individual object. 
+
+Remark 1. SDOB requires three conditions. First, the controller must provide a repeatable rollout interface or comparable cost queries across consecutive updates. Second, the selected disturbance coordinates must affect the available feedback or queried costs; components that do not affect these signals are unobservable. Third, the disturbances are assumed to vary slowly over successive control updates, allowing their current estimates to be used for short-horizon prediction. The state channel additionally requires the disturbance-enabled interface in Eq. (11). The cost channel assumes that local cost changes over one update can be approximated by short-horizon transport. Abrupt topology changes or several unresolved motions in the same neighborhood can violate this assumption. 
+
+4.3 State-Effect Disturbance Estimation 
+
+At the beginning of step k, the controller has received xfb 
+
+> k
+
+after executing uk−1. Let ˆdxk−1 denote a candidate estimate of the unknown disturbance dxk−1 that acted during this completed transition. The candidate estimate produces the prediction 
+
+ˆxk|k−1( ˆdxk−1) = F dx (xk−1, uk−1, ˆdxk−1). (16) The corresponding state-effect residual is the difference between the feedback state and this prediction 
+
+exk ( ˆdxk−1) = xfb  
+
+> k
+
+− ˆxk|k−1( ˆdxk−1). (17) The residual in Eq. (17) scores how well each candidate disturbance explains the completed feedback transition. The disturbance estimate is obtained by minimizing 
+
+ˆdx,⋆ k−1 ∈ arg min 
+
+> ˆdxk−1∈D
+
+Lxk−1( ˆdxk−1), (18) 
+
+Lxk−1( ˆdxk−1) = ℓx
+
+> pred ,k −1
+
+( ˆdxk−1)
+
+| {z }
+
+> current prediction error
+
++ ℓx
+
+> reg ,k −1
+
+( ˆdxk−1)
+
+| {z }
+
+> disturbance regularization
+
++ ℓx
+
+> adm ,k −1
+
+( ˆdxk−1)
+
+| {z }
+
+> physical admissibility
+
+ℓx
+
+> pred ,k −1
+
+( ˆdxk−1) = Wxexk ( ˆdxk−1) 2
+
+,ℓx
+
+> reg ,k −1
+
+( ˆdxk−1) = W xd ˆdxk−1
+
+> 22
+
+,ℓx
+
+> adm ,k −1
+
+( ˆdxk−1) = Rx
+
+> adm
+
+ ˆdxk−1, xk−1, uk−1, xfb 
+
+> k
+
+
+
+.
+
+The prediction term measures the feedback mismatch, with Wx setting the relative importance of the feedback coordinates. The regularization term discourages unneces-sarily large disturbance estimates, with W xd weighting the disturbance coordinates. The penalty function Rx 
+
+> adm
+
+penal-izes violations of known physical constraints, as illustrated in Figure. 4. For example, a candidate disturbance exceeding a known magnitude bound incurs a penalty. When Eq. (18) can be solved analytically, the disturbance is estimated directly. For sampled or black-box rollout models, SDOB instead draws mx candidate disturbances for the completed transition, 
+
+ˆdxk−1,r ∼ ρxk−1, r = 1 , . . . , m x. (19) Here ρxk−1 denotes the proposal probability distribution used to sample candidate state-effect disturbances. It may be centered on the previous disturbance estimate. Each candidate is inserted into the loss in Eq. (18). Candidates with lower losses receive larger exponential weights: 
+
+ℓxk−1,r = Lxk−1( ˆdxk−1,r ), (20) 
+
+ωxk−1,r = exp( −ℓxk−1,r /λ d)
+
+Pmx 
+
+> q=1
+
+exp( −ℓxk−1,q /λ d) . (21) The normalized exponential weights define an empirical Gibbs distribution (Theodorou et al. 2010; Williams et al. 2018a), with λd > 0 controlling its concentration. The point estimate used in the experiments is its weighted mean, 
+
+ˆdxk−1 =
+
+> mx
+
+X
+
+> r=1
+
+ωxk−1,r ˆdxk−1,r . (22) The weighted mean provides a practical point estimate by combining the sampled disturbances according to their losses, without additional model evaluations once the candidates have been scored. This estimate need not coincide with a minimizer of Eq. (18). The same fitting objective could also be addressed by selecting the candidate with the lowest loss or by iteratively refitting the sampling distribution to an elite set using the CEM (Kobilarov 2012; Pinneri et al. 2021). These are alternative sampling-based solution strategies. For simplicity of presentation, we use the weighted mean throughout this paper for sampled state-effect estimation. The estimate becomes available at step k,remains constant over the next prediction horizon, and is computed using only forward rollouts. 
+
+4.4 Cost Disturbance Estimation 
+
+The cost channel estimates how environmental changes affect planning costs while the task objective remains fixed. Following the design intuition of compression as 5Same queries Local matching Predict    
+
+> Query position Backtraced position Positive residual Negative residual
+
+Figure 5. Cost disturbance estimation and planning compensation. The first two panels query costs at the same locations before and after an environment update. The third panel matches each current query to a position in the previous field with similar surrounding costs. Arrows connect the current queries, marked by white centers, to these matched earlier positions, marked by orange circles. The displacement between them estimates how the local cost pattern has moved. Red rings indicate that the current cost is higher than the matched previous cost, while blue rings indicate that it is lower. The matching minimizes the neighborhood loss in Eq. (27) . The final panel uses the estimated motion to predict future costs and guide planning through Eqs. (29) and (30) .
+
+intelligence, it uses local cost queries to retain task-relevant information without reconstructing the full environment or tracking every object. For example, a moving obstacle shifts the surrounding high-cost region. SDOB estimates this local motion of the cost field from queries before and after an environment update and uses it to predict future costs, without requiring an explicit model of obstacle motion. We denote the local velocity of the cost field by dc(q, t )
+
+and refer to it as the cost disturbance. Its admissible values form Dc. This velocity describes motion in query space and need not equal the physical velocity of an individual obstacle. For a differentiable cost field, the relation between its local motion and its change over time is 
+
+∂c (q, t )
+
+∂t + [ dc(q, t )] ⊤ ∇q c(q, t ) = sc(q, t ). (23) The source term sc(q, t ) accounts for cost changes that the local motion does not explain, such as a newly appearing obstacle. When this term is negligible, the cost remains approximately unchanged along the motion of the field, following the same idea as brightness constancy in optical flow (Horn and Schunck 1981). SDOB assumes that this approximation holds between consecutive cost updates. Let ∆t be the time between these updates. The displacement over [k − 1, k ] is approximately 
+
+∆t dck−1(q), giving 
+
+ck(q) ≈ ck−1
+
+ q − ∆t dck−1(q) . (24) In other words, the current cost at q is matched to the previous cost at a position shifted backward by the estimated displacement. SDOB evaluates this relation directly through cost queries, without computing cost gradients. It can therefore also be applied to nonsmooth costs and binary collision queries. Changes that cannot be explained by the shift remain in the matching residual. To estimate the local motion, SDOB selects Nc query states, Qck = {q(i) 
+
+> k
+
+}Nc
+
+> i=1
+
+, at step k. Figure. 5 illustrates the process with Nc = 9 , with the selected backward shifts shown in the third panel. A cost change at one point is generally insufficient to determine a motion vector. Each candidate velocity ˆdck−1,i is therefore tested over a neighborhood Ni around query state q(i) 
+
+> k
+
+, assuming approximately uniform motion within that neighborhood. For each neighbor j, the candidate shifts the query position in the previous cost field to predict the current cost: 
+
+ˆcc, (i,j )
+
+> k|k−1
+
+ ˆdck−1,i 
+
+
+
+= ck−1
+
+
+
+q(j) 
+
+> k
+
+− ∆t ˆdck−1,i 
+
+
+
+, (25) The difference between the current queried cost and this prediction is 
+
+eck,i,j 
+
+ ˆdck−1,i 
+
+
+
+= ck(q(j) 
+
+> k
+
+) − ˆcc, (i,j )
+
+> k|k−1
+
+ ˆdck−1,i 
+
+
+
+. (26) The local estimate minimizes the weighted matching error across the neighborhood, together with a penalty on the velocity magnitude: 
+
+ˆdc,⋆ k−1,i ∈ arg min 
+
+> ˆdck−1,i ∈D c
+
+Lck−1,i ( ˆdck−1,i ), (27) 
+
+Lck−1,i ( ˆdck−1,i ) = X
+
+> j∈N i
+
+W cij 
+
+h
+
+eck,i,j ( ˆdck−1,i )
+
+i2
+
+| {z }
+
+> local cost matching
+
++ W cd ˆdck−1,i 
+
+> 22
+
+| {z }
+
+> transport regularization
+
+.
+
+The nonnegative weights W cij set each neighbor’s contribu-tion and sum to one over Ni. The matrix W cd controls the penalty on large velocities. SDOB tests a finite set of sampled or gridded velocities in Dc and retains the candidate with the lowest loss at each query state. Rollouts may query positions outside the selected set. SDOB interpolates the cost-field velocity at these positions by averaging nearby estimates, weighted by distance and confidence. The resulting kernel interpolation (Nadaraya 1964; Kang and Joseph 2016) is 
+
+Zc(q) = 
+
+> Nc
+
+X
+
+> j=1
+
+W (j) 
+
+> c
+
+K
+
+
+
+∥q − q(j) 
+
+> k
+
+∥/σ c
+
+
+
+,αi(q) = 
+
+
+
+W (i) 
+
+> c
+
+K
+
+
+
+∥q − q(i) 
+
+> k
+
+∥/σ c
+
+
+
+Zc(q) , Zc(q) > 0,
+
+0, Zc(q) = 0 ,
+
+ˆdck−1(q) = 
+
+> Nc
+
+X
+
+> i=1
+
+αi(q) ˆdck−1,i . (28) 6C. Control Diagram B. SDOB 
+
+State-effect observer             
+
+> ①Roll-out
+> Disturbance Samples
+> ①Roll-out
+> Disturbance Samples
+> ②Propagate States under Samples
+> ②Propagate States under Samples
+> ①Roll-outs Control sequence ①Roll-outs Control sequence ②Roll-outs Compensated Predicted States and Costs ②Roll-outs Compensated Predicted States and Costs ③Weighted Control Update ③Weighted Control Update
+> Eq. (19) Eq. (19)
+
+Cost-flow observer     
+
+> Estimated State-effect Disturbance Estimated Cost-flow Disturbance Eqs. (16) - (17), Eq. (20) Eqs. (16) - (17), Eq. (20)
+> ①Before and After Cost Queries Eq. (24) Eq. (24)
+> ②Local Cost-flow Estimate Eqs. (25) - (28) Eqs. (25) - (28)
+> ③Scoring and Weighting
+> Eqs. (21) - (22) Eqs. (21) - (22) Eq. (32) Eq. (32)
+> Compensated State Rollouts Compensated Cost Scores
+
+Joint message Odometry Lidar 
+
+Camera 
+
+A. Task Definition 
+
+> Pendulum Regulation
+> Robot Navigation World-model Reaching Dual-arm Coordination
+
+Joint message Odometry Lidar 
+
+Camera 
+
+A. Task Definition 
+
+> Pendulum Regulation
+> Robot Navigation World-model Reaching Dual-arm Coordination
+
+Figure 6. Schematic of the SDOB computation flow. Feedback updates the state-effect and cost disturbance estimates for subsequent rollout and cost compensation. 
+
+Here W (i)
+
+c ≥ 0 is the confidence of estimate i, and K
+
+is a nonnegative kernel with spatial scale σc > 0. The factor Zc(q) normalizes the weights. If no local estimate contributes, Zc(q) = 0 and the velocity at q is set to zero. Under the slowly time-varying disturbance assumption, SDOB holds the estimated velocity field fixed over the prediction horizon. To predict the cost at q after h steps, it traces that position backward through the estimated field for 
+
+h steps, then queries the current cost at the resulting position. Starting from q[0] 
+
+h = q, the backward steps are 
+
+q[r+1] 
+
+h = q[r]
+
+h − ∆t ˆdck−1
+
+
+
+q[r]
+
+h
+
+
+
+, r = 0 , . . . , h − 1. (29) The predicted cost is then 
+
+bc ck+h|k(q) = ck
+
+
+
+q[h]
+
+h
+
+
+
+, h = 1 , . . . , H. (30) The minus sign in Eq. (29) traces q backward along the estimated motion to the corresponding location in the current cost field. Equation (30) then uses the cost at this location to predict the cost of future rollouts. 
+
+Remark 2. Local cost queries and limitations. Cost motion cannot be identified in constant-cost regions and is ambiguous along straight obstacle boundaries. Multiple local motions or obstacle appearance and disappearance may violate the transport assumption, while incomplete observations near sensing or map boundaries can introduce spurious cost changes. In practice, restricting q to a region around the robot or its predicted trajectory helps keep query neighborhoods and shifted positions within the reliably observed area. This reduces errors near sensing or map boundaries without resolving local motion ambiguities. 
+
+4.5 Using SDOB in Control 
+
+Figure. 6 and Algorithm 1 summarize how SDOB enters the control update. At step k, ˆdxk−1 compensates the state rollouts, while the cost disturbance constructs the horizon query function bc ck+h|k through Eqs. (29) and (30). Let 
+
+Uk =  uk|k, . . . , uk+H−1|k
+
+ (31) be a horizon control sequence. The controller solves 
+
+U ⋆k = arg min 
+
+Uk
+
+Sk(Uk), (32) 
+
+Sk(Uk) = Φ cost ,k (Uk)
+
+| {z }
+
+cost channel term 
+
++ Φ other ,k (Uk)
+
+| {z }
+
+other constraint cost 
+
++Φg,k (Uk)
+
+| {z }
+
+goal cost 
+
++ Φ u,k (Uk)
+
+| {z }
+
+usmooth 
+
+,
+
+Φcost ,k (Uk) = 
+
+HX
+
+h=1 
+
+bc ck+h|k
+
+ qk+h|k
+
+ ,
+
+Φother ,k (Uk) = 
+
+H−1X
+
+h=0 
+
+ℓcon 
+
+k
+
+ xk+h|k, uk+h|k
+
+ ,
+
+Φg,k (Uk) = F fc (xk+H|k, xg ),
+
+Φu,k (Uk) = 
+
+H−1X
+
+h=0 
+
+ℓu, sm 
+
+k
+
+ ∆uk+h|k
+
+ ,
+
+s.t. xk|k = xfb 
+
+k ,
+
+xk+h+1 |k = F dx (xk+h|k, uk+h|k, ˆdxk−1).
+
+The objective contains four terms. The cost channel term 
+
+Φcost ,k evaluates costs exposed through the cost-query interface, such as collision cost, at each predicted task query state using the transported query function. The term Φother ,k 
+
+collects constraints not handled through this interface, such as state or input limits, and is not modified by cost disturbance compensation. The goal term Φg,k measures the predicted goal error, while Φu,k penalizes changes between adjacent inputs to promote smooth control commands. 7Algorithm 1: SDOB control update 
+
+Input: Transition (xk−1, uk−1, xfb  
+
+> k
+
+); queries ck−1, c k ; F dx ,
+
+Πq , and H
+
+Output: ˆdxk−1, ˆdck−1(·), and uk
+
+// State-effect estimation  
+
+> 1
+
+Sample ˆdxk−1,r ∼ ρxk−1, r = 1 , . . . , m x; 
+
+> 2
+
+for r = 1 , . . . , m x do  
+
+> 3
+
+Predict ˆx(r) 
+
+> k|k−1
+
+← F dx (xk−1, uk−1, ˆdxk−1,r ); 
+
+> 4
+
+Compute ex, (r) 
+
+> k
+
+← xfb  
+
+> k
+
+− ˆx(r)
+
+> k|k−1
+
+; 
+
+> 5
+
+ℓxk−1,r ← L xk−1( ˆdxk−1,r ) via (18);  
+
+> 6
+
+Normalize weights ωxk−1,r via (21);  
+
+> 7
+
+Set ˆdxk−1 ← Pmx 
+
+> r=1
+
+ωxk−1,r ˆdxk−1,r ;
+
+// Cost disturbance estimation  
+
+> 8
+
+Select Qck and neighborhoods Ni; 
+
+> 9
+
+for i = 1 , . . . , N c do  
+
+> 10
+
+Evaluate candidate cost residuals over Ni via (26);  
+
+> 11
+
+Select the minimum-loss velocity ˆdck−1,i via (27);  
+
+> 12
+
+Interpolate ˆdck−1(·) using (28); 
+
+// Compensated control  
+
+> 13
+
+foreach candidate control sequence Uk do  
+
+> 14
+
+Initialize xk|k ← xfb  
+
+> k
+
+; 
+
+> 15
+
+for h = 0 , . . . , H − 1 do  
+
+> 16
+
+Predict xk+h+1 |k ← F dx (xk+h|k , uk+h|k , ˆdxk−1); 
+
+> 17
+
+Extract qk+h+1 |k ← Πq (xk+h+1 |k ); 
+
+> 18
+
+Backtrace qk+h+1 |k and query its cost via (29)–(30);  
+
+> 19
+
+Evaluate Sk (Uk ) via (32);  
+
+> 20
+
+Solve (32) for U ⋆k ; 
+
+> 21
+
+Apply uk = u⋆k|k ;
+
+5 Simulation and Experiments 
+
+We evaluate SDOB through five simulation studies and three robot studies spanning analytical and learned prediction models. The comparisons assess the task-level performance of complete controller configurations incorporating SDOB, with task-specific disturbance representations and prediction interfaces. Each study addresses a particular use of feedback correction, and its conclusions are interpreted within the corresponding task conditions and execution protocol. Within each simulation task, methods share the nominal model, nominal task objective, action limits, initial conditions, evaluation seeds, prediction horizon, and nominal rollout budget. Observer, robustness, and cost-correction mechanisms form part of the evaluated controller configurations; their effects on rollout and cost evaluation are described in the task-specific setups below. Repeated runs use paired task or planner seeds, and method-specific settings remain fixed. SDOB is compared with the corresponding nominal controller and, when available, DOB, Tube-MPPI, and RMPPI. Reported planning time measures wall-clock computation and includes controller-specific observer and robustness computations. The simulation tasks and the real-robot controller computations use an NVIDIA GeForce RTX 4080 Laptop GPU. Table 1 lists the core simulation settings; the remaining observer and controller parameters are provided in the open-source configuration files. The analytical-model studies examine state-effect com-pensation and navigation under combined state and cost disturbances. The learned-model studies examine recovery from an imposed action bias, correction of environment-dependent costs, and initial feedback calibration for planning with a frozen predictor. Closed-loop task performance is assessed using success rate together with task-specific tracking and safety metrics. Command smoothness is quantified by control total variation (TV) 
+
+TV( u) = 1
+
+T − 1 
+
+> T−2
+
+X
+
+> k=0
+
+∥uk+1 − uk∥2 (33) where a lower value indicates smaller changes between consecutive commands. Computation time is summarized by the 95th percentile (P95) of per-step planning time. Tabulated values with ± report the mean and standard deviation across trials. Success and collision entries report trial counts. 
+
+5.1 Simulation Results 
+
+1) Inverted-pendulum state-effect task: This study evaluates state-effect compensation with an analytical nominal model and compares SDOB with a conventional DOB and robust MPPI variants. The task is an inverted pendulum subject to a sinusoidal torque disturbance. Figure. 7 shows representative snapshots under the common disturbance, and Table 2 summarizes 20 seeds. Except for the disturbance-free nominal reference, all methods are evaluated under the same sinusoidal torque disturbance d(t) = 1 .2 sin(1 .2t) N m . Success requires |θ| <
+
+0.12 rad for at least the final 20% of the rollout. The uncompensated MPPI controller fails in all 20 trials, whereas MPPI+DOB, MPPI+SDOB, and RMPPI succeed in all trials and Tube-MPPI succeeds in 19. MPPI+DOB and MPPI+SDOB have similar tail error and control variation, but MPPI+SDOB reduces the disturbance estimation RMSE from 0.018 to 0.014 . RMPPI achieves a smaller tail error at more than twice the P95 planning time of MPPI+SDOB. 
+
+2) Eight-obstacle navigation with state-effect and cost disturbances: This study evaluates the complete SDOB configuration in an eight-obstacle navigation task where both state and cost disturbances affect planning. A constant input bias changes the robot motion, while moving obstacles change the queried costs. The obstacles approach from several directions and may overlap. All controllers use the same obstacle margin. Figure. 8 shows six instants, and Table 3 reports 20 seeds. Each run has a 30 s limit, and success means reaching the 0.35 m goal region before collision. The path ratio is the traveled path length divided by the straight-line distance from the start to the goal, so a lower value indicates a more direct route. Goal time and path ratio use successful trials only; negative clearance denotes overlap. MPPI, MPPI+DOB, and Tube-MPPI collide in all trials, whereas MPPI+SDOB and RMPPI succeed in all trials. MPPI+SDOB has a shorter mean path ratio than RMPPI with similar clearance, while its local query update gives the largest planning time. 
+
+3) Latent world-model Reacher task: This experiment examines whether SDOB can use prediction errors in the model’s latent space to compensate for an imposed action bias and recover performance on tasks already solvable by 8Table 1. Core SDOB and controller parameters used in simulation. 
+
+Task SDOB channel SDOB state samples mx
+
+SDOB query states Nc
+
+Controller rollout samples Prediction horizon H Environment step Inverted pendulum State effect 256 – 1024 15 0.050 s Eight-obstacle navigation State and cost 256 332 500 30 0.050 s Latent Reacher State effect 256 – 300 5 0.020 s Rocket Collect Cost – 289 32 12 0.033 s Landing State and cost 256 121 32 24 0.033 s MPPI without disturbance MPPI MPPI+DOB MPPI+SDOB Tube-MPPI RMPPI 
+
+Figure 7. Representative inverted-pendulum snapshots under sinusoidal torque bias. MPPI+SDOB effectively compensates for the torque disturbance, achieving disturbance-rejection performance comparable to the conventional MPPI+DOB. 
+
+Table 2. Inverted-pendulum simulation results. 
+
+Method Success Tail |θ|
+
+(rad) Settling time (s) Disturbance RMSE Control TV P95 planning time (ms) MPPI (no disturbance) 20/20 0.008 ± 0.004 0.897 ± 0.203 – 0.125 ± 0.009 8.274 ± 0.541 
+
+MPPI 0/20 1.108 ± 0.006 – – 0.172 ± 0.010 8.024 ± 0.462 
+
+MPPI+DOB 20/20 0.027 ± 0.004 2.413 ± 0.142 0.018 ± 0.001 0.127 ± 0.007 8.018 ± 0.405 
+
+MPPI+SDOB 20/20 0.026 ± 0.004 2.402 ± 0.157 0.014 ± 0.001 0.127 ± 0.007 8.232 ± 0.426 
+
+Tube-MPPI 19/20 0.081 ± 0.008 2.668 ± 0.662 – 0.162 ± 0.007 16 .914 ± 1.192 
+
+RMPPI 20/20 0.021 ± 0.006 2.423 ± 0.227 – 0.178 ± 0.010 19 .628 ± 1.143 0 4 8048
+
+t = 0s 0 4 8048
+
+t = 5s 0 4 8048
+
+t = 7.5s 0 4 8048
+
+t = 10s 0 4 8048
+
+t = 16s 0 4 8048
+
+t = 25s     
+
+> MPPI MPPI+DOB MPPI+SDOB Tube-MPPI RMPPI
+
+Figure 8. Snapshots comparing navigation methods in an eight-obstacle environment with state-effect and cost disturbances. MPPI+SDOB successfully avoids collisions while achieving a shorter navigation path than the comparison methods. 
+
+Table 3. Eight-obstacle navigation simulation results. 
+
+Method Success Collision Min. clearance (m) Goal time (s) Path ratio Control TV P95 planning time (ms) MPPI 0/20 20/20 −0.006 ± 0.004 – – 0.697 ± 0.053 7.368 ± 0.708 
+
+MPPI+DOB 0/20 20/20 −0.009 ± 0.004 – – 0.689 ± 0.051 8.736 ± 1.410 
+
+MPPI+SDOB 20/20 0/20 0.129 ± 0.034 21 .323 ± 2.846 1.484 ± 0.171 0.554 ± 0.034 20 .770 ± 1.661 
+
+Tube-MPPI 0/20 20/20 −0.002 ± 0.002 – – 0.674 ± 0.046 7.771 ± 0.889 
+
+RMPPI 20/20 0/20 0.125 ± 0.010 21 .225 ± 0.026 1.573 ± 0.003 0.518 ± 0.025 18 .764 ± 1.146 
+
+the frozen model and nominal planner. The second state-effect study uses the pretrained Reacher checkpoint released with LeWorldModel (LeWM) (Maes et al. 2026). The controller encodes current and goal images, samples actions with MPPI, and scores latent rollouts. A constant action bias 
+
+[0 .30 , −0.20] is applied during execution but hidden from the planner. SDOB estimates an equivalent action bias from the latent endpoint mismatch. The controller uses images and latent states; joint angles are used only for evaluation. Because the model does not expose the local linear dynamics required by LQR, Tube-MPPI and RMPPI use MPPI as their auxiliary controller. The pretrained LeWM model has prediction limitations that can prevent reliable task completion even without an additional action disturbance. To evaluate compensation for the added disturbance on tasks that the nominal model and 9MPPI without disturbance MPPI MPPI+SDOB Tube-MPPI RMPPI Reference Figure 9. Final Reacher observations from representative evaluations, where MPPI+SDOB achieves a smaller reaching error. 
+
+Table 4. Reacher simulation results.                                                                             
+
+> Method Success Tail mean error (rad) Final error (rad) Disturbance RMSE Control TV P95 planning time (ms) MPPI (no disturbance) 20/20 0.017 ±0.004 0.016 ±0.007 –0.104 ±0.011 438 .956 ±41 .523
+> MPPI 0/20 0.427 ±0.038 0.431 ±0.038 –0.125 ±0.016 456 .264 ±69 .320
+> MPPI+SDOB 19/20 0.030 ±0.010 0.031 ±0.012 0.056 ±0.011 0.126 ±0.020 502 .569 ±5.313
+> Tube-MPPI 0/20 0.185 ±0.062 0.220 ±0.105 –0.163 ±0.051 492 .350 ±38 .858
+> RMPPI 0/20 0.176 ±0.044 0.208 ±0.109 –0.152 ±0.043 492 .228 ±41 .545 MPPI MPPI+SDOB Tube-MPPI RMPPI
+
+Figure 10. Final Rocket collect observations from representative evaluations, where MPPI+SDOB reduces collisions and improves task success. MPPI MPPI+SDOB Tube-MPPI RMPPI 
+
+Figure 11. Final Landing observations from representative evaluations,where MPPI+SDOB achieves a smaller touchdown error. 
+
+Table 5. MMBench2 simulation results over 20 seeds. Touchdown center errors use trials that reach the deck.                                                                             
+
+> Method Rocket Collect Visual Landing Success Collision Control TV P95 planning time (s) Success Touchdown center error (px) Control TV P95 planning time (s) MPPI 16/20 4/20 0.409 ±0.071 2.116 ±0.093 20/20 20 .49 ±10 .60 0.955 ±0.144 12 .131 ±1.057
+> MPPI+SDOB 19/20 0/20 0.421 ±0.071 2.219 ±0.201 20/20 7.38 ±6.90 0.835 ±0.203 12 .454 ±1.072
+> Tube-MPPI 16/20 4/20 0.518 ±0.071 2.491 ±0.206 20/20 14 .54 ±4.70 0.764 ±0.162 12 .556 ±0.717
+> RMPPI 15/20 4/20 0.537 ±0.130 2.310 ±0.171 20/20 16 .61 ±4.60 0.795 ±0.122 12 .670 ±0.986
+
+planner can already solve, we select 20 tasks for which disturbance-free MPPI has a final-20-step mean error no greater than 0.025 rad, then evaluate every disturbed method on the same tasks and planner seeds. Success requires this tail error to be below 0.05 rad. As shown in Figure. 9 and Table 4, MPPI+SDOB succeeds in 19 trials and lowers the mean tail error to 0.030 rad, versus 0.427 , 0.185 , and 
+
+0.176 rad for MPPI, Tube-MPPI, and RMPPI. Within this nominally solvable task subset, SDOB recovered successful performance in 19 of 20 trials under the imposed action bias. 
+
+4) Rocket Collect cost-disturbance task: This study evaluates the complete cost-compensated controller under faster obstacle motion, using reconstructed cost maps to augment world-model planning scores. The rocket must collect a coin while avoiding moving asteroids. For control, the available feedback consists of the current RGB image and the rocket’s position and velocity. The released MMBench2 (Hansen and Wang 2026) world model uses the image and candidate action sequences to predict rewards and collision-risk scores through its reward head. A nominal motion model predicts rocket positions along each candidate path, and the coin detected in the image supplies the goal. The controller combines the learned scores with the distance to the coin and penalties on control effort and variation. For SDOB, the decoder reconstructs each current image, from which asteroid pixels are extracted to define an obstacle-distance cost map. The cost observer needs two successive maps queried at the same 17 × 17 grid points to estimate how the cost pattern moves. The controller then shifts the current map according to this estimate and adds a penalty where the predicted motion raises the cost along a candidate path. Thus, the reward head supplies the basic planning scores, while the reconstructed cost maps supply the SDOB correction. We increase asteroid speed to 1.5 times its nominal value and replan every two environment steps. MPPI, MPPI+SDOB, Tube-MPPI, and RMPPI are tested on the same 20 random seeds with the same world model and rollout budget. Success requires collecting the coin without collision within 140 steps. The controller has no access to simulator-provided obstacle states or collision geometry. Figure. 10 and Table 5 show that MPPI+SDOB succeeds in 19/20 trials with no collisions, compared with 16/20 for 10 MPPI MPPI+SDOB Tube-MPPI RMPPI MPPI+DOB Figure 12. Representative real-car navigation snapshots, where MPPI+SDOB achieves faster collision-free navigation. MPPI MPPI+SDOB Tube-MPPI RMPPI         
+
+> Figure 13. Representative dual-arm obstacle-avoidance snapshots, where SDOB responds earlier to the moving obstacle and successfully avoids collision.
+> Table 6. Completion times in the representative real-car runs.
+> Method Completion time (s) MPPI 12.13 MPPI+DOB 14.04
+> MPPI+SDOB 9.29
+> Tube-MPPI 12.07 RMPPI 13.10
+
+MPPI and Tube-MPPI and 15/20 for RMPPI. Its runs have slightly higher control variation than MPPI, while planning time remains comparable. For these evaluated seeds, the cost-compensated configuration produced fewer collisions under the specified increase in asteroid speed. 
+
+5) Visual Landing task: This study evaluates touchdown alignment when input bias and deck motion affect the landing task. The helicopter must land on a moving deck. For control, the inputs are the current RGB image and a fixed landing reference image. Helicopter and deck positions are detected in the current image, and successive helicopter positions provide a velocity estimate. The released MMBench2 world model scores candidate actions using predicted rewards and similarity to the reference image in its feature space. A nominal motion model also predicts helicopter positions and velocities, allowing the controller to evaluate distance to the detected deck and touchdown safety. SDOB uses two sets of feedback. The state observer takes recent image-based helicopter positions, the executed control inputs, and the nominal motion model to estimate an input bias that explains the observed motion. This estimate is included in both the world-model and motion-model predictions when evaluating new actions. The cost observer queries the landing cost defined by the detected deck at the same 11 × 11 grid points across successive observations. It estimates the motion of this cost map, which the controller uses to move its future landing targets. We add an unknown horizontal input bias of 0.16 and increase deck speed to 
+
+1.6 times nominal. The same four methods are tested on the same 20 random seeds with a common world model, replanning every four environment steps within a 96-step limit. First deck contact counts as success; touchdown center error measures landing accuracy. Simulator state and deck velocity are used only for evaluation. As shown in Figure. 11 and Table 5, all methods reach the deck in 20/20 trials. MPPI+SDOB reduces mean touchdown center error to 7.38 pixels, compared with 20 .49 for MPPI, 
+
+14 .54 for Tube-MPPI, and 16 .61 for RMPPI. Tube-MPPI has lower control variation, indicating that SDOB’s main benefit in this task is improved touchdown alignment. 
+
+Remark 3. In the world-model simulations, planning is already slow without disturbance estimation: baseline MPPI has mean P95 planning times of 0.46 s, 2.12 s, and 12 .13 s for Reacher, Rocket Collect, and Landing, respectively. These exceed the corresponding simulation-time control intervals, and disturbance estimation adds further computation. In these three tasks, the simulator is therefore paused during planning, including disturbance estimation, and advances only after computation finishes. Environment-step durations and replanning intervals refer to simulation time; reported planning times measure wall-clock computation. Reducing the combined computation time of planning and disturbance estimation is therefore an urgent priority for real-time feedback control with world models. 
+
+5.2 Experimental Results 
+
+Three robot studies illustrate SDOB with different prediction interfaces. Vehicle and dual-arm obstacle avoidance provide representative closed-loop demonstrations with state-space models. In the PointWorld (Huang et al. 2026) box-lifting study, SDOB uses initial feedback to correct model predictions for planning. The resulting plan is then executed without replanning, and task performance is compared over 20 paired trials. 
+
+1) Real-car obstacle-avoidance navigation task: Vehicle motion is compared with nominal rollouts, while a moving person changes the perceived cost field. No separate person detection is performed; SDOB estimates the resulting cost-field motion from temporal changes in the cost queries. No ground-truth disturbance label is available, so the trial is assessed by route choice, collision avoidance, and completion time. In the representative runs in Figure. 12, 11 −100 100 −150 150 0150 300                      
+
+> ZXY−100 100 −150 150 0150 300
+> ZXY
+> Prediction without SDOB RMSE 131.72 mm Prediction with SDOB RMSE 5.79 mm
+> (a) Point-cloud predictions (b) MPPI (c) MPPI + SDOB Figure 14. PointWorld box-lifting results. (a) Point-cloud motion predictions without and with SDOB. (b) Real-robot results with MPPI. (c) Real-robot results with MPPI+SDOB, showing a smaller box-lifting error.
+> Table 7. PointWorld box-lifting results over 20 paired trials.
+> Metric MPPI MPPI+SDOB Final task RMSE (mm) 55 .26 ±14 .99 22 .61 ±12 .58
+> Final lift (mm) 287 .39 ±24 .91 306 .60 ±12 .73
+
+MPPI+SDOB follows the shortest route and finishes in 9.29 
+
+s, as listed in Table 6. 
+
+2) Dual-arm obstacle-avoidance task: The minimum collision distance is set to 0 cm, so no additional safety margin is imposed. The obstacle carries an AprilTag (Olson 2011) to update its current pose in the collision model, but no independent measurement of its Cartesian velocity or future trajectory is provided to the controller. SDOB instead estimates the obstacle motion from temporal changes in the collision-cost queries. In the representative trials in Figure. 13, MPPI+SDOB begins avoidance earlier and avoids the obstacle, while the shown comparison runs collide. 
+
+3) PointWorld box lifting with initial feedback calibration: 
+
+A dual-arm robot lifts a grasped box by 300 mm using a frozen PointWorld model. This experiment examines feedback calibration for planning with the frozen predictor. Forward inference is too slow for real-time replanning in the current implementation, so the study compares MPPI and MPPI+SDOB using a single plan, with no replanning or observer updates during execution. An initial 50 mm lift provides RGB-D feedback to calibrate the state-effect correction. Alongside the PointWorld prediction, a rigid-body prediction assumes that the grasped box follows the translation and rotation of the two hands. This rigid-body prediction specifies the task-specific correction prior. SDOB samples a scalar correction coefficient between zero and one and weights the candidates according to how closely their corrected predictions match the observed box motion during this initial lift. For each subsequent candidate action, the estimated coefficient scales the difference between its rigid-body and PointWorld predictions. This correction is added to the predicted box points at each horizon step. The estimated coefficient remains fixed, while the correction varies with the candidate hand trajectory. MPPI then evaluates the corrected box motion against the lifting target to select an action sequence, with the PointWorld model weights kept frozen. As shown in Figure. 14, the comparison includes point-cloud motion predictions and representative real-robot lifting results. The results over 20 trials are summarized in Table 7. The feedback-calibrated configuration achieved a lower mean final task RMSE than the uncorrected PointWorld planner over these trials. 
+
+6 Conclusion and Discussion 
+
+This paper presented SDOB for disturbance estimation and compensation through state-rollout and cost-query interfaces. The state channel estimates corrections to predicted motion, while the cost channel estimates local changes in the cost field. Simulation and robot studies demonstrated improved task performance across analytical models, simulators, and learned world models. Current world models have two limitations for disturbance-aware control. First, planning with these models requires repeated forward evaluations and already takes too long for high-frequency closed-loop control. Additional model evaluations for disturbance estimation further increase this computational burden. Second, their latent representations often lack a clear physical interpretation, making it difficult to represent disturbances and relate latent prediction errors to physical effects. Our world-model demonstrations are therefore limited to relatively simple tasks with task-specific disturbance representations. Future work will explore more efficient joint planning and disturbance estimation, as well as models trained with explicit disturbance inputs to support compensation in more complex tasks. 12 Acknowledgments 
+
+The authors used generative AI to assist with code writing and debugging. The authors take responsibility for the final implementation and the reported results. 
+
+Code Availability 
+
+The code release includes source code, configurations, and simulation scripts for mobile-robot navigation, the inverted pendulum, and LeWM Reacher compensation, available at 
+
+https://sampling-based-dob.github.io/ .
+
+References 
+
+Abraham I, Handa A, Ratliff N, Lowrey K, Murphey TD and Fox D (2020) Model-based generalization under parameter uncertainty using path integral control. IEEE Robotics and Automation Letters 5(2): 2864–2871. DOI: 10.1109/LRA. 2020.2972836. Agro B, Sykora Q, Casas S and Urtasun R (2023) Implicit occupancy flow fields for perception and prediction in self-driving. In: 2023 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) . pp. 1379–1388. DOI: 10. 1109/CVPR52729.2023.00139. Ai B, Tian S, Shi H, Wang Y, Pfaff T, Tan C, Christensen HI, Su H, Wu J and Li Y (2025) A review of learning-based dynamics models for robotic manipulation. Science Robotics 10(106): adt1497. DOI: 10.1126/scirobotics.adt1497. Bardes A, Garrido Q, Ponce J, Chen X, Rabbat M, LeCun Y, Assran M and Ballas N (2024) Revisiting feature prediction for learning visual representations from video. Transactions on Machine Learning Research . URL https://openreview.net/ forum?id=QaCCuDfBk2. Biswas S, Casas S, Sykora Q, Agro B, Sadat A and Urtasun R (2024) QuAD: Query-based interpretable neural motion planning for autonomous driving. In: 2024 IEEE International Conference on Robotics and Automation (ICRA) . pp. 14236– 14243. DOI: 10.1109/ICRA57147.2024.10610648. Carius J, Ranftl R, Farshidian F and Hutter M (2022) Constrained stochastic optimal control with learned importance sampling: A path integral approach. The International Journal of Robotics Research 41(2): 189–209. DOI: 10.1177/02783649211047890. Chebotar Y, Handa A, Makoviychuk V, Macklin M, Issac J, Ratliff N and Fox D (2019) Closing the sim-to-real loop: Adapting simulation randomization with real world experience. In: 2019 International Conference on Robotics and Automation (ICRA) .pp. 8973–8979. DOI: 10.1109/ICRA.2019.8793789. Chen WH, Ballance DJ, Gawthrop PJ and O’Reilly J (2000a) A nonlinear disturbance observer for robotic manipulators. 
+
+IEEE Transactions on Industrial Electronics 47(4): 932–938. DOI: 10.1109/41.857974. Chen WH, Yang J, Guo L and Li S (2016) Disturbance-observer-based control and related methods—an overview. IEEE Transactions on Industrial Electronics 63(2): 1083–1095. DOI: 10.1109/TIE.2015.2478397. Chen XK, Komada S and Fukuda T (2000b) Design of a nonlinear disturbance observer. IEEE Transactions on Industrial Electronics 47(2): 429–437. DOI: 10.1109/41.836359. Gandhi MS, Vlahov B, Gibson J, Williams G and Theodorou EA (2021) Robust model predictive path integral control: Analysis and performance guarantees. IEEE Robotics and Automation Letters 6(2): 1423–1430. DOI: 10.1109/LRA.2021.3057563. Gao Z (2003) Scaling and bandwidth-parameterization based controller tuning. In: Proceedings of the 2003 American Control Conference , volume 6. pp. 4989–4996. DOI: 10.1109/ ACC.2003.1242516. Garcia CE, Prett DM and Morari M (1989) Model predictive control: Theory and practice—a survey. Automatica 25(3): 335–348. DOI: 10.1016/0005-1098(89)90002-2. Ha D and Schmidhuber J (2018) Recurrent world models facil-itate policy evolution. In: Advances in Neural Informa-tion Processing Systems , volume 31. Curran Associates, Inc. URL https://proceedings.neurips.cc/paper/2018/hash/ 2de5d16682c3c35007e4e92982f1a2ba-Abstract.html. Hafner D, Lillicrap T, Ba J and Norouzi M (2020) Dream to control: Learning behaviors by latent imagination. In: International Conference on Learning Representations (ICLR) . URL https: //openreview.net/forum?id=S1lOTC4tDS. Hafner D, Lillicrap T, Fischer I, Villegas R, Ha D, Lee H and Davidson J (2019) Learning latent dynamics for planning from pixels. In: Proceedings of the 36th International Conference on Machine Learning , Proceedings of Machine Learning Research , volume 97. PMLR, pp. 2555–2565. URL https: //proceedings.mlr.press/v97/hafner19a.html. Hafner D, Pasukonis J, Ba J and Lillicrap T (2025) Mastering diverse control tasks through world models. Nature 640(8059): 647–653. DOI: 10.1038/s41586-025-08744-2. Han J (2009) From PID to active disturbance rejection control. 
+
+IEEE Transactions on Industrial Electronics 56(3): 900–906. DOI: 10.1109/TIE.2008.2011621. Hansen N, Su H and Wang X (2024) TD-MPC2: Scalable, robust world models for continuous control. In: International Conference on Learning Representations (ICLR) . URL https: //openreview.net/forum?id=Oxh5CstDJU. Hansen N and Wang X (2026) Hallucination in world models is predictable and preventable. arXiv preprint arXiv:2606.27326. DOI: 10.48550/arXiv.2606.27326. Horn BKP and Schunck BG (1981) Determining optical flow. 
+
+Artificial Intelligence 17(1–3): 185–203. DOI: 10.1016/ 0004-3702(81)90024-2. Hornung A, Wurm KM, Bennewitz M, Stachniss C and Burgard W (2013) OctoMap: An efficient probabilistic 3D mapping framework based on octrees. Autonomous Robots 34(3): 189– 206. DOI: 10.1007/s10514-012-9321-0. Huang W, Chao YW, Mousavian A, Liu MY, Fox D, Mo K and Li FF (2026) PointWorld: Scaling 3D world models for in-the-wild robotic manipulation. arXiv preprint arXiv:2601.03782. DOI: 10.48550/arXiv.2601.03782. Jaquier N, Welle MC, Gams A, Yao K, Fichera B, Billard A, Ude A, Asfour T and Kragi´ c D (2025) Transfer learning in robotics: An upcoming breakthrough? A review of promises and challenges. 
+
+The International Journal of Robotics Research 44(3): 465– 485. DOI: 10.1177/02783649241273565. Kadian A, Truong J, Gokaslan A, Clegg A, Wijmans E, Lee S, Savva M, Chernova S and Batra D (2020) Sim2Real predictivity: Does evaluation in simulation predict real-world performance? IEEE Robotics and Automation Letters 5(4): 6670–6677. DOI: 10.1109/LRA.2020.3013848. 
+
+13 Kang L and Joseph VR (2016) Kernel approximation: From regression to interpolation. SIAM/ASA Journal on Uncertainty Quantification 4(1): 112–129. DOI: 10.1137/130948112. Kobilarov M (2012) Cross-entropy motion planning. The International Journal of Robotics Research 31(7): 855–871. DOI: 10.1177/0278364912444543. Koptev M, Figueroa N and Billard A (2024) Reactive collision-free motion generation in joint space via dynamical systems and sampling-based MPC. The International Journal of Robotics Research 43(13): 2049–2069. DOI: 10.1177/ 02783649241246557. LeCun Y (2022) A path towards autonomous machine intelligence. OpenReview position paper. URL https://openreview.net/ forum?id=BZ5a1r-kVsf. Maes L, Le Lidec Q, Scieur D, LeCun Y and Balestriero R (2026) LeWorldModel: Stable end-to-end joint-embedding predictive architecture from pixels. arXiv preprint arXiv:2603.19312. DOI: 10.48550/arXiv.2603.19312. Mahjourian R, Kim J, Chai Y, Tan M, Sapp B and Anguelov D (2022) Occupancy flow fields for motion forecasting in autonomous driving. IEEE Robotics and Automation Letters 
+
+7(2): 5639–5646. DOI: 10.1109/LRA.2022.3151613. Mayne DQ, Rawlings JB, Rao CV and Scokaert POM (2000) Constrained model predictive control: Stability and optimality. 
+
+Automatica 36(6): 789–814. DOI: 10.1016/S0005-1098(99) 00214-9. Mohammadi A, Tavakoli M, Marquez HJ and Hashemzadeh F (2013) Nonlinear disturbance observer design for robotic manipulators. Control Engineering Practice 21(3): 253–267. DOI: 10.1016/j.conengprac.2012.10.008. Nadaraya EA (1964) On estimating regression. Theory of Probability and Its Applications 9(1): 141–142. DOI: 10.1137/ 1109020. Nuss D, Reuter S, Thom M, Yuan T, Krehl G, Maile M, Gern A and Dietmayer K (2018) A random finite set approach for dynamic occupancy grid maps with real-time application. The International Journal of Robotics Research 37(8): 841–866. DOI: 10.1177/0278364918775523. Ohnishi K, Shibata M and Murakami T (1996) Motion control for advanced mechatronics. IEEE/ASME Transactions on Mechatronics 1(1): 56–67. DOI: 10.1109/3516.491410. Oleynikova H, Taylor Z, Fehr M, Siegwart R and Nieto J (2017) Voxblox: Incremental 3D Euclidean signed distance fields for on-board MAV planning. In: 2017 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) . pp. 1366–1373. DOI: 10.1109/IROS.2017.8202315. Olson E (2011) AprilTag: A robust and flexible visual fiducial system. In: 2011 IEEE International Conference on Robotics and Automation . pp. 3400–3407. DOI: 10.1109/ICRA.2011. 5979561. OpenAI, Andrychowicz M, Baker B, Chociej M, J´ ozefowicz R, McGrew B, Pachocki J, Petron A, Plappert M, Powell G, Ray A, Schneider J, Sidor S, Tobin J, Welinder P, Weng L and Zaremba W (2020) Learning dexterous in-hand manipulation. 
+
+The International Journal of Robotics Research 39(1): 3–20. DOI: 10.1177/0278364919887447. Ostafew CJ, Schoellig AP and Barfoot TD (2016) Robust con-strained learning-based NMPC enabling reliable mobile robot path tracking. The International Journal of Robotics Research 
+
+35(13): 1547–1563. DOI: 10.1177/0278364916645661. Park G and Back J (2024) Survey of disturbance observer-based controller and related challenging problems. Journal of Institute of Control, Robotics and Systems 30(4): 363–372. DOI: 10.5302/J.ICROS.2024.24.0045. Pinneri C, Sawant S, Blaes S, Achterhold J, Stueckler J, Rolinek M and Martius G (2021) Sample-efficient cross-entropy method for real-time planning. In: Proceedings of the 2020 Conference on Robot Learning , Proceedings of Machine Learning Research , volume 155. PMLR, pp. 1049–1065. URL https://proceedings.mlr.press/v155/pinneri21a.html. Rubinstein RY (1997) Optimization of computer simulation models with rare events. European Journal of Operational Research 
+
+99(1): 89–112. DOI: 10.1016/S0377-2217(96)00385-2. Sariyildiz E, Oboe R and Ohnishi K (2020) Disturbance observer-based robust control and its applications: 35th anniversary overview. IEEE Transactions on Industrial Electronics 67(3): 2042–2053. DOI: 10.1109/TIE.2019.2903752. Shim H and Jo NH (2009) An almost necessary and sufficient condition for robust stability of closed-loop systems with disturbance observer. Automatica 45(1): 296–299. DOI: 10. 1016/j.automatica.2008.10.009. Tan J, Zhang T, Coumans E, Iscen A, Bai Y, Hafner D, Bohez S and Vanhoucke V (2018) Sim-to-real: Learning agile locomotion for quadruped robots. In: Proceedings of Robotics: Science and Systems . Pittsburgh, Pennsylvania. DOI: 10.15607/RSS. 2018.XIV.010. Theodorou E, Buchli J and Schaal S (2010) A generalized path integral control approach to reinforcement learning. Journal of Machine Learning Research 11(104): 3137–3181. URL https://www.jmlr.org/papers/v11/theodorou10a.html. Tobin J, Fong R, Ray A, Schneider J, Zaremba W and Abbeel P (2017) Domain randomization for transferring deep neural networks from simulation to the real world. In: 2017 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) . pp. 23–30. DOI: 10.1109/IROS.2017.8202133. Wang G, Ren K, Morgan AS and Hang K (2026) ManiDreams: An open-source library for robust object manipulation via uncertainty-aware task-specific intuitive physics. arXiv preprint arXiv:2603.18336. DOI: 10.48550/arXiv.2603.18336. Williams G, Aldrich A and Theodorou EA (2015) Model predictive path integral control using covariance variable importance sampling. arXiv preprint arXiv:1509.01149. DOI: 10.48550/ arXiv.1509.01149. Williams G, Drews P, Goldfain B, Rehg JM and Theodorou EA (2018a) Information-theoretic model predictive control: Theory and applications to autonomous driving. IEEE Transactions on Robotics 34(6): 1603–1622. DOI: 10.1109/ TRO.2018.2865891. Williams G, Goldfain B, Drews P, Saigol K, Rehg JM and Theodorou EA (2018b) Robust sampling based model predictive control with sparse objective information. In: 
+
+Proceedings of Robotics: Science and Systems . Pittsburgh, Pennsylvania. DOI: 10.15607/RSS.2018.XIV.042. Yang J, Zheng WX, Li S, Wu B and Cheng M (2015) Design of a prediction-accuracy-enhanced continuous-time MPC for disturbed systems via a disturbance observer. IEEE Transactions on Industrial Electronics 62(9): 5807–5816. DOI: 10.1109/TIE.2015.2450736. 
+
+14 Yin J, Dawson C, Fan C and Tsiotras P (2023) Shield model predictive path integral: A computationally efficient robust MPC method using control barrier functions. IEEE Robotics and Automation Letters 8(11): 7106–7113. DOI: 10.1109/ LRA.2023.3315211. Yoneda T, Yang G, Walter MR and Stadie BC (2022) Invariance through latent alignment. In: Proceedings of Robotics: Science and Systems . New York City, NY, USA. DOI: 10.15607/RSS. 2022.XVIII.064. Zeng W, Luo W, Suo S, Sadat A, Yang B, Casas S and Urtasun R (2019) End-to-end interpretable neural motion planner. In: 
+
+2019 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) . pp. 8652–8661. DOI: 10.1109/CVPR. 2019.00886. Zucker M, Ratliff N, Dragan AD, Pivtoraiko M, Klingensmith M, Dellin CM, Bagnell JA and Srinivasa SS (2013) CHOMP: Covariant Hamiltonian optimization for motion planning. The International Journal of Robotics Research 32(9–10): 1164– 1193. DOI: 10.1177/0278364913488805. 
+
+15

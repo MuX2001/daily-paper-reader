@@ -44,14 +44,14 @@
       <span class="dpr-home-dashboard-kicker">2026-10-06</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 32 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 51 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
-    <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>19</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>2 次</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>34</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>17</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-10-06 01:13:16 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-10-06 23:07:59 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,8 +62,8 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>2026-10-06 日报：共汇总32篇，精读19篇、速读13篇，高分亮点集中在灵巧操作与VLA策略学习。</p>
-<p>最值得看的是两篇9.0精读：FoLD用力信息</p>
+<p>日报完成51篇扫描：精读34篇、速读17篇，MPC鲁棒控制与VLA策略学习领跑高分。</p>
+<p>最值得看的是10分《A Unified Framework for Robust Data-Driven Model Predictive Control with Terminal Ingredients》和9分《Alignment-Guided Flow Transformer for Efficient Vision-Language-Action Policy</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -72,12 +72,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">19 篇</strong>
+    <strong class="dpr-home-dashboard-count">34 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="FoLD: Force-Informed Learning for Dexterous Articulated Object Manipulation">FoLD: Force-Informed Learning for Dexterous Articulated Object Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="SLIP-VLA: Single-Step Latent Imagination for Policy Learning in Vision-Language-Action Models">SLIP-VLA: Single-Step Latent Imagination for Policy Learning in Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Alignment-Guided Flow Transformer for Efficient Vision-Language-Action Policy Learning">Alignment-Guided Flow Transformer for Efficient Vision-Language-Action Policy Learning</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="A Unified Framework for Robust Data-Driven Model Predictive Control with Terminal Ingredients">A Unified Framework for Robust Data-Driven Model Predictive Control with Terminal Ingredients</span></li><li><span class="dpr-home-dashboard-paper-title" title="Alignment-Guided Flow Transformer for Efficient Vision-Language-Action Policy Learning">Alignment-Guided Flow Transformer for Efficient Vision-Language-Action Policy Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="Staircase Policy: Streaming Inference for World-Action Models with Large Action Chunks">Staircase Policy: Streaming Inference for World-Action Models with Large Action Chunks</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>7</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>6</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>5</strong></span><span class="dpr-home-dashboard-tag">control <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>11</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>11</strong></span><span class="dpr-home-dashboard-tag">vla <strong>7</strong></span><span class="dpr-home-dashboard-tag">control <strong>5</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -85,12 +85,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">13 篇</strong>
+    <strong class="dpr-home-dashboard-count">17 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Rethinking Causal Action Tokenization with Conditional Annealing in Flow Matching">Rethinking Causal Action Tokenization with Conditional Annealing in Flow Matching</span></li><li><span class="dpr-home-dashboard-paper-title" title="ComManip: Overfitting Manipulation Policies to Comfortable Regions">ComManip: Overfitting Manipulation Policies to Comfortable Regions</span></li><li><span class="dpr-home-dashboard-paper-title" title="MVG-WAM: Multiple View Geometry-Aware World-Action Modeling for Robotic Manipulation">MVG-WAM: Multiple View Geometry-Aware World-Action Modeling for Robotic Manipulation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Rethinking Causal Action Tokenization with Conditional Annealing in Flow Matching">Rethinking Causal Action Tokenization with Conditional Annealing in Flow Matching</span></li><li><span class="dpr-home-dashboard-paper-title" title="MVG-WAM: Multiple View Geometry-Aware World-Action Modeling for Robotic Manipulation">MVG-WAM: Multiple View Geometry-Aware World-Action Modeling for Robotic Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="EVO-WAM: Evolving World Action Models through Video-Action Verification">EVO-WAM: Evolving World Action Models through Video-Action Verification</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>5</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>4</strong></span><span class="dpr-home-dashboard-tag">control <strong>2</strong></span><span class="dpr-home-dashboard-tag">vla <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>6</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>6</strong></span><span class="dpr-home-dashboard-tag">control <strong>3</strong></span><span class="dpr-home-dashboard-tag">vla <strong>2</strong></span></div>
 </section>
 </div>
 
