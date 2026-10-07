@@ -1,0 +1,1689 @@
+Title: Preserving Unstable Modes Through Inverse Dynamics in JEPA World Models
+
+URL Source: https://arxiv.org/pdf/2610.07540v1
+
+Published Time: Wed, 07 Oct 2026 00:45:49 GMT
+
+Number of Pages: 40
+
+Markdown Content:
+# Preserving Unstable Modes Through Inverse Dynamics in JEPA World Models 
+
+Leonardo F. Toso ∗1, Yann LeCun 3, James Anderson 1, and Oumayma Bounou 21Columbia University 
+
+> 2
+
+New York University 
+
+> 3
+
+New York University, AMI Labs 
+
+ Website § Code 
+
+Abstract 
+
+Robotic systems often exhibit unstable modes, along which small perturbations and dis-turbances can cause unbounded growth unless corrected through feedback. Controlling such systems from high-dimensional visual observations requires representations that preserve these modes. Joint-embedding predictive architectures (JEPAs) provide a natural frame-work for learning such representations and their dynamics from visual data. However, we demonstrate that next step prediction combined with anti-collapse regularization does not guarantee that controllable unstable modes are preserved: the training loss can be mini-mized while these modes are collapsed, making stabilization from the learned representation impossible. To address this, we augment world-model training with an action reconstruc-tion objective (i.e., an inverse dynamics loss) that encourages control-aware representations, namely, visual representations that preserve crucial features for control. We prove that exact action reconstruction makes the encoder injective on the finite-horizon reachable subspace. Thus, the encoder cannot discard any state direction reachable by an action sequence within 
+
+H steps. Moreover, we show that, as H grows, the dominant eigenspace of the finite-horizon controllability Gramian converges to the controllable unstable subspace. We establish our theoretical results for linear systems and demonstrate empirically that our findings extend to nonlinear visual control tasks (CartPole, Walker2D, and PointMaze), highlighting the benefits of control-aware representation learning. 
+
+## 1 Introduction 
+
+Quadrotors and legged robots operate around unstable equilibria where small perturbations can grow catastrophically without corrective feedback (Mellinger and Kumar, 2011; Ames et al., 2014). Controlling such systems requires actions that not only minimize a cost (e.g., goal reaching), but also stabilize the physical dynamics; otherwise, incorrect feedback can rapidly drive the system from its intended operating regime and compromise safe deployment (Ames et al., 2016; Marco et al., 2021). Latent world models have found their way into robotics as a computationally efficient so-lution for learning dynamics and designing control actions from high-dimensional sensory ob-servations. They compress pixel observations into a lower-dimensional representation, learn action-conditioned latent dynamics, and optimize actions by rolling out these dynamics, with limited interaction with the physical system (Ha and Schmidhuber, 2018; Hafner et al., 2019, 2020, 2021, 2023). Joint-embedding predictive architectures (JEPAs) follow this recipe without pixel-level reconstruction (LeCun, 2022; Sobal et al., 2025; Balestriero and LeCun, 2025): an  
+
+> ∗Correspondence to: leonardo.toso@columbia.edu .
+
+1arXiv:2610.07540v1 [cs.LG] 6 Oct 2026 Figure 1: Architecture of our proposed world model. At each step, an encoder ( E) maps observation               
+
+> ytto a latent state zt, and a predictor ( P) rolls out latent predictions ˆ zt+1 , . . . , ˆzt+Hconditioned on actions. Training losses are applied at each predicted latent: 1SP/MSP (single- or multi-step prediction) aligns ˆ zt+kwith the encoded ground-truth zt+k. The EP-IDM estimates the intermediate actions ˆ at,H =(ˆ at,ˆat+1 , . . . , ˆat+H−1) from ztand zt+H.
+
+encoder extracts a latent representation, a predictor forecasts its evolution, and anti-collapse mechanisms (e.g., SIGReg (Balestriero and LeCun, 2025), EMA (Assran et al., 2023), and oth-ers (Bardes et al., 2021)) prevent representation collapse. Planning can then be performed efficiently directly in this learned latent space (Zhou et al., 2024; Toso et al., 2026; Wang et al., 2026a). However, deploying JEPAs on unstable systems remains largely unexplored. When actions are designed using the learned latent representation and dynamics, the repre-sentation must preserve the physical information required for feedback control. For open-loop unstable systems, this requires preserving the unstable modes that feedback must observe and correct (Lemma 1) (Hu et al., 2022; Werner and Peherstorfer, 2024; Toso et al., 2025; Lutkus et al., 2025). That is, if a controller cannot “see” an unstable mode, it cannot stabilize it. However, learning to accurately predict latent dynamics while preventing representation collapse does not guarantee that this control-theoretic information is preserved. In fact, the objective combining next-step prediction and anti-collapse regularization, the standard recipe for JEPAs, can be minimized while the encoder discards every unstable mode (Lemma 2). To preserve these modes, we augment the JEPA predictive learning objective with an “endpoint inverse-dynamics” (EP-IDM) loss, which reconstructs the underlying action sequence from the initial and final latent states (see Figure 1), so that the encoder cannot discard directions the actions can reach (Mhammedi et al., 2020; Ivashkov et al., 2026). Our contributions are summarized below. 
+
+• Prediction does not guarantee stabilization. We show that a controller acting on the latent states can stabilize the system if and only if the encoder keeps every unstable mode (Lemma 1). We then show, with SIGReg as the anti-collapse regularizer, that the training objective can reach its minimum while the encoder discards all unstable modes (Lemma 2). 
+
+• Inverse dynamics preserves unstable modes. We introduce EP-IDM, which reconstructs the action sequence from the initial and final latent states. We prove that, with sufficient action excitation, exact reconstruction keeps every direction reachable within H steps, and hence every unstable mode reachable within H steps (Theorem 1). 2• Unstable subspace recovery. We prove that, as H grows, the dominant eigenspace of the finite-horizon controllability Gramian converges to the unstable subspace (Theorem 2). 
+
+• Numerical validation. We show on synthetic linear systems and a linearized CartPole that EP-IDM preserves the unstable direction and enables latent stabilization, while SIGReg does not. We further validate the benefits of EP-IDM on nonlinear visual control tasks (CartPole, Walker2D, and PointMaze), where representations and dynamics are learned from images and proprioceptive measurements. 
+
+## 2 Related Work 
+
+Our work lies at the intersection of joint-embedding predictive world models and latent feedback stabilization. 
+
+Joint embedding predictive world models. JEPAs learn representations by predicting future latent states rather than reconstructing pixels (LeCun, 2022; Assran et al., 2023). Recent work applies this recipe to action-conditioned prediction and planning using pre-trained visual encoders (Zhou et al., 2024; Toso et al., 2026), end-to-end anti-collapse mechanisms (Balestriero and LeCun, 2025; Maes et al., 2026; Kuang et al., 2026), or objectives that shape latent dynamics and geometry (Sobal et al., 2025; Parthasarathy et al., 2025; Wang et al., 2026a; Zhang et al., 2026; Nath et al., 2026). While this body of work primarily addresses total representation collapse and planning, we demonstrate that standard JEPA objectives can selectively collapse directions required for feedback stabilization. Most closely related, Ivashkov et al. (2026) use one-step inverse dynamics to prevent col-lapse. We share the principle that actions provide a control-relevant learning signal but we study feedback stabilization of open-loop unstable systems. Our EP-IDM loss reconstructs the entire action sequence from the endpoint latent states. We prove that exact reconstruction pre-serves the finite-horizon reachable subspace and characterize its convergence to the controllable unstable subspace, connecting action reconstruction to detectability and latent stabilizability. 
+
+Latent feedback stabilization. Control from visual observations requires retaining the state information needed for stabilization. Prior work studies stabilization of linear systems under unknown nonlinear observation maps (Mhammedi et al., 2020), characterizes the sample com-plexity of learning to stabilize (Hu et al., 2022; Werner and Peherstorfer, 2024), and learns low-dimensional unstable subspace representations (Toso et al., 2025; Lutkus et al., 2025). In particular, preserving only the unstable subspace can suffice, since stable modes already decay without correction (Toso et al., 2025). More than just constructing those sufficient represen-tations, we also ask whether standard JEPA training can learn them in the first place. In particular, we connect latent world model training objectives to the control-theoretic informa-tion that their representations must preserve. 
+
+## 3 Setup 
+
+We introduce the dynamical system, latent world model, and training objectives considered throughout the paper. 
+
+Learning an encoder and a predictor. We consider the discrete-time dynamical system 
+
+xt+1 = f (xt, a t), yt = g(xt) ∈ Y ⊂ Rp, (1) for all t = 0 , 1, 2, . . . , where xt ∈ X ⊂ Rn is the state and at ∈ A ⊂ Rm is the applied action, at time t. The transition map f : X ×A → X describes the system dynamics, while the observation 3map g : X → Y maps the state to the observation yt. This observation may contain images, proprioceptive measurements (i.e., part or all of the state xt), both, or other modalities (Wang et al., 2026b; Huang et al., 2026). Examples of such a mapping are provided in Appendix A.5. We call Eq. (1) the physical system. Our goal is to learn an observation encoder Eθ : Y → Z , an action encoder Gθ : A → U ,and a latent dynamics model (predictor) Pθ : Z × U → Z such that 
+
+zt+1 = Pθ
+
+ zt, G θ(at) with latent state zt = Eθ(yt), (2) where Z ⊂ Rd is the latent space, with d ≪ p. For notation simplicity, we denote by θ ∈ Rdθ
+
+the trainable parameters of the observation encoder, action encoder, and predictor. 
+
+Standard training objective. Let D denote the distribution of finite-horizon trajectory win-dows collected from the system in Eq. (1). Each sampled window τ ∼ D starts at a trajectory-dependent time tτ ≥ 0 and is given by 
+
+τ := ( ytτ −1: tτ +H , s tτ :tτ +H , a tτ :tτ +H−1) , (3) where yt, st, and at denote the image observation, proprioceptive measurement, and action at time t, respectively. Hence, each window has H +2 images, H +1 proprioceptive measurements, and H actions. The preceding image ytτ −1 is used only to construct the first encoder input, resulting in H + 1 latent states and H prediction transitions. In our experiments, the encoder uses two consecutive images, their difference to capture motion, and the current proprioceptive measurement: 
+
+ztτ +k = Eθ (ytτ +k−1, y tτ +k, y tτ +k − ytτ +k−1, s tτ +k) , k = 0 , . . . , H. (4) We train the model using the next-step prediction objective 
+
+Lpred (θ) = Eτ ∼D 
+
+"
+
+1
+
+H
+
+> H−1
+
+X
+
+> k=0
+
+Pθ
+
+ ztτ +k, G θ(atτ +k) − ztτ +k+1 22
+
+#
+
+. (5) We combine the prediction loss with SIGReg (Balestriero and LeCun, 2025) to prevent total representation collapse: min  
+
+> θ
+
+Lpred (θ) + λreg Lreg (θ), (6) where λreg > 0 controls the strength of the regularizer. 
+
+Total representation collapse. The representation collapse in JEPAs occurs when the en-coder Eθ maps almost all observations to the same latent representation, i.e., Eθ(y) = c almost surely for some constant c, so that the latent distribution has zero covariance. In particular, SIGReg (Balestriero and LeCun, 2025) (also defined in Appendix A.3.4 for completeness) avoids such a degenerate solution by encouraging the aggregate latent distribution to remain dispersed and approximately isotropic. However, this condition does not require the encoder to preserve any particular physical direction: the representation can keep sufficient variability while selec-tively discarding the information (i.e., unstable modes) required for feedback stabilization. We formalize this collapse of the unstable modes in Section 4. 
+
+Planning in the latent space. 1 Given an initial observation y0 and a goal observation yg,we encode z0 = Eθ(y0) and zg = Eθ(yg) and optimize the action sequence through the learned latent dynamics. For a planning horizon T , we solve min  
+
+> a
+
+∥zT − zg∥22 subject to zt+1 = Pθ
+
+ zt, G θ(at), t = 0 , . . . , T − 1, (7) 
+
+> 1We emphasize that this goal-reaching planning cost is deliberately simple and may be insufficient for more complex control tasks, which can require task-specific stage costs, learned latent reward models, or costs defined through a state decoder (as done for the Walker2D task in Section 6).
+
+4where a = ( a0, . . . , a T −1) is the designed action sequence. In practice, we use a receding-horizon implementation. More details in Appendix A.3. 
+
+Open-loop stability. Let xe be an equilibrium under zero input, i.e., xe = f (xe, 0). The system is locally open-loop stable around xe if trajectories initialized sufficiently close to xe
+
+remain close to it when at = 0 for all t. It is locally asymptotically stable if these trajectories additionally converge to xe as t → ∞ , and it is open-loop unstable if the trajectories diverge from xe.For a linear system xt+1 = Ax t, open-loop asymptotic stability is equivalent to A being Schur stable, i.e., ρ(A) < 1. Eigenvalues satisfying |λ| > 1 correspond to unstable modes, while those with |λ| = 1 are marginally stable. We emphasize that Schur stability prevents ∥xt∥ → ∞ 
+
+as t → ∞ . Likewise, stabilization allows us to design the feedback that sends ∥xt∥ to zero. 
+
+Stabilization and unstable modes. For an open-loop unstable system, i.e., xt = Ax t with 
+
+ρ(A) > 1, the goal is to design a feedback controller that selects actions from the available observations and makes the desired equilibrium asymptotically stable. Under a static linear feedback controller at = Kx t, this amounts to finding K such that the closed-loop matrix 
+
+A + BK is Schur stable. When the controller acts only on the learned latent state, this is possible only if the encoder preserves every unstable or marginally stable direction that must be corrected through feedback (Toso et al., 2025). In this work, we demonstrate that this requirement is not implied by an accurate latent next-step predictor alone. Next, we formalize necessary and sufficient conditions for latent stabilization and demon-strate that the objective above in Eq. (6) does not necessarily satisfy them. 
+
+## 4 Prediction Does Not Guarantee Stabilization 
+
+An encoder Eθ can discard unstable modes while still learning predictable, non-constant repre-sentations. In particular, there may exist an initial condition and a controller that stabilizes the learned latent dynamics, so that ∥zt∥2 → 0, while the corresponding physical trajectory satisfies 
+
+∥xt∥2 → ∞ because an unstable mode lies in the kernel of the encoder. In the linear setting, we characterize the conditions that rule out this failure and demonstrate that next step prediction combined with SIGReg does not necessarily satisfy them. We illustrate these findings at the end of this section with two examples (Fig. 2) and further validate them in Section 6, with additional details also provided in Appendix A.5. 
+
+Linear setting. We consider a linear dynamical system (LDS) obtained by linearizing Eq.(1) around an equilibrium point x⋆, and we assume x⋆ = 0 without loss of generality: 
+
+xt+1 = Ax t + Ba t, yt = Cx t, (8) for all t ∈ Z+, where xt ∈ Rn, at ∈ Rm, yt ∈ Rp, and A, B, and C are the transition, control, and observation matrices, respectively. We consider an open-loop unstable system (i.e., ρ(A) > 1). 
+
+Definition 1 (Stabilizability, observability, and detectability) . The pair (A, B ) is stabilizable 
+
+if there exists a gain K such that A + BK is Schur stable under at = Kx t. Given qt = M x t, the pair (A, M ) is observable if x0 can be recovered from finitely many observations, and detectable 
+
+if every unobservable mode is Schur stable. By the Popov-Belevitch-Hautus (PBH) test (Hautus, 1969), detectability is also equivalent to 
+
+rank 
+
+λI − AM
+
+
+
+= n for every λ ∈ spec( A) such that |λ| ≥ 1, (9) 
+
+where spec( A) denotes the set of eigenvalues of A.
+
+5Assumption 1. For the system (8), the pair (A, B ) is stabilizable and (A, C ) is observable. 
+
+We consider an affine observation encoder and a linear predictor: 
+
+Eθ(y) = W y + b = z ∈ Z , Pθ(z, a ) = Az z + Bz a ∈ Z . (10) Here d < n . The vector θ = ( W, b, A z , B z ) collects all trainable parameters. We write the linear predictor directly in terms of the actions, as a linear action encoder can be absorbed into Bz
+
+without loss of expressivity. 
+
+4.1 Necessary and Sufficient Conditions for Stabilization of LDS 
+
+We first characterize the conditions under which a controller acting only on the learned latent state can stabilize the physical system. We defer the proof of Lemma 1 to Appendix A.6.2. 
+
+Lemma 1. Let F = W C denote the state-to-latent map and consider the centered latent state 
+
+˜zt = zt − b = F x t. Suppose that Assumption 1 holds. Then there exists a causal dynamic controller that uses only the centered latent states {˜zτ }tτ =0 and asymptotically stabilizes Eq. (8) if and only if (A, F ) is detectable. Equivalently, every unstable or marginally stable mode of A
+
+is observable through F , or, by the PBH test, there does not exist a nonzero vector v ∈ Cn such that 
+
+Av = λv, F v = 0 , |λ| ≥ 1. (11) Lemma 1 demonstrates that unstable and marginally stable modes in (8) need to remain observable through the encoder Eθ, i.e., Eθ needs to preserve them. In the next subsection, we demonstrate that minimizing next step prediction loss together with SIGReg does not guarantee this property. 
+
+4.2 The Collapse of Unstable Modes 
+
+Let Φ ≥1 denote the unstable subspace of A associated with eigenvalues satisfying |λ| ≥ 1. We next demonstrate that standard predictive training objectives (e.g., Eq. (6)) can discard the entire subspace Φ ≥1 while still reaching their minimum. 
+
+Lemma 2. There exist open-loop unstable linear systems satisfying Assumption 1 and data dis-tributions for which the prediction loss Lpred and SIGReg objective are simultaneously minimized by an encoder satisfying Φ≥1 ⊂ ker( F ).Proof. We begin our proof by setting the encoder bias to zero and consider coordinates in which 
+
+A =
+
+Au ∆0 As
+
+
+
+, B =
+
+Bu
+
+Bs
+
+
+
+, and xt =
+
+xu,t 
+
+xs,t 
+
+
+
+. (12) Here, we note that Au is open-loop unstable and As is stable. We choose F = [0 Fs], where Fs
+
+is invertible on the stable coordinates. Then, we have 
+
+zt+1 = FsAsF −1 
+
+> s
+
+zt + FsBsut. (13) Therefore, choosing Az = FsAsF −1 
+
+> s
+
+and Bz = FsBs implies zero one-step error, while every unstable direction lies in ker( F ). Note that SIGReg (Balestriero and LeCun, 2025) does not rule out this degenerate solution. Let xs ∼ N (0 , Σs), with Σ s ≻ 0, and take Fs = QΣ−1/2 
+
+> s
+
+for any orthogonal matrix Q. Then zt
+
+is distributed according to a standard Gaussian. We then note that when we use population SIGReg objective in Eq. (6) the regularization term Lreg can be minimized despite the unstable directions being absent in the latent space. 61.0 0.5 0.0 0.5 1.0 
+
+x1    
+
+> 1.0
+> 0.5
+> 0.0 0.5 1.0
+> x2
+> ground truth (stable) ground truth (unstable) learned (SIG) learned (EP-IDM)
+> 20 10 010 20
+
+x1
+
+> 75
+> 50
+> 25
+> 025 50 75
+> x2
+
+SIG     
+
+> start ( x0)closed-loop trajectory
+> 20 10 010 20
+
+x1
+
+> 75
+> 50
+> 25
+> 025 50 75
+> x2
+
+EP-IDM     
+
+> start ( x0)closed-loop trajectory
+> 1.0 0.5 0.0 0.5 1.0
+
+x3    
+
+> 1.0
+> 0.5
+> 0.0 0.5 1.0
+> x4
+> ground truth (unstable) learned (SIG) learned (EP-IDM)
+> 20 10 010 20
+
+x3    
+
+> 75
+> 50
+> 25
+> 025 50 75
+> x4
+> start ( x0)closed-loop trajectory
+> 20 10 010 20
+
+x3
+
+> 75
+> 50
+> 25
+> 025 50 75
+> x4
+> start ( x0)closed-loop trajectory
+
+Figure 2: SIG vs. EP-IDM across two examples. Each row compares a representation trained with SIGReg (SIG) against one trained with the endpoint inverse-dynamics (action-reconstruction) loss (EP-IDM). Top row: synthetic open-loop unstable LDS. Bottom row: linearized CartPole. Left: true unstable ( vu, green) and stable ( vs, grey) eigenvectors versus the learned predictor’s dominant eigenvector, for SIG (blue) and EP-IDM (dashed orange). Center: closed-loop trajectories under the latent LQR controller from four initial states (circles) for the model trained with SIGReg. Right: 
+
+closed-loop trajectories under the latent LQR controller for the model trained with the inverse dynamics loss (EP-IDM). For the bottom row x3, and x4 corresponds to the pole angle and angular velocity, respectively. The latent dimension is one for the example in the top row and three for the example in the bottom row. 
+
+.The constructed encoder Eθ minimizes both terms of Eq. (6) and therefore minimizes Eq. (6) for every λreg ≥ 0, while discarding the entire unstable subspace. By Lemma 1, the physical system cannot be stabilized from the resulting latent state. Our linear analysis removes repre-sentation capacity as a confounding factor: even with a linear observation-to-latent map and little compression, standard predictive objectives can discard precisely the state directions re-quired for stabilization. We illustrate Lemma 2 with a synthetic open-loop unstable system (top row of Figure 2) and a linearized CartPole system (bottom row). Appendix A.5 provides details and an additional open-loop stable example. The left panels compare the learned unstable eigenvector, mapped back to the state space, with the ground-truth unstable eigenvector. The center panels show closed-loop trajectories for the physical systems under the latent linear quadratic regulator (LQR) trained with prediction and SIGReg through Eq. (6). In both systems, SIG learns a substantially misaligned unstable direction, and the resulting controller fails to stabilize the physical system. 2
+
+> 2
+
+We use SIGReg to denote the sketched isotropic Gaussian regularization objective (Balestriero and LeCun, 2025), and SIG to denote a model trained using this regularizer. When the distinction is clear from context, we use the two terms interchangeably. 
+
+75 Preserving Unstable Directions Through Inverse Dynamics 
+
+To encourage the learned representation to preserve unstable modes, we augment the world-model training objective with an inverse dynamics loss (IDM). In particular, our endpoint inverse dynamics (EP-IDM) loss reconstructs the entire action sequence over the prediction horizon from the initial and final latent states (see Fig. 1 for the complete architecture). 
+
+5.1 Endpoint Inverse Dynamics 
+
+We train an inverse dynamics model 3 Dθ : Z × Z → A H to reconstruct the action sequence from the initial and final latent states ztτ and ztτ +H 4:
+
+LEP-IDM (θ) = Eτ ∼D 
+
+"
+
+1
+
+H
+
+> H−1
+
+X
+
+> t=0
+
+Dθ(ztτ , z tτ +H ) 
+
+> t
+
+− atτ +t 22
+
+#
+
+, (14) where [ Dθ(ztτ , z tτ +H ) 
+
+> t
+
+denotes the predicted action at timestep t. We jointly optimize the encoders, predictor, and inverse dynamics model solving the optimization problem in (6) with 
+
+LEP-IDM (θ) in lieu of Lreg (θ). 
+
+5.2 Preservation of Reachable Directions 
+
+We show that exact endpoint action reconstruction requires the encoder to preserve every direc-tion reachable within H steps. For the linear analysis, we consider an affine inverse dynamics model 
+
+Dθ(z0, z H ) = WH [z0 zH ] + bH with WH ∈ RmH ×2d and bH ∈ RmH . (15) Let CH = AH−1B AH−2B · · · B denote the finite-horizon controllability matrix and let 
+
+RH = range( CH ) be the H-step reachable subspace. We require the training data to contain sufficiently rich action excitation. For a fixed initial state xtτ , let supp( aτ,H | xtτ ) denote the support of the conditional distribution of the stacked action sequence aτ,H := a⊤ 
+
+> tτ
+
+· · · a⊤ 
+
+> tτ+H−1
+
+⊤ ∈ RmH .
+
+Theorem 1. Consider the linear system in Eq. (8) and suppose that, for almost every initial state xtτ , the conditional support supp( aτ,H | xtτ ) contains a nonempty open subset of RmH . If an affine inverse dynamics model achieves LEP -IDM = 0 , then 
+
+ker( F ) ∩ R H = {0}. (16) 
+
+Equivalently, the encoder is injective on the H-step reachable subspace: if v ∈ R H and F v = 0 ,then v = 0 . Thus, no state direction that can be generated by an action sequence within H
+
+steps is discarded by the encoder. In particular, if Φ≥1 ⊆ R H , then ker( F ) ∩ Φ≥1 = {0}. Exact reconstruction LEP -IDM = 0 holds only if rank( F CH ) = mH ≤ min {d, n }.
+
+The proof of Theorem 1 is provided in Appendix A.6.3. We note that under Assumption 1 and a sufficiently large horizon H, we have that Φ ≥1 ⊆ R H . Therefore, the theorem above ensures that all unstable and marginally unstable modes remain observable through the repre-sentation, satisfying the detectability condition in Lemma 1. Theorem 1 describes the idealized exact-reconstruction regime. We note that empirically, we use LEP-IDM as a soft inductive bias and do not require it to be zero. Indeed, when mH > d ,  
+
+> 3We augment θwith the trainable parameters of the action decoder.
+> 4We trained two other variants of this inverse dynamics loss that are detailed in Appendix A.3.5.
+
+8exact recovery of an arbitrary action sequence is not feasible. Nevertheless, minimizing the loss can still encourage the representation to preserve the action-induced directions required for control (Section 6). As illustrated in Fig. 2, training the latent world model with the endpoint inverse dynamics loss (EP-IDM) preserves the unstable direction of the physical system in the latent space. The learned latent dynamics capture the unstable mode that must be corrected through feedback, enabling latent stabilization, as shown in the right panels of Fig. 2. In addition, our result in Theorem 1 motivates the question we address next: Which controllable directions preserved by the action reconstruction are the most identifiable ones? 
+
+5.3 Reachability and Unstable Dynamics 
+
+We consider the finite-horizon controllability Gramian given by Π H = PH−1 
+
+> k=0
+
+AkBB ⊤(Ak)⊤.
+
+For simplicity, we exclude eigenvalues on the unit circle, so Φ ≥1 coincides with the strictly unstable subspace Φ. Let ∥ sin Θ( ˆΦ, Φ) ∥2 denote their subspace distance, as defined in Defini-tion 2. 
+
+Theorem 2. Under the mild assumptions given in Appendix A.6.4, let ˆΦ be the span of the top 
+
+r = dim(Φ) eigenvectors of ΠH . Then, we have 
+
+∥ sin Θ( ˆΦ, Φ) ∥2 → 0 as H → ∞ . (17) The convergence rates and proof are provided in Appendix A.6.4. We note that although range(Π H ) = span( B, AB, . . . , A H−1B) does not acquire new direc-tions once H exceeds the state dimension, the relative weighting of these directions continues to change with H. Theorem 2 demonstrates that the effects of unstable modes grow exponentially and eventually dominate the stable ones, making the leading eigenspace of Π H to converge to the unstable subspace Φ. Moreover, Assumption 3 in Theorem 2 requires λmin (Π u,H ) ≥ cuα2H , where Π u,H de-notes the unstable block of the finite-horizon controllability Gramian. We emphasize that this condition strengthens controllability by requiring every unit unstable direction to exhibit an action-induced response growing at least as α2H . It follows when ( Au, B u) is controllable and 
+
+σmin (Au) ≥ α > 1, as discussed in Appendix A.6.4. For ∆ ̸ = 0, Assumption 3 further requires that the indirect input response transmitted through the stable coordinates and the coupling ∆ does not cancel the direct unstable response generated through Bu. Therefore, 
+
+λmin (Π u,H ) = min  
+
+> ∥v∥2=1
+
+v⊤Πu,H v ≥ cuα2H , (18) or equivalently, 
+
+v⊤Πu,H v ≥ cuα2H for every ∥v∥2 = 1 (19) requires that the finite-horizon controllability energy grows at the same exponential scale dic-tated by the unstable modes, which strengthens the condition of all unstable directions being reachable. Therefore, taken together, Theorems 1 and 2 demonstrate that action reconstruction, in particular EP-IDM, prevents the encoder from discarding finite-horizon controllable directions. The controllability Gramian further explains why the dominant action-induced controllable directions increasingly align with the unstable subspace as H grows, i.e., why the unstable directions are the most identifiable ones. We also note that, for simplicity, Theorem 2 excludes eigenvalues on the unit circle. There-fore, its instantiation to the linearized CartPole example in Figure 2 concerns only the strictly unstable mode depicted in the left panel. 9CartPole Walker2D PointMaze Figure 3: CartPole , Walker2D , and PointMaze visual-control tasks used in our evaluation. Each row depicts ten frames from a successful trial (initial state: blue border, final state: green border). Cart-Pole: a continuous-action inverted-pendulum balancing task controlled via LQR. Walker2D: a bipedal robot locomotion task controlled via iCEM (Pinneri et al., 2021). PointMaze: a 2-D point-mass robot navigation task planned via CEM. 
+
+## 6 Experiments 
+
+We now validate 5 our approach on nonlinear visual-control tasks in MuJoCo (Todorov et al., 2012). Our experiments address three questions: (i) whether standard predictive JEPA objec-tives (i.e., solving Eq. (6) with SIGReg as a regularizer) preserve the information required for feedback stabilization, (ii) whether EP-IDM preserves that information, and (iii) whether the re-sulting representations remain useful for stable systems. We consider CartPole, Walker2D, and PointMaze systems (See Fig. 3 for the visualizations of successful trials for CartPole, Walker2D, and PointMaze). Additional experiments and ablations are provided in Appendix A.1. 
+
+6.1 Setup 0 100 200 300            
+
+> Time step t
+> 10 4
+> 10 2
+> 10 0
+> 10 2
+> xt 2
+> 1SP + SIG 1SP + EP-IDM
+> 0100 200 300
+> Time step t
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> 10 1
+> MSP + SIG MSP + EP-IDM + SIG
+
+Figure 4: CartPole state norm ∥xt∥2 under the designed latent LQR controller over 300 steps. 
+
+We consider both encoders trained from scratch and frozen pretrained encoders (DINOv2 (Oquab et al., 2023) and iBOT (Zhou et al., 2021), with results reported in Appendix A.2), for which we train a projec-tor on top. Our training objectives combine either one-step prediction (1SP) or au-toregressive multi-step predic-tion (MSP) with either SIGReg (SIG) or an inverse-dynamics objective (IDM). Our primary objective is endpoint action reconstruction (EP-IDM), for which the decoder reconstructs the complete action sequence from the first and last latent states. We additionally evaluate one-step action reconstruction (IDM), which reconstructs each action from consecutive latent states, and multi-step action reconstruction (MS-IDM), which reconstructs the complete action sequence from the corresponding latent trajectory. Further details are provided in Ap-pendix A.3.5. Architecture, optimization, and dataset details are provided in Appendix A.3.  
+
+> 5Code and checkpoints to reproduce the results can be found at https://jepa-control.github.io/ .
+
+10 0.6 0.4 0.2 0.0               
+
+> Right hip (rad)
+> 7.5
+> 5.0
+> 2.5
+> 0.0 2.5 5.0 7.5 10.0
+> Right hip  (rad/s)
+> GT
+> 0.8 0.6 0.4 0.2 0.0
+> Right hip (rad)
+> 7.5
+> 5.0
+> 2.5
+> 0.0 2.5 5.0 7.5 10.0
+> Right hip  (rad/s)
+> 1SP+EP-IDM
+> 1.0 0.5 0.0
+> Right hip (rad)
+> 10
+> 5
+> 0510
+> Right hip  (rad/s)
+> 1SP+SIG
+> 0.8 0.6 0.4 0.2 0.0
+> Right hip (rad)
+> 15
+> 10
+> 5
+> 0510
+> Right hip  (rad/s)
+> MSP+SIG
+
+Figure 5: Walker2D. Phase portraits of right-hip angle vs. angular velocity for GT dynamics, 1SP+EP-IDM, 1SP+SIG, and MSP+SIG. Each trajectory is a 500-step closed-loop rollout: GT uses real MuJoCo physics, model panels roll out in latent space under an MLP-decoded state, with a SAC (Huang et al., 2022; Haarnoja et al., 2018) policy acting on the decoded observation. 
+
+Systems. CartPole requires stabilizing an open-loop unstable upright equilibrium, where small angular perturbations can make the pole fall. Walker2D is also open-loop unstable because maintaining a walking gait requires continuous feedback. PointMaze instead evaluates goal reaching in a U-shaped maze with open-loop stable point-mass dynamics. 
+
+Controllers and planners. We evaluate three uses of the learned world model. Latent LQR linearizes the predictor at the equilibrium and provides our most direct diagnostic: a collapsed unstable mode cannot be identified or corrected by the resulting feedback controller. CEM searches over sampled open-loop rollouts with repeated replanning, whereas GBP differenti-ates the terminal latent cost through the predicted rollout, both planners are implemented as receding-horizon MPC and periodically replan. Unlike LQR, neither requires the local lin-earization to capture the unstable modes. We report success over ten trials and provide all hyperparameters in Appendix A.3. 
+
+Metrics. We report success rate (SR). For CartPole, success requires ∥xT ∥2 ≤ 0.7 after the 300-step rollout, and the mean fraction of steps (MFS) satisfying ∥xt∥2 ≤ 0.7 measures how consistently the controller remains near the upright equilibrium. For PointMaze, success requires 
+
+∥pT − pg∥2 ≤ 0.5, where pT and pg are the final and goal positions. For Walker2D, we evaluate whether the learned latent dynamics preserve the limit cycle induced by the locomotion policy used to collect the training data. We also do planning through the learned latent dynamics for Walker2D with iCEM (Pinneri et al., 2021), where success requires keeping forward locomotion without falling over the evaluation horizon. Additional details are provided in Appendix A.3. 
+
+6.2 CartPole: Stabilization Around an Unstable Equilibrium 
+
+Table 1 shows the effect of action reconstruction on stabilization performance when the encoder and predictor are trained from scratch. Prediction with SIGReg yields zero latent-LQR success and low MFS, whereas adding EP-IDM achieves 100% success. This confirms that standard prediction and anti-collapse regularization can discard controllable unstable directions, while action reconstruction encourages the representation to preserve the finite-horizon reachable directions containing them. CEM and GBP succeed even with SIGReg models (Table 1). While LQR relies on a local linearization and directly verifies whether the learned model supports local feedback, CEM and GBP optimize finite action sequences through nonlinear predictor rollouts. Their success indicates that SIGReg models retain enough information for nonlinear replanning, even when their local latent linearizations do not yield stabilizing LQR controllers. Figure 4 makes the failure of the standard JEPA recipe more explicit: under 1SP+SIG and MSP+SIG, the state 11 Table 1: CartPole stabilization success rate (%). Model LQR (SR) LQR (MFS) CEM (SR) GBP (SR) Ground truth (GT) 100% 1.000 100% 100% 
+
+1SP + SIG 0% 0.202 100% 90% MSP + SIG 0% 0.247 100% 100% 
+
+1SP + EP-IDM 100% 0.999 100% 100% 
+
+MSP + EP-IDM + SIG 100% 0.996 100% 100% GT 1SP+EP-IDM 1SP+SIG MSP+SIG 
+
+Figure 6: Trajectory frames for Walker2D . Each row shows ten frames uniformly sampled from a 500-step closed-loop rollout under the SAC policy (Haarnoja et al., 2018), decoded from the trained model’s latent state via an MLP decoder. 
+
+norm grows without bound, whereas EP-IDM enables the latent LQR controller to drive the state toward the equilibrium and keep it there. 
+
+6.3 Walker2D: Preserving a Walking Gait 
+
+For Walker2D, we evaluate whether action reconstruction preserves control-relevant dynamics beyond a single unstable equilibrium. A walking gait forms a limit cycle whose deviations must be continuously corrected. Figure 5 compares the right-hip phase portrait from the ground-truth MuJoCo simulator with latent rollouts from 1SP+EP-IDM, MSP+SIG, and 1SP+SIG. EP-IDM preserves the cyclic structure and range of joint angles and angular velocities, whereas 1SP+SIG and MSP+SIG fail to capture the limit cycle induced by the locomotion policy. Hence, we confirm empirically that action reconstruction also preserves control-relevant information associated with a locomotion orbit which goes beyond the scope of preserving unstable equilibria. Figure 6 complements Fig. 5 where we visualize the decoded states directly in pixel space. GT dynamics (top row) produce a periodic bipedal gait throughout the rollout. 1SP+EP-IDM (second row) also keeps coherent walking motion on the episode, confirming that the model captures the structure of the walking limit cycle. 1SP+SIG (third row) and MSP+SIG (bottom row) both fail to keep a physically plausible locomotion: the decoded states are erratic and unnatural over the course of the rollout, which is not consistent with a periodic bipedal walking gait as also depicted in Fig. 5. Table 2 and Fig. 7 evaluate the closed-loop control performance of the learned models under the latent iCEM (Pinneri et al., 2021) across ten trials. The ground-truth planner achieves 3 .61 12 Table 2: Walker2D locomotion under latent iCEM (Pinneri et al., 2021). All metrics are averaged over ten trials. Final height is the torso height (m) at the end of the episode. Model Avg Velocity (m/s) Displacement (m) Final Height (m) Ground truth (GT) 3.61 14.43 1.21 
+
+1SP + SIG 0.08 0.06 0.98 MSP + SIG 0.46 0.66 0.85 1SP + EP-IDM 2.91 9.15 0.92 1SP+EP-IDM 1SP+SIG MSP+SIG 
+
+Figure 7: Planning trajectory frames for Walker2D . Each row shows ten frames uniformly sampled from a 500-step closed-loop rollout under latent iCEM planning for the trained models. We select the best trial, with respect to the forward displacement, across the ten trials for the trained models. 
+
+m/s and 14 .43 m of forward displacement. Among the learned models, 1SP+EP-IDM reaches 2.91 m/s and 9 .15 m, substantially closer to the ground truth behavior than the models trained with SIGReg, which produce near-zero forward displacement. The planning trajectories in Fig. 7 confirm that, with 1SP+EP-IDM, we are able to keep a coherent bipedal gait throughout the episode, while 1SP+SIG and MSP+SIG cannot keep such walking gait. 
+
+6.4 Diagnostics 
+
+Figure 8 compares the local dynamics learned by 1SP+EP-IDM and MSP+SIG. 1SP+EP-IDM reproduces the ground-truth vector field near the upright equilibrium with low three-step prediction error, whereas MSP+SIG captures only parts of the field and exhibits larger, anisotropic error. Both models produce a latent goal cost with a minimum near the equilibrium, which CEM and GBP can exploit through finite-horizon optimization, while LQR requires an accurate local linearization. Figure 9 shows the empirical region of attraction (ROA) and Lyapunov difference under the latent LQR controllers. The controller obtained from 1SP+EP-IDM stabilizes almost every evaluated initial condition and yields ∆ V = V (xt+1 ) − V (xt) < 0 around the equilibrium, providing an empirical certificate of local closed-loop stability. In contrast, the MSP+SIG controller stabilizes only a small neighborhood around the equilibrium. Although MSP+SIG provides a terminal cost suitable for nonlinear planning (Figure 8), its local representation and predictor do not yield a latent stabilizing controller. Action re-construction instead learns local dynamics from which a stabilizing controller can be designed, consistent with Section 5. We evaluate whether action reconstruction remains effective for systems with no unstable modes using PointMaze (Table 3). We note that all action-reconstruction variants trained from 13 20             
+
+> 15
+> 10
+> 5
+> 0510 15 20
+> [deg/s]
+> GT Learned Equilibrium 100
+> 75
+> 50
+> 25
+> 025 50 75 100
+> [deg/s]
+> Equilibrium 100
+> 75
+> 50
+> 25
+> 025 50 75 100
+> [deg/s]
+> Equilibrium 42024
+> [deg]
+> 20
+> 15
+> 10
+> 5
+> 0510 15 20
+> [deg/s]
+> GT Learned Equilibrium 20 10 010 20
+> [deg]
+> 100
+> 75
+> 50
+> 25
+> 025 50 75 100
+> [deg/s]
+> Equilibrium 20 10 010 20
+> [deg]
+> 100
+> 75
+> 50
+> 25
+> 025 50 75 100
+> [deg/s]
+> Equilibrium
+> 0.0 0.2 0.4 0.6 0.8 1.0 1.2 prediction error
+> 1.5
+> 1.0
+> 0.5
+> 0.0 0.5 1.0 1.5 log 10  zH zgoal  2
+> 0246810 12 prediction error
+> 0.5 1.0 1.5 2.0 2.5 3.0 log 10  zH zgoal  2
+> 1SP+EP-IDM MSP+SIG
+
+Figure 8: CartPole diagnostics. Left: Phase portraits of ground-truth and learned vector fields. 
+
+Center: H = 3 open-loop prediction error across ( θ, ˙θ). Right: Zero-action planning cost. 20 10 0 10 20         
+
+> [deg]
+> 80
+> 60
+> 40
+> 20
+> 020 40 60 80
+> [deg/s]
+> 1SP+EP-IDM
+> Learned LQR stabilises Learned LQR fails GT LQR boundary
+> 20 10 010 20
+> [deg]
+> 80
+> 60
+> 40
+> 20
+> 020 40 60 80
+> [deg/s]
+> MSP+SIG
+> 10 010
+> [deg]
+> 40
+> 20
+> 020 40
+> [deg/s]
+> 1SP+EP-IDM
+> 10 010
+> [deg]
+> 40
+> 20
+> 020 40
+> [deg/s]
+> MSP+SIG
+> 50
+> 050
+> V = V(x′) V(x)
+> 100
+> 50
+> 050 100
+> V = V(x′) V(x)
+
+Figure 9: Local stability on CartPole . First two panels: Empirical region of attraction of the learned LQR controller when deployed in the ground-truth system. The dashed line indicates the ground-truth LQR boundary. Last two panels: Lyapunov decrease ∆ V = V (x′) − V (x) under the latent LQR controller. 
+
+scratch reach at least 90% CEM success and at least 70% LQR success. 
+
+## 7 Conclusion and Future Work 
+
+In this work, we demonstrated a fundamental limitation of next-step prediction combined with standard anti-collapse regularization (e.g., SIGReg) in JEPAs: these objectives do not necessar-ily preserve the control-theoretic information required to stabilize an open-loop unstable system. They can be minimized despite the encoder discarding controllable unstable modes. Therefore, the latent representation may not collapse on the training distribution, yet be insufficient for designing a stabilizing latent feedback controller. To overcome this limitation, we proposed endpoint inverse dynamics (EP-IDM), which re-constructs the action sequence from the initial and final latent representations. For linear systems, we proved that exact reconstruction preserves the finite-horizon reachable subspace and prevents the collapse of reachable unstable modes, while the dominant eigenspace of the 14 Table 3: PointMaze navigation success rate (%). 
+
+Encoder Objective CEM (SR) LQR (SR) GBP (SR) GT 100% 80% 90.0% *
+
+From scratch 1SP + IDM 100% 70% 100% 
+
+MSP + MS-IDM 100% 80% 90.0% MSP + EP-IDM 90.0% 80% 90.0% 1SP + EP-IDM 100% 80% 80.0% MSP + SIG 90.0% 60% 100% 
+
+1SP + IDM + MS-IDM 90.0% 80% 90.0% DINOv2 MSP 50.0% 20% 80% iBOT MSP 100% 80% 80% DINO-WM 80% 80% 60%  
+
+> *Because MuJoCo is non-differentiable, we estimate gradients with SPSA using two rollouts per optimization step (Spall, 1998).
+
+controllability Gramian converges to the controllable unstable subspace as the prediction hori-zon grows. Empirically, EP-IDM increases latent-LQR success from 0% to 100% on nonlinear CartPole, preserves the Walker2D limit cycle and supports successful planning with 9 .15 m of average forward displacement over 500 time steps, and achieves strong planning performance on PointMaze. Future work could combine our control-aware representation with latent-geometry objec-tives for efficient and robust planning, including bisimulation (Toso et al., 2026) and temporal straightening (Wang et al., 2026a). 
+
+## 8 Acknowledgments 
+
+Leonardo F. Toso and James Anderson thank Paul Lutkus and Professor Stephen Tu for insight-ful discussions during the early stages of this work. The authors also thank Professor Jean Ponce for his detailed comments and feedback on an earlier version of this manuscript. Leonardo F. Toso is funded by the Center for AI and Responsible Financial Innovation (CAIRFI) Fellowship and the Columbia Presidential Fellowship. James Anderson is partially funded by NSF grants EECS 2144634 and CNS 2535097 and the Center of AI Technology (CAIT) in collaboration with Amazon. This work was also supported in part by AFOSR under grant FA95502310139. 15 References 
+
+Ames, A. D., Galloway, K., Sreenath, K., and Grizzle, J. W. (2014). Rapidly exponentially stabilizing control lyapunov functions and hybrid zero dynamics. IEEE Transactions on Automatic Control , 59(4):876–891. Ames, A. D., Xu, X., Grizzle, J. W., and Tabuada, P. (2016). Control barrier function based quadratic programs for safety critical systems. IEEE transactions on automatic control ,62(8):3861–3876. Assran, M., Duval, Q., Misra, I., Bojanowski, P., Vincent, P., Rabbat, M., LeCun, Y., and Ballas, N. (2023). Self-supervised learning from images with a joint-embedding predictive architecture. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 15619–15629. Balestriero, R. and LeCun, Y. (2025). Lejepa: Provable and scalable self-supervised learning without the heuristics. arXiv preprint arXiv:2511.08544 .Bardes, A., Ponce, J., and LeCun, Y. (2021). Vicreg: Variance-invariance-covariance regular-ization for self-supervised learning. arXiv preprint arXiv:2105.04906 .Davis, C. and Kahan, W. M. (1970). The rotation of eigenvectors by a perturbation. iii. SIAM Journal on Numerical Analysis , 7(1):1–46. Deng, J., Dong, W., Socher, R., Li, L.-J., Li, K., and Fei-Fei, L. (2009). Imagenet: A large-scale hierarchical image database. In 2009 IEEE conference on computer vision and pattern recognition , pages 248–255. Ieee. Ha, D. and Schmidhuber, J. (2018). World models. arXiv preprint arXiv:1803.10122 , 2(3). Haarnoja, T., Zhou, A., Abbeel, P., and Levine, S. (2018). Soft actor-critic: Off-policy maximum entropy deep reinforcement learning with a stochastic actor. In International conference on machine learning , pages 1861–1870. Pmlr. Hafner, D., Lillicrap, T., Ba, J., and Norouzi, M. (2020). Dream to control: Learning behaviors by latent imagination. In International Conference on Learning Representations .Hafner, D., Lillicrap, T., Fischer, I., Villegas, R., Ha, D., Lee, H., and Davidson, J. (2019). Learning latent dynamics for planning from pixels. In International conference on machine learning , pages 2555–2565. PMLR. Hafner, D., Lillicrap, T. P., Norouzi, M., and Ba, J. (2021). Mastering atari with discrete world models. In International Conference on Learning Representations .Hafner, D., Pasukonis, J., Ba, J., and Lillicrap, T. (2023). Mastering diverse domains through world models. arXiv preprint arXiv:2301.04104 .Hautus, M. (1969). Controllability and observability conditions of linear autonomous systems. 
+
+Indagationes Mathematicae (Proceedings) , 72(5):443–448. Hu, Y., Wierman, A., and Qu, G. (2022). On the sample complexity of stabilizing lti systems on a single trajectory. Advances in Neural Information Processing Systems , 35:16989–17002. Huang, H., LeCun, Y., and Balestriero, R. (2026). Llm-jepa: Large language models meet joint embedding predictive architectures. In International Conference on Learning Representations ,volume 2026, pages 105717–105737. 16 Huang, S., Dossa, R. F. J., Ye, C., Braga, J., Chakraborty, D., Mehta, K., and Ara´ ujo, J. G. (2022). Cleanrl: High-quality single-file implementations of deep reinforcement learning al-gorithms. Journal of Machine Learning Research , 23(274):1–18. Ivashkov, P., Balestriero, R., and Sch¨ olkopf, B. (2026). Sensorimotor world models: Perception for action via inverse dynamics. arXiv preprint arXiv:2606.20104 .Kuang, Y., Dagade, Y., Lidec, Q. L., Maes, L., Balestriero, R., and LeCun, Y. (2026). Lpwm: A case for sparse representations in world models. arXiv preprint arXiv:2608.22764 .LeCun, Y. (2022). A path towards autonomous machine intelligence version 0.9. 2, 2022-06-27. 
+
+Open Review , 62(1):1–62. Levine, S., Kumar, A., Tucker, G., and Fu, J. (2020). Offline reinforcement learning: Tutorial, review, and perspectives on open problems. arXiv preprint arXiv:2005.01643 .Lutkus, P., Wang, K., Lindemann, L., and Tu, S. (2025). Latent representations for control design with provable stability and safety guarantees. In 2025 IEEE 64th Conference on Decision and Control (CDC) , pages 2937–2944. IEEE. Maes, L., Lidec, Q. L., Scieur, D., LeCun, Y., and Balestriero, R. (2026). Leworldmodel: Stable end-to-end joint-embedding predictive architecture from pixels. arXiv preprint arXiv:2603.19312 .Marco, A., Baumann, D., Khadiv, M., Hennig, P., Righetti, L., and Trimpe, S. (2021). Robot learning with crash constraints. IEEE Robotics and Automation Letters , 6(2):1439–1446. Mellinger, D. and Kumar, V. (2011). Minimum snap trajectory generation and control for quadrotors. In 2011 IEEE international conference on robotics and automation , pages 2520– 2525. Ieee. Mhammedi, Z., Foster, D. J., Simchowitz, M., Misra, D., Sun, W., Krishnamurthy, A., Rakhlin, A., and Langford, J. (2020). Learning the linear quadratic regulator from nonlinear observa-tions. Advances in Neural Information Processing Systems , 33:14532–14543. Nath, D., Srinivasan, A., Yin, H., Jiang, R., Fang, J., and Chou, G. (2026). Pixels to proofs: Probabilistically-safe latent world model control via parallel conformal robust mpc. arXiv preprint arXiv:2606.15594 .Oquab, M., Darcet, T., Moutakanni, T., Vo, H., Szafraniec, M., Khalidov, V., Fernandez, P., Haziza, D., Massa, F., El-Nouby, A., et al. (2023). Dinov2: Learning robust visual features without supervision. arXiv preprint arXiv:2304.07193 .Parthasarathy, A., Kalra, N., Agrawal, R., LeCun, Y., Bounou, O., Izmailov, P., and Goldblum, M. (2025). Closing the train-test gap in world models for gradient-based planning. arXiv preprint arXiv:2512.09929 .Pinneri, C., Sawant, S., Blaes, S., Achterhold, J., Stueckler, J., Rolinek, M., and Martius, G. (2021). Sample-efficient cross-entropy method for real-time planning. In Conference on Robot Learning , pages 1049–1065. PMLR. Sobal, V., Zhang, W., Cho, K., Balestriero, R., Rudner, T. G., and LeCun, Y. (2025). Learning from reward-free offline data: A case for planning with latent dynamics models. arXiv preprint arXiv:2502.14819 .17 Spall, J. C. (1998). An overview of the simultaneous perturbation method for efficient opti-mization. Johns Hopkins apl technical digest , 19(4):482–492. Todorov, E., Erez, T., and Tassa, Y. (2012). Mujoco: A physics engine for model-based control. In 2012 IEEE/RSJ international conference on intelligent robots and systems , pages 5026– 5033. IEEE. Toso, L. F., Shadunts, D., Lu, Y., Sharma, N., Zhan, D., Nguyen, N. H., and Anderson, J. (2026). Learning invariant visual representations for planning with joint-embedding predictive world models. arXiv preprint arXiv:2602.18639 .Toso, L. F., Ye, L., and Anderson, J. (2025). Learning stabilizing policies via an unstable subspace representation. In 2025 IEEE 64th Conference on Decision and Control (CDC) ,pages 7543–7550. IEEE. Wang, Y., Bounou, O., Zhou, G., Balestriero, R., Rudner, T. G., LeCun, Y., and Ren, M. (2026a). Temporal straightening for latent planning. arXiv preprint arXiv:2603.12231 .Wang, Z., Fang, K., and LeCun, Y. (2026b). Music-jepa: Learning a world model of sound from action. arXiv preprint arXiv:2607.22000 .Werner, S. W. and Peherstorfer, B. (2024). On the sample complexity of stabilizing linear dynamical systems from data. Foundations of Computational Mathematics , 24(3):955–987. Zhang, W., Terver, B., Zholus, A., Chitnis, S., Sutaria, H., Assran, M., Balestriero, R., Bar, A., Bardes, A., LeCun, Y., et al. (2026). Hierarchical planning with latent world models. arXiv preprint arXiv:2604.03208 .Zhou, G., Pan, H., LeCun, Y., and Pinto, L. (2024). Dino-wm: World models on pre-trained visual features enable zero-shot planning. arXiv preprint arXiv:2411.04983 .Zhou, J., Wei, C., Wang, H., Shen, W., Xie, C., Yuille, A., and Kong, T. (2021). ibot: Image bert pre-training with online tokenizer. arXiv preprint arXiv:2111.07832 .18 A Appendix 
+
+This appendix is organized as follows. Appendix A.1 supplements Section 6 with additional experimental results and diagnostics. Appendix A.2 evaluates the trained world models using frozen pretrained encoders. Appendix A.3 provides the model architectures, datasets, opti-mization parameters, controller implementations, and additional action-reconstruction objec-tives used in our experiments. Appendix A.4 presents ablations on the action reconstruction, action-context length, and observation inputs. Appendix A.5 provides the construction and physical parameters of the linear examples from Section 4. Finally, Appendix A.6.1 states the supporting technical results, and Appendices A.6.2–A.6.4 provide the proofs of our theoretical guarantees. 
+
+A.1 Additional Experimental Validation (Extending Section 6) 
+
+We provide additional evidence and illustration supporting the performance results in Section 6. We first examine representative CartPole and PointMaze trajectories and relate their closed-loop performance to the geometry and local dynamics learned by each model. We then evaluate long-horizon prediction along feedback trajectories to distinguish accurate rollout prediction from the preservation of the unstable directions required for stabilization. 
+
+A.1.1 CartPole 
+
+In Fig. 10 we complement the success rates in Section 6 with the sequences of frames in a randomly selected trial trajectory under the latent LQR controllers. The models trained with EP-IDM, both from scratch and with the frozen iBOT encoder, keep the pole upright throughout the rollout. In contrast, the prediction combined with SIGReg models, frozen iBOT without EP-IDM, and DINO-WM fail to stabilize the system. Moreover, Figs. 11–12 show that the model trained from scratch with MSP+EP-IDM+SIG recovers the local vector field around the upright equilibrium, yields low prediction error around the equilibrium, and leads to a broad region of attraction with the expected decrease in the Lyapunov certificate. Figs. 13–14 depict similar performance when EP-IDM is applied through a learned projector on top of the pretrained iBOT. By comparison, the iBOT models without EP-IDM and DINO-WM have less accurate local dynamics, even when their terminal latent costs is minimized near the goal (see Figs. 15–18). Table 4 reports the diagnostics for the CEM experiments. The inverse squared stabilization length highlights models that lose stability early from those that remain close to the goal over the planning horizon, while the final error measures terminal accuracy. These results emphasize that CEM can compensate for imperfect local dynamics through repeated nonlinear replanning, whereas LQR directly depends on the local model around the equilibrium. 
+
+A.1.2 PointMaze 
+
+PointMaze is open-loop stable and therefore does not require recovery of an unstable subspace. We, nevertheless, check whether IDM retains task-relevant directions without degrading nonlin-ear planning for open-loop stable tasks. Fig. 19 shows that both EP-IDM models and MSP+SIG reach the goal under CEM, whereas DINO-WM fails on the displayed rollout. The latent goal-distance fields in Fig. 20 explain this behavior. The models trained from scratch produce smooth fields that decrease toward the goal and broadly respect the maze geometry, providing CEM with an informative terminal cost. The DINO-WM field is less aligned with the navigation geometry, which can direct the planner toward states that appear 19 Table 4: CartPole CEM diagnostic metrics (action context 1). 1 /L 2: inverse squared mean stabilization length. FE: final error ∥xT ∥. PR denotes a learned projector on top of the frozen encoder. 
+
+Encoder Objective CEM (1 /L 2) CEM (FE) GT 0.0003 0.30202 From scratch 1SP + SIG 0.0003 0.19956 1SP + IDM + MS-IDM 0.0003 0.43608 1SP + EP-IDM 0.0003 0.13683 MSP + SIG 0.0003 0.07667 MSP + EP-IDM + SIG 0.0003 0.11985 DINOv2 1SP 0.0038 4.60613 MSP 0.0031 5.09216 MSP + PR-SIG 0.0003 0.19056 MSP + PR-IDM 0.0331 4.68120 MSP + PR-EP-IDM 0.0004 1.57507 iBOT 1SP 0.0003 0.09306 1SP + PR-EP-IDM 0.0004 0.47275 MSP 0.0073 3.49471 MSP + PR-SIG 0.0004 1.42928 MSP + PR-IDM 0.0567 5.11192 MSP + PR-EP-IDM 0.0003 0.62596 DINO-WM 0.0005 0.9777 close in latent space but are not connected by a feasible path. Importantly, on this open-loop stable task, the goal is to shape the representation to obtain a smooth planning latent geometry rather than the recovery of unstable modes. 
+
+A.1.3 Closed-Loop Prediction Error 0 50 100 150 200 250 300 
+
+> k-step
+> 0123456
+> k-step prediction error
+> 1SP+EP-IDM MSP+EP-IDM MSP+EP-IDM+SIG
+
+Figure 21: k-step closed-loop prediction error along trajectories generated by the ground-truth LQR controller. Curves show the physical-state error between the ground-truth trajectory and the trajectory decoded from each latent rollout. 
+
+Figure 21 compares predic-tion errors over long closed-loop rollouts. The 1SP+EP-IDM model is close to the ground-truth trajectory over the entire horizon. The er-ror of MSP+EP-IDM grows steadily, whereas combining multi-step prediction and EP-IDM with SIGReg keeps the error bounded. Hence, multi-step training alone is not able to alleviate the rollout drift in an unstable system, i.e., small model errors can still be am-plified by the dynamics. On the other hand, the representa-tion regularization SIGReg im-20 Table 5: CartPole control performance with frozen pretrained encoders. SR: success rate. MFS: mean fraction of steps within the success threshold. PR denotes a learned projector. DINO-WM (Zhou et al., 2024) is an external baseline. 
+
+Encoder Objective LQR (SR) LQR (MFS) CEM (SR) GBP (SR) DINOv2 1SP 0% 0.301 0% 0% MSP 0% 0.232 0% 0% 1SP + PR-EP-IDM 0% 0.025 20% 0% MSP + PR-SIG 0% 0.460 100% 0% MSP + PR-IDM 0% 0.455 0% 0% MSP + PR-EP-IDM 0% 0.513 40% 10% iBOT 1SP 0% 0.249 100% 80% MSP 0% 0.228 0% 0% 1SP + PR-EP-IDM 0% 0.263 100% 80% MSP + PR-SIG 50% 0.571 80% 80% MSP + PR-IDM 0% 0.405 0% 0% MSP + PR-EP-IDM 100% 0.998 100% 0% DINO-WM 0% 0.019 40% 10% proves the conditioning of the representation. This is complementary to the stability results in Section 6. The low rollout error in the landscape diagnosis supports control, but does not by itself guarantee that the representation preserves the unstable directions required by LQR. 
+
+A.2 Pre-trained encoders 
+
+We evaluate whether IDM can preserve control-relevant information when the visual encoder is frozen and only a lightweight projector (PR) and the latent dynamics are trained. Table 5 shows that the benefit of EP-IDM depends on the information and local geometry already present in the frozen latents. In particular, with iBOT, MSP+PR-EP-IDM achieves 100% LQR and CEM success. In contrast, none of the DINOv2 configurations yields a stabilizing LQR controller, although MSP+PR-SIG supports CEM. Hence, IDM can shape the projector to preserve control-relevant information captured by the frozen backbone, but cannot recover information that the backbone has discarded. Figure 22 depicts the closed-loop LQR trajectories. For every DINOv2-based model, the CartPole state norm crosses the stabilization threshold and grows without bound, except for MSP for which ∥xt∥2 ≤ 10. In contrast, the latent controller obtained with MSP+iBOT+PR-EP-IDM drives the state norm below the threshold and keeps it near the upright equilibrium for the full 300-step rollout. 
+
+A.3 Additional Details on the Implementation of our Experiments 
+
+In this section, we provide additional implementation details needed to reproduce the nonlinear visual-control experiments from Section 6. We first detail our world-model architecture, then specify the datasets and control parameters used for each task. 
+
+A.3.1 Model Architecture 
+
+We next describe the encoder, latent predictor, and action decoders used across our experiments. 21 Visual encoder. For models trained from scratch, each RGB observation is divided into non-overlapping patches and processed by a ViT-Tiny encoder with four transformer blocks, three attention heads, and embedding dimension 192, similar to Ivashkov et al. (2026). The resulting class token is concatenated with the proprioceptive measurements and mapped to a 192-dimensional latent state by a two-layer projection head. Unless stated otherwise, we encode the difference between consecutive frames together with the proprioceptive measurements to emphasize motion (i.e., velocity) of the physical system in the latent space. For the frozen visual encoder, we use either the DINOv2 ViT-S/14 or iBOT ViT-S/16 class token. The backbone parameters are frozen and a trainable two-layer projector maps the concatenated visual and proprioceptive features to the common 192-dimensional latent space. This construction follows the use of frozen visual features in DINO-WM (Zhou et al., 2024). 
+
+Latent predictor and action decoders. The latent predictor is an action-conditioned causal transformer with six blocks, 16 attention heads, hidden dimension 192, MLP dimension 2048, and dropout 0 .1, also similar to the architecture adopted in Ivashkov et al. (2026). Actions are embedded by a two-layer MLP and modulate each transformer block through adaptive layer normalization. The prediction head is a two-layer MLP with hidden dimension 2048 and output dimension 192. The one-step and multi-step action decoders are MLPs with two hidden layers of width 256 and ReLU nonlinearities. The endpoint decoder receives the initial and terminal latent states and uses the same hidden dimensions to reconstruct the complete length-H action sequence. Then, all action-reconstruction variants differ only in the latent information provided to the decoder. Table 6: Task-specific observation and action dimensions. The frame skip is the number of simulator steps represented by one model transition. 
+
+Task Image size Proprioception Action Frame skip Training trajectories CartPole 128 × 128 4 1 5 787 Walker2D 64 × 64 17 6 5 3, 200 PointMaze 64 × 64 4 2 5 1, 600 
+
+Optimization. We train all trainable modules jointly with AdamW. The learning rate is linearly warmed up during the first five epochs and then follows a cosine schedule. Gradients are clipped to unit norm. The coefficients of the active prediction, regularization, and action-reconstruction objectives are set to one. Table 7 reports the shared hyperparameters. All reported configurations use the same optimization budget. Table 7: World-model training hyperparameters. 
+
+Hyperparameter Value Hyperparameter Value Optimizer AdamW Epochs 200 Batch size 64 Prediction horizon H 3Initial learning rate 10 −4 Minimum learning rate 10 −6
+
+Weight decay 10 −3 Warm-up epochs 5Gradient-norm threshold 1 Latent dimension 192 Random seed 42 Active loss weights 122 A.3.2 Task and Dataset Details 
+
+We next describe the data collection and evaluation protocols for each task. 
+
+CartPole. We render the nonlinear CartPole system from a fixed camera and pair each im-age with the four-dimensional physical state. The dataset contains 985 trajectories, split into 787 /99 /99 training, validation, and test trajectories. To cover both uncontrolled and stabilizing behaviors, 75% of the trajectories are collected using passive (i.e., at = 0 for all t) or uniformly random inputs, and the remaining 25% use LQR-based policies and reference-angle sweeps. During evaluation, each method is tested from ten initial conditions for 300 control steps. Atrial is successful when the norm of the physical state remains below 0 .7 after T steps. Actions are clipped to [ −10 , 10]. 
+
+Walker2D. We use the Walker2D-v4 environment with 64 × 64 RGB observations, the 17-dimensional proprioceptive measurements, and six-dimensional actions. The training data com-bine equal numbers of trajectories generated by a random policy and a pretrained SAC policy (Huang et al., 2022; Haarnoja et al., 2018), yielding 3 , 200 training, 400 validation, and 400 test trajectories after the split. Evaluation is conducted over ten trials of 600 steps. 
+
+PointMaze. We use the U-shaped PointMaze environment with 64 × 64 RGB observations, four-dimensional proprioception, and two-dimensional actions. The dataset contains 2 , 000 tra-jectories of length 100, split into 1 , 600 /200 /200 training, validation, and test trajectories. For each of ten trials, the point robot is initialized at a sampled start state and controlled to reach a trial-specific goal. Success happens when the planar distance to the goal is at most 0 .5. 
+
+A.3.3 Planning and Control Details 
+
+All planners optimize a terminal latent-space objective: the predicted terminal representation is matched to the representation of the desired goal observation. As in DINO-WM (Zhou et al., 2024), CEM keeps a Gaussian distribution over action sequences, evaluates sampled sequences with the learned predictor, and select the lowest-cost elite actions, and refines the distribution. We use the iCEM variant in Pinneri et al. (2021) for Walker2D with a SAC policy warm initialization for the distribution of actions. Table 8 provides the task-specific sampling budgets. Table 8: CEM and improved-CEM planning hyperparameters. Here, “execute” denotes the number of actions applied before replanning. Task Planner Horizon Execute Population Elites Iterations CartPole CEM 10 1 300 30 10 Walker2D iCEM 3 1 200 20 5PointMaze CEM 25 25 300 30 10 
+
+For gradient-based planning (GBP), the action sequence is optimized directly through the differentiable latent rollout. We use Adam for 50 optimization steps at each replanning instant, with learning rate 0 .1 and Gaussian action perturbations of standard deviation 0 .05. The CartPole and PointMaze horizons are 10 and 25, respectively. For latent LQR, we linearize the learned latent dynamics around the desired equilibrium by automatic differentiation and solve the corresponding discrete algebraic Riccati equation. We use Q = I192 in both tasks, with R = 1 for CartPole and R = I2 for PointMaze. 23 A.3.4 Sketched Isotropic Gaussian Regularization (SIGReg) 
+
+For completeness, we define the SIGReg objective used to prevent total representation collapse by enforcing random one-dimensional projections of the latent distribution to match a standard isotropic Gaussian (Balestriero and LeCun, 2025). 
+
+LSIG (θ) = 1
+
+K
+
+> K
+
+X
+
+> ℓ=1
+
+Pnω 
+
+> j=1
+
+g(ωj )
+
+h
+
+(Re ˆ φℓ(ωj ) − φN (ωj )) 2 + (Im ˆ φℓ(ωj )) 2 iPnω 
+
+> j=1
+
+g(ωj )
+
+ .
+
+where ˆφℓ(ω) = 1
+
+M
+
+> M
+
+X
+
+> i=1
+
+eiω(w⊤ 
+
+> ℓzi)
+
+, φN (ω) = e−ω2/2 =: g(ω), wℓ i.i.d. 
+
+∼ Unif  Sd−1.
+
+Here, K is the number of random projection directions, and wℓ ∈ Sd−1 is the ℓ-th random unit direction in latent space. Each wℓ is obtained by drawing an i.i.d. Gaussian vector in Rd and normalizing it. Moreover, zi = Eθ(yi) ∈ Rd is the i-th latent vector in the current minibatch, obtained by pooling every “frame” from every window, for i = 1 , . . . , M . The total number of pooled latents is M = N (H +1), corresponding to all H +1 frames from each of the N windows. Lastly, ω ∈ R denotes the characteristic-function argument, and {ωj }nω 
+
+> j=1
+
+is a grid of nω points evenly spaced in [ −ωmax , ω max ]. 
+
+A.3.5 Additional Action Reconstruction Losses 
+
+In addition to the endpoint action reconstruction loss studied in Section 5, we empirically con-sider two alternative inverse-dynamics objectives. These objectives differ only in the latent information made available to the action decoder. 
+
+Multi-step action reconstruction. The multi-step decoder receives the complete latent trajectory and jointly reconstructs all actions applied within the window: 
+
+DMS-IDM ,θ (ztτ , . . . , z tτ +H ) = ˆ aτ,H ∈ RmH , (20) where ˆ aτ,H = [ˆ a⊤ 
+
+> tτ
+
+· · · ˆa⊤ 
+
+> tτ+H−1
+
+]⊤. In the pixel-based experiments, DMS-IDM ,θ is a multilayer perceptron that first concatenates the H + 1 latent states and then predicts the entire length-H
+
+action sequence in a single forward pass. In the linear-system examples, we use a linear decoder. The corresponding loss is 
+
+LMS-IDM (θ) = Eτ ∼D 
+
+"
+
+1
+
+H
+
+> H−1
+
+X
+
+> t=0
+
+DMS-IDM ,θ 
+
+ ztτ , . . . , z tτ +H
+
+  
+
+> t
+
+− atτ +t 22
+
+#
+
+. (21) In contrast to the endpoint action reconstruction, this decoder can use the intermediate repre-sentations to infer each action from local changes along the trajectory. 
+
+One-step action reconstruction. The one-step decoder is shared across time and recon-structs each action from a pair of consecutive latent states: 
+
+DIDM ,θ (ztτ +t, z tτ +t+1 ) = ˆ atτ +t ∈ Rm. (22) 24 Table 9: CartPole ablation over inverse-dynamics formulations for an encoder trained from scratch. 
+
+Objective LQR (SR) LQR (MFS) CEM (SR) GBP (SR) 1SP + IDM + MS-IDM 100% 0.999 100% 100% 1SP + EP-IDM 100% 0.999 100% 100% MSP + EP-IDM + SIG 100% 0.996 100% 100% In our implementation, DIDM ,θ is a multilayer perceptron (MLP) applied independently to every adjacent latent pair. Its loss is 
+
+LIDM (θ) = Eτ ∼D 
+
+"
+
+1
+
+H
+
+> H−1
+
+X
+
+> t=0
+
+DIDM ,θ 
+
+ ztτ +t, z tτ +t+1 
+
+ − atτ +t 22
+
+#
+
+. (23) This objective provides a local inverse-dynamics signal at each transition and uses the same decoder parameters for all k. This one-step action-reconstruction objective is the empirical finite-sample counterpart of the inverse-dynamics regularizer proposed by Ivashkov et al. (2026). We emphasize that, empirically, we consider endpoint (EP-IDM), multi-step (MS-IDM), and one-step (IDM) action reconstruction both separately and jointly. A common loss encompassing all variants of action reconstruction considered in this work is given by ¯LIDM (θ) = λ1LEP-IDM (θ) + λ2LMS-IDM (θ) + λ3LIDM (θ). (24) The theoretical guarantees in Section 5 leverage the endpoint loss LEP-IDM , whereas the two alternatives above are also included as empirical comparisons. 
+
+A.4 Ablations 
+
+We ablate the action reconstruction formulation, action-context length, and observation inputs to identify the effect of these components in the obtained control performance. 
+
+Different inverse dynamics loss formulations. In Table 9, we compare the different vari-ants for action reconstruction, i.e., EP-IDM, IDM, and MS-IDM, used in the main experiments (see Appendix A.3.5 for additional details). We note that EP-IDM and the joint one-step/multi-step objective both produce perfect CartPole success with all three controllers. Adding SIGReg to multi-step prediction and endpoint reconstruction does not degrade performance. 
+
+Action context. Moreover, in Tables 10 and 11, we compare training with different action context lengths. Here, by action context, we mean the number of consecutive actions provided to the latent predictor when predicting the next latent. Here we consider action context one (the standard in our experiments) and five (the ablation) while holding the encoder and objective fixed. The trained-from-scratch action-reconstruction models do not benefit from more actions in the context length. However, the models trained with pretrained encoders indicate that a longer action context can actually help shape the representation for a better planning when using iBOT as the frozen encoder. 
+
+Observation inputs. In Table 12 we summarize the results when we remove the pixel observa-tions (i.e., images) and compares MLP and transformer predictors using only the physical state (proprioceptive measurements). We note that EP-IDM succeeds with the transformer but not with the MLP under LQR, showing that representation sufficiency does not replace the need to fit an accurate local predictor. Moreover, in Table 13, we have the results when we remove the proprioceptive measurements (states) from the frozen-iBOT models. We note that performance 25 Table 10: CartPole success rates (%) with action contexts one and five. PR denotes a learned projector on top of the frozen encoder. LQR (SR) CEM (SR) GBP (SR) Encoder Objective Context 1 Context 5 Context 1 Context 5 Context 1 Context 5 From scratch 1SP + SIG 0 0 100 100 90 90 1SP + IDM + MS-IDM 100 100 100 100 100 100 1SP + EP-IDM 100 100 100 100 100 100 MSP + SIG 0 40 100 100 100 100 DINOv2 MSP 0 0 0 0 0 0DINOv2 MSP + PR-SIG 0 0 100 60 0 0iBOT MSP 0 0 0 100 0 60 MSP + PR-SIG 50 40 80 90 80 60 
+
+Table 11: PointMaze success rates (%) with action contexts one and five. LQR (SR) CEM (SR) GBP (SR) Encoder Objective Context 1 Context 5 Context 1 Context 5 Context 1 Context 5 From scratch 1SP + IDM 70 80 100 90 100 80 1SP + EP-IDM 80 80 100 100 80 80 1SP + IDM + MS-IDM 80 70 90 100 90 90 MSP + SIG 60 80 90 70 100 60 MSP + MS-IDM 80 80 100 100 90 90 MSP + EP-IDM 80 80 90 90 90 100 DINOv2 MSP 20 10 50 60 80 50 iBOT MSP 80 80 100 80 80 60 
+
+drops to zero across all planners, indicating that the present image encoder and short temporal context do not reliably recover velocity information from pixels alone. Table 12: CartPole ablation: Action context one, only proprioceptive information (state). Predictor Objective LQR (SR) LQR (MFS) CEM (SR) CEM (held) GBP (SR/held) MLP MSP + SIG 20% 0.571 20% 20% 0% / 0% 1SP + EP-IDM 0% 0.204 100% 100% 0% / 0% Transformer MSP + SIG 20% 0.461 0% 0% 0% / 0% 1SP + EP-IDM 80% 0.869 100% 100% 100% / 100% 
+
+Fixed-point consistency and encoder sensitivity. We also evaluate how the two frozen en-coders respond to small physical perturbations in order to understand the reason why MSP+PR-EP-IDM with iBOT succeeds and with DINOv2 fails. Table 14 reports the ratio between con-secutive latent and physical displacements for zero-action rollouts near the upright equilibrium. iBOT has a gain close to one across the evaluated perturbations, whereas DINOv2 amplifies the same perturbations by approximately 22-26 times. This is also consistent with the fixed-point residuals in Table 15, namely, the predictor has difficulty representing the upright equilibrium state as a stationary latent point when small physical perturbations lead to disproportionately large latent perturbations. We also note that DINOv2 (Oquab et al., 2023) is trained on ImageNet (Deng et al., 2009) 26 Table 13: CartPole ablation with a frozen iBOT encoder and action context five, with and without proprioceptive inputs. PR denotes the learned projector. SR: success rate, held: fraction of trials in which stabilization is preserved. Objective Proprioception LQR (SR) CEM (SR) CEM (held) GBP (SR) GBP (held) MSP Yes 0% 100% 100% 60% 40%                            
+
+> No 0% 0% 0% 0% 0% MSP + PR-SIG Yes 40% 90% 90% 60% 60%
+> No 0% 0% 0% 0% 0% MSP + PR-IDM Yes 100% 80% 80% 70% 70%
+> No 0% 0% 0% 0% 0%
+
+to maximally separate image representations, that is, it amplifies fine visual perturbations. In particular, a 0 .02-unit physical perturbation of the CartPole state changes the image by only a few pixels, but DINOv2’s CLS token will completely separate it in the latent space. On the other hand, iBOT (Zhou et al., 2021), trained with masked reconstruction, learns a smoother representation where nearby images map to close latents. Table 14: Ablation on the encoder gain ∥∆zt∥/∥∆xt∥ as a function of initial-state perturbation magni-tude ∥x0∥. We start from a perturbed upright equilibrium, the cart pole is stepped with zero action for 60 steps. We measure the mean latent displacement ∥∆zt∥ = ∥zt − zt−1∥ divided by the mean physical-state displacement ∥∆xt∥ = ∥xt − xt−1∥ .
+
+Encoder ∥x0∥=0 .005 ∥x0∥=0 .01 ∥x0∥=0 .02 ∥x0∥=0 .05 ∥x0∥=0 .10 ∥x0∥=0 .20 iBOT 1.07 × 1.11 × 1.07 × 1.07 × 1.02 × 1.03 ×
+
+DINOv2 25.45 × 26.07 × 26.38 × 25.67 × 21.83 × 25.12 ×
+
+A.5 Additional Details on Examples of Section 4 
+
+This section provides details on the system matrices, physical parameters, and linear camera maps used in the examples of Section 4. In addition, we also provide here an additional moti-vating example of a synthetic open-loop stable system. 
+
+Linear camera maps. In all three examples, we observe the physical state through a fixed linear perceptual “sensor” or camera map yt = Cx t. It lifts the low-dimensional physical state into a redundant observation space and mixes its coordinates, so that dynamically meaningful directions are not presented to the encoder in an axis-aligned basis. For a state dimension n
+
+and observation dimension p, we draw ¯C ∈ Rp×n using random seed zero, with ¯Cij i.i.d. 
+
+∼ N (0 , 1), and normalize each column, i.e., C:,j = ¯C:,j /∥ ¯C:,j ∥2.
+
+Synthetic, open-loop unstable system (Example 1). This example isolates the collapse of unstable modes in the smallest possible setting: a two-dimensional, single-input system with one stable mode and one controllable but open-loop unstable mode that must be retained by the learned representation for feedback stabilization. We first define ¯A = diag(1 .25 , 0.85) and ¯B =
+
+ 10.6
+
+
+
+. (25) Both modes are therefore actuated by the single input. To avoid aligning the modal coordinates 27 Table 15: Fixed-point residual of the learned predictor at the encoded upright CartPole equilibrium under zero action. The residual measures the one-step drift from this encoded equilibrium. PR denotes a learned projector on top of the frozen encoder. 
+
+Encoder Objective ∥P (zeq , 0) − zeq ∥
+
+DINOv2 1SP 5.569 MSP 7.215 1SP + PR-EP-IDM 0.4026 MSP + PR-SIG 2.515 MSP + PR-EP-IDM 0.343 iBOT 1SP 0.059 MSP 0.101 1SP + PR-EP-IDM 0.091 MSP + PR-SIG 0.641 MSP + PR-EP-IDM 0.129 with the physical state coordinates, we apply the similarity transformation 
+
+Tϑ =
+
+cos ϑ − sin ϑ
+
+sin ϑ cos ϑ
+
+
+
+, ϑ = 0 .6, A = Tϑ ¯AT −1 
+
+> ϑ
+
+, and B = Tϑ ¯B. (26) This yields the following system matrices: 
+
+A =
+
+1.122 0.186 0.186 0.978 
+
+
+
+∈ R2×2 and B =
+
+0.487 1.060 
+
+
+
+∈ R2×1. (27) The six-dimensional linear camera map is 
+
+C =
+
+
+
+0.069 −0.081 0.353 0.064 
+
+−0.295 0.222 0.718 0.581 
+
+−0.388 −0.776 
+
+−0.343 0.025 
+
+
+
+∈ R6×2. (28) This system has one unstable and one stable mode with eigenvalues and eigenvectors as follows: 
+
+λu = 1 .25 ( unstable ), v u =
+
+0.825 0.565 
+
+
+
+and λs = 0 .85 ( stable ), v s =
+
+−0.565 0.825 
+
+
+
+. (29) The initial condition is given by x0 = αuvu + αsvs, where αu i.i.d. 
+
+∼ N (0 , σ 2
+
+> u
+
+) with σu = 0 .01 and αs i.i.d. 
+
+∼ N (0 , σ 2 
+
+> s
+
+) with σs = 0 .3. We use an asymmetric initial-condition distribution, with larger variance along the stable mode and smaller variance along the unstable mode. We note that this choice reflects realistic data collection near an unstable equilibrium point (Levine et al., 2020). That is, a policy that avoids catastrophic failure will naturally spend most of its time exploring near-equilibrium conditions or stable-mode excursions and will therefore rarely encounter the large deviations that reveal unstable directions. 28 Each rollout has length T = 5. With probability 0 .3, an episode is passive, meaning that 
+
+at ≡ 0. Otherwise, the actions are sampled independently according to at i.i.d. 
+
+∼ N (0 , σ 2
+
+> a
+
+), where 
+
+σa = 0 .02. 
+
+Synthetic, open-loop stable system (Example 2). This example provides an open-loop stable control case for the previous example: it preserves the same observation, actuation, and data asymmetry as in the previous example while replacing the unstable mode by a stable mode, thereby separating representation collapse from its consequences for closed-loop stability. 
+
+λs1 = 0 .25 ( stable 1 ), v s1 =
+
+0.825 0.565 
+
+
+
+and λs2 = 0 .85 ( stable 2 ), v s2 =
+
+−0.565 0.825 
+
+
+
+. (30) The initial-condition distribution, episode rollout length, per-step action distribution, and all training hyperparameters are kept the same as in the previous example. In particular, we construct this example using the same ¯B, rotation Tϑ, and linear camera map as in the previous example, but replace the eigenvalue 1 .25 by 0 .25 in the diagonal of ¯A.We then have ¯A = diag(0 .25 , 0.85) and A = Tϑ ¯AT −1 
+
+> ϑ
+
+=
+
+ 0.441 −0.280 
+
+−0.280 0.659 
+
+
+
+, (31) while B = [0 .487 1 .060] ⊤ and C is the 6 × 2 matrix reported above. Hence, the two examples differ only in whether the low-variance mode is unstable or contractive. Figure 23 provides an open-loop stable system baseline to compare with the examples in Fig. 2, where all modes decay even without corrective feedback (i.e., they are all stable modes) and preserving a stable direction for latent stabilization is unnecessary. Hence, the standard latent world-model objective (i.e., solving Eq. (6) with SIGReg) can still work. For this open-loop stable system in Fig. 23, EP-IDM recovers the dominant stable direction. 
+
+Linearized CartPole (Example 3). Let p denote the cart position, θ the pole angle measured from the upright equilibrium, and a the horizontal force applied to the cart. For the state 
+
+x = [ p, ˙p, θ, ˙θ]⊤, the linearized continuous-time dynamics are ˙x = Acx + Bca, (32) where 
+
+Ac =
+
+
+
+0 1 0 00 0 − mg M 00 0 0 10 0 (M +m)gM ℓ 0
+
+ and Bc =
+
+
+
+0
+
+> 1
+> M
+
+0
+
+− 1
+
+> M ℓ
+
+ . (33) We use cart mass M = 1 .0, pole mass m = 0 .1, pole-length parameter ℓ = 0 .5, and gravi-tational acceleration g = 9 .81. The continuous-time spectrum is {0, 0, +ω, −ω}, where ω =p(M + m)g/ (M ℓ ). We then discretize ( Ac, B c) using an exact zero-order hold with sampling time dt = 0 .02, which gives 
+
+A =
+
+
+
+1.000 0.020 −0.0002 −0.0000 0.000 1.000 −0.0196 −0.0002 0.000 0.000 1.0043 0.0200 0.000 0.000 0.4323 1.0043 
+
+ ∈ R4×4 and B =
+
+
+
+0.0002 0.0200 
+
+−0.0004 
+
+−0.0401 
+
+ ∈ R4×1. (34) 29 We note that the underlying repeated eigenvalue at one corresponds to the cart’s free-integrator block, while the upright pole contributes one stable and one unstable eigenvalue. Lastly, the eight-dimensional linear camera map is given by 
+
+C =
+
+
+
+0.046 −0.068 0.256 0.056 
+
+−0.195 0.185 0.522 0.503 
+
+−0.256 −0.647 −0.250 0.022 
+
+−0.847 −0.112 −0.499 −0.389 
+
+−0.198 −0.162 0.165 0.553 
+
+−0.047 0.699 −0.266 0.187 0.329 0.048 −0.298 −0.489 
+
+−0.167 0.113 −0.404 −0.111 
+
+
+
+∈ R8×4. (35) Fig. 24 complements the closed-loop control performance from Fig. 2 with the Lyapunov certificate guarantee. For both unstable systems, the controllers learned with SIGReg produce regions in which ∆ V > 0, showing that the ground-truth Lyapunov function increases after one closed-loop step under the learned latent LQR controller. This arises because the learned representations do not preserve the unstable dynamics required to design an accurate stabilizing feedback controller. In contrast, the controllers learned with EP-IDM yield ∆ V < 0 throughout the evaluated region, except at the equilibrium where ∆ V = 0. 
+
+A.6 Proofs of Our Theoretical Guarantees 
+
+This section provides the complete proofs of the theoretical results presented in the main text. 
+
+Notation. Given a matrix M ∈ Rn×n, we denote the spectral norm as ∥M ∥2, the smallest singular value as σmin (M ), the spectral radius as ρ(M ), and the spectrum of M as spec( M ). The smallest and largest eigenvalues are λmin (M ) and λmax (M ). For a subspace S, PS denotes its orthogonal projector and S⊥ its orthogonal complement. We write h ≲ g when h ≤ Cg for a constant C > 0. 
+
+A.6.1 Supporting Lemmas 
+
+We first introduce the auxiliary results used throughout the subsequent proofs. 
+
+Lemma 2.1. Let T be a linear map and suppose that the support of a random vector u contains an open subset of its ambient space. If an affine map D satisfies D(T u + c) = u almost surely, then T has full column rank. Proof. Write D(v) = Lv + b. Exact reconstruction gives (LT − I)u + ( Lc + b) = 0 (36) on an open set. An affine function that vanishes on an open set is identically zero, and hence 
+
+LT = I. Therefore, T admits a left inverse and has full column rank. 
+
+Theorem 3 (Davis-Kahan theorem (Davis and Kahan, 1970)) . Let M and ˆM = M + E be symmetric matrices. Let Φ be a subspace of M associated with an eigenvalue cluster separated from the remaining spectrum of M by a gap δ > 0, and let ˆΦ be the corresponding subspace of 
+
+ˆM . Then, if ∥E∥2 ≤ δ/ 2, it holds that 
+
+∥ sin Θ( ˆΦ, Φ) ∥2 ≤ 2∥E∥2
+
+δ . (37) 30 A.6.2 Proof of Lemma 1 
+
+Suppose first that Av = λv , |λ| ≥ 1, and F v = 0. We consider two initial conditions that differ by v. As their initial representations agree, any deterministic controller using only the latent history applies the same first action to both systems. Inductively, the two latent histories, and hence the applied actions, remain identical because 
+
+F A tv = λtF v = 0 . (38) Their state difference is therefore Atv = λtv, which cannot converge to zero, unless v = 0. Thus, a single latent controller cannot stabilize both initial conditions. This proves necessity and is equivalent to the stated Popov-Belevitch-Hautus rank condition in (9). On the other hand, suppose that ( A, F ) is detectable. By Assumption 1, ( A, B ) is stabi-lizable, so there exists a feedback gain K such that A + BK is Schur stable. Moreover, the detectability guarantees the existence of an observer gain L such that A − LF is Schur stable. We consider the observer-based latent controller ˆxt+1 = Aˆxt + Ba t + L(˜ zt − F ˆxt),at = K ˆxt. (39) For the estimation error et := xt − ˆxt, we have et+1 = ( A − LF )et. Moreover, 
+
+xt+1 = ( A + BK )xt − BKe t. (40) Thus, the joint dynamics of ( xt, e t) are block triangular with Schur-stable diagonal blocks A +
+
+BK and A − LF . Hence, both et and xt converge to zero. This demonstrates sufficiency and completes the proof. 
+
+A.6.3 Proof of Theorem 1 
+
+By unrolling the dynamics for H steps, we obtain 
+
+xt+H = AH xt + CH at (41) where we recall that at,H = [ a⊤ 
+
+> t
+
+· · · a⊤
+
+> t+H−1
+
+]⊤. Hence, we have 
+
+zt+H = F A H xt + F CH at,H + b. (42) Fix an initial state. The initial representation and the autonomous contribution to the final representation are then fixed (i.e., F A H xt + b), while the only endpoint variation caused by the actions is F CH at,H . As the linear decoder reconstructs at,H exactly on a conditional support containing an open set, Lemma 2.1 implies that F CH has full column rank. Now we take v ∈ ker( F ) ∩ R H . Therefore, there exists a vector q such that v = CH q. Hence, we have that 
+
+F CH q = F v = 0 . (43) As F CH has full column rank, q = 0, and therefore v = 0. This proves (16). Therefore, if Φ≥1 ⊆ R H , the same conclusion holds for every vector in Φ ≥1. Finally, full column rank of 
+
+F CH ∈ Rd×mH requires mH ≤ min {d, n }.31 A.6.4 Proof of Theorem 2 
+
+For simplicity, we consider systems with no eigenvalues on the unit circle. Thus, Φ ≥1 is the strictly unstable subspace Φ, i.e., Φ ≥1 := Φ. In an orthonormal basis adapted to the right unstable invariant subspace Φ and its orthogonal complement Φ ⊥, we write 
+
+A =
+
+Au ∆0 As
+
+
+
+, B =
+
+Bu
+
+Bs
+
+
+
+. (44) We make the following assumptions. For each j ≥ 0, let Γ j denote the unstable block of 
+
+Aj B, so that 
+
+Aj B =
+
+ Γj
+
+AjsBs
+
+
+
+. (45) 
+
+Assumption 2. There exist constants α > 1, β ∈ (ρ(As), 1) , γ ≥ α, and C1, C 2, C 3 ≥ 1 such that 
+
+σmin (Au) ≥ α, ∥Ajs∥2 ≤ C1βj , ∥Aju∥2 ≤ C2γj , ∥Γj ∥2 ≤ C3γj , ∀j ≥ 0, and γβ < α 2. (46) We emphasize that under Assumptions 2, there exists α > 1, β ∈ (ρ(As), 1), γ ≥ α, such that every direction in Φ expands by at least a factor α at each open-loop step, whereas the stable dynamics contract at rate β. The condition γβ < α 2 ensures that the coupling between the unstable and stable responses grows strictly slower than the unstable contribution. 
+
+Assumption 3. The pair (Au, B u) is controllable, and the action transmitted through the cou-pling ∆ does not cancel the direct unstable input response. In particular, there exist cu > 0 and 
+
+H0 ≥ 1 such that 
+
+λmin (Π u,H ) ≥ cuα2H , for H ≥ H0. (47) 
+
+For block-diagonal dynamics, i.e., ∆ ≡ 0, this lower bound follows directly from controllability of (Au, B u) and Assumption 2. 
+
+The constants cu, c s, and cus have a direct control-theoretic interpretation. The constant cu
+
+measures the smallest action-induced variation generated along any unstable direction, i.e., a larger cu means that even the least excitable unstable direction becomes distinguishable over a shorter horizon. The constant cs bounds the total action-induced variation that can accumulate within the stable subspace, which remains bounded because the stable dynamics contract. Fi-nally, cus quantifies the interaction between the action-induced unstable and stable responses. A larger cus allows stronger mixing between these responses at finite horizons, but Assumption 2 ensures that this interaction grows more slowly than the unstable contribution cuα2H .Moreover, under Assumptions 2 and 3, there exist constants cs, c us > 0 such that, for all sufficiently large H, we have 
+
+λmin (Π u,H ) ≥ cuα2H , ∥Πs,H ∥2 ≤ cs, and ∥Πus,H ∥2 ≤ cus H−1X
+
+> j=0
+
+(γβ )j , (48) where Π u,H , Π s,H , and Π us,H are the unstable, stable, and cross Gramian blocks, respectively. 
+
+Lemma 2.2. Suppose that the assumptions preceding Theorem 2 hold. Then, the Gramian blocks satisfy 
+
+λmin (Π u,H ) ≥ cuα2H ,
+
+32 ∥Πs,H ∥2 ≤ cs,
+
+∥Πus,H ∥2 ≤ cus H−1X
+
+> j=0
+
+(γβ )j . (49) 
+
+Therefore, the unstable block grows exponentially, the stable block remains bounded, and the cross block grows strictly more slowly than the unstable block whenever γβ < α 2.Proof. The first inequality follows from Assumption 3. The remaining bounds follow from 
+
+∥Γj ∥2 ≤ C3γj and ∥Ajs∥2 ≤ C1βj . In particular, 
+
+∥Πs,H ∥2 ≤
+
+> H−1
+
+X
+
+> j=0
+
+∥AjsBs∥22 ≤ C21 ∥Bs∥22
+
+> ∞
+
+X
+
+> j=0
+
+β2j = C21 ∥Bs∥22
+
+1 − β2 ,
+
+∥Πus,H ∥2 ≤
+
+> H−1
+
+X
+
+> j=0
+
+∥Γj ∥2∥AjsBs∥2 ≤ C3C1∥Bs∥2
+
+> H−1
+
+X
+
+> j=0
+
+(γβ )j . (50) The proof is completed when we absorb the constant factors into cs and cus .
+
+Definition 2 (Subspace distance) . Let Ξ, ˆΞ ∈ Rn×r be orthonormal bases for two r-dimensional subspaces Φ and ˆΦ, respectively. Their principal angles θ1, . . . , θ r ∈ [0 , π/ 2] are defined by 
+
+σi(Ξ ⊤ ˆΞ) = cos( θi), for all i = 1 , . . . , r, (51) 
+
+where σi(·) denotes the i-th singular value. We define 
+
+sin Θ( ˆΦ, Φ) := diag  sin( θ1), . . . , sin( θr). (52) 
+
+The spectral-norm distance between the two subspaces is then 
+
+sin Θ( ˆΦ, Φ) 2 := max  
+
+> i=1 ,...,r
+
+sin( θi) = PˆΦ − PΦ 2, (53) 
+
+where PˆΦ and PΦ are the orthogonal projectors onto ˆΦ and Φ, respectively. 
+
+We proceed by writing ΠH =
+
+Πu,H 00 0
+
+| {z }
+
+> M1
+
++
+
+ 0 Πus,H 
+
+Π⊤ 
+
+> us,H
+
+Πs,H 
+
+| {z }
+
+> M2
+
+. (54) The top r-dimensional eigenspace of M1 is exactly Φ, and its eigengap is at least cuα2H . More-over, Lemma 2.2 yields 
+
+∥M2∥2 ≤ ∥ Πus,H ∥2 + ∥Πs,H ∥2 ≤ cus H−1X
+
+> j=0
+
+(γβ )j + cs. (55) As γβ < α 2, the ratio ∥M2∥2/(cuα2H ) converges to zero. It is therefore smaller than 1 /2 for all sufficiently large H. We then proceed, by applying Theorem 3 to write 
+
+∥ sin Θ( ˆΦ, Φ) ∥2 ≤ 2∥M2∥2
+
+cuα2H ≤
+
+2
+
+
+
+cus 
+
+PH−1 
+
+> j=0
+
+(γβ )j + cs
+
+
+
+cuα2H . (56) 33 It remains to make the convergence rate explicit. We then set q = γβ . Under Assumptions 2 and 3, for all sufficiently large H, we can write 
+
+sin Θ( ˆΦ, Φ) 2 ≤ 2
+
+cus H−1X
+
+> j=0
+
+(γβ )j + cs
+
+ /  cuα2H  . (57) The convergence rate is then given by the following three cases: 
+
+• If q > 1, then it holds that 
+
+sin Θ( ˆΦ, Φ) 2 ≲ (qH + 1) /α 2H . (58) 
+
+• If q = 1, then it holds that 
+
+sin Θ( ˆΦ, Φ) 2 ≲ H/α 2H . (59) 
+
+• If q < 1, then it holds that 
+
+sin Θ( ˆΦ, Φ) 2 ≲ 1/α 2H . (60) As q < α 2, each of these bounds converges to zero as H → ∞ . Then, we have 
+
+sin Θ( ˆΦ, Φ) 2 → 0 as H → ∞ , (61) which completes the proof. 34 1SP + EP-IDM MSP + EP-IDM + SIG MSP + SIG MSP + iBOT + PR-EP-IDM MSP + iBOT + PR-SIG MSP + iBOT DINO-WM Figure 10: CartPole trajectory visualization for the trained models under the latent LQR controller. 
+
+35 4 2 0 2 4[deg]         
+
+> 20
+> 15
+> 10
+> 5
+> 0510 15 20 [deg/s]
+> GT Learned Equilibrium 20 10 010 20 [deg]
+> 100
+> 75
+> 50
+> 25
+> 025 50 75 100 [deg/s]
+> Equilibrium 20 10 010 20 [deg]
+> 100
+> 75
+> 50
+> 25
+> 025 50 75 100 [deg/s]
+> Equilibrium
+> 0123456prediction error
+> 0.5 1.0 1.5 2.0 2.5 3.0 log 10  zH zgoal  2
+
+Figure 11: MSP+EP-IDM+SIG model on CartPole . Left: Phase portrait of ground-truth vs. learned vector fields. Center: H = 3 open-loop prediction error. Right: Zero-action planning cost. 20 10 0 10 20 [deg] 
+
+80 
+
+60 
+
+40 
+
+20 
+
+020 40 60 80 [deg/s] 
+
+Learned LQR stabilises Learned LQR fails GT LQR boundary 15 10 5 0 5 10 15 [deg] 
+
+40 
+
+20 
+
+020 40 [deg/s] 
+
+75 
+
+50 
+
+25 
+
+025 50 75 
+
+> V = V(x′) V(x)
+
+Figure 12: Local stability of MSP+EP-IDM+SIG on CartPole . Left: Empirical region of attraction (ROA) of the learned LQR policy in the GT environment. Dashed line: GT LQR boundary. Right: 
+
+Lyapunov decrease ∆ V = V (x′) − V (x) under the learned policy using the GT DARE solution. 4 2 0 2 4[deg]         
+
+> 20
+> 15
+> 10
+> 5
+> 0510 15 20 [deg/s]
+> GT Learned Equilibrium 20 10 010 20 [deg]
+> 100
+> 75
+> 50
+> 25
+> 025 50 75 100 [deg/s]
+> Equilibrium 20 10 010 20 [deg]
+> 100
+> 75
+> 50
+> 25
+> 025 50 75 100 [deg/s]
+> Equilibrium
+> 0.0 0.2 0.4 0.6 0.8 1.0 1.2 prediction error
+> 1.0
+> 0.5
+> 0.0 0.5 1.0 1.5 log 10  zH zgoal  2
+
+Figure 13: MSP+IBOT+PR-EP-IDM model on CartPole . Panel descriptions are in Fig. 11. 
+
+36 20 10 0 10 20 [deg] 
+
+80 
+
+60 
+
+40 
+
+20 
+
+020 40 60 80 [deg/s] 
+
+Learned LQR stabilises Learned LQR fails GT LQR boundary 15 10 5 0 5 10 15 [deg] 
+
+40 
+
+20 
+
+020 40 [deg/s] 
+
+75 
+
+50 
+
+25 
+
+025 50 75 
+
+> V = V(x′) V(x)
+
+Figure 14: Local stability of MSP+IBOT+PR-EP-IDM on CartPole . Panel descriptions are the same as those in Fig. 12. 4 2 0 2 4[deg] 
+
+20 
+
+15 
+
+10 
+
+5
+
+0510 15 20 [deg/s] 
+
+GT Learned Equilibrium 20 10 0 10 20 [deg] 
+
+100 
+
+75 
+
+50 
+
+25 
+
+025 50 75 100 [deg/s] 
+
+Equilibrium 20 10 0 10 20 [deg] 
+
+100 
+
+75 
+
+50 
+
+25 
+
+025 50 75 100 [deg/s] 
+
+Equilibrium 
+
+0246810 prediction error 
+
+0.5 1.0 1.5 2.0 2.5 log 10  zH zgoal  2
+
+Figure 15: MSP+IBOT+PR-SIG model on CartPole . Panel descriptions are the same as those in Fig. 11. 4 2 0 2 4[deg] 
+
+20 
+
+15 
+
+10 
+
+5
+
+0510 15 20 [deg/s] 
+
+GT Learned Equilibrium 20 10 0 10 20 [deg] 
+
+100 
+
+75 
+
+50 
+
+25 
+
+025 50 75 100 [deg/s] 
+
+Equilibrium 20 10 0 10 20 [deg] 
+
+100 
+
+75 
+
+50 
+
+25 
+
+025 50 75 100 [deg/s] 
+
+Equilibrium 
+
+0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 prediction error 
+
+1.0 
+
+0.5 
+
+0.0 0.5 1.0 1.5 log 10  zH zgoal  2
+
+Figure 16: MSP+IBOT model on CartPole . Panel descriptions are the same as those in Fig. 11. 37 20 10 0 10 20 [deg] 
+
+80 
+
+60 
+
+40 
+
+20 
+
+020 40 60 80 [deg/s] 
+
+Learned LQR stabilises Learned LQR fails GT LQR boundary 15 10 5 0 5 10 15 [deg] 
+
+40 
+
+20 
+
+020 40 [deg/s] 
+
+800 
+
+600 
+
+400 
+
+200 
+
+0200 400 600 800 
+
+> V = V(x′) V(x)
+
+Figure 17: Local stability of MSP+IBOT on CartPole . Left: Empirical region of attraction (ROA) of the learned LQR policy in the GT environment. Panel descriptions are as those in Fig. 12. -4 -2 0 2 4           
+
+> θ[deg] -20 -15 -10 -5 0510 15 20
+> ˙θ [deg/s] GT Learned Equilibrium -20 -10 010 20
+> θ[deg] -100 -75 -50 -25 025 50 75 100
+> ˙θ [deg/s] Equilibrium -20 -10 010 20
+> θ[deg] -100 -75 -50 -25 025 50 75 100
+> ˙θ [deg/s] Equilibrium
+> 0510 15 20 25
+> ‖ˆzH − zGT
+> H ‖
+> 2.6 2.7 2.8 2.9 3.0
+> log 10  ‖ˆzH − zgoal ‖2
+
+Figure 18: DINO-WM model on CartPole . Panel descriptions are the same as those in Fig. 11. MSP+EP-IDM 1SP+EP-IDM MSP+SIG DINO-WM 
+
+Figure 19: PointMaze visualization for our trained models under CEM planning. 
+
+38 MSP + EP-IDM 1SP + EP-IDM MSP + SIG DINO-WM 
+
+> 246810 12 14
+> latent distance to goal
+> 510 15 20
+> latent distance to goal
+> 5.0 7.5 10.0 12.5 15.0 17.5 20.0
+> latent distance to goal
+> 123456789
+> latent distance to goal
+
+Figure 20: Latent goal-distance fields ∥z − zg∥ across the PointMaze U-maze for four trained world models. 0 50 100 150 200 250 300 
+
+Time step t
+
+10 1
+
+10 0
+
+10 1
+
+10 2
+
+> xt 2
+
+0 50 100 150 200 250 300 
+
+Time step t
+
+10 2
+
+10 1
+
+10 0
+
+10 1
+
+10 2
+
+MSP + DINOv2 1SP + DINOv2 MSP + DINOv2 + PR-SIG MSP + DINOv2 + PR-IDM MSP + DINOv2 + PR-EP-IDM DINO-WM MSP + iBOT 1SP + iBOT MSP + iBOT + PR-SIG 1SP + iBOT + PR-EP-IDM MSP + iBOT + PR-IDM MSP + iBOT + PR-EP-IDM 
+
+Figure 22: CartPole state norm ∥xt∥2 under the learned latent LQR controller over 300 steps. Left: 
+
+DINOv2. Right: iBOT. 1.0 0.5 0.0 0.5 1.0 
+
+x1
+
+1.0 
+
+0.5 
+
+0.0 0.5 1.0 
+
+> x2
+
+ground truth (stable 1) ground truth (stable 2) learned (SIG) learned (EP-IDM) 
+
+40 20 0 20 40 
+
+x1
+
+75 
+
+50 
+
+25 
+
+025 50 75 
+
+> x2
+
+SIG 
+
+start ( x0)closed-loop trajectory 
+
+40 20 0 20 40 
+
+x1
+
+75 
+
+50 
+
+25 
+
+025 50 75 
+
+> x2
+
+EP-IDM 
+
+start ( x0)closed-loop trajectory 
+
+Figure 23: Synthetic open-loop stable LDS. This example considers a two-dimensional open-loop stable system. Panels descriptions are the same as those in Fig. 2. 
+
+39 15 10 5 0 5 10 15 
+
+x1
+
+> 40
+> 20
+> 020 40
+> x2
+
+Example 1 (SIG)       
+
+> 15 10 50510 15
+
+x1
+
+> 40
+> 20
+> 020 40
+> x2
+
+Example 1 (EP-IDM)       
+
+> 15 10 50510 15
+
+x3 (deg) 
+
+> 40
+> 20
+> 020 40
+> x4 (deg)
+
+Example 3 (SIG)       
+
+> 15 10 50510 15
+
+x3 (deg) 
+
+> 40
+> 20
+> 020 40
+> x4 (deg)
+
+Example 3 (EP-IDM) 
+
+> 3000
+> 2000
+> 1000
+> 01000 2000 3000
+> V = V(x′) V(x)
+> 2000
+> 1000
+> 01000 2000
+> V = V(x′) V(x)
+> 80
+> 60
+> 40
+> 20
+> 020 40 60 80
+> V = V(x′) V(x)
+> 40
+> 20
+> 020 40
+> V = V(x′) V(x)
+
+Figure 24: Sign of ∆ V = V (x′) − V (x) after one closed-loop step under the learned latent LQR controller, where V (x) = x⊤Sx and S ≻ 0 is the ground-truth Lyapunov function matrix. We also depict the ∆ V = 0 contour (separatrix), i.e., the boundary separating states where the learned controller decreases V (blue) from those where it does not (red). 
+
+40

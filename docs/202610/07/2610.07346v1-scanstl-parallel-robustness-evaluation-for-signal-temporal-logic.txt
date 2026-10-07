@@ -1,0 +1,705 @@
+Title: ScanSTL: Parallel Robustness Evaluation for Signal Temporal Logic
+
+URL Source: https://arxiv.org/pdf/2610.07346v1
+
+Published Time: Wed, 07 Oct 2026 00:31:17 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+> 1
+
+# ScanSTL: Parallel Robustness Evaluation for Signal Temporal Logic 
+
+Gokhan Alcan 
+
+Abstract —Repeated evaluation and differentiation of Signal Temporal Logic (STL) robustness can become a computational bottleneck in robot planning and control. Sequential temporal re-currences limit parallelism, while dense masking increases mem-ory requirements. We propose ScanSTL, which combines associa-tive temporal aggregation with parallel scans and ordered block reductions. Eventually and Always use range extrema, while inclusive strong Until composes compact segment representations. A common range engine handles bounded and shifted intervals, including the guards required before delayed Until witnesses. Each exact temporal operator computes complete robustness traces with linear work and storage and logarithmic parallel depth on uniformly sampled finite signals. An open source JAX implementation supports automatic differentiation, batching, and compilation. We compare ScanSTL with STLCG and STLCG++ using CPU and GPU operator benchmarks and nine composed specifications. Across these nine specifications at 512 samples, ScanSTL achieves geometric mean speedups of 243 × for forward evaluation and 104 × for gradient computation over STLCG++ in JAX on the CPU. On an RTX 5090 GPU, ScanSTL evaluates unbounded Until over more than two million samples with median times below 0.1 ms for forward evaluation and 0.25 ms for gradient computation. Simulated escort and patrol experiments with a robot dog further demonstrate faster repair of violating plans and greater solver capacity in model predictive control. Supplementary materials, videos and codes can be found at project website: https://alcanlab.github.io/ScanSTL/ 
+
+I. I NTRODUCTION 
+
+# IN many robotic applications, successful task execution requires satisfying conditions on both motion and the times at which events occur. A robot may need to always avoid obstacles, eventually visit regions within deadlines and remain near a person until the person reaches safety. Signal Temporal Logic (STL) expresses such requirements over real-valued signals [1]. Its quantitative semantics assign a robustness value whose sign indicates satisfaction or violation and whose mag-nitude provides a margin [2], [3]. This makes a specification useful for verifying and optimizing trajectories. STL has consequently been incorporated into model pre-dictive control (MPC) [4] and optimization using smooth robustness objectives [5], [6]. Automatic differentiation propa-gates robustness through robot dynamics to control inputs [7]. Each optimizer iteration evaluates the specification and its gradient, while nested temporal operators also require sub-formula values at multiple starting times. Complete robustness 
+
+Gokhan Alcan is with the Automation Technology and Mechanical Engineering, Tampere University, 33100 Tampere, Finland E-mail: gokhan.alcan@tuni.fi .This work was supported by the Research Council of Finland Project under Grant 370881 and by the NVIDIA Academic Grant Program.            
+
+> STLCG
+> Sequential recurrence
+> ρ0
+> p0, q 0
+> ρ1
+> p1, q 1
+> ρ2
+> p2, q 2
+> ρ3
+> p3, q 3
+> Serial depth
+> O(T)
+> STLCG++
+> Parallel dense masks
+> Eventually / Always Until
+> Storage
+> O(T2)unary
+> O(T3)Until
+> ScanSTL
+> Parallel suffix scan
+> P0
+> ρ0
+> P1
+> ρ1
+> P2
+> ρ2
+> P3
+> ρ3
+> ⊗⊗⊗⊗
+> Work + storage
+> O(T)
+> Parallel depth
+> O(log T)
+
+Fig. 1. Comparison of temporal robustness evaluation. STLCG propagates ro-bustness through a sequential recurrence, while STLCG++ evaluates temporal candidates using parallel dense masks. ScanSTL combines compact segment representations through associative scans, computing complete robustness traces with linear work and storage and logarithmic parallel depth. 
+
+traces are therefore central to this computation, whose cost grows with horizon and sampling resolution. Existing differentiable evaluators expose a tradeoff between temporal dependencies and storage (Fig. 1). STLCG [7] uses recurrences with sequential dependencies along the trace. STLCG++ [8] exposes parallelism through dense temporal masks. When the window grows with the trace, its storage is quadratic for Eventually and Always and cubic for strong Until. Until is particularly demanding because each witness is combined with a condition that must hold up to that witness. These costs limit repeated evaluation within a planning or control budget. To address this problem, we propose ScanSTL, a uni-fied parallel evaluator for exact STL robustness. ScanSTL combines associative temporal aggregation [9] with parallel scans [10] and ordered block reductions [22], [23] to evaluate complete robustness traces without dense temporal masks or sequential recurrences along the full horizon. Eventually and Always use range extrema, while inclusive strong Until composes compact segment representations. A common range engine handles bounded and shifted intervals, including the conditions that must hold before an Until witness becomes eligible. Each exact temporal operator requires linear work and storage and logarithmic parallel depth under explicit finite trace semantics. For differentiable predicates, JAX supports automatic differentiation through the resulting piecewise dif-ferentiable computation without requiring smoothing. Smooth Eventually and Always also retain this scan structure. The main contributions of this work are: arXiv:2610.07346v1 [cs.RO] 5 Oct 2026 2
+
+1) A unified parallel evaluation algorithm for exact Even-tually, Always, and inclusive strong Until, combining associative temporal aggregation with scans and range reductions. Each temporal operator computes complete robustness traces with linear work and storage and log-arithmic parallel depth under finite-horizon semantics. 2) A common parallel range engine for bounded unary op-erators and Until pairs that preserves operand order and avoids duplicate contributions. It incorporates the guards required by shifted Until and also supports smooth unary reductions that are not idempotent. 3) An open-source JAX implementation of ScanSTL sup-porting automatic differentiation, batching, and just-in-time compilation for use in optimization and control. 4) An evaluation across CPU and GPU operator bench-marks, nine composed STL specifications, and simulated robot planning and MPC tasks, quantifying computa-tional gains in robustness evaluation, verified plan repair, and closed-loop solver capacity. II. R ELATED WORKS 
+
+A. Control Using STL Robustness 
+
+STL robustness guides control synthesis [2], [3]. Raman et al. [4] encoded STL constraints in mixed-integer MPC, while subsequent work reduced the number of binary variables [11]. Direct robustness optimization supports nonlinear dynamics through smooth approximations [5], [6]. Arithmetic-geometric mean robustness accounts for satisfaction beyond the most critical sample [12], robustness-to-go prevents past bottlenecks from obscuring differences between future plans [13], and GradSTL [14] provides smooth STL semantics and derivatives for neurosymbolic reasoning and learning. These approaches develop control formulations or robustness objectives for opti-mization and learning. ScanSTL addresses the complementary cost of repeatedly evaluating robustness and its gradients within optimization. 
+
+B. Exact Monitoring and Associative Algorithms 
+
+Early approaches to efficient STL monitoring reused compu-tations across overlapping temporal windows. Donz´ e et al. [15] combined temporal decompositions with sliding extrema al-gorithms [16]. Deshmukh et al. [17] developed robustness intervals for incomplete traces, and RTAMT [18] translates bounded future formulas into past formulas for incremental monitoring in discrete and dense time. TLTk [19] parallelizes monitoring on CPUs and GPUs with linear trace storage for a fixed formula, but its reported time bound retains a temporal window factor. Rodionova et al. [20] interpreted Boolean MTL as filtering, with separate quantitative kernel scores that differ from spatial robustness. Jakˇ si´ c et al. [21] compute seman-tic distances invariant to formula rewrites through weighted automata, whose size can be exponential in the formula. Mamouras et al. [9] established associative Since/Until pairs and ordered window aggregation with constant amortized work per sample. Their online monitor already achieves linear total work for a fixed formula, but does not develop input deriva-tives or logarithmic parallel depth across time. ScanSTL adapts the local pairs to inclusive Until and combines Blelloch’s scan and recurrence construction [10] with block prefix and suffix reductions [22], [23]. 
+
+C. Differentiable and Parallel STL Evaluation 
+
+Leung et al. [7] introduced STLCG to express STL robust-ness as a computation graph, enabling backpropagation for trajectory optimization, parameter fitting, and learning with logical constraints. Its temporal operators reuse intermediate results through recurrent updates, but the resulting dependen-cies limit parallel evaluation along the trace. Kapoor et al. [8] developed STLCG++ to expose this temporal parallelism by applying masks to expanded signal tensors. The framework supports automatic differentiation in JAX and PyTorch. This construction improves parallel utilization at the cost of larger intermediate arrays. When temporal windows grow with the trace, storage is quadratic for Eventually and Always and cubic for Until, whose witnesses each require a prefix condition. These two designs therefore highlight a tradeoff between sequential dependencies and memory use in differentiable robustness evaluation. ScanSTL combines associative scans and ordered range reductions to compute each exact temporal operator with linear work and storage and logarithmic parallel depth, while retaining automatic differentiation in JAX [24]. We use STLCG and STLCG++ as baselines to evaluate how this formulation addresses the temporal dependencies of recurrence and the storage cost of dense masking. III. P ROBLEM FORMULATION 
+
+Let x = ( x0, . . . , x T −1), xt ∈ Rd, be a uniformly sampled finite signal of length T ≥ 1. An atomic predicate μ has a signed robustness function rμ : Rd → R, for example 
+
+rh(x)≥c(xt) = h(xt)−c. Robustness is positive for satisfaction and negative for violation, while zero marks the boundary and its absolute value measures the margin. We consider formulas 
+
+φ ::= μ | ¬ φ | φ1 ∧φ2 | φ1 ∨φ2 | ♢I φ | □I φ | φ1 UI φ2, (1) where I = [ a, b ], 0 ≤ a ≤ b, has integer endpoints and permits 
+
+b = ∞. The operators ♢, □, and U denote Eventually, Always, and Until, respectively. Implication is derived as φ1 ⇒ φ2 := 
+
+¬φ1 ∨ φ2. Weak Until and Release can likewise be derived and are not treated as primitives. Let R := R ∪ {−∞ , +∞} . Evaluating a formula at every start time produces the robustness trace 
+
+ρφ ∈ RT , ρφ[t] := ρ(φ, x, t ), t ∈ { 0, . . . , T − 1}. (2) The trace is written in natural time order, so index t corre-sponds to evaluation beginning at signal index t. Its time-zero entry ρφ[0] is the scalar robustness of the complete signal. Every subformula similarly produces a length-T trace consumed by its parent operator. Since the signal is finite, temporal intervals are truncated at the right boundary. At time t, define the effective upper endpoint and valid offset set by 
+
+beff  
+
+> t
+
+:= min {b, T − 1 − t}, (3) 
+
+K[a,b ] 
+
+> t
+
+:= k ∈ Z≥0 a ≤ k ≤ beff  
+
+> t
+
+. (4) 3
+
+Thus beff  
+
+> t
+
+= T − 1 − t when b = ∞, and the valid set is empty when a > b eff  
+
+> t
+
+. Empty reductions take the identity values max ∅ = −∞ and min ∅ = + ∞. Empty Eventually and Until intervals evaluate to −∞ , whereas an empty Always interval evaluates to +∞. Truncation is performed entirely on indices and uses only available samples. Writing pt := ρφ1 [t] and qt := ρφ2 [t], the exact finite-horizon quantitative semantics are 
+
+ρμ[t] = rμ(xt), (5a) 
+
+ρ¬φ1 [t] = −pt, (5b) 
+
+ρφ1∧φ2 [t] = min( pt, q t), (5c) 
+
+ρφ1∨φ2 [t] = max( pt, q t), (5d) 
+
+ρφ1⇒φ2 [t] = max( −pt, q t), (5e) 
+
+ρ♢[a,b ]φ1 [t] = max 
+
+> k∈K [a,b ]
+> t
+
+pt+k, (5f) 
+
+ρ□[a,b ]φ1 [t] = min 
+
+> k∈K [a,b ]
+> t
+
+pt+k, (5g) 
+
+ρφ1 U[a,b ] φ2 [t] = max 
+
+> k∈K [a,b ]
+> t
+
+min 
+
+
+
+qt+k, min  
+
+> 0≤j≤k
+
+pt+j
+
+
+
+. (5h) The Boolean operators in (5) are pointwise, while Eventually and Always are finite-horizon range maximum and minimum operations. The Until definition is discrete-time strong Until with the inclusive-overlap convention. A valid witness k ∈
+
+[a, b eff  
+
+> t
+
+] must satisfy φ2 at t + k, while φ1 must hold from t
+
+through the witness time. The inner prefix therefore includes both j = k and, when a > 0, all offsets j < a . When no valid witness exists, the outer maximum is empty and the Until robustness is −∞ .
+
+Problem Statement: Given the predicate robustness traces of an STL formula over a finite horizon T , the problem is to compute the complete robustness trace of the formula and each of its subformulas according to (5). The result must be obtained for every time index t ∈ {0, . . . , T − 1}, rather than only for the initial value ρφ[0] , while preserving the exact finite-horizon semantics, including interval truncation and empty-window identities. A satisfactory solution should require low computational work and memory, expose parallelism across the temporal dimension with parallel depth substantially smaller than T , and avoid storage-intensive intermediate representations. It should also remain compatible with automatic differentiation so that robustness gradients can be used in optimization and learning tasks. IV. P ROPOSED METHOD : S CAN STL ScanSTL addresses the complete-trace problem in Sec. III by preserving the exact semantics in (5) and reorganizing their computation. Each subformula produces a length-T robustness trace, so a formula is evaluated recursively over its syntax tree, with every node returning a trace. Boolean operators remain pointwise and require no further temporal construction. The development therefore begins with unbounded Eventually and Always, where the associative-scan structure is visible directly. Bounded ranges and strong Until are then built from the same associative viewpoint. 
+
+A. Unbounded Eventually and Always 
+
+Let pt = ρφ1 [t]. For I = [0 , ∞], the exact Eventually and Always traces are the suffix extrema 
+
+ρ♢[0 ,∞]φ1 [t] = max  
+
+> t≤i<T
+
+pi =: smax  
+
+> t
+
+, (6) 
+
+ρ□[0 ,∞]φ1 [t] = min  
+
+> t≤i<T
+
+pi =: smin  
+
+> t
+
+. (7) They satisfy the backward recurrences 
+
+smax  
+
+> t
+
+= max( pt, s max  
+
+> t+1
+
+), smax  
+
+> T
+
+= −∞ , (8) 
+
+smin  
+
+> t
+
+= min( pt, s min 
+
+> t+1
+
+), smin  
+
+> T
+
+= + ∞. (9) Because max and min are associative, each complete trace can be evaluated by one associative scan in reverse time rather than by following the corresponding recurrence sequentially. An associative scan performs O(T ) work with O(log T ) parallel depth. For a shifted unbounded interval, the same suffix traces are read at t + a:
+
+ρ♢[a, ∞]φ1 [t] = 
+
+(
+
+smax  
+
+> t+a
+
+, t + a < T, 
+
+−∞ , t + a ≥ T, (10) 
+
+ρ□[a, ∞]φ1 [t] = 
+
+(
+
+smin 
+
+> t+a
+
+, t + a < T, 
+
++∞, t + a ≥ T. (11) 
+
+B. Bounded Range Reductions 
+
+For finite index bounds ℓ ≤ r, define the truncated range operators 
+
+RangeMax( p, ℓ, r ) := max   
+
+> i∈[ℓ,r ]∩[0 ,T −1]
+
+pi, (12) 
+
+RangeMin( p, ℓ, r ) := min   
+
+> i∈[ℓ,r ]∩[0 ,T −1]
+
+pi. (13) They return −∞ and +∞, respectively, when the truncated index set is empty. The bounded unary semantics are therefore 
+
+ρ♢[a,b ]φ1 [t] = RangeMax( p, t + a, t + b), (14) 
+
+ρ□[a,b ]φ1 [t] = RangeMin( p, t + a, t + b). (15) For a nonempty finite interval, set 
+
+¯b := min {b, T − 1}, w := ¯b − a + 1 . (16) Here ¯b is the largest offset that can be valid at t = 0 , whereas 
+
+beff  
+
+> t
+
+in (3) is the time-dependent truncation boundary. If a > ¯b,every window is empty and its identity is returned directly. Otherwise, identity padding turns (14) and (15) into fixed-width range queries of width w.Consider any monoid (M, ◦, e ) and a sequence z whose elements belong to M. Here, M is the set of values being combined, ◦ : M × M → M is an associative combination rule, and e ∈ M is its identity, so x ◦ e = e ◦ x = x
+
+for every x ∈ M . After padding z with e, partition it into blocks of width w. Within every block, compute the left-to-right prefix values Fi and the right-to-left suffix values Gi,while preserving the original operand order. For a window beginning at ℓ = t + a, let Rt := zℓ ◦ · · · ◦ zℓ+w−1 denote its reduction. The block summaries give 
+
+Rt =
+
+(
+
+Gℓ, ℓ mod w = 0 ,Gℓ ◦ Fℓ+w−1, otherwise . (17) 4
+
+If the window begins at a block boundary, Gℓ already repre-sents the entire window and is used directly. Otherwise, the window crosses exactly one block boundary. Its reduction is obtained by composing Gℓ, the suffix of the first block, with 
+
+Fℓ+w−1, the prefix of the second block. These two summaries cover the window exactly once and preserve its temporal order. Consequently, (17) requires only associativity . It therefore applies to order-sensitive Until composition and to smooth range operators for which repeating a block would change the result. This is why a single range engine can serve all these operators. Padding beyond the signal with e reproduces the finite-horizon truncation convention. Choosing (◦, e ) = (max , −∞ )
+
+gives bounded Eventually, while (min , +∞) gives bounded Always. The within-block prefix and suffix scans operate in parallel across blocks, yielding O(T + ¯b) work and storage and O(log w) parallel depth. 
+
+C. Strong Until as Max–Min Pair Composition 
+
+Strong Until is not a pointwise range maximum because each witness also depends on the survival prefix of φ1.For the unbounded interval, let ht := ρφ1 U[0 ,∞] φ2 [t].Eq. (5h) satisfies 
+
+ht = max  min( pt, q t), min( pt, h t+1 ), hT = −∞ .
+
+(18) The recurrence can be viewed as the action of a max–min affine map 
+
+fA,c (z) := max  c, min( A, z ). (19) Associate each time index with the local pair 
+
+Pt = ( At, c t) :=  pt, min( pt, q t), (20) so that (18) becomes ht = fAt,c t (ht+1 ).Distributivity of min over max on R makes this family closed under composition. For two adjacent segments, with the earlier segment on the left, define 
+
+(A1, c 1)⊗(A2, c 2) :=  min( A1, A 2), max  c1, min( A1, c 2) .
+
+(21) This pair represents the composed map fA1,c 1 ◦ fA2,c 2 .Associativity follows directly by expanding three pairs. For 
+
+Pi = ( Ai, c i), both parenthesizations give 
+
+(P1 ⊗ P2) ⊗ P3 = P1 ⊗ (P2 ⊗ P3)=
+
+
+
+min( A1, A 2, A 3),
+
+max  c1, min( A1, c 2), min( A1, A 2, c 3)
+
+.
+
+(22) The identity is e = (+ ∞, −∞ ). The operation is idempotent but not commutative, so every scan and range query must keep earlier times on the left. The range engine in (17) preserves this order and does not rely on idempotence. The composed pair also has a direct semantic interpretation. For ℓ ≤ r, write 
+
+Pℓ ⊗ · · · ⊗ Pr = ( Aℓ:r , C ℓ:r ), (23) where 
+
+Aℓ:r = min  
+
+> ℓ≤j≤r
+
+pj , (24) 
+
+Cℓ:r = max  
+
+> ℓ≤k≤r
+
+min 
+
+
+
+qk, min  
+
+> ℓ≤j≤k
+
+pj
+
+
+
+. (25) Let π2(A, C ) := C denote the projection onto the second coordinate of a pair. The subscript 2 indicates that the second entry is selected. By (25), this coordinate is exactly the strong-Until robustness whose survival prefix begins at ℓ. In particular, 
+
+ht = Ct:T −1 = π2
+
+ Pt ⊗ Pt+1 ⊗ · · · ⊗ PT −1
+
+, (26) so one associative suffix scan produces the complete un-bounded Until trace with O(T ) work and O(log T ) depth. 
+
+D. Bounded and Shifted Until 
+
+For an interval whose first admissible witness is delayed by a steps, the left formula must also hold before the pair composition begins. Define the prefix guard 
+
+g(a) 
+
+> t
+
+:= 
+
+(+∞, a = 0 ,
+
+min  
+
+> 0≤j<a
+
+pt+j , a > 0, (27) using +∞ padding beyond the signal. For a finite nonempty interval, let 
+
+C[a,b ] 
+
+> t
+
+:= π2
+
+ Pt+a ⊗ Pt+a+1 ⊗ · · · ⊗ Pt+¯b
+
+, (28) Thus C[a,b ] 
+
+> t
+
+selects the strong-Until value from the composed pair over the admissible witness range. Out-of-horizon pairs are filled with the pair identity. Factoring the common guard through the outer maximum gives 
+
+ρφ1 U[a,b ] φ2 [t] = min  g(a) 
+
+> t
+
+, C [a,b ]
+
+> t
+
+. (29) The guard enforces φ1 before the first allowed witness, while the second coordinate of the pair range enforces it from offset 
+
+a through each witness. The finite pair range is evaluated by (17) with ◦ = ⊗.For [a, ∞], the same guard is combined with the shifted suffix result, 
+
+ρφ1 U[a, ∞] φ2 [t] = min  g(a) 
+
+> t
+
+, h t+a
+
+, (30) where ht+a = −∞ if t + a ≥ T . The pair monoid is not invertible, so a bounded range cannot be recovered by cancelling two suffix summaries. We use the ordered block construction in (17) to answer these queries with linear work and logarithmic depth. For [a, ∞], one associative pair suffix scan combined with the prefix-guard range minimum produces the complete shifted Until trace with O(T ) work and O(log T )
+
+parallel depth. For finite [a, b ], the associative block reduction and prefix guard produce the complete bounded Until trace with O(T + ¯b) work and O(log( ¯b + 1)) parallel depth. The depth includes both the witness range of width w and the guard of width a, since max( a, w ) ≤ ¯b + 1 . Table I summarizes the algebraic objects, evaluation strategies, and full-trace complexities for the exact Boolean and temporal operators. 5                                                            
+
+> TABLE I EXACT SCAN STL O PERATOR CLASSIFICATION AND FULL -T RACE COMPLEXITY
+> Operator Algebraic object Evaluation Work Depth Storage
+> ¬,∧,∨,⇒pointwise lattice elementwise O(T)O(1) O(T)
+> ♢,□: [ a, ∞]max/min monoid suffix scan O(T)O(log T)O(T)
+> ♢,□: [ a, b ]max/min monoid block range O(T+¯b)O(log w)O(T+¯b)
+> U: [ a, ∞]pair monoid + guard scan + range min O(T)O(log T)O(T)
+> U: [ a, b ]pair monoid + guard block composition O(T+¯b)O(log( ¯b+1)) O(T+¯b)
+
+E. Smooth Robustness 
+
+ScanSTL provides smooth trace reductions separately from the exact formula evaluator. For β > 0 and a nonempty set of finite values, define 
+
+smax β (v1, . . . , v n) := 1
+
+β log 
+
+> n
+
+X
+
+> i=1
+
+exp( βv i), (31) 
+
+smin β (v1, . . . , v n) := − smax β (−v1, . . . , −vn). (32) The smooth maximum upper-bounds the exact maximum by at most log( n)/β and converges to it as β → ∞. The corresponding binary reduction is 
+
+u ⊕β v := 1
+
+β log  exp( βu ) + exp( βv ), (33) which is associative in real arithmetic and is evaluated with a stabilized log-add-exp primitive. Smooth unbounded Eventu-ally is therefore a suffix scan under ⊕β , and bounded smooth Eventually uses the same block engine in (17). The aligned-window branch is essential because ⊕β is not idempotent. Smooth Always follows by sign duality. The exact pair composition does not remain associative after replacing its minima and maxima by smooth surrogates, because (21) relies on exact lattice distributivity. Smooth Until is therefore provided as a reference surrogate. It retains the exact candidate values 
+
+ck,t := min 
+
+
+
+qt+k, min  
+
+> 0≤j≤k
+
+pt+j
+
+
+
+(34) and smooths only the outer maximum over k ∈ K [a,b ] 
+
+> t
+
+. This surrogate converges to exact Until as β → ∞ , but it is not equivalent to smoothing every nested minimum and maximum and is not presented as an associative fast path. For finite b,the implementation constructs the survival prefixes for offsets 
+
+0, . . . , ¯b, giving O(T (¯b+1)) work and storage. The unbounded reference path sets ¯b = T − 1 and therefore has O(T 2)
+
+work and storage. The convergence statements above concern reductions over valid samples. The current smooth imple-mentation uses finite padding to avoid undefined derivatives at padded entries. Bounded unary scans use half the most negative representable value in the scaled log domain, while the Until reference uses ±10 9. These are numerical substitutes for identities only when padded contributions are negligible. Extreme predicate values or temperatures can violate this assumption, so the smooth code does not provide unrestricted numerical guarantees. The exact operators use the true infinite identities. V. E XPERIMENTS 
+
+We address three questions:  
+
+> •
+
+Q1: How do robustness evaluation and differentiation scale with trace length on CPUs and GPUs?  
+
+> •
+
+Q2: Do the gains persist across composed specifications?  
+
+> •
+
+Q3: Does faster evaluation reduce the time to a verified satisfying plan and increase MPC solver capacity? 
+
+A. Compared Methods and Protocol 
+
+ScanSTL, STLCG recurrence [7], and STLCG++ mask-ing [8] run in one JAX process, with stljax [25] baselines and unbounded Always using padding=last . Operator tests run on a Ryzen 9 9950X3D and RTX 5090. We report synchronized medians after two warmups. Timing stops af-ter 0.25 seconds and the minimum repeat count, or at the maximum count. Operators use 3–50 calls and formulas 5– 30. Compilation is excluded unless stated otherwise. Forward evaluation returns complete traces, and gradients differentiate 
+
+ρ[0] with respect to the inputs. An independent oracle and tests check values, boundaries, compiled execution, and gradients. Curve endpoints reflect runtime caps or analytical allocation guards, rather than measured memory failures. 
+
+B. Operator Scaling (Q1) 
+
+Figure 2 compares unbounded [0 , ∞] (rows 1–2) and bounded [5 , 15] (rows 3–4) operators. 
+
+Unbounded operators: ScanSTL leads both baselines on the CPU at all shared lengths. All reported speedups are relative to STLCG++ (JAX). On the GPU, masking is faster for Eventually and Always at T = 128 , 512 . At T = 2048 , ScanSTL gains 1.19 –1.20 ×
+
+forward, with gradients near parity for Eventually and 1.41 ×
+
+faster for Always. Since Until requires more involved reductions than unary operators to check survival through the witness, we compare it at the largest shared tested trace length. For Until at T = 256 ,ScanSTL gains 2869 × forward and 13 ,694 × for gradients on the CPU, with corresponding GPU gains of 19 .7× and 108 ×.We have further evaluated these methods for the shifted interval [5 , ∞]. The results show similar speedup trends, as reported in Table II with comparisons at the largest shared tested horizons, T = 2048 for unary operators and T = 256 
+
+for Until. At the longest tested horizon, T = 2 21 on the GPU, ScanSTL evaluates unbounded Until in 0.0953 ms forward and 0.2442 ms for gradients. Shifted Until takes 0.1303 and 
+
+0.3854 ms, respectively. 610 −2 
+
+> 10 −1
+> 10 0
+> 10 1
+> CPU time (ms)
+
+Eventually [0, ∞] 
+
+> 10 −2
+> 10 −1
+> 10 0
+> 10 1
+
+Always [0, ∞] 
+
+> 10 −1
+> 10 1
+> 10 3
+
+Until [0, ∞] 
+
+> 10 −1
+> 10 0
+> 10 1
+> GPU time (ms)
+> 10 −2
+> 10 −1
+> 10 0
+> 10 1
+> 10 0
+> 10 2
+> 10 4
+> 10 −2
+> 10 −1
+> 10 0
+> 10 1
+> CPU time (ms)
+
+Eventually [5, 15] 
+
+> 10 −2
+> 10 −1
+> 10 0
+> 10 1
+
+Always [5, 15] 
+
+> 10 −1
+> 10 1
+
+Until [5, 15]                
+
+> 2629212 215 218 221
+> 10 −1
+> 10 0
+> 10 1
+> 10 2
+> GPU time (ms)
+> 2629212 215 218 221
+> 10 −1
+> 10 1
+> 2629212 215 218 221
+> 10 −1
+> 10 0
+> 10 1
+> 10 2
+
+Horizon T    
+
+> ScanSTL STLCG++ (JAX) STLCG (JAX) STLCG++ (Torch) STLCG (Torch)
+
+Fig. 2. Exact operator scaling for unbounded [0 , ∞] (rows 1–2) and bounded [5 , 15] (rows 3–4) intervals, with Ryzen CPU above RTX 5090 GPU in each pair. Solid/dashed curves show forward traces/gradients of ρ[0] .TABLE II SCAN STL FORWARD /GRADIENT SPEEDUPS OVER STLCG++ (JAX) FOR EXACT [5 , ∞] OPERATORS .Operator T Ryzen CPU ( ×) RTX 5090 ( ×)Eventually 2048 590/856 1.06/1.10 Always 2048 619/1187 1.24/1.32 Until 256 4035/7564 18.8/83.8 
+
+Bounded operators: ScanSTL similarly leads on the CPU at all shared trace lengths. Unary forward speedups at T =2048 are 185 –201 × on the CPU and 1.73 –2.06 × on the GPU. Until at T = 512 gains 160 × forward and 1528 × for gradients on the CPU, and 2.42 × and 2.17 × on the GPU. We observed that the narrow window reduces masking cost, narrowing the GPU gap relative to unbounded Until. 
+
+C. Composed Formulas (Q2) 
+
+We evaluate the nine formulas in Table III at T ∈ { 32 , 64 ,
+
+128 , 256 , 512 }. These formulas test nesting, bounded Until, response requirements, and multiple clauses. The temporal intervals are JT = [0 , T − 1] , IT = [0 , min(15 , T − 1)] , and 
+
+WT = [0 , min(128 , T − 1)] . We also define ri = p2i ∧ p2i+1 
+
+and χ = ♢IT (r2 ∧ r0). For the remaining comparisons addressing Q2 and Q3, we use the JAX implementations of STLCG and STLCG++ because ScanSTL is also implemented in JAX. The operator results in Fig. 2 further support this choice, as STLCG++ is faster in JAX at all shared test points, while STLCG performs similarly in JAX and PyTorch in most cases. Figure 3 shows that ScanSTL is faster than both baselines for all nine formulas at each of the five tested horizons, in both forward evaluation and gradient computation. Compared to STLCG++ (JAX), geometric mean speedups across the nine 
+
+TABLE III COMPOSITE FORMULA SUITE . D EPTH IS MAXIMUM TEMPORAL NESTING .Spec. Depth Description Formula 
+
+φ1 1 Invariance □JT r0
+
+φ2 2 Stabilization ♢JT □IT r0
+
+φ3 1 Bounded Until p0 UIT p1
+
+φ4 3 Ordered visits ♢IT (r4 ∧ ♢IT (r3 ∧ χ)) 
+
+φ5 3 Visit, then settle ♢IT (r2 ∧ ♢IT □IT r0)
+
+φ6 1 Ten visits V9 
+
+> i=0
+
+♢IT ri
+
+φ7 2 Response □[0 ,∞](p0 ⇒ ♢WT p1)
+
+φ8 2 Always Until □[0 ,∞](p0 UWT p1)
+
+φ9 1 32 visits V31  
+
+> i=0
+
+♢[0 ,∞]pi
+
+formulas increase from 6.21 × to 243 × for forward evaluation and from 5.68 × to 104 × for gradients as T grows from 32 to 512. The widening gap shows that the savings in temporal evaluation persist when operators are combined into complete specifications. Compared to STLCG (JAX), geometric mean speedups similarly increase from 5.15 × to 140 × for forward evaluation and from 3.49 × to 57 .5× for gradients over the same horizons. The size of the gain also depends on the formula structure. For φ8, which nests bounded Until inside Always, forward times at T = 512 are 0.0267 , 182 .6, and 108 .7 ms for ScanSTL, STLCG++, and STLCG, respectively. This com-position particularly benefits from ScanSTL’s efficient Until reductions. At the same horizon, the more deeply nested unary formulas φ4 and φ5 achieve smaller forward speedups over STLCG of 4.42 –4.64 ×. Thus, nesting depth alone does not determine ScanSTL’s advantage, as the temporal operators and their intervals also affect evaluation cost. 710 −1            
+
+> 10 1
+> 10 3
+> Forward time (ms)  φ1φ2φ3φ4φ5φ6φ7φ8φ9
+> 32 128 512 10 −1
+> 10 1
+> 10 3
+> Gradient time (ms)
+> 32 128 512
+> 32 128 512
+> 32 128 512
+> 32 128 512
+> 32 128 512
+> 32 128 512
+> 32 128 512
+> 32 128 512
+> Horizon T
+> ScanSTL STLCG++ (JAX) STLCG (JAX)
+
+Fig. 3. Runtime scaling with trace length T for the nine STL formulas in Table III. Panels show median runtimes for complete robustness traces (top) and gradients of ρφ[0] with respect to the input signals (bottom). All three methods use JAX on the i7-13700H CPU. TABLE IV TIME TO AN EXACTLY SATISFYING PLAN WITH JAX AFTER COMPILATION 
+
+(MS ), REPORTED AS MEAN ± SAMPLE STANDARD DEVIATION ACROSS THREE RUNS , INCLUDING OPTIMIZATION AND VERIFICATION .Method T = 200 T = 300 T = 500 
+
+ScanSTL 5.33 ± 0.15 5.78 ± 1.92 6.76 ± 1.71 
+
+STLCG 529 .38 ± 16 .98 1942 .58 ± 812 .12 11 ,066 .46 ± 3631 .67 
+
+STLCG++ 461 .80 ± 10 .34 Compilation timeout Not attempted 
+
+D. Escort-and-Patrol Planning and MPC (Q3) 
+
+Finally, we test ScanSTL on a simulated robot dog with unicycle dynamics and 0.1 s sampling. The robot must remain within 1 m of a person until the person reaches a safe area, visit A and B within specified time windows, and return to its dock. Throughout the mission, it must stay inside a 6 × 6 marena and outside a robot exclusion region , which the person may enter. We express these requirements as 
+
+φdog = near U[0 ,⌊0.70 T ⌋] humanSafe 
+
+∧ ♢[⌊0.55 T ⌋,⌊0.80 T ⌋]inA 
+
+∧ ♢[⌊0.70 T ⌋,⌊0.92 T ⌋]inB 
+
+∧ □[0 ,∞](robotAllowed ∧ insideArena) 
+
+∧ ♢[⌊0.85 T ⌋,∞]inDock .
+
+(35) The predicates use signed distance margins, with 
+
+robotAllowed positive outside the exclusion region. Planning uses a known person trajectory, whereas MPC predicts it during execution. 
+
+Time to a satisfying plan: To isolate evaluation cost, all methods repair the same plans with matched exact temporal clauses, dynamics, and regularization in JAX. Adam (learning rate 0.005 ) maximizes a smooth minimum ( β = 10 ) of the five exact clause values. Table IV reports the time to a satisfying plan after compilation, including optimization and verification. ScanSTL’s mean time increases from 5.33 to 6.76 ms as 
+
+T grows from 200 to 500, while STLCG’s increases from 
+
+529 ms to 11 .07 s. STLCG++ requires 462 ms at T = 200 
+
+and compilation exceeds 120 s at T = 300 , and T = 500 is therefore not attempted. At T = 300 , the escort Until has 211 witness offsets. STLCG++ explicitly constructs and reduces these masked cases, with 211 × 511 × 300 = 32 ,346 ,300 30 60 120 240    
+
+> Lookahead H
+> 10 0
+> 10 1
+> 10 2
+> 10 3
+> 10 4
+> Solver time (ms)
+> 100 ms budget
+> MPC solver time
+> ScanSTL STLCG++ (JAX) STLCG (JAX)
+
+Fig. 4. MPC solver times on i7-13700H with JAX. Curves and bands show medians and interquartile ranges across three runs per method and lookahead. The dotted line marks the nominal 100 ms control budget. 
+
+entries per stacked tensor, or approximately 259 MB in float64. ScanSTL performs prefix and suffix scans over three blocks of 211 pairs, followed by 300 pair compositions. Each scan output contains only 633 pairs, or 10 .1 kB in float64. 
+
+Replanning during execution: The MPC controller in-stead predicts H person positions using a constant velocity Kalman filter. Each tick performs 20 Adam updates from the previous solution and executes the first control. The objec-tive combines local smooth STL ( β=12 , weight 0.15 ) with tracking, target, safety, smoothness, and effort terms, using the quadratic smooth Until (Sec. IV-E). We evaluate 36 runs across 
+
+H ∈ { 30 , 60 , 120 , 240 }, three seeds, and three methods, with the person following a zigzag trajectory that passes through the robot exclusion region. Figure 4 shows ScanSTL’s median solver time rising from 1.40 to 24 .4 ms. Within the nominal 
+
+100 ms solver budget, ScanSTL supports a prediction horizon of 24 s compared with 6 s for STLCG++ and 3 s for STLCG, based on the median solver times at the tested lookaheads. Figure 5 illustrates how ScanSTL completes the mission with H=30 . The robot escorts the person while staying outside the robot exclusion region, then visits A and B and returns to the dock (panel (a)). Panel (b) shows the local predicted STL cost, with shaded intervals marking the active task. The peaks near task transitions reflect changes in the local planning objective, while mission satisfaction is assessed by exact verification of the executed trajectory. Panel (c) shows the minimum of the safety and proximity margins through the verified escort witness at 15 .7 s, followed by the safety margin alone. This margin remains positive throughout execution, with 8(a) 3D replay, H = 30        
+
+> Safe area Robot exclusion ABDock
+> Robot Person 010 20 30
+> Mission time (s)
+> −0.1 0.0 0.1 0.2
+> JSTL
+> Escort ABDock
+
+(b) Local MPC objective     
+
+> 010 20 30
+> Mission time (s)
+> 0.0 0.5 1.0 1.5
+> mexec  (m)
+> minimum +0.091
+
+(c) Execution margin  
+
+> Exact witnesses Escort 15.7 s A18.8 s B21.4 s Dock 25.6 s
+
+Fig. 5. A satisfying ScanSTL execution with H = 30 . (a) 3D replay. (b) Local predicted STL cost, shaded by active task. (c) Exact safety and escort margin. The maximizing temporal witnesses are listed below. 
+
+a minimum of +0 .091 m. The remaining witnesses certify visits to A at 18 .8 s, B at 21 .4 s, and the dock at 25 .6 swithin their required intervals. Together, these checks establish satisfaction of the complete mission with robustness +0 .091 .VI. C ONCLUSION 
+
+We presented ScanSTL, a unified evaluator that combines associative scans and ordered range reductions for exact STL robustness. The formulation computes complete traces for Eventually, Always, and inclusive strong Until with bounded and shifted intervals, requiring linear work and storage and logarithmic parallel depth per operator. Its JAX implementa-tion supports automatic differentiation for optimization and control. The benchmarks demonstrate substantial computational gains, particularly for Until and composed specifications. Simulated robot experiments show faster verified plan repair and greater MPC solver capacity. Smooth Until remains a separate quadratic reference. Future work will investigate efficient smooth Until evaluation and controllers that use the computational savings to improve task satisfaction under enforced deadlines. REFERENCES [1] O. Maler and D. Niˇ ckovi´ c, “Monitoring Temporal Properties of Con-tinuous Signals,” International Conferences on Formal Modeling and Analysis of Timed Systems and Formal Techniques in Real-Time and Fault-Tolerant Systems , 152–166, 2004. [2] G. E. Fainekos and G. J. Pappas, “Robustness of Temporal Logic Spec-ifications for Continuous-Time Signals,” Theoretical Computer Science ,410(42), 4262–4291, 2009. [3] A. Donz´ e and O. Maler, “Robust Satisfaction of Temporal Logic over Real-Valued Signals,” International Conference on Formal Modeling and Analysis of Timed Systems , 92–106, 2010. [4] V. Raman, A. Donz´ e, M. Maasoumy, R. M. Murray, A. Sangiovanni-Vincentelli and S. A. Seshia, “Model Predictive Control with Signal Temporal Logic Specifications,” IEEE Conference on Decision and Control , 81–87, 2014. [5] Y. V. Pant, H. Abbas and R. Mangharam, “Smooth Operator: Control Using the Smooth Robustness of Temporal Logic,” IEEE Conference on Control Technology and Applications , 1235–1240, 2017. [6] Y. Gilpin, V. Kurtz and H. Lin, “A Smooth Robustness Measure of Signal Temporal Logic for Symbolic Control,” IEEE Control Systems Letters , 5(1), 241–246, 2021. [7] K. Leung, N. Ar´ echiga and M. Pavone, “Backpropagation Through Signal Temporal Logic Specifications: Infusing Logical Structure into Gradient-Based Methods,” The International Journal of Robotics Re-search , 42(6), 356–370, 2023. [8] P. Kapoor, K. Mizuta, E. Kang and K. Leung, “STLCG++: A Masking Approach for Differentiable Signal Temporal Logic Specification,” IEEE Robotics and Automation Letters , 10(9), 9240–9247, 2025. [9] K. Mamouras, A. Chattopadhyay and Z. Wang, “Algebraic Quantitative Semantics for Efficient Online Temporal Monitoring,” International Conference on Tools and Algorithms for the Construction and Analysis of Systems , 330–348, 2021. [10] G. E. Blelloch, “Prefix Sums and Their Applications,” Technical Report CMU-CS-90-190, Carnegie Mellon University, 1990. [11] V. Kurtz and H. Lin, “Mixed-Integer Programming for Signal Temporal Logic With Fewer Binary Variables,” IEEE Control Systems Letters , 6, 2635–2640, 2022. [12] N. Mehdipour, C.-I. Vasile and C. Belta, “Arithmetic-Geometric Mean Robustness for Control from Signal Temporal Logic Specifications,” 
+
+American Control Conference , 1690–1695, 2019. [13] R. Ilyes, L. Bruderm¨ uller, N. Hawes and B. Lacerda, “Ro-To-Go! Robust Reactive Control with Signal Temporal Logic,” IEEE International Conference on Robotics and Automation , 7641–7648, 2026. [14] M. Chevallier, F. Smola, R. Schmoetten and J. D. Fleuriot, “GradSTL: Comprehensive Signal Temporal Logic for Neurosymbolic Reasoning and Learning,” International Symposium on Temporal Representation and Reasoning , 6:1–6:14, 2025. [15] A. Donz´ e, T. Ferr` ere and O. Maler, “Efficient Robust Monitoring for STL,” International Conference on Computer Aided Verification , 264– 279, 2013. [16] D. Lemire, “Streaming Maximum-Minimum Filter Using No More than Three Comparisons per Element,” Nordic Journal of Computing , 13(4), 328–339, 2006. [17] J. V. Deshmukh, A. Donz´ e, S. Ghosh, X. Jin, G. Juniwal and S. A. Seshia, “Robust Online Monitoring of Signal Temporal Logic,” Formal Methods in System Design , 51(1), 5–30, 2017. [18] D. Niˇ ckovi´ c and T. Yamaguchi, “RTAMT: Online Robustness Monitors from STL,” International Symposium on Automated Technology for Verification and Analysis , 564–571, 2020. [19] J. Cralley, O. Spantidi, B. Hoxha and G. Fainekos, “TLTk: A Toolbox for Parallel Robustness Computation of Temporal Logic Specifications,” 
+
+International Conference on Runtime Verification , 404–416, 2020. [20] A. Rodionova, E. Bartocci, D. Niˇ ckovi´ c and R. Grosu, “Temporal Logic as Filtering,” International Conference on Hybrid Systems: Computation and Control , 11–20, 2016. [21] S. Jakˇ si´ c, E. Bartocci, R. Grosu and D. Niˇ ckovi´ c, “An Algebraic Framework for Runtime Verification,” IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems , 37(11), 2233–2243, 2018. [22] M. van Herk, “A Fast Algorithm for Local Minimum and Maximum Filters on Rectangular and Octagonal Kernels,” Pattern Recognition Letters , 13(7), 517–521, 1992. [23] J. Gil and M. Werman, “Computing 2-D Min, Median, and Max Filters,” 
+
+IEEE Transactions on Pattern Analysis and Machine Intelligence , 15(5), 504–507, 1993. [24] J. Bradbury et al. , “JAX: Composable Transformations of Python+NumPy Programs,” 2018. [Online]. Available: http://github.com/jax-ml/jax [25] UW-CTRL, “stljax,” GitHub repository. [Online]. Available: https:// github.com/UW-CTRL/stljax
