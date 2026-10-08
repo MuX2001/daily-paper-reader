@@ -1,0 +1,5360 @@
+Title: Taylor Representations for Model-Free RL in Networked MDPs
+
+URL Source: https://arxiv.org/pdf/2610.05456v1
+
+Published Time: Tue, 06 Oct 2026 02:20:29 GMT
+
+Number of Pages: 53
+
+Markdown Content:
+# TAYLOR REPRESENTATIONS FOR MODEL -F REE RL IN 
+
+# NETWORKED MDP S
+
+Salah R. Chikhi Abdelhaq Chaoui 
+
+Massachusetts Institute of Technology Massachusetts Institute of Technology 
+
+Asuman Ozdaglar Saurabh Amin 
+
+Massachusetts Institute of Technology Massachusetts Institute of Technology 
+
+## ABSTRACT 
+
+In Networked Markov Decision Processes, transition dynamics are often unknown and the state–action space grows rapidly with the number of agents. In this set-ting, Taylor representations naturally approximate Q-functions, but a naive order-
+
+n expansion over N agents requires Θ( N n) coefficients. We justify these ex-pansions under smooth expected future local rewards with controlled derivatives. Under this condition, finite-speed information propagation and discounting imply that local-critic Taylor coefficients decay exponentially with the graph distance to the farthest agent involved. Discarding distant-agent coefficients and marginal-izing then yield scalable local Taylor representations with a bound controlled by graph locality. Building on these representations, we propose a scalable model-free actor–critic algorithm, establishing finite-sample critic and near-stationarity guarantees for a linear LSTD critic. We then introduce a more expressive neu-ral TD parameterization. Unlike prior constructive spectral methods, our ap-proach covers settings without access to a known local dynamics map, such as hidden switched linear–quadratic regulation. Across three control benchmarks, our method matches or outperforms spectral baselines while scaling efficiently to large graphs. 
+
+## 1 INTRODUCTION 
+
+Networked Markov Decision Processes, in the context of multi-agent reinforcement learning (MARL), provide a natural framework for cooperative control in large interconnected systems, in-cluding communication networks, traffic systems, queueing networks, and other cyber-physical sys-tems (Qu et al., 2020b; 2022; Chu et al., 2020). They nevertheless face two central challenges: the transition kernel is often unknown and the joint state–action space grows rapidly with the number of agents, making large-scale control challenging. To address the latter, in finite state–action spaces, Qu et al. (2020b; 2022) exploit the exponential decay property of local Q-functions, whereby the influence of distant agents decreases exponentially with graph distance. This enables localized Q-function and policy-gradient approximations. Lin et al. (2021) extend this principle to stochastic non-local dependencies through a more general decay property, while related guarantees also hold for average-reward objectives (Qu et al., 2020a). Related locality phenomena have also been studied in mean-field MARL and networked policy optimization (Gu et al., 2025; Zhang et al., 2023; Liang et al., 2025) and exponential sensitivity decay arises in graph-structured optimization and nonlinear optimal control (Shin et al., 2022; Na & Anitescu, 2020; Na et al., 2022). In continuous state– action spaces, however, localization alone is insufficient: even a local critic remains an unknown continuous function that must be represented and learned. For continuous networked control, recent work addresses this representation problem through spa-tial structure (Olsson et al., 2024) and spectral representations (Ren et al., 2025b; Wang et al., 2026). A main setting targeted by the spectral approaches is one in which each local transition follows a known dynamics map with additive Gaussian noise. Spectral representations, together with finite-dimensional features such as random Fourier features and the exponential decay property mentioned above, then yield scalable critic approximations with explicit guarantees (Ren et al., 2023; 2025a; Rahimi & Recht, 2007). However, this approach can be restrictive: the transition kernel is typi-cally unknown, and canonical network-control problems need not belong to this class of dynamics. 1arXiv:2610.05456v1 [stat.ML] 4 Oct 2026 Switched linear–quadratic regulation (LQR) with an unobserved global mode (Costa et al., 2005; Ogura et al., 2018), for instance, is not captured by such dynamics as it induces state– and action-dependent noise, shared across agents and temporally correlated through the Markov mode. Ren et al. (2025b) also propose a model-free variant named Spectral-SAC, but without the correspond-ing guarantees of their random Fourier features approach. In contrast, we focus here on the fully model-free setting, where the transition dynamics are unknown and only rollout data are available. Beyond the setting of networked MDPs, a complementary route to tractable function approximation is smoothness. Taylor representations have been developed for continuous-state MDPs (Braverman et al., 2020; Xu et al., 2020; Maran et al., 2024a), with Maran et al. (2024a;b) showing how reg-ularizing properties of the Bellman operator can justify polynomial representations. However, the poor scalability of a naive Taylor representation stems from its isotropy: the analysis places all Tay-lor coefficients on equal footing, so an order-n expansion over N agents generally requires Θ( N n)
+
+coefficients. Moreover, much like the dynamics assumptions of prior constructive spectral methods, the smoothness assumption of (Maran et al., 2024a) need not hold in canonical network-control set-tings such as switched LQR with unobserved operating modes, as we show in Appendix E. In our analysis, we instead require smoothness of expected future local rewards in the initial state. 
+
+Our contribution. Our key observation is that, in networked MDPs, Taylor coefficients are not equally important: they themselves inherit graph locality. Finite propagation and discounting imply that derivatives involving an agent at graph distance d decay exponentially with d. This allows us to truncate the global Taylor expansion to monomials supported on N κi , the κ-hop neighborhood of agent i. After marginalizing distant variables, the resulting polynomial is equivalently a Taylor representation of a localized critic with only Θ( |N κi |n) state monomials. Using rollout-based cen-troids as expansion points, we first obtain a linear-in-parameters Taylor Centroid critic and a scal-able actor–critic with finite-sample critic and near-stationarity guarantees. We then generalize the parameterization with neural networks. Unlike prior constructive spectral approaches, our method requires neither knowledge nor a structural specification of the transition kernel. We benchmark it across three control problems of increasing difficulty. Table 1 summarizes how our contributions relate to prior work. Table 1: Comparison with representative prior representation-based approaches.                                           
+
+> Qu et al. Olsson et al. Ren et al. Wang et al. Maran et al. Ours
+> Networked MDP ✓✓‡✓✓–✓
+> Continuous state–action –✓✓✓✓✓
+> Critic representation Tabular Local quadratic Spectral Spectral Taylor Local Taylor Scalable representation ✓✓✓✓–✓
+> Model-free construction ✓✓–†–✓✓
+> End-to-end guarantee Stationarity –Stationarity Stationarity No-regret Stationarity
+> †Ren et al. (2025b) also propose a model-free alternative to their random Fourier features but without guaran-tees. ‡Olsson et al. (2024) specialize to LQR.
+
+## 2 PROBLEM SETTING 
+
+We consider N agents on an undirected graph G = ( V, E ), V = [ N ]. Let dG(i, j ) denote graph distance and, for κ ≥ 0, define N κi := {j : dG(i, j ) ≤ κ}, Ni := N 1 
+
+> i
+
+, and N κ 
+
+> −i
+
+:= V \ N κi . Agent 
+
+i has state si ∈ S i ⊂ Rds and takes action ai ∈ A i ⊂ Rda , where the state spaces are compact and convex and the action spaces are compact. We write sI = ( sj )j∈I and aI = ( aj )j∈I . Our framework also allows a global context z ∈ Z which may be discrete or continuous. We consider the class of factorized transition kernels and policies: 
+
+P (z′, s ′ | z, s, a ) = Pg (z′ | z)
+
+> N
+
+Y
+
+> i=1
+
+Pi(s′ 
+
+> i
+
+| sNi , a Ni , z ), πθ (a | z, s ) = 
+
+> N
+
+Y
+
+> i=1
+
+πθi
+
+
+
+ai | sN κπ i , h i(z)
+
+
+
+.
+
+Here, the policy observation radius is κπ , and hi(z) ∈ Rdig denotes the global context observable to agent i. Thus z may be unobserved, partially observed, or fully observed by agent i. Furthermore, z
+
+affects every local transition but cannot transmit physical information between distant agents. Let ∆
+
+be the maximum degree of the graph. Assume that the rewards satisfy r(s, a ) = 1
+
+> N
+
+PNi=1 ri(si, a i)
+
+with |ri(si, a i)| ≤ Rmax . Our analysis extends directly to local rewards depending on any fixed-radius neighborhood of agent i. The discount factor satisfies γ ∈ (0 , 1) . We assume that the initial 2distribution ν0 of (Z0, S 0) is fixed and does not depend on the policy parameters θ. The cooperative objective to be maximized is 
+
+J(θ) = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+E(Z0,S 0)∼ν0,π θ
+
+X
+
+> t≥0
+
+γtri(Si,t , A i,t )
+
+ .
+
+To maximize this objective, we adopt the actor-critic framework (Konda & Tsitsiklis, 1999; Sutton et al., 1999; Sutton & Barto, 2018). To this end, define the local and global critics 
+
+Qπi (z, s, a ) := Eπ
+
+X
+
+> t≥0
+
+γtri(Si,t , A i,t ) Z0 = z, S 0 = s, A 0 = a
+
+ , Qπ := 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+Qπi . (1) To make our targeted Taylor representations well-defined, we use the following assumption: 
+
+Assumption 1 (Expected reward regularity) There exist an integer q ≥ 2 and a constant ¯L < ∞,both independent of the network size N , such that, uniformly over agents i and all policies π of the above factorized form, for every t ≥ 0 the map s 7 → Eπ [ri(Si,t , A i,t ) | Z0 = z, S 0 = s, A 0 = a] is of class Cq and 
+
+max  
+
+> |β|≤ q
+
+sup 
+
+> z,s,a
+
+∂βs Eπ [ri(Si,t , A i,t ) | Z0 = z, S 0 = s, A 0 = a] ≤ ¯L. 
+
+Assumption 1 is an expected reward regularity condition: a small perturbation of the current phys-ical state may lead to very different trajectories, but should not create arbitrarily sharp changes in the expected future local reward. Appendix E gives concrete sufficient conditions for Assumption 1, introduces a rollout-based stress test for assessing it empirically, and shows that the uniform-in-t
+
+derivative bound can be weakened to a discounted-summability condition . We retain the uniform formulation in the main text for simplicity. Assumption 1 plays two roles: it makes each Qπi of class Cq (Proposition 1), enabling Taylor ex-pansions of any order n ≤ q − 1, and, together with finite graph propagation, yields the exponential derivative decay of Lemma 1. In contrast, the standard exponential decay of the value-localization error with the localization radius (Ren et al., 2025b; Wang et al., 2026) requires only bounded re-wards and graph-local factorization. 
+
+Proposition 1 The individual action-value function s 7 → Qπi (z, s, a ) is of class Cq for all i, z, a .
+
+Maran et al. (2024a) also construct local polynomial value-function approximations through Taylor expansions, but rely on Mild smoothness, a regularity assumption on the Bellman operator, whereas Assumption 1 only requires smoothness of the future reward sequence defining Qπi . Hence, under smooth rewards, sufficiently high-order Mild smoothness implies Assumption 1, but not conversely: Appendix E shows this separation on switched LQR (Costa et al., 2005; Ogura et al., 2018), while also showing that the additive-Gaussian setting of Ren et al. (2025b); Wang et al. (2026) satisfies Assumption 1 under uniformly Cq local dynamics and rewards when ∆ is independent of N .The smoothness property of Proposition 1 naturally leads to our Taylor representations for the actor– critic structure developed in the remainder of the paper: we first construct a scalable Taylor repre-sentation of the critic in Section 3, and then use it to derive an actor-critic algorithm in Section 4. 
+
+## 3 TAYLOR CENTROID CRITICS 
+
+3.1 TAYLOR EXPANSIONS AND SCALABILITY 
+
+Having established the required smoothness of the critic, we now turn to its representation. As in Maran et al. (2024a), we begin with an order-n Taylor expansion around an expansion point μ, for any chosen integer 1 ≤ n ≤ q − 1.1
+
+Qπi (z, s, a ) ≃ X
+
+> β∈NN ds
+> |β|≤ n
+
+∂βs Qπi
+
+ z, μ, a 
+
+β!
+
+ s − μβ (2) 
+
+> 1
+
+Write β = ( βj,r )j∈[N ], r ∈[ds] ∈ NN d s . We use |β| = PNj=1 
+
+Pds 
+
+> r=1
+
+βj,r , β! = β1,1! · · · βN,d s !, xβ =
+
+xβ1,1 
+
+> 1,1
+
+· · · xβN,ds  
+
+> N,d s
+
+, ∂βs = ∂|β| 
+
+> ∂s β1,11,1··· ∂s βN,ds N,ds
+
+and supp G(β) = {i : ∃l | βi,l ̸ = 0 }.
+
+3The drawback of this representation is dimensionality: an order-n expansion contains  N d s+nn
+
+ =Θ( N n) coefficients, while μ and a are themselves ambient-dimensional. Importantly, existing lo-cality results show that changing states and actions outside the κ-hop neighborhood of any agent i
+
+changes its local value Qπi by an amount that decays exponentially with κ (Qu et al., 2020b; 2022; Ren et al., 2025b; Wang et al., 2026), but do not characterize its Taylor coefficients. Our key ob-servation is that expected reward regularity further allows exponential decay of the derivatives with graph distance. Lemma 1 formalizes this decay. 
+
+Lemma 1 (Exponential decay of critic derivatives) Define ρ := γ1/(1+ κπ ) ∈ (0 , 1) , and the graph reach di(β) := max j∈supp G(β) dG(i, j ) with di(0) := 0 . Then, for every |β| ≤ n + 1 ,
+
+∂βs Qπi (z, s, a ) ≤ LQρdi(β), LQ := ¯L
+
+1 − γ
+
+Hence any derivative involving an agent at distance d is O(ρd): indeed, finite propagation delays its influence on agent i by at least d/ (1 + κπ ) steps, after which discounting contributes the factor ρd.The decay can be substantially faster in practice (see Appendix D.1); henceforth, ρ may denote the best valid geometric rate. This motivates discarding derivatives with respect to agents outside N κi .We denote their multi-indices by: 
+
+Mn  
+
+> Nκi
+
+:= {β ∈ NN d s : |β| ≤ n, supp G(β) ⊆ N κi }.
+
+This removes coordinates of agents at distance more than κ from the polynomial terms. However, the remaining Taylor coefficients still depend on their values. To obtain coefficients that require only local states and actions, fix an arbitrary probability measure νi, far on SN κ 
+
+> −i
+
+× A N κ 
+
+> −i
+
+and define, for 
+
+β ∈ M n 
+
+> Nκi
+
+, the marginalized Taylor coefficients: 
+
+Di,β (z, s N κi , a N κi ) := 
+
+Z   
+
+> SNκ
+> −i×A Nκ
+> −i
+
+∂βs Qπi (z, s, a ) dν i, far (sN κ 
+
+> −i
+
+, a N κ 
+
+> −i
+
+). (3) We use expansion points μ1, . . . , μ K ∈ S , with k(s) ∈ [K] selecting the point μk(s) closest to s
+
+in L1 norm, in the spirit of classical local polynomial and locally weighted approximation methods (Fan & Gijbels, 1996; Atkeson et al., 1997). We define the clusters in the global state space, so that the cluster index k(s) can inject global-state information into otherwise local critics, in par-ticular helping recover latent global regimes when z is unobserved. Figure 8 illustrates this effect. Discarding distant derivatives and marginalizing the retained ones then yields the local Taylor rep-resentation: 
+
+bQπi (z, s, a ) = X 
+
+> β∈M n
+> Nκi
+
+Di,β (z, μ k(s),N κi , a N κi )
+
+β!
+
+ sN κi − μk(s),N κi
+
+β . (4) At each fixed k(s), this Taylor representation requires Θ( |N κi |n) learned coefficients. Notice that 
+
+Di, 0 is precisely the critic obtained by marginalizing Qπi over states and actions outside N κi ; denot-ing it by ¯Qπi , this recovers the localized critic of Ren et al. (2025b). Moreover, Di,β = ∂βs ¯Qπi , so Equation 4 is exactly the order-n Taylor expansion of ¯Qπi around the selected centroid. Combining this viewpoint with Lemma 1 yields the following error estimate: 
+
+Theorem 1 (Scalable local Taylor representation) Under Assumption 1, define, for 0 ≤ d ≤ κ
+
+and every integer p ≥ 0,
+
+Wd := sup 
+
+> s
+
+sN di − μk(s),N di 1
+
+, Rp := ρκW pκ + (1 − ρ)
+
+> κ−1
+
+X
+
+> d=0
+
+ρdW pd .
+
+Then the truncated Taylor critic bQπi satisfies 
+
+Qπi − bQπi ∞
+
+≤ 2Rmax 
+
+1 − γ ρκ+1 + LQ
+
+(n + 1)! Rn+1 =: ∆ TC 
+
+Moreover, bQπi contains  |N κi |ds+nn
+
+ = Θ( |N κi |n) = O(∆ nκ ) state monomials. 
+
+4Theorem 1 decomposes the approximation error into the standard O(ρκ+1 ) localization term (Qu et al., 2020b; Ren et al., 2025b; Wang et al., 2026) and a Taylor remainder. Lemma 1 sharpens the usual isotropic remainder W n+1  
+
+> κ
+
+to Rn+1 , which attenuates contributions from the d-hop neighbor-hood by ρd through graph locality. Due to the 1/(n + 1)! term, the Taylor order n typically improves the local approximation. The effect of κ is subtler: enlarging the neighborhood reduces localization error but increases the Taylor radius Wκ and introduces additional distant coordinates into Rn+1 .Corollary F.1 replaces the worst-case radii Wd by average distances to the centroids, motivating the 
+
+K-medians (Cardot et al., 2012) procedure used below to reduce the average L1 distance to expan-sion points. The key takeaway is a controlled local Taylor approximation with an N -independent number of monomials for fixed (κ, n, d s).3.2 LINEAR AND NEURAL TAYLOR CENTROID CRITIC ESTIMATION 
+
+The local Taylor representation of Equation 4 is scalable, but its marginalized coefficients Di,β must still be learned from rollouts. Here, we first consider a linear parameterization which we name Linear Taylor Centroid (LTC), and a neural one, Neural Taylor Centroid (NTC). Letting yi = hi(z),define the coefficient features 2 and local Taylor basis as 
+
+ψi(k, y i, a N κi ) := [1; μk, N κi ; aN κi ; yi], Ti(s) := 
+
+" (sN κi − μk(s),N κi )β
+
+β!
+
+# 
+
+> β∈M n
+> Nκi
+
+.
+
+Linear Taylor Centroid. LTC approximates each marginalized Taylor coefficient with a function linear in ψi:
+
+eQLTC  
+
+> i
+
+(yi, s, a N κi ; wi) = X 
+
+> β∈M n
+> Nκi
+
+
+
+ψi(k(s), y i, a N κi )⊤wi,β 
+
+  sN κi − μk(s),N κi
+
+β
+
+β!
+
+Alternatively, setting Φi = ψi ⊗ Ti, eQLTC  
+
+> i
+
+= Φ ⊤ 
+
+> i
+
+wi is linear in wi, enabling us to use the Least-Squares Temporal Differences (LSTD) algorithm (Bradtke & Barto, 1996; Lazaric et al., 2012; Ren et al., 2025b; Qu et al., 2020b; Wang et al., 2026) to fit the critic. Moreover, the number of learnable parameters in this representation is pi :=  |N κi |ds+nn
+
+  1 + |N κi |(ds + da) + dig
+
+ = Θ  |N κi |n+1  =
+
+O  ∆κ(n+1)  which is independent of N . Importantly, we share the coefficient map wi across clusters rather than fitting cluster-specific weights, since rarely visited clusters would otherwise have too little data to estimate their coefficients reliably. Cluster-specific behavior is still captured through the centroid μk in the feature map and behavior relative to the global state s is captured by k(s). Since the ideal Taylor Centroid coefficient maps Di,β need not be affine, we quantify the resulting approximation error by defining 
+
+¯εlin := max  
+
+> β∈M n
+> Nκi
+
+ρ−di(β) inf 
+
+> w∈Rdiψ
+
+sup 
+
+> z,k,a
+
+Di,β (z, μ k, N κi , a N κi ) − w⊤ψi(k, h i(z), a N κi ) ≤ LQ.
+
+The quantity ¯εlin measures misspecification of the coefficient feature map, normalized by the natural scale ρdi(β) from Lemma 1. Importantly, localization reduces the effective dimension of coefficient estimation from the global state dimension to that of a local neighborhood, making this estimation problem substantially more tractable. Furthermore, adding adequate features to the feature map ψi
+
+may lower this misspecification. Notice also that increasing n introduces additional coefficients to fit, so ¯εlin is nondecreasing in n. Increasing κ similarly enlarges the representation and its parameter count but may allow for better estimation through a better feature map. Thus, although larger n and κ
+
+can capture richer critic structure, they can also make estimation harder, yielding an approximation– estimation tradeoff in practice. This leads to the following finite-sample bound. 
+
+Theorem 2 (Finite-sample error of LTC) Fix the centroids and collect Mc independent rollouts of length T . Define 
+
+E(κ) 
+
+> i
+
+:= ¯ εlin 
+
+> n
+
+X
+
+> p=0
+
+Rp
+
+p! , G(κ) 
+
+> i
+
+:= R2
+
+> ψn
+
+X
+
+> p=0
+
+W 2pκ
+
+p! , V(κ) 
+
+> i
+
+:= Rmax 
+
+1 − γ + LQnX
+
+> p=1
+
+Rp
+
+p! ,
+
+> 2
+
+The coefficient feature map ψ may be chosen arbitrarily and may include nonlinearities. 
+
+5where Rψ := sup k,y,a ∥ψi(k, y, a )∥. Conditionally on the centroids and on TNi=1 {σmin ( bAi) ≥
+
+cLSTD > 0}, with probability at least 1 − δ, simultaneously for all i ∈ [N ],
+
+Qπi − eQLTC 
+
+> i
+
+ hi(·), ·, ·N κi ; bwi
+
+
+
+> ∞
+
+≤ 1 + (1 + γ)G(κ)
+
+> i
+
+cLSTD 
+
+!  ∆TC + E(κ)
+
+> i
+
+
+
++ 2γG(κ)
+
+> i
+
+ V(κ) 
+
+> i
+
++ E(κ)
+
+> i
+
+
+
+cLSTD 
+
+s
+
+2 log(2 N/δ )
+
+Mc(T − 1) .
+
+Theorem 2 separates the LTC error into the intrinsic Taylor Centroid approximation ∆TC , the es-timation error E(κ) 
+
+> i
+
+, and a standard statistical O(( McT )−1/2) term modulated by the local feature factor G(κ) 
+
+> i
+
+, critic scale V(κ) 
+
+> i
+
+, and LSTD conditioning. The term E(κ) 
+
+> i
+
+captures the following cen-troid tradeoff: increasing K reduces the local radii in Rp, but can increase ¯εlin as a single shared coefficient map must fit more centroid-dependent coefficients. Appendix D.2 examines these two effects empirically. As in Ren et al. (2025b), our guarantee is conditional on the LSTD matrices being well conditioned. We choose the number of rollouts empirically to ensure this condition (see Appendix C.2); ridge regularization can further improve conditioning in practice. This parallels prior finite-sample critic bounds of (Qu et al., 2020b; Ren et al., 2025b), with Ren et al. (2025b) also incurring spectral approximation error. Ours instead obtains Taylor and estima-tion errors, motivating the following neural extension when the latter dominates. 
+
+Neural Taylor Centroid. NTC replaces the affine coefficients by a neural network fξi :
+
+Rdim( ψi) −→ R|M n  
+
+> Nκi|
+
+.
+
+eQNTC  
+
+> i
+
+= ⟨fξi (ψi), T i(s)⟩ = X 
+
+> β∈M n
+> Nκi
+
+[fξi (ψi)] β
+
+ sN κi − μk(s),N κi
+
+β
+
+β! .
+
+We train fξi by standard semi-gradient TD regression (Sutton & Barto, 2018) (see Appendix H). NTC preserves the structural guarantees of Theorem 1 and changes only the coefficient parameter-ization. This can reduce the analogous error to ¯εlin , at the cost of the guarantees of Theorem 2. 
+
+## 4 LEARNING AND POLICY OPTIMIZATION 
+
+To construct a scalable policy-gradient estimator, let agent i’s observation be oi(z, s ) := (sN κπ i , h i(z)) and define its policy score si(oi, a i) := ∇θi log πi,θ i (ai | oi), which we assume to be uniformly bounded as standard in localized policy-gradient analyses (Qu et al., 2020a; Ren et al., 2025b): sup oi,a i ∥si(oi, a i)∥ ≤ Bs,i . By the global reward decomposition and the policy gradient theorem (Sutton et al., 1999): 
+
+∇θi J(θ) = 1
+
+N Eπθ
+
+X
+
+> t≥0
+
+γtsi(Oi,t , A i,t )
+
+> N
+
+X
+
+> ℓ=1
+
+Aπθ 
+
+> ℓ
+
+(Zt, S t, A t)
+
+ .
+
+Estimating the advantage through the critic. At actor iteration m, let eQℓ,m denote the LTC/NTC critic of agent ℓ and suppose that, for every ℓ, z, s, a, | eQℓ,m (hℓ(z), s, a N κℓ ) − Qπθm  
+
+> ℓ
+
+(z, s, a )| ≤ 
+
+∆(m) 
+
+> Q
+
+. For LTC, Theorem 2 provides such a finite-sample certificate; for NTC, ∆(m) 
+
+> Q
+
+denotes the approximation error achieved by the neural critic. Let eVℓ,m be the value function induced by eQℓ,m .We use the one-step TD (Sutton, 1988; Sutton & Barto, 2018; Konda & Tsitsiklis, 1999) residual as the local advantage estimate bAℓ,t := bδℓ,t = rℓ,t + γ eVℓ,m (Zt+1 , S t+1 ) − eVℓ,m (Zt, S t). In practice, we use Ms additional actor rollouts to form agent i’s empirical policy-gradient estimator: 
+
+bgi,m = 1
+
+N M sMsX 
+
+> j=1
+> T−1
+
+X
+
+> t=0
+
+γtsi
+
+ O(j) 
+
+> i,t
+
+, A (j)
+
+> i,t
+
+ X 
+
+> ℓ∈N κ+κπ i
+
+bA(j) 
+
+> ℓ,t
+
+. (5) Equation 5 estimates agent i’s policy-gradient contribution by retaining only advantages of agents 
+
+ℓ ∈ N κ+κπ 
+
+> i
+
+which removes the dependence in N . This follows the truncated policy gradient princi-ple of Qu et al. (2020b); Ren et al. (2025b), here using localized one-step TD advantages rather than localized Q-values. We then obtain the following near-stationarity guarantee. 6Theorem 3 (End-to-end policy optimization) Let ΓT := (1 − γT )/(1 − γ) and define 
+
+τi := 1
+
+N
+
+X 
+
+> ℓ:dG(i,ℓ )>κ +κπ
+
+ρdG(i,ℓ ), T := 
+
+ NX
+
+> i=1
+
+B2
+
+> s,i
+
+τ 2
+
+> i
+
+1/2
+
+, B := 1
+
+N
+
+ NX
+
+> i=1
+
+(Bs,i |N κ+κπ 
+
+> i
+
+|)21/2
+
+.
+
+Assume that J is LJ -smooth. Let ˆgm = (ˆ g1,m , . . . , ˆgN,m ); with probability at least 1 − δ, for every 
+
+m < M ,
+
+∥bgm − ∇ J(θm)∥ ≤ ϵm := 2Rmax 
+
+(1 − γ)2 T + B
+
+
+
+γΓT ∆(m) 
+
+> Q
+
++ 2Rmax γT
+
+(1 − γ)2
+
+
+
++ Gm
+
+s
+
+2 log(4 M/δ )
+
+Ms
+
+,
+
+(6) 
+
+where Gm bounds the localized policy-gradient samples (details are given in Appendix F.5). If 
+
+ϵm ≤ ¯ϵ and Gm ≤ ¯G for all m < M , then θm+1 = θm + η(m + 1) −1/2bgm satisfies 
+
+min  
+
+> 0≤m<M
+
+∥∇ J(θm)∥2 ≤ O(M −1/2) + ¯ ϵ2 + ¯G2O
+
+ log M
+
+√M
+
+
+
+. (7) Theorem 3 separates localization, critic, rollout-truncation, and actor-sampling errors, which de-crease with localization radius, critic accuracy, rollout length, and actor sample size, respec-tively, yielding a near-stationarity guarantee with an explicit error floor. The term T sharpens the worst-case truncation bound of Ren et al. (2025b) by accounting for each discarded agent ℓ
+
+with its own decay factor ρdG(i,ℓ ). This can substantially improve the bound when ρ is small: if P 
+
+> ℓ
+
+ρdG(i,ℓ ) = O(1) , then T = O(N −1/2). In contrast, discarded agents were previously assigned the same worst-case decay factor ρκ+κπ which can produce an O(1) error in each agent’s policy-gradient estimate and a corresponding term T of order O(√N ).
+
+## 5 ALGORITHM AND COMPLEXITY 
+
+We present the Taylor Centroid actor–critic for LTC and NTC, which uses only rollout data. 
+
+Algorithm 1 Taylor Centroid Actor–Critic 
+
+Require: Policy θ0, stepsizes ηm = η(m+1) −1/2, radii κ, κ π , Taylor order n, centroids K, number of epochs 
+
+M
+
+1: for m = 0 , . . . , M − 1 do 
+
+2: Refit the K centroids from previously observed states. 3: Collect Mc critic rollouts; in parallel over agents i, fit eQi,m using LTC or NTC. 4: Collect Ms additional actor rollouts; in parallel over i, compute bAℓ,t for ℓ ∈ N κ+κπ 
+
+> i
+
+and form bgi,m .5: Set bgm = ( bg1,m , . . . , bgN,m ) and update θm+1 ← θm + ηmbgm.6: end for 
+
+Motivated by Corollary F.1, we fit K-medians centroids and refit them at each iteration to track policy-induced shifts in the state distribution (see Appendix D.5). Importantly, the time complexity of each LTC iteration scales linearly with N and is largely parallelizable across agents and samples; a detailed complexity analysis is provided in Appendix F.6. 
+
+## 6 EXPERIMENTS 
+
+We evaluate LTC and NTC on networked LQR (Kalman, 1960; Fazel et al., 2018; Ren et al., 2025b), switched LQR (Costa et al., 2005; Ogura et al., 2018), and nonlinear Kuramoto synchronization (Kuramoto, 1975; D¨ orfler & Bullo, 2014; Ren et al., 2025b). Baselines include random Fourier features (RF on LQR and RF-SAC for Kuramoto) and Spectral-SAC (Ren et al., 2025b), CDCPG 3
+
+(Wang et al., 2026), and generic multilayer perceptron (MLP) and graph neural network (GNN) critics. Recall that RF and CDCPG do not directly apply to hidden switched LQR, which lacks their required known local dynamics model. We describe the environments in Appendix B; the evaluation and training protocols are given in Appendix C. 
+
+> 3
+
+To satisfy the assumption κ > κ π of Wang et al. (2026), we choose κ′ = max( κ, κ π + 1) in each panel of the plots below for CDCPG only. 
+
+7Critic estimation quality. Figure 1 describes the effect of Taylor order on the critic estimation. On LQR, where V π is quadratic for the affine-mean Gaussian policies considered here, the sharp improvement from n = 1 to n = 2 and saturation at n = 3 match the expected second-order struc-ture. Switched LQR shows the same pattern despite the additional difficulty of predicting the mode-conditioned value V πσ without observing σ; here NTC significantly improves over LTC, consistent with its greater expressivity. Regarding the Kuramoto benchmark, we observe a near-systematic improvement with n, consistent with the fact that the critic is non-quadratic. Increasing κ or n can improve expressivity but makes estimation harder by increasing the number of parameters. Never-theless, for every (κ, κ π ), we observe that Taylor Centroid is competitive with the other baselines. Another parameter affecting the critic estimation quality is the number of clusters. We study this effect in Appendix D.2. 1 2 30.1 110 100                                                                
+
+> κ= 1 ,κπ= 1
+> 123
+> κ= 2 ,κπ= 1
+> 123
+> κ= 2 ,κπ= 2
+> 123
+> κ= 2 ,κπ= 3
+> 12330 40 50 60
+> κ= 1 ,κπ= 1
+> 123
+> κ= 2 ,κπ= 1
+> 123
+> κ= 2 ,κπ= 2
+> 123
+> κ= 2 ,κπ= 3
+> 123110
+> κ= 1 ,κπ= 1
+> 123
+> κ= 2 ,κπ= 1
+> 123
+> κ= 2 ,κπ= 2
+> 123
+> κ= 3 ,κπ= 2
+> 123
+> κ= 2 ,κπ= 3
+
+LQR Switched LQR Kuramoto        
+
+> Taylor order n
+> normalized critic MSE (%) normalized critic MSE (%)
+> LTC NTC MLP GNN RF / RF-SAC CDCPG Spectral-SAC
+
+Figure 1: Critic estimation quality. Normalized critic MSE across Taylor orders and locality settings on LQR, switched LQR and the Kuramoto oscillator. 
+
+Policy performance and convergence. Figure 2a shows the evolution of the gap |J − J⋆|/|J⋆|
+
+at each epoch on both LQR settings. Grey lines give the best value of J(θ) found by multistart optimization over each class of affine-mean Gaussian policies with radius κπ (a local optimum in general, see Paragraph C.1). We observe that LTC/NTC matches or outperforms other baselines across various configurations (κ, κ π ). In particular, on both LQR settings and all configurations 
+
+(κ, κ π ) but one, LTC/NTC converge to the maximum value mentioned above. Similarly to Figure 1, we observe that for κπ ≥ 2 the performance improves significantly from n = 1 to n = 2 (Figure 6 in Appendix D). Figure 2b shows the evolution of the undiscounted return at each epoch on Kuramoto. Importantly, NTC matches or outperforms LTC, highlighting the benefit of more expressivity under nonlinear dynamics. Furthermore, in this setting, our methods converge near the greedy controller’s value. It is also noteworthy that for both LQR benchmarks, LTC ( n = 2 ) matches or beats the baselines with few learnable parameters. For instance, LTC (n = 2) matches the MLP baseline on LQR and systematically outperforms it on switched LQR, while learning 231 coefficients per agent at κ = 2 against 17 ,409 for the MLP (Table 2). Finally, our model-free approach system-atically matches or outperforms prior spectral baselines across all three environments despite not having access to the transition kernel. Appendix D.4 provides empirical evidence that these policy improvements translate into the intended behavior in the resulting trajectories. 
+
+Scalability. Figure 3 shows the predicted O(N ) runtime scaling and near-reference performance up to N = 1000 ; in this experiment LTC outperforms RF in runtime. 8710 15 κ = 1 , κπ = 1 κ = 2 , κπ = 1                                           
+
+> 25
+> κ= 2 ,κπ= 2 κ= 3 ,κπ= 2
+> 0.2 15
+> κ= 2 ,κπ= 3
+> 0100 200 10 50 0100 200 0400 800 510 0400 800 0400 800 1310 01000 2000 −20 −19 −18
+> n= 1 / 1
+> ↓−23.9
+> 01000 2000
+> n= 2 / 1
+> ↓−23.6
+> 01000 2000
+> n= 2 / 2
+> ↓−25.8
+> 01500 3000
+> n= 2 / 2
+> ↓−22.7
+> 01500 3000
+> n= 2 / 2
+> ↓−22.3
+
+(a) Method comparison ( n = 2 )
+
+> LQR Switched LQR
+> |J − J ⋆ |/| J ⋆ | (%)
+
+epoch 
+
+(b) Method comparison (Taylor order n of LTC / NTC above each panel) 
+
+> Kuramoto
+> undiscounted return
+
+epoch              
+
+> class reference LTC NTC MLP GNN RF CDCPG Spectral-SAC LTC NTC MLP GNN RF-SAC CDCPG Spectral-SAC myopic greedy
+
+Figure 2: Policy convergence . Method comparison LQR and switched LQR (relative optimality gap), and policy convergence on Kuramoto (undiscounted return). 10 1 10 2 10 3
+
+> 10 −1
+> 10 0
+> 10 1
+> s per epoch (H200)
+
+∝ N
+
+(a) κ = 2 , κπ = 2 
+
+> 01
+
+(b)         
+
+> 510 20 50 100 200 500 1000 05
+
+(c) 
+
+agents N agents N                    
+
+> relative optimality gap (%)
+> LQR Switched LQR
+> LTC n= 1 LTC n= 2 LTC n= 3 NTC n= 1 NTC n= 2 NTC n= 3
+> RF ∝Nclass reference
+
+Figure 3: Scalability. Left: runtime per epoch on an H200 GPU as a function of the number of agents N . Right: relative optimality gap as a function of N on LQR and switched LQR. 
+
+## 7 CONCLUSION AND LIMITATIONS 
+
+We showed that graph locality turns otherwise ambient-dimensional Taylor representations into scal-able local critics without the transition-model access required by prior constructive spectral ap-proaches. This yields a model-free actor–critic for continuous networked MDPs applicable beyond prior frameworks. While experiments show competitive, scalable performance, some limitations also suggest directions for future work. Our LTC guarantee assumes well-conditioned LSTD sys-tems, whose characterization requires complementary analysis. Moreover, the Taylor-coefficient function class is unknown a priori, precluding sharp control of ¯εlin and requiring empirical feature selection. The policy-optimization guarantee reaches a stationary point of J, which may not be a global maximum. K-medians can also be challenging in high-dimensional state spaces. Finally, extending finite-sample critic guarantees to NTC is an important but more challenging direction. 9REFERENCES 
+
+Christopher G. Atkeson, Andrew W. Moore, and Stefan Schaal. Locally weighted learning. Artificial Intelligence Review , 11(1–5):11–73, 1997. doi: 10.1023/A:1006559212014. Steven J. Bradtke and Andrew G. Barto. Linear least-squares algorithms for temporal difference learning. Machine Learning , 22(1–3):33–57, 1996. doi: 10.1007/BF00114723. Anton Braverman, Itai Gurvich, and Junfei Huang. On the taylor expansion of value functions. 
+
+Operations Research , 68(2):631–654, 2020. doi: 10.1287/opre.2019.1903. Richard H. Byrd, Peihuang Lu, Jorge Nocedal, and Ciyou Zhu. A limited memory algorithm for bound constrained optimization. SIAM Journal on Scientific Computing , 16(5):1190–1208, 1995. doi: 10.1137/0916069. Bruno Didier Olivier Capron and Darci Odloak. An extended linear quadratic regulator with zone control and input targets. Journal of Process Control , 29:33–44, 2015. doi: 10.1016/j.jprocont. 2015.03.005. Herv´ e Cardot, Peggy C´ enac, and Jean-Marie Monnez. A fast and recursive algorithm for cluster-ing large datasets with k-medians. Computational Statistics & Data Analysis , 56(6):1434–1449, 2012. doi: 10.1016/j.csda.2011.11.019. Luis Carvalho, Jozias R. L. Neto, Jefferson C. Rezende, Marcus V. S. Costa, Elenilson V. Fortes, and Leonardo H. Macedo. Linear quadratic regulator design via metaheuristics applied to the damping of low-frequency oscillations in power systems. ISA Transactions , 134:322–335, 2023. doi: 10.1016/j.isatra.2022.08.024. Tianshu Chu, Sandeep Chinchali, and Sachin Katti. Multi-agent reinforcement learning for net-worked system control. In International Conference on Learning Representations , 2020. Oswaldo Luiz Valle Costa, Ricardo Paulino Marques, and Marcelo Dutra Fragoso. Discrete-Time Markov Jump Linear Systems . Probability and Its Applications. Springer, 2005. doi: 10.1007/ b138575. Florian D¨ orfler and Francesco Bullo. Synchronization and transient stability in power networks and non-uniform kuramoto oscillators. SIAM Journal on Control and Optimization , 50(3):1616–1642, 2012. doi: 10.1137/110851584. Florian D¨ orfler and Francesco Bullo. Synchronization in complex networks of phase oscillators: A survey. Automatica , 50(6):1539–1564, 2014. doi: 10.1016/j.automatica.2014.04.012. Jianqing Fan and Irene Gijbels. Local Polynomial Modelling and Its Applications , volume 66 of 
+
+Monographs on Statistics and Applied Probability . Chapman & Hall, 1996. Maryam Fazel, Rong Ge, Sham M. Kakade, and Mehran Mesbahi. Global convergence of policy gradient methods for the linear quadratic regulator. In Proceedings of the 35th International Conference on Machine Learning , volume 80, pp. 1466–1475. PMLR, 2018. W. Steven Gray, Hong Zhang, and Oscar R. Gonz´ alez. Closed-loop performance measures for flight controllers subject to neutron-induced upsets. In Proceedings of the 42nd IEEE Conference on Decision and Control , volume 3, pp. 2465–2470, 2003. doi: 10.1109/CDC.2003.1272990. Haotian Gu, Xin Guo, Xiaoli Wei, and Renyuan Xu. Mean-field multiagent reinforcement learning: A decentralized network approach. Mathematics of Operations Research , 50(1):506–536, 2025. doi: 10.1287/moor.2022.0055. Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Delving deep into rectifiers: Surpassing human-level performance on imagenet classification. In Proceedings of the IEEE International Conference on Computer Vision , pp. 1026–1034, 2015. doi: 10.1109/ICCV.2015.123. Davorin Hrovat. Survey of advanced suspension developments and related optimal control applica-tions. Automatica , 33(10):1781–1817, 1997. doi: 10.1016/S0005-1098(97)00101-5. 10 Chi Jin, Zhuoran Yang, Zhaoran Wang, and Michael I. Jordan. Provably efficient reinforcement learning with linear function approximation. In Proceedings of the 33rd Conference on Learning Theory , volume 125 of Proceedings of Machine Learning Research , pp. 2137–2143, 2020. Rudolf E. Kalman. Contributions to the theory of optimal control. Boletin de la Sociedad Matemat-ica Mexicana , 5:102–119, 1960. Diederik P. Kingma and Jimmy Ba. Adam: A method for stochastic optimization. In International Conference on Learning Representations , 2015. Vijay R. Konda and John N. Tsitsiklis. Actor-critic algorithms. In Advances in Neural Information Processing Systems , volume 12, pp. 1008–1014, 1999. Yoshiki Kuramoto. Self-entrainment of a population of coupled non-linear oscillators. In Interna-tional Symposium on Mathematical Problems in Theoretical Physics , volume 39 of Lecture Notes in Physics , pp. 420–422. Springer, 1975. doi: 10.1007/BFb0013365. Alessandro Lazaric, Mohammad Ghavamzadeh, and R´ emi Munos. Finite-sample analysis of least-squares policy iteration. Journal of Machine Learning Research , 13:3041–3074, 2012. Hao Liang, Shuqing Shi, Yudi Zhang, Biwei Huang, and Yali Du. Causality meets locality: Prov-ably generalizable and scalable policy learning for networked systems. In Advances in Neural Information Processing Systems , volume 38, 2025. doi: 10.52202/085713-5311. Yiheng Lin, Guannan Qu, Longbo Huang, and Adam Wierman. Multi-agent reinforcement learn-ing in stochastic networked systems. In Advances in Neural Information Processing Systems ,volume 34, pp. 7825–7837, 2021. Zhixin Lu, Kevin Klein-Carde˜ na, Steven Lee, Thomas M. Antonsen, Michelle Girvan, and Edward Ott. Resynchronization of circadian oscillators and the east-west asymmetry of jet-lag. Chaos ,26(9):094811, 2016. doi: 10.1063/1.4954275. Davide Maran, Alberto Maria Metelli, Matteo Papini, and Marcello Restelli. Local linearity: The key for no-regret reinforcement learning in continuous MDPs. In Advances in Neural Information Processing Systems , volume 37, pp. 75986–76029, 2024a. doi: 10.52202/079017-2419. Davide Maran, Alberto Maria Metelli, Matteo Papini, and Marcello Restelli. No-regret reinforce-ment learning in smooth MDPs. In Proceedings of the 41st International Conference on Machine Learning , volume 235 of Proceedings of Machine Learning Research , pp. 34760–34789. PMLR, 2024b. Sen Na and Mihai Anitescu. Exponential decay in the sensitivity analysis of nonlinear dynamic pro-gramming. SIAM Journal on Optimization , 30(2):1527–1554, 2020. doi: 10.1137/19M1265065. Sen Na, Sungho Shin, Mihai Anitescu, and Victor M. Zavala. On the convergence of overlapping schwarz decomposition for nonlinear optimal control. IEEE Transactions on Automatic Control ,67(11):5996–6011, 2022. doi: 10.1109/TAC.2022.3194087. Masaki Ogura, Ahmet Cetinkaya, Tomohisa Hayakawa, and Victor M. Preciado. State-feedback control of markov jump linear systems with hidden-markov mode observation. Automatica , 89: 65–72, 2018. doi: 10.1016/j.automatica.2017.11.022. Johan Olsson, Runyu Zhang, Emma Tegling, and Na Li. Scalable reinforcement learning for linear-quadratic control of networks. In 2024 American Control Conference , pp. 1813–1818, 2024. doi: 10.23919/ACC60939.2024.10644413. Iosif Pinelis. Optimum bounds for the distributions of martingales in banach spaces. The Annals of Probability , 22(4):1679–1706, 1994. doi: 10.1214/aop/1176988477. Guannan Qu, Yiheng Lin, Adam Wierman, and Na Li. Scalable multi-agent reinforcement learn-ing for networked systems with average reward. In Advances in Neural Information Processing Systems , volume 33, pp. 2074–2086, 2020a. 11 Guannan Qu, Adam Wierman, and Na Li. Scalable reinforcement learning of localized policies for multi-agent networked systems. In Proceedings of the 2nd Conference on Learning for Dynamics and Control , volume 120 of Proceedings of Machine Learning Research , pp. 256–266. PMLR, 2020b. Guannan Qu, Adam Wierman, and Na Li. Scalable reinforcement learning for multiagent networked systems. Operations Research , 70(6):3601–3628, 2022. doi: 10.1287/opre.2021.2226. Ali Rahimi and Benjamin Recht. Random features for large-scale kernel machines. In Advances in Neural Information Processing Systems , volume 20, pp. 1177–1184, 2007. Tongzheng Ren, Tianjun Zhang, Lisa Lee, Joseph E. Gonzalez, Dale Schuurmans, and Bo Dai. Spectral decomposition representation for reinforcement learning. In International Conference on Learning Representations , 2023. Zhaolin Ren, Tongzheng Ren, Haitong Ma, Na Li, and Bo Dai. Stochastic nonlinear control via finite-dimensional spectral dynamics embedding. IEEE Transactions on Automatic Control , 70 (12):7907–7922, 2025a. doi: 10.1109/TAC.2025.3580296. Zhaolin Ren, Runyu Zhang, Bo Dai, and Na Li. Scalable spectral representations for multiagent reinforcement learning in network MDPs. In Proceedings of the 28th International Conference on Artificial Intelligence and Statistics , volume 258 of Proceedings of Machine Learning Research ,pp. 550–558. PMLR, 2025b. Sungho Shin, Mihai Anitescu, and Victor M. Zavala. Exponential decay of sensitivity in graph-structured nonlinear programs. SIAM Journal on Optimization , 32(2):1156–1183, 2022. doi: 10.1137/21M1391079. Hisham Soliman and Muhammad Shafiq. Robust stabilisation of power systems with random abrupt changes. IET Generation, Transmission & Distribution , 9(15):2159–2166, 2015. doi: 10.1049/ iet-gtd.2014.1111. Richard S. Sutton. Learning to predict by the methods of temporal differences. Machine Learning ,3(1):9–44, 1988. doi: 10.1007/BF00115009. Richard S. Sutton and Andrew G. Barto. Reinforcement Learning: An Introduction . MIT Press, 2 edition, 2018. Richard S. Sutton, David A. McAllester, Satinder P. Singh, and Yishay Mansour. Policy gradient methods for reinforcement learning with function approximation. In Advances in Neural Infor-mation Processing Systems , volume 12, pp. 1057–1063, 1999. Dongming Wang, Pengcheng Dai, Wenwu Yu, and Wei Ren. Scalable policy optimization for net-worked multi-agent reinforcement learning with continuous state-action spaces. arXiv preprint arXiv:2607.18554 , 2026. Kurt Wiesenfeld, Pere Colet, and Steven H. Strogatz. Frequency locking in josephson arrays: Connection with the kuramoto model. Physical Review E , 57(2):1563–1569, 1998. doi: 10.1103/PhysRevE.57.1563. Li Xie and Lihua Xie. Stabilizing sampled-data linear systems with markovian packet losses and random sampling. In Proceedings of the 17th IFAC World Congress , volume 41, pp. 599–604, 2008. doi: 10.3182/20080706-5-KR-1001.00101. Junhong Xu, Kai Yin, and Lantao Liu. Kernel taylor-based value function approximation for continuous-state markov decision processes. In Robotics: Science and Systems , 2020. doi: 10.15607/RSS.2020.XVI.050. Yaguang Yang. Analytic LQR design for spacecraft control system based on quaternion model. 
+
+Journal of Aerospace Engineering , 25(3):448–453, 2012. doi: 10.1061/(ASCE)AS.1943-5525. 0000142. 12 Xunyuan Yin, Lixian Zhang, Zepeng Ning, Dapeng Tian, Ahmed Alsaedi, and Bashir Ahmad. State estimation via markov switching-channel network and application to suspension systems. IET Control Theory & Applications , 11(3):411–419, 2017. doi: 10.1049/iet-cta.2016.1108. Yizhou Zhang, Guannan Qu, Pan Xu, Yiheng Lin, Zaiwei Chen, and Adam Wierman. Global convergence of localized policy iteration in networked multi-agent reinforcement learning. Pro-ceedings of the ACM on Measurement and Analysis of Computing Systems , 7(1):1–51, 2023. doi: 10.1145/3579443. Pixuan Zhou, Fei-Yue Wang, Weinong Chen, and Paul Lever. Optimal construction and control of flexible manipulators: A case study based on LQR output feedback. Mechatronics , 11(1):59–77, 2001. doi: 10.1016/S0957-4158(00)00004-0. 
+
+## A APPENDIX 
+
+Overview Appendix B, “Definition of the environments” , describes the three benchmark environ-ments and the role played by each. Appendix C, “Training and Evaluation Protocols” , gives the evaluation protocol, implementation details, and hyperparameters of Taylor Centroid and of the competing baselines. Appendix D, “Further Experimental Results” , reports the additional experiments and ablations. Appendix E, “Understanding the Expected Reward Regularity Assumption” , studies the regularity condition used throughout the theoretical analysis. It gives its interpretation, describes a rollout-based empirical stress test, presents a weaker discounted-summability formulation, and provides concrete sufficient conditions under which the assumption holds. It also positions the condition relative to the smooth-MDP hierarchy of Maran et al. (2024a;b). Appendix F, “Proofs of the Main-Text Results” , contains the complete proofs of the results stated in the main text. It proceeds through finite information propagation and the exponential derivative decay, the localized Taylor Centroid approximation, the finite-sample LTC–LSTD guarantee, the localized policy-gradient and one-step TD analysis, the end-to-end policy-optimization guarantee, and the computational-complexity result. Appendix G, “Proofs of the Additional Appendix Results” , contains the proofs of the auxiliary results used in Appendix E, “Understanding the Expected Reward Regularity Assumption” . These include the discounted-summability extension, the sufficient conditions based on smooth stochastic and spectral transition models, and the comparison with the smoothness assumptions of Maran et al. (2024a;b). Finally, Appendix H, “Neural Network Implementation Details” , describes the implementation of neural network methods, including NTC. 
+
+## B DEFINITION OF THE ENVIRONMENTS 
+
+This appendix provides the complete description and motivation of the experimental benchmarks used in Section 6. The three environments are deliberately complementary. Networked LQR pro-vides a controlled setting in which the exact critic is quadratic and the assumptions underlying the constructive spectral baseline are satisfied. It is also a canonical environment for the random Fourier feature setting studied by Ren et al. (2025b). Switched LQR introduces potentially unob-served operating regimes through σt and therefore tests the ability of the representation to exploit regime structure without access to the transition model. Finally, the Kuramoto oscillator removes the linear–quadratic structure altogether and tests Taylor Centroid critics on nonlinear graph-coupled dynamics. 
+
+Remark. As in Ren et al. (2025b), although some of the benchmarks are naturally defined on unbounded state spaces, over any finite experimental horizon their trajectories lie in a sufficiently large compact set with arbitrarily high probability. One can therefore view the experiments as evolv-ing inside such a compact set; equivalently, the dynamics could be clipped at its boundary without affecting the reported trajectories except on an arbitrarily low-probability event. 13 B.1 ENVIRONMENT 1: N ETWORKED LINEAR –QUADRATIC REGULATION 
+
+Environment. We first consider a networked linear–quadratic regulator (LQR) (Kalman, 1960). Here, we consider a ring of N scalar subsystems, with dynamics 
+
+st+1 = As t + Ba t + εt, εt ∼ N (0 , I N ), γ = 0 .75 (8) over an episode length of T = 20 . The matrices A and B are cyclic and banded, so each subsystem interacts only with its two immediate neighbors. With indices understood modulo N , the nonzero entries are 
+
+Aii = 0 .8, Ai,i ±1 = 0 .1, Bii = 1 , Bi,i ±1 = 0 .7.
+
+All remaining entries are zero. The local stage reward is 
+
+ri(si, a i) = −(3 s2 
+
+> i
+
++ a2 
+
+> i
+
+). (9) Thus, agents are encouraged to minimize their state value. LQR is one of the classical models of optimal control and is routinely used either directly or as a local approximation of more complicated physical systems. Applications include spacecraft attitude control (Yang, 2012), automotive suspen-sion (Hrovat, 1997), robotic manipulators (Zhou et al., 2001), industrial process control (Capron & Odloak, 2015), and power-system stabilization (Carvalho et al., 2023). In many such applications, the LQR model results from linearizing nonlinear dynamics around a nominal operating point. This environment was also used as a benchmark in Ren et al. (2025b)’s released code. 
+
+Role of LQR for the benchmark. This benchmark serves two purposes. First, under our policy class the true value function is exactly quadratic. It therefore provides a controlled test of the Taylor mechanism. Second, Equation 8 is a known local dynamics map with additive, state-independent Gaussian noise, precisely the constructive case for which both the random Fourier features of Ren et al. (2025b) and CDCPG of Wang et al. (2026) are naturally defined. LQR therefore provides a comparison in which the spectral method is evaluated inside its intended model class, while Taylor Centroid uses only sampled trajectories. B.2 ENVIRONMENT 2: S WITCHED LQR WITH AN UNOBSERVED OPERATING MODE 
+
+Many engineered systems do not evolve around a single stationary operating point. Their dynamics can change abruptly because of faults, topology changes, communication conditions, workloads, or external operating modes. Switched LQR systems with Markovian switching provide a classical model for such phenomena (Costa et al., 2005). They have been used, for example, in fault-tolerant flight control (Gray et al., 2003), power systems subject to abrupt faults or topology changes (Soli-man & Shafiq, 2015), automotive systems with switching communication conditions (Yin et al., 2017), and networked control under correlated packet losses (Xie & Xie, 2008). This setting is particularly relevant to the motivation behind Taylor Centroid critics: a physical system may repeatedly move between a small number of qualitatively different operating regimes even though the underlying state space is continuous. This is the motivation behind the centroids around which our Taylor expansions are performed. 
+
+Environment. We consider the same sparse ring structure as in the LQR benchmark, but let a persistent mode 
+
+Zt := σt ∈ { 1, . . . , M mode }, Mmode = 5 ,
+
+modify the dynamics: 
+
+st+1 = A(σt)st + B(σt)at + C(σt) + εt, εt ∼ N (0 , I N ). (10) over an episode length of T = 20 . Each of the five matrices induces graph-local interactions, so switching changes the local physical behavior without changing the interaction graph. The mode follows an autonomous Markov chain: at each step, with probability h, the mode is redrawn (possibly to its current value). When redrawing, σ′ is drawn with probability (6 − σ′)/15 .14 Hence 
+
+Pr( σt+1 = σ′ | σt = σ) = 
+
+
+
+1 − h + h 6 − σ
+
+15 , σ′ = σ, h 6 − σ′
+
+15 , σ′̸ = σ. 
+
+(11) We choose h ≈ 0.139 so that a length-20 trajectory contains two mode changes on average. The lo-cal rewards and discount factor are identical to those of the LQR benchmark. Our main experiments keep σt completely unobserved : neither the actor nor the critic receives the current mode. 
+
+The constructive RF and CDCPG baselines are not directly applicable here. The distinction between observed and unobserved switching is important. Conditional on a known mode σt = σ,Equation 10 is indeed linear–Gaussian. However, in our experiments, the controller does not observe 
+
+σt. After marginalizing the persistent mode, there is no single observable transition of the form 
+
+st+1 = f (st, a t) + εt, εt ∼ N (0 , Σ) independently over time , (12) with a known deterministic local map f and fixed homoskedastic noise. This matters directly for the constructive spectral methods of Ren et al. (2025b) and Wang et al. (2026). Both approaches build their local critic representations from explicit random features of the transition kernel and require access to the local dynamics map under structured additive noise. We therefore do not include the constructive RF baseline of Ren et al. (2025b) nor CDCPG of Wang et al. (2026) on this benchmark. 
+
+Role of switched LQR for the benchmark. Switched LQR highlights the flexibility of the model-free approach by evaluating Taylor Centroid in a setting where the dynamics are unknown to the learner. It also tests whether the method can extract from rollout data the information relevant for critic estimation and control when important aspects of the environment, such as the operating regime, are not directly observed. B.3 ENVIRONMENT 3: K URAMOTO OSCILLATOR NETWORK 
+
+Our final benchmark removes the linear–quadratic structure entirely. The Kuramoto model (Ku-ramoto, 1975; D¨ orfler & Bullo, 2014) is a canonical model of synchronization in networks of cou-pled oscillators. Closely related models arise in electrical power networks (D¨ orfler & Bullo, 2012), Josephson-junction arrays (Wiesenfeld et al., 1998), and biological oscillator networks (Lu et al., 2016). Following the implementation of the Kuramoto benchmark of Ren et al. (2025b), the state of oscil-lator i is represented by 
+
+si = ( si, 1, s i, 2) = (cos θi, sin θi) ∈ R2.
+
+The phase is recovered as 
+
+θi = atan2( si, 2, s i, 1),
+
+where atan2( y, x ) ∈ (−π, π ] is the polar angle of the vector (x, y ). Its pulsation is 
+
+˙θi = ωi + ai − X
+
+> j∈N i
+
+Pij sin( θi − θj ),
+
+where ωi is the natural frequency, ai is the control input, and Pij is the coupling strength. The state dynamics are then 
+
+s+ 
+
+> i, 1
+
+= cos 
+
+
+
+θi + dt ˙θi
+
+
+
++ σξ i, 1,s+ 
+
+> i, 2
+
+= sin 
+
+
+
+θi + dt ˙θi
+
+
+
++ σξ i, 2, (ξi, 1, ξ i, 2) ∼ N (0 , I 2).
+
+(13) As in Ren et al. (2025b), we clip the two state coordinates to [−1, 1] in the implementation. We additionally impose a negligible radial safeguard before evaluating atan2 to avoid its singularity at the origin. These are purely numerical safeguards and are essentially never active in practice, since each deterministic update lies on the unit circle and the process noise is small. We use dt = 0 .01 ,
+
+γ = 0 .99 , and episodes of length T = 500 . Following the released code of Ren et al. (2025b), 15 the oscillators form a ring, the natural frequencies ωi ∼ U [−0.5, 0.5] and the symmetric couplings 
+
+Pij ∼ U [0 .2, 1.2] are drawn once per network size and shared by all runs, ω⋆ = 0 .2, σ = 0 .0025 ,and actions take values in [−1, 1] . Thus the Kuramoto dynamics are evolved in phase coordinates, mapped back through (cos , sin) , and then perturbed by isotropic Gaussian noise directly in the two state coordinates. The control objective is to synchronize the oscillators at a prescribed angular frequency ω⋆. Since 
+
+˙θi is precisely the instantaneous angular frequency of oscillator i, we use the smooth frequency-mismatch reward 
+
+ri(sNi , a i) = −
+
+q
+
+( ˙θi − ω⋆)2 + ε2,
+
+where ε = 10 −6 smooths the absolute-value loss; Spectral-SAC and RF-SAC keep ε = 0 , as in Ren et al. (2025b)’s code. Maximizing this reward therefore drives ˙θi toward ω⋆. This reward depends on the neighbors of agent i, a case covered by the remark of Section 2. 
+
+Role of the Kuramoto oscillator for the benchmark. Unlike LQR, the transition dynamics con-tain nonlinear sinusoidal interactions and the critic is non-quadratic. The benchmark therefore tests whether a local Taylor representation remains useful when the value function is more complex than in LQR. It also provides a natural stress test of the regime mechanism. Because the true critic is non-polynomial, the number of clusters plays a significant role. 
+
+## C TRAINING AND EVALUATION PROTOCOLS 
+
+This appendix gives the training, implementation, and evaluation details for the experiments of Sec-tion 6. Environment definitions and their role in the benchmark are given in Appendix B. Detailed neural architectures are given separately in Appendix H. C.1 EVALUATION PROTOCOLS 
+
+Experimental outline. We compare LTC and NTC with five reference baselines whenever appli-cable: (i) the constructive random-feature (RF) algorithm of Ren et al. (2025b), (ii) their model-free Spectral-SAC alternative, (iii) CDCPG of Wang et al. (2026), (iv) a local MLP critic with our one-step TD actor, and (v) a GNN critic paired with the actor of Ren et al. (2025b) on LQR and Kuramoto (SAC) and our actor on Switched LQR. The first three baselines compare Taylor Centroid against methods designed specifically for networked MARL. The MLP provides a generic function-approximation baseline while the GNN uses information from the graph. For the Kuramoto oscilla-tor, we use the SAC variant of RF (RF-SAC) following the approach of Ren et al. (2025b). Unless stated otherwise, we use N = 50 agents on LQR and switched LQR and N = 40 on Kuramoto. 
+
+Critic estimation. Figure 1 reports the normalized MSE of the estimated global value V (s) = 
+
+N −1 P 
+
+> i
+
+Vi(s),
+
+100 E[( eV (S) − V (S)) 2]Var( V (S)) ,
+
+evaluated on an independent rollout. For LQR, the target is the exact V π ; for switched LQR, it is the exact mode-conditioned value (i.e. the value function that can observe σt and which we want to recover); and for Kuramoto it is estimated by Monte Carlo. For each environment and (κ, κ π ), we first train a policy with Algorithm 1 for 80 epochs on LQR, 
+
+120 on switched LQR, and 20 on Kuramoto, and then fit the critic with this policy. For each config-uration, we train five critics with independent random seeds and evaluate each of them on a separate rollout. 
+
+Policy performance. For LQR and switched LQR, Figure 2 reports the relative optimality gap 
+
+100 |J − J⋆||J⋆| ,
+
+16 where J is the expected sum of discounted rewards of the deterministic policy. For LQR, J⋆ is given by the discounted Riccati solution; for switched LQR, where σt is unobserved, it is obtained by directly maximizing J over mode-blind affine controllers with circulant gains. Each κπ -class reference is similarly obtained by multistart L-BFGS-B (Byrd et al., 1995) on the exact J and its exact gradient ( 483 starts per κπ ), and is a strict local maximum (vanishing gradient, negative-definite Hessian on the admissible gains). Structured static feedback is non-convex, so these values, and J⋆ on switched LQR, are only lower bounds on the corresponding optima. For Kuramoto, where 
+
+J⋆ is not available in closed form, we instead report the undiscounted return of the deterministic policy, following Ren et al. (2025b), with the myopic greedy controller (which chooses the actions so as to cancel the instantaneous frequency error of each oscillator) as reference. Results are averaged over five independent seeds on LQR and switched LQR, and over three seeds on Kuramoto. We evaluate the following configurations 
+
+(κ, κ π ) ∈ { (1 , 1) , (2 , 1) , (2 , 2) , (3 , 2) , (2 , 3) },
+
+covering κ < κ π , κ = κπ , and κ > κ π . We note that CDCPG requires κ ≥ κπ + 1 for its policy-gradient estimator (Wang et al., 2026). Hence, for CDCPG only, we use κ′ = max {κ, κ π + 1 }, the smallest radius allowed by its analysis, while keeping κπ and therefore the policy class unchanged across methods. For this figure, we use N = 50 for LQR and switched LQR and N = 40 for the Kuramoto oscillator. 
+
+Scalability. Runtime measurements use a single dedicated NVIDIA H200 GPU at (κ, κ π ) = (2 , 2) 
+
+and exclude the first epoch. Policy-scaling experiments use three seeds, up to N = 1000 for LQR and switched LQR. Performance is compared with J⋆ and with the κπ = 2 class reference described above. C.2 COMMON ACTOR AND TRAINING PROTOCOL 
+
+On LQR, we use a Gaussian policy with linear mean 
+
+μθ (s) = F s, 
+
+and fixed covariance σ2pol I, where the ith row of F depends only on sN κπ i . On switched LQR, we instead use a Gaussian policy with affine mean 
+
+μθ (s) = F s + f, 
+
+with the same locality restriction on F and fixed covariance σ2pol I. The switching mode σt remains unobserved by both the actor and the critic. In both LQR environments, σpol = 0 .3. On Kuramoto, each agent uses a Gaussian policy with local affine mean μθi (oi), and actions are sampled as 
+
+ai = clip  μθi (oi) + σpol εi, −1, 1, εi ∼ N (0 , 1) ,
+
+where σpol decreases log-linearly from 0.1 to 0.012 over the first 55% of iterations, then stays constant. Actor updates use ηm = η/ √m + 1 ; the policy gradient is normalized to unit norm on LQR and Kuramoto and clipped at norm 1 on switched LQR. The runs of Figure 2 last 200 actor iterations for κπ = 1 and 800 for κπ ≥ 2 on LQR and switched LQR, and 2500 on Kuramoto ( 3500 
+
+at (3 , 2) and (2 , 3) ). Advantages are computed using the one-step TD estimator described in Section 4. Critic and actor rollouts are sampled independently. Unless stated otherwise, each LQR and switched-LQR iteration uses 2500 episodes in total, split between fitting the critic and updating the actor. LTC, NTC, MLP, and RF use 1250 episodes for each. The GNN uses 1670 /830 critic/actor episodes for κ ≤ 2 and 
+
+1750 /750 for κ = 3 . On Kuramoto, each iteration uses 300 critic (raised when needed to reach 
+
+50 critic transitions per critic parameter) and 2000 actor episodes of length 500 ; Spectral-SAC, RF-SAC, and the GNN keep the training schedule of the released code of Ren et al. (2025b). C.3 METHOD -SPECIFIC DETAILS 
+
+Architectures and training objectives of the neural critics are described in Appendix H. 17 Taylor Centroid critics. LTC and NTC use all monomials of order n ∈ { 1, 2, 3} supported on 
+
+N κi , expanded around K-medians centroids. LTC is fitted by LSTD with ridge λ = 10 −6 on LQR and switched LQR, and with the ridge of Table 5 on Kuramoto.NTC keeps the same basis, with its own number of centroids (Tables 3–5), and replaces the affine coefficient map by a neural network trained by semi-gradient TD. On LQR and switched LQR, its value estimates average 16 action samples, and it uses 1500 TD updates in the standalone critic-estimation experiment. 
+
+Generic critics. The MLP critic is paired with the same model-free actor as Taylor Centroid. It has two hidden layers of width 128 on LQR and switched LQR and 64 on Kuramoto, and is trained with Adam (Kingma & Ba, 2015) at learning rate 2×10 −3, using 200 TD updates per iteration on batches of 4096 transitions ( 50 updates on batches of 1024 on Kuramoto) and a target network synchronized every 25 updates; on LQR and switched LQR, gradients are clipped at norm 1. The GNN critic, whose receptive field matches κ on LQR and switched LQR and is min {κ, 2} on Kuramoto, is paired with the actor of the RF baseline on LQR and Kuramoto (and ours on switched LQR): RF’s model-based policy gradient with stepsize η = 0 .2 on LQR, and the SAC training loop of RF-SAC on Kuramoto, where the GNN replaces the fixed random-feature map of its critic. On LQR and switched LQR, it has max(2 , κ ) layers of width 128 shared across agents and it is trained like the MLP ( 200 TD updates, batches of up to 4096 transitions, target synchronization every 25 updates, gradient clipping at 1); on Kuramoto, it has width 64 and follows the RF-SAC training loop. 
+
+Networked-MARL baselines. Following (Ren et al., 2025b), on LQR, RF uses 200 cosine fea-tures at κ = 1 and 800 at κ ≥ 2, with actor stepsize η = 0 .2; on Kuramoto, its SAC variant RF-SAC uses 1024 features. Spectral-SAC uses 512 random features, hidden width 256 , batch size 128 , 128 
+
+parallel environments, one update per environment step, and automatic entropy tuning with initial coefficient 0.1. On LQR and switched LQR, its actor and critic learning rates are 2 × 10 −4, its actor is linear and unbounded with action scale 3, and its replay capacity is 10 7 for κπ = 1 and 4 × 10 7
+
+for κπ ≥ 2. On Kuramoto, its actor is a tanh-Gaussian MLP with two hidden layers of width 256 
+
+(three for RF-SAC and the GNN), its replay capacity is 2 × 10 7, and the learning rates are 10 −3 for 
+
+(κ, κ π ) ∈ { (1 , 1) , (2 , 1) , (2 , 2) } and, at (3 , 2) and (2 , 3) , 5×10 −4 for Spectral-SAC and 3×10 −4 for RF-SAC and the GNN. On LQR, CDCPG uses ridge 10 −4, policy standard deviation 0.3, θmax = 1 
+
+and actor stepsize 3 × 10 −4; its 12 ,500 trajectories per iteration, of mean length 1/(1 − γ) = 4 ,match our 2500 × 20 transitions. On Kuramoto, it uses policy standard deviation 0.05 , θmax = 1 .5
+
+and stepsize 10 −5. Its critic radius is max {κ, κ π + 1 }, the smallest value allowed by its analysis, while κπ , and hence the policy class, is unchanged. 
+
+Parameter count Table 2 reports the number of learned parameters of every critic. C.4 HYPERPARAMETER SELECTION 
+
+Tables 3–5 report the selected hyperparameters. On both LQR settings, the GNN keeps the fixed stepsize η = 0 .2, while we follow the configuration designs of Ren et al. (2025b) for RF, RF-SAC and Spectral-SAC. 
+
+## D FURTHER EXPERIMENTAL RESULTS 
+
+This appendix provides additional experiments supporting the structural claims of the paper. We first verify empirically the exponential decay of critic derivatives predicted by Lemma 1. We then study the main design choices of the Taylor Centroid representation: the number and location of expansion points, the dependence of approximation error on distance to the assigned centroid, and the effect of the Taylor order. We next report representative trajectories on all three environments to complement the aggregate policy metrics. Finally, on hidden switched LQR, we examine whether centroids fitted from rollout data alone recover structure associated with the unobserved operating regimes, and how this structure evolves under the learned policy. D.1 EMPIRICAL EXPONENTIAL DERIVATIVE DECAY 
+
+We empirically examine the central structural prediction of Lemma 1: derivatives of an agent’s action-value function should become smaller when they involve state variables located farther away 18 Table 2: Learned parameters of each critic in the policy experiments of Figure 2, per agent unless marked as total ( N = 50 on LQR and switched LQR, N = 40 on Kuramoto). LTC counts its coef-ficients, RF, RF-SAC and CDCPG their linear weights, and the other critics their network weights. The GNNs share their weights across agents and are reported as totals; twin critics count both copies. 
+
+(κ, κ π ) (1 , 1) (2 , 1) (2 , 2) (3 , 2) (2 , 3) 
+
+LQR and switched LQR 
+
+LTC, n = 1 /2/3 28/70/140 66/231/616 66/231/616 120/540/1,800 66/231/616 NTC, n = 1 4,932 5,318 5,318 5,704 5,318 NTC, n = 2 5,322 6,293 6,293 7,524 6,293 NTC, n = 3 5,972 8,568 8,568 12,984 8,568 MLP 17,153 17,409 17,409 17,665 17,409 GNN (total) 17,025 33,409 33,409 66,305 33,409 RF (LQR) 200 800 800 800 800 CDCPG (LQR) 120 120 190 190 276 Spectral-SAC 200,192 201,216 201,216 202,240 201,216 
+
+Kuramoto 
+
+LTC, n = 1 70 176 176 330 176 LTC, n = 2 280 1,056 1,056 2,640 1,056 LTC, n = 3 840 4,576 4,576 14,960 4,576 NTC, n = 1 5,319 5,963 5,963 6,607 5,963 NTC, n = 2 6,684 9,538 9,538 13,432 9,538 NTC, n = 3 10,324 23,838 23,838 49,832 23,838 MLP 4,673 4,929 4,929 5,185 4,929 GNN (total) 17,282 17,282 17,282 17,282 17,282 RF-SAC 4,096 4,096 4,096 4,096 4,096 CDCPG 257 257 257 257 257 Spectral-SAC 200,960 202,496 202,496 204,032 202,496 
+
+Table 3: Selected (η, K ) on LQR. 
+
+(κ, κ π ) (1 , 1) (2 , 1) (2 , 2) , (3 , 2) (2 , 3) 
+
+LTC n = 1 (0 .50 , 40) (0 .35 , 40) (0 .50 , 100) (0 .50 , 100) 
+
+LTC n = 2 (0 .35 , 25) (0 .35 , 25) (0 .50 , 40) (0 .50 , 40) 
+
+LTC n = 3 (0 .35 , 25) (0 .35 , 40) (0 .50 , 40) (0 .50 , 40) 
+
+NTC n = 1 (0 .50 , 400) (0 .50 , 400) (0 .50 , 2000) (0 .50 , 2000) 
+
+NTC n = 2 (0 .35 , 40) (0 .35 , 25) (0 .50 , 40) (0 .50 , 40) 
+
+NTC n = 3 (0 .35 , 40) (0 .35 , 25) (0 .50 , 25) (0 .50 , 25) 
+
+MLP η 0.35 0.35 0.50 0.50 
+
+in the interaction graph. For a derivative order p and graph reach d, define 
+
+Hp(d) := max  
+
+> i
+
+max 
+
+> |β|=pdi(β)= d
+
+sup 
+
+> z,s,a
+
+∂βs Qπi (z, s, a ) .
+
+Lemma 1 gives 
+
+Hp(d) ≤ LQρd, ρ = γ1/(1+ κπ ).
+
+Since the multiplicative constant LQ is unknown, the experiment is designed to test the geometric dependence on graph reach , rather than the absolute magnitude of the bound. We therefore plot 
+
+Hp(d)/H p(0) and fit an empirical rate bρp through 
+
+log Hp(d) = αp + d log bρp.
+
+Normalizing by Hp(0) only fixes the common value at d = 0 and does not force the measured curves to satisfy the theoretical rate. For LQR and switched LQR, we evaluate the converged LTC( n = 2 ) affine-mean Gaussian pol-icy at each κπ ∈ { 0, 1, 2, 3}. Under such a policy, the corresponding action-value functions are quadratic (conditionally on σ for switched LQR). In fact, we can compute the real critics, and there-fore their derivatives. The first-order supremum is evaluated exactly over the declared state–action 19 Table 4: Selected (η, K ) on switched LQR.                                                                             
+
+> (κ, κ π)(1 ,1) (2 ,1) (2 ,2) ,(3 ,2) (2 ,3)
+> LTC n= 1 (0 .35 ,40) (0 .35 ,40) (0 .50 ,40) (0 .50 ,40)
+> LTC n= 2 (0 .50 ,25) (0 .50 ,25) (0 .50 ,25) (0 .50 ,25)
+> LTC n= 3 (0 .50 ,25) (0 .50 ,25) (0 .50 ,25) (0 .50 ,25)
+> NTC n= 1 (0 .35 ,40) (0 .35 ,40) (0 .50 ,40) (0 .50 ,40)
+> NTC n= 2 (0 .50 ,40) (0 .50 ,40) (0 .50 ,25) (0 .50 ,40)
+> NTC n= 3 (0 .50 ,40) (0 .50 ,40) (0 .50 ,40) (0 .50 ,40)
+> MLP η0.35 0.35 0.50 0.50
+
+Table 5: Selected hyperparameters on Kuramoto, at the Taylor order n shown in each panel of Figure 2; λ is the LSTD ridge of LTC.                                                          
+
+> (κ, κ π)(1 ,1) (2 ,1) (2 ,2) (3 ,2) (2 ,3)
+> LTC n12222
+> LTC (η, K )(0 .25 ,16) (0 .25 ,16) (0 .50 ,4) (0 .50 ,16) (0 .50 ,16)
+> LTC λ10 −310 −110 −310 −110 −1
+> NTC n11222
+> NTC (η, K )(0 .25 ,16) (0 .25 ,16) (0 .50 ,16) (0 .50 ,16) (0 .50 ,16)
+> MLP η0.25 0.25 0.25 0.50 0.50
+
+box, second-order derivatives are constant in (s, a ), and third- and higher-order derivatives vanish. For Kuramoto, we evaluate the converged LTC (n = 2) policy at κπ = 1 ; in this experiment, its critic uses γ = 0 .75 , as on LQR, instead of the benchmark value 0.99 , hence ρ = √0.75 . Since no closed-form critic is available, we enumerate all distinct state-derivative multi-indices up to order three and numerically maximize their magnitudes over states and actions using multi-start projected ascent. The resulting Kuramoto statistics are therefore numerical lower bounds on the corresponding suprema. Figure 4 exhibits the exponential decay structure predicted by the theory across all three environ-ments. At every nonzero derivative order, sensitivities involving increasingly distant state variables decrease approximately geometrically with graph reach. The phenomenon therefore extends beyond ordinary spatial localization of Qπi : graph distance influences the individual higher-order sensitivi-ties of the critic, including the derivatives that form its Taylor coefficients. Across the LQR experiments, the fitted rates lie in bρ ∈ [0 .19 , 0.44] , while switched LQR gives 
+
+bρ ∈ [0 .34 , 0.54] .We emphasize that the explicit rate 
+
+ρ = γ1/(1+ κπ )
+
+is not intended to be sharp. The measured curves lie far below the dashed ones: the theoretical rate is conservative, and the fitted rates bρ are much smaller in practice. The gap is largest on the nonlinear Kuramoto system, where 
+
+bρ1 = 0 .0332 , bρ2 = 0 .0345 , bρ3 = 0 .0377 ,
+
+with R2 ≥ 0.987 , whereas the explicit theorem gives ρ = √0.75 ≃ 0.866 for κπ = 1 . We observe additionally that the fitted rates are also nearly unchanged across derivative orders. D.2 CENTROIDS AND LOCAL APPROXIMATION QUALITY 
+
+The finite-sample LTC bound of Theorem 2 contains the estimation error term 
+
+E(κ) 
+
+> i
+
+= ¯ εlin 
+
+> n
+
+X
+
+> p=0
+
+Rp
+
+p! ,
+
+which exposes two competing effects of the centroid construction. Increasing the number of cen-troids K makes the Taylor expansion more local, thereby reducing the centroid radii and thus Rp.20 0 10 20 10 −10 
+
+> 10 −8
+> 10 −6
+> 10 −4
+> 10 −2
+> 10 0
+> |β| = 1
+
+LQR ̂      
+
+> ρ∈ [0.19, 0.44] ,R2≥0.988
+> 010 20 10 −10
+> 10 −8
+> 10 −6
+> 10 −4
+> 10 −2
+> 10 0
+
+Switched LQR ̂         
+
+> ρ∈ [0.37, 0.54] ,R2≥0.996
+> 0246810 10 −10
+> 10 −8
+> 10 −6
+> 10 −4
+> 10 −2
+> 10 0
+
+Kuramoto ̂                           
+
+> ρ= 0.0332 ,R2≥0.987
+> 010 20 10 −10
+> 10 −8
+> 10 −6
+> 10 −4
+> 10 −2
+> 10 0
+> |β| = 2 ̂
+> ρ∈ [0.19, 0.43] ,R2≥0.981
+> 010 20 10 −10
+> 10 −8
+> 10 −6
+> 10 −4
+> 10 −2
+> 10 0̂
+> ρ∈ [0.34, 0.50] ,R2≥0.991
+> 0246810 10 −10
+> 10 −8
+> 10 −6
+> 10 −4
+> 10 −2
+> 10 0̂
+> ρ= 0.0345 ,R2≥0.988
+> 010 20
+
+graph reach di(β)
+
+> |β| = 3
+
+∂β ≡ 0 
+
+(quadratic value)   
+
+> 010 20
+
+graph reach di(β)
+
+∂β ≡ 0 
+
+(quadratic value conditioned on σ)     
+
+> 0246810
+
+graph reach di(β)    
+
+> 10 −10
+> 10 −8
+> 10 −6
+> 10 −4
+> 10 −2
+> 10 0̂
+> ρ= 0.0377 ,R2≥0.990
+
+max    
+
+> z,s,a
+
+# |∂βs Q πi |, normalized by its value at d = 0 
+
+κπ = 0 κπ = 1 κπ = 2 κπ = 3 theory rate ρ dFigure 4: Empirical exponential decay of action-value derivatives. For each derivative order p =
+
+|β|, we plot Hp(d)/H p(0) against the graph reach di(β). Solid curves show measured derivative magnitudes and dashed curves show the explicit theoretical rate ρd, with ρ = γ1/(1+ κπ ); colors indicate the policy locality radius κπ . LQR and switched LQR derivatives are computed exactly from their quadratic and quadratic conditioned on σ value functions, so their third-order derivatives vanish. For Kuramoto ( N = 20 ), every derivative up to order three is maximized over states and actions: all multi-indices are enumerated at 256 visited states, and the 4 best starts per graph reach are refined by projected signed-gradient ascent (step 0.05 , fixed budget, no tolerance), giving lower bounds on the suprema. Reported bρ values are least-squares fits of log Hp(d) over reaches above the numerical precision threshold. At the same time, LTC uses a single shared affine coefficient map across all clusters, so increasing 21 K can make the collection of centroid-dependent Taylor coefficients harder to represent and thus can increase ¯εlin . Hence E(κ) 
+
+> i
+
+need not decrease monotonically with K.Figure 5a directly illustrates this tradeoff. For LTC, increasing K initially improves the held-out critic fit, consistent with smaller local Taylor regions, but performance eventually deteriorates as estimation error becomes dominant. The turnover occurs earlier at larger Taylor orders: richer local polynomials require fewer expansion points. In contrast, NTC does not exhibit the same pronounced degradation at large K, consistent with its more expressive neural coefficient map being able to accommodate the variation of the Taylor coefficients across centroids. Figure 5b isolates the complementary geometric effect underlying the factors Rp. On LQR, critic error increases with the distance to the assigned centroid, as expected from a local Taylor approx-imation, while increasing the Taylor order typically attenuates this dependence. Together, the two panels empirically illustrate the two components entering E(κ) 
+
+> i
+
+: centroids control the size of the local Taylor regions, whereas the coefficient parameterization controls how accurately the corresponding local Taylor coefficients can be represented. 1 4 16 64 256 2048                            
+
+> number of centroids K
+> 0.2 0.4 0.6
+> R 2 against  VMC  (a) Kuramoto, N= 6
+> 1.8 2.0 2.2 2.4 2.6
+> distance to centroid ‖δ‖
+> 10 −3
+> 10 −2
+> 10 −1
+> 10 0
+> critic MSE on  V (b) LQR, N= 40
+> LTC n= 1 LTC n= 2 LTC n= 3 NTC n= 1 NTC n= 2 NTC n= 3
+
+Figure 5: Centroid and local-approximation ablations. (a) held-out critic fit versus the number of centroids K on Kuramoto ( N = 6 , with encoding si = θi), measured by R2 = 1 − P
+
+> s,i
+
+  ˜Vi(s) −
+
+V MC  
+
+> i
+
+(s)2/ P
+
+> s,i
+
+ V MC  
+
+> i
+
+(s) − ¯V MC 2 over 4096 held-out states, where V MC  
+
+> i
+
+(s) averages the dis-counted return of agent i over 20 Monte Carlo continuations of 500 steps from s. (b) Mean squared error of the critic on the exact agent-mean value ¯V = 1
+
+> N
+
+P 
+
+> i
+
+Vi on LQR ( N = 40 ), as a function of the distance of the evaluated state to its assigned centroid, for LTC and NTC with n = 1 , 2, 3.D.3 TAYLOR ORDER ABLATION 
+
+In LQR and switched LQR, under our affine-mean Gaussian policies, the critic is a quadratic (more precisely, quadratic conditioned on σ for switched LQR) function. As a result, we expect n = 2 to yield far better results than n = 1 when training our policy and n = 3 to provide relatively little improvement. We made this observation in the case of critic fitting in Figure 1. Figure 6 shows the same pattern during policy training as soon as κπ ≥ 2: the gap to the optimum is much lower for 
+
+n = 2 than for n = 1 , and n = 3 provides no improvement. D.4 EPISODE TRAJECTORIES ON THE THREE ENVIRONMENTS 
+
+Figure 7 complements the aggregate performance metrics with representative trajectories. The tra-jectories are run on one seed simply as a qualitative overview of the policy’s behavior in practice. On LQR, all methods stabilize the network rapidly around the target. On switched LQR, the trajectories exhibit the expected abrupt deviations at mode changes, yet LTC and NTC repeatedly recover sta-ble behavior despite the switching mode being unobserved by the controller. Finally, on Kuramoto, Taylor Centroid rapidly synchronizes the agents’ frequencies and maintains synchronization over the rollout. Hence, the policy obtained at convergence leads to the expected trajectories for these environments. 22 610 15 
+
+κ = 1 , κπ = 1 κ = 2 , κπ = 1 
+
+> 25
+
+κ = 2 , κπ = 2 κ = 3 , κπ = 2 
+
+> 0.2 15
+
+κ = 2 , κπ = 3             
+
+> 0100 200 510 0100 200 0400 800 510 0400 800 0400 800 1310
+
+Taylor-order ablation (LTC) 
+
+> LQR Switched LQR
+> |J − J ⋆ |/| J ⋆ | (%)
+
+epoch         
+
+> class reference LTC n= 1 LTC n= 2 LTC n= 3
+
+Figure 6: Taylor order ablation. Convergence of LTC for n ∈ { 1, 2, 3} for different configurations 
+
+(κ, κ π ) on LQR and switched LQR. 0 5 10 010 LTC 
+
+> 5
+
+NTC 
+
+> 5
+
+MLP 
+
+> 5
+
+GNN 
+
+> 5
+
+RF 
+
+> 5
+
+CDCPG 
+
+> 5
+
+Spectral-SAC   
+
+> 0100 200 −2.5 0.0 2.5
+
+LTC 
+
+> 100
+
+NTC 
+
+> 100
+
+MLP 
+
+> 100
+
+GNN 
+
+> 100
+
+Spectral-SAC  
+
+> 0800 −0.5 0.0 0.5 1.0
+
+LTC 
+
+> 800
+
+NTC 
+
+> 800
+
+MLP 
+
+> 800
+
+GNN 
+
+> 800
+
+RF-SAC 
+
+> 800
+
+CDCPG 
+
+> 800
+
+Spectral-SAC 
+
+(a) LQR 
+
+> state  si
+
+time step 
+
+(b) Switched LQR 
+
+> state  si
+
+time step 
+
+(c) Kuramoto 
+
+> frequency  ̇  θi
+
+time step   
+
+> one line per agent target mode switch
+
+Figure 7: Representative trajectories. Trajectories of the learned policies on networked LQR, hidden-mode switched LQR, and the Kuramoto oscillator. 23 D.5 THE LATENT MODES APPEAR AS DATA -DRIVEN OPERATING REGIMES .A useful feature of switched LQR is that clusters can often be identified with interpretable regimes. In this environment, one can think of each σt as an operating regime for the system. Here, the meaning of a “regime” is known to the experimenter while remaining hidden from the learning algorithm. This allows us to check whether the data-driven centroids introduced in our method recover meaningful structure rather than merely producing an arbitrary partition of state space. −100 −50 0 50 100 
+
+> PC1
+> −100 −50 050 100
+> PC2
+> modes separated: 0.35
+
+no control ( a = 0 )    
+
+> −20 −10 010 20
+> PC1
+> −20 −15 −10 −5 0510 15
+> PC2
+> modes separated: 0.62
+
+converged policy ( a = Fs +f)          
+
+> σ= 0 σ= 1 σ= 2 σ= 3 σ= 4 K-medians centroids
+
+Figure 8: Operating regimes in hidden switched LQR. PCA projection of state trajectories, col-ored by latent mode σt for visualization; crosses denote the K = 5 Taylor Centroid medians. Mode separation, the fraction of the variance of the two principal-component scores zt explained by the latent mode, P 
+
+> m
+
+nm∥¯zm − ¯z∥2/ P 
+
+> t
+
+∥zt − ¯z∥2 (with ¯zm the mean of the nm points with σt = m
+
+and ¯z the overall mean; 0 when all modes share the same mean, 1 when each mode collapses to a point), increases from 0.35 without control (left) to 0.62 after training with σt unobserved (right), as trajectories form clearer recurrent regions and the centroids align with the latent regimes. In this regard, Figure 8 provides a direct empirical motivation for the cluster-based representation. The K-medians centroids are fitted solely from physical states, yet, after control, the regions of state space visited under different latent modes become clearly separated and the learned centroids lie inside these recurrent regions. Thus the centroids used by the critic can acquire an interpretable operational meaning even without access to the variable generating the regimes. Figure 8 also reveals a significant state-distribution shift during training. Crucially, this motivates refitting the centroids throughout training. 
+
+## E UNDERSTANDING THE EXPECTED REWARD REGULARITY ASSUMPTION 
+
+Throughout this appendix, q ≥ 2 denotes the regularity order in Assumption 1, while 1 ≤ n ≤ q − 1
+
+denotes the Taylor order used in the critic representation. For a sufficiently differentiable function 
+
+f (z, s, a ), define 
+
+∥f ∥Cqs := max  
+
+> |β|≤ q
+
+sup 
+
+> z,s,a
+
+∂βs f (z, s, a ) . (14) For convenience, recall the expected rewards at time t:
+
+gπi,t (z, s, a ) := Eπ [ri(Si,t , A i,t ) | Z0 = z, S 0 = s, A 0 = a] . (15) Assumption 1 can then be written as 
+
+sup 
+
+> t≥0
+
+∥gπi,t ∥Cqs ≤ ¯L (16) uniformly in the network size, agent, and policy in the considered class. 24 We first give an operational interpretation of Equation 16 and describe how it can be stress-tested from rollouts. We then show that its uniform-in-time form can be weakened to a discounted-summability condition. Finally, we provide several sufficient conditions and position the assumption relative to the smooth-MDP hierarchy of Maran et al. (2024a;b). E.1 INTERPRETATION 
+
+Assumption 1 has a direct physical interpretation. Consider a small perturbation of the current physical state. The assumption requires that, as this perturbation propagates through the system dynamics, it does not create arbitrarily sharp variations in the expected local reward of agent i.Thus, nearby physical configurations may evolve differently, but the expected reward received after a finite number of steps must remain a sufficiently smooth function of the current state. Letting 
+
+gπi,t (z, s, a ) = Eπ [ri(Si,t , A i,t ) | Z0 = z, S 0 = s, A 0 = a]
+
+The assumption requires for the derivatives of gπi,t in s to remain bounded for all t.E.2 A ROLLOUT -BASED STRESS TEST 
+
+A practical advantage of Assumption 1 is that it is stated in terms of a physically interpretable quantity, the future reward predictions gπi,t of Equation 15, that can be probed directly from rollouts. This is considerably easier to inspect empirically than smoothness conditions imposed on an entire Bellman operator, such as Mild smoothness in Maran et al. (2024a). 0 5 10 15 20 
+
+> 10 −9
+> 10 −6
+> 10 −3
+> 10 0
+> 0
+> LQR
+
+|β| = 1     
+
+> 0510 15 20
+
+|β| = 2     
+
+> 0510 15 20
+
+|β| = 3                             
+
+> 0510 15 20
+> 10 −9
+> 10 −6
+> 10 −3
+> 10 0
+> 0
+> Switched LQR
+> 0510 15 20 0510 15 20
+> 010 20 30 40
+> horizon t
+> 10 −9
+> 10 −6
+> 10 −3
+> 10 0
+> 10 3
+> 0
+> Kuramoto
+> 010 20 30 40
+> horizon t
+> 010 20 30 40
+> horizon t
+> 0123
+> ≥ 4
+> graph reach  di(β) = max
+> j∈supp  β dG(i, j)
+> |∂βs gπi, t(z, s, a) |
+
+Figure 9: Empirical stress test of expected reward regularity. |∂βs gπi,t (z, s, a )| versus horizon 
+
+t for |β| ∈ { 1, 2, 3} on LQR and switched LQR ( N = 50 , learned policies with κπ = 2 ) and Kuramoto ( N = 40 , greedy controller), at 16 visited anchors (z, s, a ) and 5 agents per environment, with 256 rollouts per expectation. Colors: graph reach di(β) = max j∈supp G(β) dG(i, j ); marks in the bottom strip: numerically zero derivatives; gray: finite-difference resolution range. Figure 9 evaluates ∂βs gπi,t (z, s, a ) for derivative orders |β| ∈ { 1, 2, 3} on LQR, switched LQR, and Kuramoto. Each curve follows one sampled initial value (z, s, a ), reference agent i, and multi-index 25 β over the prediction horizon. Finite differences perturb only the initial physical state s, while the initial context z and action a are held fixed. Derivatives are estimated by symmetric finite differences around states visited by the policy. Each state coordinate is perturbed by h times its empirical standard deviation, where h is a dimensionless step size. We repeat the computation for h ∈ { 0.01 , 0.02 , 0.05 } and display h = 0 .02 in the figure. The estimates are generally stable across these choices. Relative differences across h should be interpreted cautiously when a derivative is itself extremely small, since tiny absolute changes can then correspond to large relative variations; this is most visible for the third-order Kuramoto derivatives, which are somewhat less stable across h than the other panels while remaining controlled over the tested horizon. Curves are colored by the graph reach di(β) := max j∈supp G(β) dG(i, j ), from derivatives involving agent i itself to derivatives involving more distant agents. Colored marks in the lower strip indicate numerically zero derivatives, while the gray region marks values below the numerical resolution of the finite-difference estimate and is not interpreted quantitatively. The results are consistent with the regularity assumption. Across all three environments, deriva-tive magnitudes remain controlled as the horizon grows, with no systematic amplification in t. On LQR and switched LQR, first- and second-order sensitivities decrease over the prediction horizon, while third-order derivatives lie at the numerical resolution floor, as expected from the quadratic (and quadratic conditioned on σ) dependence of the expected rewards on the initial state under the affine-mean policies considered here. Kuramoto, whose dynamics are nonlinear, retains nonzero derivatives through third order while their magnitudes remain controlled over the tested horizon. The plots also exhibit the expected spatial structure: derivatives involving more distant agents are typically smaller. Because Assumption 1 is uniform over states, policies, agents, and prediction horizons, no finite experiment can verify it formally. Figure 9 should instead be viewed as a stress test: systematic growth of these expected reward sensitivities with the prediction horizon on highly visited states would provide direct evidence against the assumption. We observe no such behavior on any of the three benchmarks; instead, expected reward sensitivities remain controlled over the tested horizons, together with the distance-dependent attenuation expected from graph-local dynamics. E.3 A WEAKER DISCOUNTED -SUMMABILITY CONDITION 
+
+For simplicity of exposition, Assumption 1 is stated as a uniform-in-t bound. This is stronger than mathematically necessary: it suffices that the smoothness of the expected reward predictions grows slowly enough to be dominated by discounting as shown in Assumption E.1. 
+
+Assumption E.1 (Discounted-summable expected reward regularity) There exists a nonnega-tive sequence ¯L(t), uniform in the network size, agent, initial global state, and policy in the consid-ered class, such that 
+
+∥gπi,t ∥Cqs ≤ ¯L(t), t ≥ 0, (17) 
+
+and ∞X
+
+> t=0
+
+γt ¯L(t) < ∞. (18) Assumption 1 is recovered by taking ¯L(t) ≡ ¯L. More generally, the condition allows finite-horizon sensitivities to grow with time, provided that discounting dominates this growth. We now show that we recover the main results of our main theory under this weaker assumption. 
+
+Proposition E.1 (Regularity under a summable envelope) Under Assumption E.1, for every multi-index |β| ≤ q,
+
+∂βs Qπi (z, s, a ) = 
+
+> ∞
+
+X
+
+> t=0
+
+γt∂βs gπi,t (z, s, a ), (19) 
+
+and 
+
+sup 
+
+> z,s,a
+
+∂βs Qπi (z, s, a ) ≤
+
+> ∞
+
+X
+
+> t=0
+
+γt ¯L(t). (20) 26 The exponential decay extends to this setting. For d ≥ 0, define 
+
+τd := 
+
+ d
+
+1 + κπ
+
+
+
+, Λd := 
+
+> ∞
+
+X
+
+> t=τd
+
+γt ¯L(t). (21) The sequence (Λ d)d≥0 is nonincreasing and tends to 0 as d → +∞.
+
+Proposition E.2 (Exponential decay under a summable envelope) Under Assumption E.1, for every nonzero multi-index |β| ≤ q,
+
+∂βs Qπi (z, s, a ) ≤ Λdi(β). (22) Thus the geometric envelope used in the main text is only one particular case. The decay rate is determined by the discounted sum of ¯L(t).For the uniform envelope ¯L(t) ≡ ¯L, this reduces to 
+
+Λd = ¯L
+
+1 − γ γτd ≤ ¯L
+
+1 − γ ρd = LQρd,
+
+recovering Lemma 1. The Taylor Centroid approximation can be extended explicitly to this general envelope. For 0 ≤
+
+d ≤ κ, define the same local centroid radii as in Theorem 1, 
+
+Wd := sup 
+
+> s
+
+sN di − μk(s),N di 1
+
+,
+
+and, for every integer m ≥ 1, define 
+
+RΛ 
+
+> m
+
+:= Λ κW mκ +
+
+> κ−1
+
+X
+
+> d=0
+
+ Λd − Λd+1 
+
+W md . (23) Because (Λ d)d is nonincreasing, all coefficients in Equation 23 are nonnegative. 
+
+Proposition E.3 (Scalable local Taylor representation under a summable envelope) Under As-sumption E.1, let 1 ≤ n ≤ q − 1 and let bQπi be the order-n Taylor Centroid approximation defined in Equation 4. Then 
+
+sup 
+
+> z,s,a
+
+Qπi (z, s, a ) − bQπi (z, s, a ) ≤ 2Rmax 
+
+1 − γ ρκ+1 + RΛ
+
+> n+1
+
+(n + 1)! , ρ := γ1/(1+ κπ ). (24) 
+
+Moreover, bQπi contains |N κi |ds + nn
+
+
+
+state monomials and therefore remains independent of N for bounded graph degree and fixed 
+
+(κ, n, d s).
+
+The two terms in Equation 24 have different origins. The localization term is unchanged because spatial decay uses only bounded rewards, graph locality, and discounting. The Taylor term instead inherits the derivative envelope (Λ d)d. The latter is obtained by grouping Taylor monomials accord-ing to their graph reach and applying summation by parts: 
+
+> κ
+
+X
+
+> d=0
+
+Λd
+
+ Am,d − Am,d −1
+
+ = Λ κAm,κ +
+
+> κ−1
+
+X
+
+> d=0
+
+(Λ d − Λd+1 )Am,d , (25) where 
+
+Am,d = ∥hN di ∥m
+
+> 1
+
+m! , Am, −1 := 0 .
+
+For the uniform envelope ¯L(t) ≡ ¯L, the geometric majorant Λd ≤ LQρd gives 
+
+RΛ 
+
+> m
+
+≤ LQ
+
+"
+
+ρκW mκ + (1 − ρ)
+
+> κ−1
+
+X
+
+> d=0
+
+ρdW md
+
+#
+
+= LQRm,
+
+27 so Proposition E.3 recovers the bound of Theorem 1. The remaining results adapt in the same way. Value-localization terms retain their geometric factor 
+
+ρ, while every use of the exponential decay LQρdi(β) is replaced by the corresponding term Λdi(β).The LSTD concentration argument itself is unchanged, and the actor analysis only uses the fitted critic through its final error certificate ∆Q.E.4 WHEN DOES EXPECTED REWARD REGULARITY HOLD ?We now give sufficient conditions under which Assumption 1 holds. E.4.1 SMOOTH STOCHASTIC DYNAMICS .In many cases, the regularity we require is provided by the transition kernel itself. Indeed, a broad instance of problems satisfying Assumption 1 consists of graph-local systems with smooth stochastic transitions. Consider 
+
+S′ 
+
+> i
+
+= fi(Z, S Ni , A Ni ) + Mi(Z, S Ni , A Ni ) ηi, (26) where ηi is independent of the current state. 
+
+Proposition E.4 (Smooth stochastic dynamics are sufficient) Suppose first that, uniformly in i
+
+and ai, ri(·, a i) is Cq with bounded derivatives through order q. Suppose further that, uniformly in 
+
+i and z, the maps 
+
+fi(z, ·, ·), Mi(z, ·, ·), Mi(z, ·, ·)−1
+
+are Cq in the physical-state variables with bounded derivatives through order q, and that Mi is uniformly invertible. Suppose finally that the density pi of ηi satisfies 
+
+max 
+
+> |α|≤ q
+
+Z
+
+> Rds
+
+(1 + ∥u∥)q |∂αpi(u)| du < ∞
+
+uniformly in i. Then Assumption 1 holds with a constant independent of N whenever the graph degree is bounded. 
+
+Here, noise acts as a smoothing mechanism: even if individual trajectories are sensitive, expected rewards remain uniformly smooth functions of the current state due to the regularizing effect of the kernel. 
+
+Low-noise limit. For isotropic noise Mi = σI , the constants produced by the above certificate may deteriorate as σ → 0: at derivative order q, the proof gives a worst-case scaling of order 
+
+O(σ−q ) (up to local smoothness and graph-degree factors). This reflects a loss of smoothing as the noise vanishes. Importantly, it is the sufficient certificate that degrades, not necessarily the true derivatives of the critic; for instance, in linear–quadratic systems the higher-order critic derivatives need not depend on σ. The proposition covers several standard stochastic systems. The additive-noise model 
+
+S′ 
+
+> i
+
+= fi(Z, S Ni , A Ni ) + εi
+
+is recovered by taking Mi ≡ I, and includes graph-local systems with Gaussian noise as well as many smooth heavy-tailed noise distributions. Allowing Mi to depend on the current state addition-ally covers smooth heteroskedastic and state-dependent uncertainty. The required density condition is satisfied, for example, by Gaussian and Gaussian-mixture noise, smooth compactly supported densities, and smooth heavy-tailed distributions with sufficiently many finite moments. The main additive-noise settings studied by Wang et al. (2026); Ren et al. (2025b) are therefore special cases of Proposition E.4. Thus our regularity class contains their principal model classes while also al-lowing state-dependent stochastic dynamics. In particular, LQR, switched LQR and the Kuramoto oscillator all satisfy Assumption 1 through Proposition E.4. E.4.2 SMOOTH LINEAR TRANSITION MODELS .Our assumption also follows from sufficiently regular linear factorizations of the transition kernel. Suppose that a local transition density admits 
+
+pj
+
+ s′ 
+
+> j
+
+| sNj , a Nj , z  =
+
+> d
+
+X
+
+> h=1
+
+φj,h 
+
+ sNj , a Nj , z  μj,h (s′ 
+
+> j
+
+). (27) 28 Proposition E.5 (Smooth spectral representations are sufficient) Suppose first that, uniformly in 
+
+i and ai, ri(·, a i) is Cq with bounded derivatives through order q. Suppose further that the current-state feature maps φj,h have uniformly bounded physical-state derivatives through order q and that the next-state factors satisfy 
+
+sup 
+
+> j,h
+
+∥μj,h ∥L1 < ∞.
+
+Then Assumption 1 holds with an N -independent constant for bounded graph degree. 
+
+Thus exact finite-dimensional spectral models of the type used in continuous networked MDPs pro-vide another one-step smoothing certificate whenever their current-state features are sufficiently smooth. This is, in particular, the main setting targeted by (Ren et al., 2025b; Wang et al., 2026) and prior Linear MDP works (Jin et al., 2020). E.4.3 COMPARISON BETWEEN SMOOTHNESS NOTIONS 
+
+We finally compare Assumption 1 with the smooth-MDP hierarchy of Maran et al. (2024a;b). In contrast to our assumption, Mild smoothness is a model-level one-step smoothing certificate: it requires a Bellman update to smooth every bounded continuation value. For x = ( z, s ), let 
+
+(T ⋆f )( x, a ) := r(x, a ) + 
+
+Z
+
+sup 
+
+> a′
+
+f (x′, a ′) P (dx ′ | x, a )
+
+denote the one-step Bellman optimality operator, written without discount to match the finite-horizon convention of Maran et al. (2024a;b). Including a discount factor only changes the cor-responding constants. The original smooth-MDP hierarchy of Maran et al. (2024b) distinguishes Strongly and Weakly Smooth MDPs. In what follows, Cm, 1 denotes the class of m-times differentiable functions whose derivatives of order m are Lipschitz continuous. 
+
+Definition E.1 (Strongly Smooth MDP, Maran et al. (2024b)) For an integer m ≥ 0, an MDP is 
+
+m-Strongly Smooth if the reward and transition density are themselves smooth in the current state– action pair: 
+
+r(·, ·) ∈ Cm, 1, p(x′ | · , ·) ∈ Cm, 1 for every x′,
+
+with the corresponding Cm, 1 norms bounded uniformly in x′ (and, in the finite-horizon formulation, uniformly over the time step). 
+
+Thus Strong smoothness imposes regularity directly on the model. In particular, it requires the transition kernel to admit a sufficiently regular density. 
+
+Definition E.2 (Weakly Smooth MDP, Maran et al. (2024b)) For an integer m ≥ 0, an MDP is 
+
+m-Weakly Smooth if the Bellman optimality operator is bounded from Cm, 1 to itself: there exists 
+
+CT < ∞ such that 
+
+∥T ⋆f ∥Cm, 1 ≤ CT
+
+ ∥f ∥Cm, 1 + 1 
+
+for every f ∈ Cm, 1.
+
+Weak smoothness therefore does not require the transition density itself to be smooth. Instead, it requires Bellman updates to preserve smoothness of functions that are already smooth. This is intuitively similar to our assumption which requires the expected value of the rewards (a smooth function) to remain smooth. Maran et al. (2024a) introduce an intermediate notion, Mild smoothness. For ν > 0, let 
+
+ν⋆ := ⌈ν − 1⌉.
+
+Their space Cν consists of functions with ν⋆ continuous derivatives whose derivatives of order ν⋆
+
+are H¨ older continuous with exponent ν − ν⋆. In particular, at integer indices, 
+
+Cν = Cν−1,1
+
+up to equivalence of the corresponding norms. 29 Definition E.3 (Mildly Smooth MDP, (Maran et al., 2024a)) An MDP is ν-Mildly Smooth if the Bellman optimality operator is bounded from L∞ to Cν : there exists CT < ∞ such that 
+
+∥T ⋆f ∥Cν ≤ CT
+
+ ∥f ∥∞ + 1 
+
+for every bounded measurable f .
+
+The key distinction is that Mild smoothness does not require the input to be smooth: a Bellman update must produce a smooth function from an arbitrary bounded input. At integer orders, Ap-pendix E.3 (Relation between the settings) of Maran et al. (2024a) proves 
+
+m-Strong =⇒ (m + 1) -Mild =⇒ m-Weak . (28) Mild smoothness provides a particularly simple sufficient condition for our assumption. 
+
+Proposition E.6 (Smooth MDPs satisfy expected reward regularity) Suppose that the local re-wards are Cq with uniformly bounded derivatives. If the augmented MDP is ν-Mildly Smooth for some 
+
+ν > q, 
+
+then Assumption 1 of order q holds. Consequently, at integer indices, 
+
+q-Strong =⇒ (q + 1) -Mild =⇒ Assumption 1 of order q. (29) In particular, Maran et al. (2024a;b) show that Mild smoothness captures a wide variety of MDPs which therefore satisfy Assumption 1. The reason is that every finite-horizon local reward prediction remains uniformly bounded: 
+
+∥gπi,t ∥∞ ≤ Rmax .
+
+The condition ν > q comes from our choice to formulate Assumption 1 using Cq following the classical notation. This one-order shift is therefore a matter of smoothness convention rather than a substantive difference in the Taylor approximation. 
+
+The implication is strict. Mild smoothness is substantially stronger in scope than what our anal-ysis requires. It controls the Bellman operator on every bounded input function, whereas Assump-tion 1 only controls the particular expected reward sequence. To understand why that is the case, let us consider an example with a single-agent MDP and a singleton action space, 
+
+s = ( x, y ) ∈ [−1, 1] 2, r(x, y ) = x2,
+
+We consider the following deterministic dynamics 
+
+F (x, y ) =  x, 1{x≥0}
+
+ .
+
+The reward depends only on the first coordinate, which is preserved by the dynamics. Consequently, 
+
+gt(x, y ) = x2 for every t ≥ 0,
+
+so the entire expected reward sequence is smooth at every finite order and Assumption 1 holds. The Bellman operator, however, also probes parts of the dynamics that never affect this reward sequence. Consider the smooth bounded function 
+
+f (x′, y ′) = y′.
+
+Then 
+
+T ⋆f (x, y ) = x2 + 1{x≥0},
+
+which is discontinuous at x = 0 . Thus the Bellman operator does not even preserve continuity 
+
+of smooth inputs. The discontinuity in the second state coordinate is entirely irrelevant to every future reward and therefore to the critic itself. Assumption 1 correctly ignores it. Mild smoothness cannot make this distinction because it asks the Bellman operator to regularize arbitrary functions, including functions specifically chosen to probe that irrelevant coordinate. Beyond this informative example, the following proposition shows that this distinction in notions also arises in switched LQR, a well-established control model. 30 Proposition E.7 (A continuous-context switched LQR separation) Consider a single-agent switched LQR on compact state and action domains, with a continuous global context Zt ∈ [−1, 1] ,
+
+Zt+1 = −Zt, σ(z) := 1{z≥0},
+
+and physical dynamics 
+
+St+1 = A(σ(Zt)) St + B(σ(Zt)) At + εt.
+
+Assume that εt is centered and has a C∞ full-dimensional density satisfying the conditions of Propo-sition E.4 at every finite order, and choose the domains, mode matrices, and noise support so that the physical state remains in its compact domain. Let 
+
+r(s, a ) = −(s⊤Qs + a⊤Ra ),
+
+and assume that the two regimes are distinct on the domain, i.e., there exist (¯ s, ¯a) such that 
+
+d := 
+
+
+
+A(1) − A(0) 
+
+¯s +
+
+
+
+B(1) − B(0) 
+
+¯a̸ = 0 .
+
+Then Assumption 1 holds at every finite order q, whereas the augmented MDP on (Z, S ) is not Mildly Smooth at any positive order. 
+
+Here Zt is a continuous switching variable: except at Zt = 0 , its sign flips at every step, so the physical dynamics alternate between the two linear regimes selected by σt = 1{Zt≥0}. This example shows a second way in which expected reward regularity can be strictly more targeted than operator-wide smoothness. The mode switch is discontinuous as a function of the continuous context z, so Bellman outputs on the full augmented state need not be smooth in z.
+
+Discrete and hidden operating modes. There is a further distinction concerning the global con-text Z allowed in our model. The standard Mild-smoothness formulation is stated on a continuous state–action domain equipped with a Cν smoothness structure. Consequently, when the Markov state is hybrid, 
+
+(Z, S ),
+
+with Z taking values in a finite set, Mild smoothness is not directly defined in its standard form without first specifying how the smoothness space should be extended to the discrete coordinate. This situation arises naturally in switched LQR (Costa et al., 2005; Ogura et al., 2018). Assumption 1 requires no such extension: derivatives are taken only with respect to the continuous physical state 
+
+s, while the corresponding bounds are required uniformly over the context z.
+
+## F PROOFS OF THE MAIN -TEXT RESULTS 
+
+This section contains the proofs of the results stated in the main text. We first establish the finite-propagation and decay properties, then derive the Taylor Centroid approximation bounds, prove the finite-sample LTC–LSTD guarantee, and finally analyze the localized actor and the end-to-end policy-optimization update. 
+
+Conditioning convention. The algorithm is adaptive across actor iterations. Fix one such itera-tion. All critic-side statements are understood conditionally on the sigma-field generated before the current critic rollouts. Under this conditioning, the current policy, centroids, cluster assignment, and feature map are fixed, while the Mc critic rollouts are independent trajectories generated by the cur-rent policy. After fitting the critic, actor-side statements are understood conditionally on the enlarged sigma-field containing the fitted critics and any randomness used to construct action-independent baselines. Under this conditioning, the Ms fresh actor rollouts are independent. Conditional failure-probability bounds below are uniform in the realized history, so the corresponding unconditional statements follow from the tower property. We suppress these conditionings whenever no ambiguity can arise. For t ≥ 0, let 
+
+gπi,t (z, s, a ) := Eπ [ri(Si,t , A i,t ) | Z0 = z, S 0 = s, A 0 = a] . (30) 31 Then 
+
+Qπi (z, s, a ) = 
+
+> ∞
+
+X
+
+> t=0
+
+γtgπi,t (z, s, a ), (31) and the bounded-reward assumption gives 
+
+|gπi,t (z, s, a )| ≤ Rmax , |Qπi (z, s, a )| ≤ Rmax 
+
+1 − γ . (32) F.1 FINITE PROPAGATION AND EXPONENTIAL DECAY 
+
+Proof of Proposition 1. Proof. By Equation 32, 
+
+sup 
+
+> z,s,a
+
+γtgπi,t (z, s, a ) ≤ γtRmax ,
+
+and P 
+
+> t≥0
+
+γtRmax < ∞. Hence Equation 31 converges uniformly. Fix a multi-index β with |β| ≤ q. Assumption 1 gives 
+
+sup 
+
+> z,s,a
+
+∂βs gπi,t (z, s, a ) ≤ ¯L for every t ≥ 0.
+
+Therefore ∞X
+
+> t=0
+
+sup 
+
+> z,s,a
+
+γt∂βs gπi,t (z, s, a ) ≤ ¯L
+
+1 − γ .
+
+Thus the derivative series converges uniformly for every derivative order up to q. Applying the standard theorem on termwise differentiation of uniformly convergent series, successively in each state coordinate, shows that s 7 → Qπi (z, s, a ) is of class Cq and yields 
+
+∂βs Qπi (z, s, a ) = 
+
+> ∞
+
+X
+
+> t=0
+
+γt∂βs gπi,t (z, s, a ), |β| ≤ q. (33) The derivatives are continuous because, by Assumption 1, each gπi,t is of class Cq , and the derivative series converges uniformly. Moreover, 
+
+sup 
+
+> z,s,a
+
+∂βs Qπi (z, s, a ) ≤ ¯L
+
+1 − γ = LQ, |β| ≤ q. (34) This proves Proposition 1. □
+
+Lemma F.1 (Finite propagation) Let 
+
+Rt := t(1 + κπ ).
+
+Conditionally on the global trajectory (Z0, . . . , Z t), the conditional law of (Si,t , A i,t ) given 
+
+(S0, A 0) = ( s, a ) depends on the initial distributed state–action pair only through its restriction to N Rt 
+
+> i
+
+.Proof. We argue by induction on t, simultaneously for all agents. At t = 0 , (Si, 0, A i, 0) = ( si, a i),so the statement holds with R0 = 0 .Assume that it holds at time t − 1. Conditional on (Zt−1, S t−1, A t−1), the factorized transition kernel implies that the law of Si,t depends only on 
+
+ Sj,t −1, A j,t −1
+
+ 
+
+> j∈N i
+
+.
+
+For j ∈ N i, the induction hypothesis restricts the dependence of these variables on the initial dis-tributed coordinates to N Rt−1 
+
+> j
+
+, and 
+
+N Rt−1 
+
+> j
+
+⊆ N Rt−1+1  
+
+> i
+
+.
+
+Hence the conditional law of Si,t depends on the initial distributed variables only through N Rt−1+1  
+
+> i
+
+.32 Next, 
+
+Ai,t ∼ πθi
+
+
+
+· | SN κπ i (t), h i(Zt)
+
+
+
+.
+
+After conditioning on the global trajectory, hi(Zt) is fixed. For every j ∈ N κπ 
+
+> i
+
+, the preceding state argument shows that Sj,t depends on the initial distributed coordinates only through N Rt−1+1  
+
+> j
+
+, and 
+
+N Rt−1+1  
+
+> j
+
+⊆ N Rt−1+1+ κπ 
+
+> i
+
+.
+
+Thus the conditional law of (Si,t , A i,t ) depends on the initial distributed state–action pair only through N Rt−1+1+ κπ 
+
+> i
+
+. Since 
+
+Rt−1 + 1 + κπ = ( t − 1)(1 + κπ ) + 1 + κπ = t(1 + κπ ) = Rt,
+
+the induction closes. □
+
+Lemma F.2 (Spatial decay) If (s, a ) and (s′, a ′) agree on all state–action coordinates indexed by 
+
+N κi , then 
+
+|Qπi (z, s, a ) − Qπi (z, s ′, a ′)| ≤ 2Rmax 
+
+1 − γ ρκ+1 .
+
+Proof. Set 
+
+τκ := 
+
+ κ
+
+1 + κπ
+
+
+
+.
+
+Since Pg (z′ | z) does not depend on the distributed state–action variables, the global process (Zt)t≥0
+
+has the same law under the two initializations. For every t ≤ τκ,
+
+Rt = t(1 + κπ ) ≤ κ. 
+
+By Lemma F.1, conditionally on any realization of the global trajectory, (Si,t , A i,t ) therefore has the same law under the two initializations. Hence: 
+
+gπi,t (z, s, a ) = gπi,t (z, s ′, a ′) (0 ≤ t ≤ τκ).
+
+Put simply, at time t, information propagating from outside N κi has not yet reached agent i, so only 
+
+N κi is relevant to gi,t . Using Equation 31 and Equation 32, 
+
+|Qπi (z, s, a ) − Qπi (z, s ′, a ′)| ≤ 
+
+> ∞
+
+X
+
+> t=τκ+1
+
+γt gπi,t (z, s, a ) − gπi,t (z, s ′, a ′)
+
+≤ 2Rmax 
+
+> ∞
+
+X
+
+> t=τκ+1
+
+γt
+
+= 2Rmax 
+
+1 − γ γτκ+1 .
+
+Moreover, 
+
+τκ + 1 = 
+
+ κ
+
+1 + κπ
+
+
+
++ 1 ≥ κ + 1 1 + κπ
+
+.
+
+Since γ ∈ (0 , 1) ,
+
+γτκ+1 ≤ γ(κ+1) /(1+ κπ ) = ρκ+1 ,
+
+which proves the claim. □
+
+Proof of Lemma 1. Proof. Let β̸ = 0 with |β| ≤ n + 1 , and set 
+
+d := di(β), τβ := 
+
+ d
+
+1 + κπ
+
+
+
+.
+
+If t < τ β , then Rt = t(1 + κπ ) < d . Conditional on the global trajectory (Zt)t≥0, Lemma F.1 implies that gπi,t depends on the initial distributed variables only through N Rt 
+
+> i
+
+. By the definition of 33 di(β), the support of β contains a state coordinate belonging to an agent at distance d from i. Since this coordinate lies outside N Rt 
+
+> i
+
+, gπi,t is constant in that coordinate, and therefore 
+
+∂βs gπi,t (z, s, a ) = 0 (t < τ β ).
+
+The law of the global trajectory (Zt)t≥0 does not depend on the initial distributed state, so averaging over it does not reintroduce such dependence. Using Equation 33, 
+
+∂βs Qπi (z, s, a ) =
+
+> ∞
+
+X
+
+> t=τβ
+
+γt∂βs gπi,t (z, s, a )
+
+≤ ¯L
+
+> ∞
+
+X
+
+> t=τβ
+
+γt
+
+= LQγτβ .
+
+Since τβ ≥ di(β)/(1 + κπ ) and γ ∈ (0 , 1) ,
+
+γτβ ≤ γdi(β)/(1+ κπ ) = ρdi(β).
+
+This proves the claimed bound for β̸ = 0 . For β = 0 , di(0) = 0 and Equation 34 gives |Qπi | ≤ 
+
+LQ = LQρ0. □
+
+F.2 LOCALIZED TAYLOR CENTROID APPROXIMATION 
+
+Lemma F.3 (Localization error) For every (z, s, a ),
+
+Qπi (z, s, a ) − ¯Qπi (z, s N κi , a N κi ) ≤ 2Rmax 
+
+1 − γ ρκ+1 . (35) 
+
+Proof. Write 
+
+x := ( sN κi , a N κi ), y := ( sN κ 
+
+> −i
+
+, a N κ 
+
+> −i
+
+).
+
+By definition of ¯Qπi = Di, 0,
+
+¯Qπi (z, x ) = 
+
+Z
+
+Qπi (z, x, ey) νi, far (dey).
+
+Hence 
+
+Qπi (z, x, y ) − ¯Qπi (z, x ) = 
+
+Z
+
+[Qπi (z, x, y ) − Qπi (z, x, ey)] νi, far (dey).
+
+For every ey, the two arguments inside the brackets agree on all state–action coordinates in N κi .Lemma F.2 therefore bounds the absolute value of the integrand by 2Rmax (1 − γ)−1ρκ+1 . Since 
+
+νi, far is a probability measure, the same bound holds after integration. □
+
+This is the same idea as the one used by (Qu et al., 2020b; Ren et al., 2025b; Wang et al., 2026). 
+
+Lemma F.4 (Localized derivatives) For every multi-index β supported in N κi with |β| ≤ n + 1 ,
+
+∂βs ¯Qπi (z, s N κi , a N κi ) = Di,β (z, s N κi , a N κi ), (36) 
+
+and 
+
+Di,β (z, s N κi , a N κi ) ≤ LQρdi(β). (37) 
+
+Proof. For every such β, Lemma 1 gives 
+
+∂βs Qπi (z, s, a ) ≤ LQρdi(β) ≤ LQ
+
+uniformly in all far coordinates. This uniform bound is integrable with respect to the probability measure νi, far . Repeated application of dominated convergence therefore permits differentiation under the integral defining ¯Qπi and yields Equation 36. The same bound gives 
+
+|Di,β | ≤ 
+
+Z
+
+∂βs Qπi dν i, far ≤ LQρdi(β),
+
+which proves Equation 37. □
+
+34 Lemma F.5 (Graph-shell identity) Let 
+
+h := sN κi − μk(s),N κi .
+
+For every integer p ≥ 0 and 0 ≤ d ≤ κ, define 
+
+Ap,d := X
+
+> |β|=pdi(β)≤d
+
+|hβ |
+
+β! , Ap, −1 := 0 .
+
+Then 
+
+Ap,d = ∥hN di ∥p
+
+> 1
+
+p! , (38) 
+
+and κX
+
+> d=0
+
+ρd(Ap,d − Ap,d −1) = ρκAp,κ + (1 − ρ)
+
+> κ−1
+
+X
+
+> d=0
+
+ρdAp,d . (39) 
+
+Consequently, 
+
+X 
+
+> |β|=p
+> supp G(β)⊆N κi
+
+ρdi(β) |hβ |
+
+β! ≤ Rp
+
+p! . (40) 
+
+Proof. The condition di(β) ≤ d is equivalent to supp G(β) ⊆ N di . The multinomial theorem therefore gives 
+
+Ap,d = X 
+
+> |β|=p
+> supp G(β)⊆N di
+
+|hβ |
+
+β!= 1
+
+p!
+
+ X 
+
+> j∈N di
+> ds
+
+X
+
+> c=1
+
+|hj,c |
+
+
+
+> p
+
+= ∥hN di ∥p
+
+> 1
+
+p! ,
+
+which proves Equation 38. The difference Ap,d − Ap,d −1 is precisely the contribution of monomials of graph reach d. Hence 
+
+> κ
+
+X
+
+> d=0
+
+ρd(Ap,d − Ap,d −1) = 
+
+> κ
+
+X
+
+> d=0
+
+ρdAp,d −
+
+> κ−1
+
+X
+
+> d=0
+
+ρd+1 Ap,d 
+
+= ρκAp,κ + (1 − ρ)
+
+> κ−1
+
+X
+
+> d=0
+
+ρdAp,d ,
+
+which is Equation 39. Finally, if s ∈ Ck(s) (where C1, . . . , C K are the fitted clusters), the definition of Wd gives ∥hN di ∥1 ≤ Wd. Substituting Equation 38 into Equation 39 and applying these bounds yields 
+
+X 
+
+> |β|=p
+> supp G(β)⊆N κi
+
+ρdi(β) |hβ |
+
+β! ≤ 1
+
+p!
+
+"
+
+ρκW pκ + (1 − ρ)
+
+> κ−1
+
+X
+
+> d=0
+
+ρdW pd
+
+#
+
+= Rp
+
+p! .
+
+□
+
+Proposition F.1 (Approximation error of the ideal Taylor Centroid critic) Under the assump-tions of Lemma 1, 
+
+sup 
+
+> z,s,a
+
+Qπi (z, s, a ) − bQπi (z, s, a ) ≤ ∆TC = 2Rmax 
+
+1 − γ ρκ+1 + LQ
+
+(n + 1)! Rn+1 . (41) 35 Proof. Decompose 
+
+Qπi − bQπi =  Qπi − ¯Qπi
+
+ +   ¯Qπi − bQπi
+
+.
+
+The first term is bounded by Lemma F.3. For the second term, fix (z, s, a ) and set 
+
+μ := μk(s),N κi , h := sN κi − μ, p := n + 1 .
+
+By Lemma F.4, Equation 4 is exactly the order-n Taylor polynomial of ¯Qπi in the local state variables at μ. Since the state spaces are convex, the line segment μ + uh , u ∈ [0 , 1] , remains in the state domain. The multivariate Taylor formula with integral remainder therefore gives 
+
+¯Qπi (z, s N κi , a N κi ) − bQπi (z, s, a )= p X 
+
+> |β|=p
+> supp G(β)⊆N κi
+
+hβ
+
+β!
+
+Z 10
+
+(1 − u)p−1∂βs ¯Qπi (z, μ + uh, a N κi ) du. 
+
+Using Equation 37 and p R 10 (1 − u)p−1 du = 1 ,
+
+¯Qπi − bQπi ≤ LQ
+
+X 
+
+> |β|=p
+> supp G(β)⊆N κi
+
+ρdi(β) |hβ |
+
+β!
+
+≤ LQ
+
+(n + 1)! Rn+1 ,
+
+where the last inequality is Lemma F.5. Adding the localization error proves Equation 41. □
+
+Corollary F.1 (Distribution-weighted Taylor Centroid error) Let ν be any distribution over states and put p = n + 1 . Define 
+
+Rp(s) := ρκ sN κi − μk(s),N κi 
+
+> p
+> 1
+
++ (1 − ρ)
+
+> κ−1
+
+X
+
+> d=0
+
+ρd sN di − μk(s),N di
+
+> p
+> 1
+
+.
+
+Then, for every z ∈ Z and a ∈ A ,
+
+ES∼ν
+
+h
+
+Qπi (z, S, a ) − bQπi (z, S, a )
+
+i
+
+≤ 2Rmax 
+
+1 − γ ρκ+1 + LQ
+
+(n + 1)! ES∼ν [Rn+1 (S)] .
+
+Moreover, if, for every 0 ≤ d ≤ κ,
+
+SN di − μk(S),N di 1 ≤ Dd almost surely ,
+
+then E[Rp(S)] ≤ ρκDp−1 
+
+> κ
+
+E SN κi − μk(S),N κi 1
+
++ (1 − ρ)
+
+> κ−1
+
+X
+
+> d=0
+
+ρdDp−1 
+
+> d
+
+E SN di − μk(S),N di 1
+
+.
+
+Proof. Repeat the proof of Theorem 1 without replacing the state-dependent distances to the as-signed centroid by their uniform bounds Wd, and then take expectations. The second inequality follows from xp ≤ Dp−1 
+
+> d
+
+x for 0 ≤ x ≤ Dd. □
+
+The K-medians objective used by Taylor Centroid therefore reduces a valid upper bound on the average Taylor remainder under the policy-induced state distribution: it aims to minimize the Taylor representation error on average .
+
+Proposition F.2 (Approximation by the affine coefficient map) Let E(κ) 
+
+> i
+
+be as defined in Theo-rem 2. For every ζ > 0, there exists an LTC parameter w(ζ) 
+
+> i
+
+∈ Rpi such that 
+
+sup 
+
+> z,s,a
+
+bQπi (z, s, a ) − eQLTC  
+
+> i
+
+(hi(z), s, a N κi ; w(ζ) 
+
+> i
+
+) ≤ E (κ) 
+
+> i
+
++ ζ. (42) 
+
+In particular, ¯εlin ≤ LQ.
+
+36 Proof. For β ∈ M n 
+
+> Nκi
+
+, let 
+
+εlin (β) := inf 
+
+> v∈Rdiψ
+
+sup 
+
+> z,k,a
+
+Di,β (z, μ k, N κi , a N κi ) − v⊤ψi(k, h i(z), a N κi ) .
+
+By Lemma F.4, 
+
+sup 
+
+> z,k,a
+
+Di,β (z, μ k, N κi , a N κi ) ≤ LQρdi(β).
+
+The zero vector is an admissible affine coefficient, hence 
+
+εlin (β) ≤ LQρdi(β).
+
+Multiplying by ρ−di(β) and taking the maximum over β proves ¯εlin ≤ LQ.Now fix ζ > 0. Because Mn 
+
+> Nκi
+
+is finite, for every ε > 0 and every β one can choose v(ε) 
+
+> i,β
+
+such that 
+
+sup 
+
+> z,k,a
+
+Di,β (z, μ k, N κi , a N κi ) − (v(ε) 
+
+> i,β
+
+)⊤ψi(k, h i(z), a N κi )
+
+≤ εlin (β) + ερ di(β) ≤ (¯ εlin + ε)ρdi(β).
+
+Stack these coefficient vectors into w(ε) 
+
+> i
+
+∈ Rpi . With h = sN κi − μk(s),N κi , the definitions of LTC and bQπi imply 
+
+bQπi (z, s, a ) − eQLTC  
+
+> i
+
+(hi(z), s, a N κi ; w(ε) 
+
+> i
+
+)
+
+≤ (¯ εlin + ε) X 
+
+> β∈M n
+> Nκi
+
+ρdi(β) |hβ |
+
+β!
+
+≤ (¯ εlin + ε)
+
+> n
+
+X
+
+> p=0
+
+Rp
+
+p! ,
+
+where the second inequality follows by applying Lemma F.5 degree by degree. Since 
+
+E(κ) 
+
+> i
+
+= ¯ εlin 
+
+> n
+
+X
+
+> p=0
+
+Rp
+
+p! ,
+
+choosing ε > 0 so that 
+
+ε
+
+> n
+
+X
+
+> p=0
+
+Rp
+
+p! ≤ ζ
+
+gives Equation 42. □
+
+Lemma F.6 (Feature and critic envelopes) Let G(κ) 
+
+> i
+
+and V(κ) 
+
+> i
+
+be as defined in Theorem 2. For every state s,
+
+∥Ti(s)∥22 ≤
+
+> n
+
+X
+
+> p=0
+
+W 2pκ
+
+p! , ∥Φi∥2 ≤ G (κ) 
+
+> i
+
+. (43) 
+
+Moreover, 
+
+sup 
+
+> z,s,a
+
+| bQπi (z, s, a )| ≤ V (κ) 
+
+> i
+
+, (44) 
+
+and the approximant in Proposition F.2 may be chosen so that 
+
+eQLTC  
+
+> i
+
+(·; w(ζ) 
+
+> i
+
+) ∞
+
+≤ V (κ) 
+
+> i
+
++ E(κ) 
+
+> i
+
++ ζ. (45) 
+
+Proof. Let h = sN κi − μk(s),N κi . For every p ≤ n,
+
+X
+
+> |β|=p
+
+|hβ |2
+
+(β!) 2 ≤ X
+
+> |β|=p
+
+(|h|2)β
+
+β!= ∥h∥2p
+
+> 2
+
+p! ≤ ∥h∥2p
+
+> 1
+
+p! ≤ W 2pκ
+
+p! .
+
+37 Summing over p = 0 , . . . , n proves the first inequality in Equation 43. Since the Euclidean norm is multiplicative under Kronecker products, 
+
+∥Φi∥2 = ∥ψi∥2 ∥Ti∥22 ≤ R2
+
+> ψn
+
+X
+
+> p=0
+
+W 2pκ
+
+p! = G(κ) 
+
+> i
+
+.
+
+For the ideal critic, the degree-zero coefficient satisfies | ¯Qπi | ≤ Rmax /(1 − γ) by Equation 32. For the positive-degree terms, Lemma F.4 and Lemma F.5 give 
+
+| bQπi | ≤ Rmax 
+
+1 − γ + LQnX
+
+> p=1
+
+X 
+
+> |β|=p
+> supp G(β)⊆N κi
+
+ρdi(β) |hβ |
+
+β!
+
+≤ Rmax 
+
+1 − γ + LQnX
+
+> p=1
+
+Rp
+
+p! = V(κ) 
+
+> i
+
+.
+
+Finally, Equation 45 follows from Equation 44, Equation 42, and the triangle inequality. □
+
+F.3 FINITE -SAMPLE ANALYSIS OF LTC–LSTD For rollout j ∈ [Mc] and 0 ≤ t ≤ T − 2, write 
+
+Φj,t i := Φ i
+
+
+
+hi(Z(j) 
+
+> t
+
+), S (j) 
+
+> t
+
+, A (j) 
+
+> t, Nκi
+
+
+
+, nc := Mc(T − 1) .
+
+The empirical LSTD system is 
+
+bAi bwi = bbi, (46) with 
+
+bAi = 1
+
+ncMcX 
+
+> j=1
+> T−2
+
+X
+
+> t=0
+
+Φj,t i
+
+
+
+Φj,t i − γΦj,t +1 
+
+> i
+
+⊤
+
+, bbi = 1
+
+ncMcX 
+
+> j=1
+> T−2
+
+X
+
+> t=0
+
+Φj,t i rj,t i . (47) 
+
+Proof of Theorem 2. Proof. Fix an agent i and condition as described at the beginning of this section. The policy, centroids, cluster assignment, and feature map are therefore fixed. Fix ζ > 0 and let w(ζ) 
+
+> i
+
+be supplied by Proposition F.2. Define 
+
+f (ζ)(yi, s, a N κi ) := eQLTC  
+
+> i
+
+(yi, s, a N κi ; w(ζ) 
+
+> i
+
+)
+
+and abbreviate 
+
+∆ζ := ∆ TC + E(κ) 
+
+> i
+
++ ζ, Vζ := V(κ) 
+
+> i
+
++ E(κ) 
+
+> i
+
++ ζ. 
+
+Propositions F.1 and F.2 imply 
+
+sup 
+
+> z,s,a
+
+Qπi (z, s, a ) − f (ζ)(hi(z), s, a N κi ) ≤ ∆ζ . (48) 
+
+Step 1: reduction to the empirical LSTD residual. The triangle inequality gives 
+
+sup 
+
+> z,s,a
+
+Qπi (z, s, a ) − eQLTC  
+
+> i
+
+(hi(z), s, a N κi ; bwi)
+
+≤ ∆ζ + sup 
+
+> z,s,a
+
+f (ζ)(hi(z), s, a N κi ) − eQLTC  
+
+> i
+
+(hi(z), s, a N κi ; bwi) . (49) Both functions in the second term belong to the same linear feature class. By Lemma F.6, 
+
+sup 
+
+> z,s,a
+
+f (ζ) − eQLTC  
+
+> i
+
+(·; bwi) ≤
+
+q
+
+G(κ) 
+
+> i
+
+w(ζ) 
+
+> i
+
+− bwi .
+
+On the event σmin ( bAi) ≥ cLSTD > 0, bAi is invertible and 
+
+w(ζ) 
+
+> i
+
+− bwi = bA−1
+
+> i
+
+ bAiw(ζ) 
+
+> i
+
+− bbi
+
+
+
+≤ 1
+
+cLSTD 
+
+bAiw(ζ) 
+
+> i
+
+− bbi . (50) 38 Consequently, 
+
+sup 
+
+> z,s,a
+
+f (ζ) − eQLTC  
+
+> i
+
+(·; bwi) ≤
+
+q
+
+G(κ)
+
+> i
+
+cLSTD 
+
+bAiw(ζ) 
+
+> i
+
+− bbi . (51) 
+
+Step 2: Bellman bias and martingale fluctuation. For each (j, t ) set 
+
+f (ζ) 
+
+> j,t
+
+:= f (ζ) 
+
+hi(Z(j) 
+
+> t
+
+), S (j) 
+
+> t
+
+, A (j) 
+
+> t, Nκi
+
+
+
+.
+
+By Equation 47, 
+
+bAiw(ζ) 
+
+> i
+
+− bbi = 1
+
+ncMcX 
+
+> j=1
+> T−2
+
+X
+
+> t=0
+
+Φj,t i
+
+h
+
+f (ζ) 
+
+> j,t
+
+− rj,t i − γf (ζ)
+
+> j,t +1
+
+i
+
+. (52) Let ef (ζ)(z, s, a ) := f (ζ)(hi(z), s, a N κi )
+
+and define the local Bellman evaluation operator 
+
+(T πi u)( z, s, a ) := ri(si, a i) + γEπ [u(Z1, S 1, A 1) | Z0 = z, S 0 = s, A 0 = a] .
+
+Adding and subtracting the one-step conditional mean of f (ζ) 
+
+> j,t +1
+
+decomposes 
+
+bAiw(ζ) 
+
+> i
+
+− bbi = R(ζ)Bell + R(ζ)MG ,
+
+where 
+
+R(ζ)Bell := 1
+
+nc
+
+X
+
+> j,t
+
+Φj,t i
+
+h
+
+f (ζ) 
+
+> j,t
+
+− rj,t i − γE
+
+h
+
+f (ζ) 
+
+> j,t +1
+
+| Z(j) 
+
+> t
+
+, S (j) 
+
+> t
+
+, A (j)
+
+> t
+
+ii 
+
+,R(ζ)MG := γnc
+
+X
+
+> j,t
+
+Φj,t i
+
+h
+
+E
+
+h
+
+f (ζ) 
+
+> j,t +1
+
+| Z(j) 
+
+> t
+
+, S (j) 
+
+> t
+
+, A (j)
+
+> t
+
+i
+
+− f (ζ)
+
+> j,t +1
+
+i
+
+.
+
+Because Qπi = T πi Qπi and conditional expectation is a contraction in the sup norm, 
+
+ef (ζ) − T πi ef (ζ)
+
+> ∞
+
+≤ ef (ζ) − Qπi ∞
+
++ T πi ef (ζ) − T πi Qπi ∞
+
+≤ (1 + γ)∆ ζ .
+
+Using ∥Φj,t i ∥ ≤ 
+
+q
+
+G(κ) 
+
+> i
+
+,
+
+R(ζ)Bell ≤
+
+q
+
+G(κ) 
+
+> i
+
+(1 + γ)∆ ζ . (53) For the stochastic term, define 
+
+Z(ζ) 
+
+> j,t
+
+:= γΦj,t i
+
+h
+
+E
+
+h
+
+f (ζ) 
+
+> j,t +1
+
+| Z(j) 
+
+> t
+
+, S (j) 
+
+> t
+
+, A (j)
+
+> t
+
+i
+
+− f (ζ)
+
+> j,t +1
+
+i
+
+.
+
+Order the pairs (j, t ) by revealing each rollout sequentially and then moving to the next independent rollout. Relative to the resulting natural filtration, Z(ζ) 
+
+> j,t
+
+is a martingale difference: the factor Φj,t i
+
+is measurable at the current step and the term in brackets has conditional mean zero. Moreover, by Equation 45, 
+
+Z(ζ) 
+
+> j,t
+
+≤ 2γ
+
+q
+
+G(κ) 
+
+> i
+
+Vζ .
+
+The Hilbert-space Azuma–Hoeffding inequality (Pinelis, 1994) therefore yields, for this fixed agent, with probability at least 1 − δ/N ,
+
+R(ζ)MG ≤ 2γ
+
+q
+
+G(κ) 
+
+> i
+
+Vζ
+
+s
+
+2 log(2 N/δ )
+
+Mc(T − 1) . (54) In particular, no independence assumption is made between transitions from the same rollout. 39 Step 3: conclusion. Combining Equation 53 and Equation 54, then using Equation 51 and Equa-tion 49, gives 
+
+sup 
+
+> z,s,a
+
+Qπi (z, s, a ) − eQLTC  
+
+> i
+
+(hi(z), s, a N κi ; bwi)
+
+≤ 1 + (1 + γ)G(κ)
+
+> i
+
+cLSTD 
+
+!
+
+∆ζ + 2γG(κ) 
+
+> i
+
+Vζ
+
+cLSTD 
+
+s
+
+2 log(2 N/δ )
+
+Mc(T − 1) .
+
+The inequality holds for every ζ > 0. Letting ζ ↓ 0 gives 
+
+sup 
+
+> z,s,a
+
+Qπi (z, s, a ) − eQLTC  
+
+> i
+
+(hi(z), s, a N κi ; bwi)
+
+≤ 1 + (1 + γ)G(κ)
+
+> i
+
+cLSTD 
+
+!
+
+(∆ TC + E(κ) 
+
+> i
+
+)+ 2γG(κ) 
+
+> i
+
+(V(κ) 
+
+> i
+
++ E(κ) 
+
+> i
+
+)
+
+cLSTD 
+
+s
+
+2 log(2 N/δ )
+
+Mc(T − 1) .
+
+For each fixed i, the bound fails with probability at most δ/N . A union bound over i ∈ [N ]
+
+therefore yields the stated simultaneous probability at least 1 − δ. This is exactly the bound stated in Theorem 2. □
+
+F.4 LOCALIZED POLICY GRADIENT WITH ONE -STEP TD ADVANTAGES 
+
+Throughout this subsection, in addition to the assumptions stated in the main text, we use the standard regularity conditions for the likelihood-ratio policy-gradient identity: the policy is dif-ferentiable in its parameters, its support is parameter-independent, and differentiation may be in-terchanged with the relevant action integrals. The bounded-score assumption supplies the required domination. Define 
+
+Ei := N κ+κπ 
+
+> i
+
+, ni := |E i|.
+
+For a local reward stream ℓ, let 
+
+V πℓ (z, s ) := Ea∼πθ (·| z,s ) [Qπℓ (z, s, a )] , Aπℓ := Qπℓ − V πℓ .
+
+Lemma F.7 (Policy-gradient identity) For every agent i,
+
+∇θi J(θ) = Eπθ
+
+" ∞X
+
+> t=0
+
+γtsi(Oi,t , A i,t ) 1
+
+N
+
+> N
+
+X
+
+> ℓ=1
+
+Aπℓ (Zt, S t, A t)
+
+#
+
+. (55) 
+
+More generally, any bounded baseline depending on (Zt, S t) but not on the current action may be subtracted inside the expectation. Proof. See (Sutton et al., 1999). We also use that the global advantage is the average of individual advantages. □
+
+Localization of discarded agents. Set R := κ + κπ and Ei := N Ri . For any integer r ≥ 0, let 
+
+¯Qπℓ,r denote the marginalized critic of agent ℓ localized to N rℓ , defined exactly as the localized critic used above but with localization radius r. The localization bound of Lemma F.3 applies for every such r.For each discarded agent ℓ / ∈ E i, write 
+
+diℓ := dG(i, ℓ ), riℓ := diℓ − 1,
+
+and define the auxiliary localized advantage 
+
+¯Aπℓ|i(z, s, a ) := ¯Qπℓ,r iℓ 
+
+ z, s N riℓ ℓ
+
+, a N riℓ ℓ
+
+ − V πℓ (z, s ).
+
+These auxiliary critics are used only in the analysis; the algorithm still uses the common critic radius 
+
+κ.40 Lemma F.8 (Vanishing localized contribution of far reward streams) For every t,
+
+E
+
+si(Oi,t , A i,t ) 1
+
+N
+
+X
+
+> ℓ / ∈E i
+
+¯Aπℓ|i(Zt, S t, A t)
+
+ = 0 . (56) 
+
+Proof. Fix ℓ / ∈ E i. By construction, riℓ = dG(i, ℓ ) − 1, hence i / ∈ N riℓ  
+
+> ℓ
+
+. Therefore ¯Qπℓ,r iℓ does not depend on the current action ai; neither does V πℓ (z, s ). Thus ¯Aπℓ|i is independent of ai.Condition on (Zt, S t, A −i,t ). We have, 
+
+Ai,t ∼ πθi
+
+
+
+· | St, N κπ i , h i(Zt)
+
+
+
+.
+
+Under this conditioning, ¯Aπℓ|i(Zt, S t, A t) is constant as a function of Ai,t , whereas the conditional expectation of si(Oi,t , A i,t ) is zero. Hence 
+
+E
+
+h
+
+si(Oi,t , A i,t ) ¯Aπℓ|i(Zt, S t, A t)
+
+i
+
+= 0 .
+
+Summing over ℓ / ∈ E i proves Equation 56. □
+
+Define the distance-resolved tail 
+
+τi(R) := 1
+
+N
+
+X 
+
+> ℓ:dG(i,ℓ )>R
+
+ρdG(i,ℓ ). (57) 
+
+Lemma F.9 (Spatial truncation bias of the actor) Let 
+
+gloc  
+
+> i
+
+:= Eπθ
+
+" ∞X
+
+> t=0
+
+γtsi(Oi,t , A i,t ) 1
+
+N
+
+X
+
+> ℓ∈E i
+
+Aπℓ (Zt, S t, A t)
+
+#
+
+.
+
+Then 
+
+∇θi J(θ) − gloc  
+
+> i
+
+≤ 2Bs,i Rmax 
+
+(1 − γ)2 τi(R). (58) 
+
+Proof. By Lemma F.7, the difference between the exact and localized gradients is the contribution of agents ℓ / ∈ E i. For each such agent, 
+
+Aπℓ = ¯Aπℓ|i +  Aπℓ − ¯Aπℓ|i
+
+.
+
+The contribution of ¯Aπℓ|i vanishes by Lemma F.8. Moreover, 
+
+Aπℓ − ¯Aπℓ|i = Qπℓ − ¯Qπℓ,r iℓ .
+
+Applying Lemma F.3 at radius riℓ = diℓ − 1 gives 
+
+Aπℓ − ¯Aπℓ|i ≤ 2Rmax 
+
+1 − γ ρriℓ +1 = 2Rmax 
+
+1 − γ ρdG(i,ℓ ).
+
+Consequently, 
+
+1
+
+N
+
+X
+
+> ℓ / ∈E i
+
+ Aπℓ − ¯Aπℓ|i
+
+ ≤ 2Rmax 
+
+1 − γ τi(R).
+
+Using ∥si∥ ≤ Bs,i and P 
+
+> t≥0
+
+γt = (1 − γ)−1 proves Equation 58. □
+
+For the remainder of the actor analysis, suppose that the fitted critics satisfy 
+
+sup 
+
+> z,s,a
+
+eQℓ(hℓ(z), s, a N κℓ ) − Qπℓ (z, s, a ) ≤ ∆Q, ℓ ∈ [N ]. (59) Define 
+
+eVℓ(z, s ) := Ea∼πθ (·| z,s )
+
+h eQℓ(hℓ(z), s, a N κℓ )
+
+i
+
+. (60) 41 Lemma F.10 (One-step TD advantage error) Let 
+
+eℓ(z, s ) := eVℓ(z, s ) − V πℓ (z, s ).
+
+Then ∥eℓ∥∞ ≤ ∆Q. Writing Xt = ( Zt, S t), the one-step TD advantage satisfies 
+
+E
+
+h bAℓ,t Xt, A t
+
+i
+
+= Aπℓ (Xt, A t) + γ E[eℓ(Xt+1 ) | Xt, A t] − eℓ(Xt). (61) 
+
+Consequently, for every agent i,
+
+E
+
+h
+
+si(Oi,t , A i,t )  bAℓ,t − Aπℓ (Xt, A t)i
+
+≤ γB s,i ∆Q. (62) 
+
+Proof. By Equations 60 and 59, 
+
+|eℓ(z, s )| ≤ EA∼πθ (·| z,s ) eQℓ(hℓ(z), s, A N κℓ ) − Qπℓ (z, s, A ) ≤ ∆Q.
+
+Let 
+
+δπℓ,t := rℓ,t + γV πℓ (Xt+1 ) − V πℓ (Xt).
+
+Since eVℓ = V πℓ + eℓ,
+
+bAℓ,t = δπℓ,t + γe ℓ(Xt+1 ) − eℓ(Xt).
+
+The Bellman identity gives E[δπℓ,t | Xt, A t] = Aπℓ (Xt, A t), proving Equation 61. Multiplying by the policy score and taking expectations, the term involving eℓ(Xt) vanishes because it is action-independent and E[si(Oi,t , A i,t ) | Xt] = 0 . Hence 
+
+E
+
+h
+
+si(Oi,t , A i,t )  bAℓ,t − Aπℓ (Xt, A t)i
+
+≤ γ E[∥si(Oi,t , A i,t )∥ | E[eℓ(Xt+1 ) | Xt, A t]|] ≤ γB s,i ∆Q,
+
+which proves Equation 62. □
+
+Lemma F.11 (Bias of the localized finite-horizon actor estimator) Let 
+
+ΓT :=  
+
+> T−1
+
+X
+
+> t=0
+
+γt = 1 − γT
+
+1 − γ .
+
+Then 
+
+∥E[bgi] − ∇ θi J(θ)∥ ≤ 2Bs,i Rmax 
+
+(1 − γ)2 τi(R)+ Bs,i ni
+
+N γΓT ∆Q + 2Bs,i niRmax γT
+
+N (1 − γ)2 . (63) 
+
+The expectation is over the fresh actor-rollout randomness under the conditioning convention above. Proof. Define the exact localized policy gradient 
+
+gloc  
+
+> i
+
+:= Eπθ
+
+" ∞X
+
+> t=0
+
+γtsi(Oi,t , A i,t ) 1
+
+N
+
+X
+
+> ℓ∈E i
+
+Aπℓ (Zt, S t, A t)
+
+#
+
+,
+
+and its finite-horizon counterpart 
+
+gloc  
+
+> i,T
+
+:= Eπθ
+
+"T −1X
+
+> t=0
+
+γtsi(Oi,t , A i,t ) 1
+
+N
+
+X
+
+> ℓ∈E i
+
+Aπℓ (Zt, S t, A t)
+
+#
+
+.
+
+By the definition of the actor estimator, 
+
+E[bgi] = Eπθ
+
+"T −1X
+
+> t=0
+
+γtsi(Oi,t , A i,t ) 1
+
+N
+
+X
+
+> ℓ∈E i
+
+bAℓ,t 
+
+#
+
+.
+
+42 Hence, 
+
+∥E[bgi] − ∇ θi J(θ)∥ ≤ ∇θi J(θ) − gloc 
+
+> i
+
++ gloc  
+
+> i
+
+− gloc 
+
+> i,T
+
++ gloc  
+
+> i,T
+
+− E[bgi] .
+
+The first term is the spatial-localization error. By Lemma F.9, 
+
+∇θi J(θ) − gloc  
+
+> i
+
+≤ 2Bs,i Rmax 
+
+(1 − γ)2 τi(R).
+
+For the finite-horizon truncation term, using |Aπℓ | ≤ 2Rmax /(1 − γ), ∥si∥ ≤ Bs,i , and |E i| = ni,
+
+gloc  
+
+> i
+
+− gloc  
+
+> i,T
+
+≤
+
+> ∞
+
+X
+
+> t=T
+
+γtBs,i 
+
+ni
+
+N
+
+2Rmax 
+
+1 − γ
+
+= 2Bs,i niRmax γT
+
+N (1 − γ)2 .
+
+Finally, for the critic-approximation term, Equation 62 gives, for every ℓ ∈ E i and t < T ,
+
+E
+
+h
+
+si(Oi,t , A i,t )  bAℓ,t − Aπℓ (Zt, S t, A t)i
+
+≤ γB s,i ∆Q.
+
+Therefore, 
+
+gloc  
+
+> i,T
+
+− E[bgi] ≤ 1
+
+N 
+
+> T−1
+
+X
+
+> t=0
+
+γt X
+
+> ℓ∈E i
+
+γB s,i ∆Q
+
+= Bs,i ni
+
+N γΓT ∆Q.
+
+Combining the three bounds gives Equation 63. □
+
+Lemma F.12 (Actor-rollout concentration) Let 
+
+D := 2Rmax 
+
+1 − γ + (1 + γ)∆ Q, Gi := 2Bs,i niDN ΓT .
+
+For a single actor rollout j, let bg(j) 
+
+> i
+
+denote its contribution to Equation 5, so that bgi =
+
+M −1
+
+> s
+
+PMs 
+
+> j=1
+
+bg(j) 
+
+> i
+
+. Then 
+
+∥bg(j) 
+
+> i
+
+∥ ≤ Gi
+
+2 .
+
+Consequently, with probability at least 1 − δ,
+
+∥bgi − E[bgi]∥ ≤ Gi
+
+s
+
+2 log(2 /δ )
+
+Ms
+
+. (64) 
+
+Proof. Equation 59 implies 
+
+∥ eVℓ∥∞ ≤ Rmax 
+
+1 − γ + ∆ Q.
+
+Hence every one-step TD advantage satisfies 
+
+| bAℓ,t | ≤ Rmax + (1 + γ)
+
+ Rmax 
+
+1 − γ + ∆ Q
+
+
+
+= D. 
+
+Therefore, for one rollout, 
+
+∥bg(j) 
+
+> i
+
+∥ ≤ Bs,i niDN 
+
+> T−1
+
+X
+
+> t=0
+
+γt = Gi
+
+2 .
+
+Thus 
+
+bg(j) 
+
+> i
+
+− E[bg(j) 
+
+> i
+
+] ≤ Gi.
+
+The Ms actor rollouts are independent under the conditioning convention. Applying the Hilbert-space Hoeffding inequality to their centered contributions gives Equation 64. □
+
+43 F.5 END -TO -END POLICY OPTIMIZATION 
+
+For actor iteration m, define 
+
+ϵbias ,i,m := 2Bs,i Rmax 
+
+(1 − γ)2 τi(R) + Bs,i ni
+
+N γΓT ∆(m)
+
+> Q
+
++ 2Bs,i niRmax γT
+
+N (1 − γ)2 .
+
+Let Gi,m denote the quantity Gi in Lemma F.12 with ∆Q = ∆ (m) 
+
+> Q
+
+, and set 
+
+Gm := 
+
+> N
+
+X
+
+> i=1
+
+G2
+
+> i,m
+
+!1/2
+
+.
+
+Also recall 
+
+TR =
+
+> N
+
+X
+
+> i=1
+
+B2
+
+> s,i
+
+τi(R)2
+
+!1/2
+
+, BR =
+
+> N
+
+X
+
+> i=1
+
+ Bs,i ni
+
+N
+
+2!1/2
+
+.
+
+Then the componentwise bias bounds and Minkowski’s inequality give 
+
+> N
+
+X
+
+> i=1
+
+ϵ2bias ,i,m 
+
+!1/2
+
+≤ 2Rmax 
+
+(1 − γ)2 TR
+
++ BR
+
+
+
+γΓT ∆(m) 
+
+> Q
+
++ 2Rmax γT
+
+(1 − γ)2
+
+
+
+. (65) Consequently, the quantity ϵm appearing in Theorem 3 may be taken as 
+
+ϵm = 2Rmax 
+
+(1 − γ)2 TR + BR
+
+
+
+γΓT ∆(m) 
+
+> Q
+
++ 2Rmax γT
+
+(1 − γ)2
+
+
+
++ Gm
+
+s
+
+2 log(4 M/δ )
+
+Ms
+
+.
+
+Lemma F.13 (Simultaneous gradient control) Conditionally on the critic certificates required by Theorem 3, with probability at least 1 − δ over the fresh actor rollouts, simultaneously for all 
+
+m = 0 , . . . , M − 1,
+
+∥bgm − ∇ J(θm)∥ ≤ ϵm, ∥bgm∥ ≤ Gm
+
+2 . (66) 
+
+Proof. Fix m and condition on the history preceding its fresh actor rollouts. For one rollout, concatenate the agent-wise contributions: 
+
+bg(j) 
+
+> m
+
+:=  bg(j)1,m , . . . , bg(j)
+
+> N,m
+
+.
+
+Lemma F.12 gives 
+
+∥bg(j)
+
+> i,m
+
+∥ ≤ Gi,m 
+
+2 .
+
+Therefore 
+
+∥bg(j) 
+
+> m
+
+∥2 =
+
+> N
+
+X
+
+> i=1
+
+∥bg(j)
+
+> i,m
+
+∥2 ≤ 14
+
+> N
+
+X
+
+> i=1
+
+G2 
+
+> i,m
+
+= G2
+
+> m
+
+4 .
+
+Consequently, 
+
+bg(j) 
+
+> m
+
+− E[bg(j) 
+
+> m
+
+] ≤ Gm.
+
+Hilbert-space Hoeffding, applied conditionally with failure probability δ/ (2 M ), gives 
+
+∥bgm − E[bgm]∥ ≤ Gm
+
+s
+
+2 log(4 M/δ )
+
+Ms
+
+.
+
+By Lemma F.11, 
+
+∥E[bgm] − ∇ J(θm)∥ ≤ 
+
+> N
+
+X
+
+> i=1
+
+ϵ2bias ,i,m 
+
+!1/2
+
+.
+
+44 The triangle inequality gives the first inequality in Equation 66. The second is deterministic under the conditioning, since bgm is the average of vectors of norm at most Gm/2.A union bound over m gives conditional failure probability at most δ/ 2, hence in particular at most 
+
+δ. Because each conditional bound holds uniformly over the realized past, the tower property yields the same unconditional conclusion. If the critic certificates themselves are obtained from Theorem 2, their failure probabilities may be allocated separately and combined by another union bound. □
+
+Proof of Theorem 3. Proof. Work on the event in Lemma F.13 and define 
+
+em := bgm − ∇ J(θm), ∥em∥ ≤ ϵm.
+
+Set 
+
+ηm := η
+
+√m + 1 .
+
+The LJ -smoothness of J and the ascent update θm+1 = θm + ηmbgm imply 
+
+J(θm+1 ) ≥ J(θm) + ηm ⟨∇ J(θm), bgm⟩ − LJ
+
+2 η2
+
+> m
+
+∥bgm∥2
+
+= J(θm) + ηm∥∇ J(θm)∥2 + ηm ⟨∇ J(θm), e m⟩ − LJ
+
+2 η2
+
+> m
+
+∥bgm∥2
+
+≥ J(θm) + ηm∥∇ J(θm)∥2 − ηm∥∇ J(θm)∥ϵm − LJ
+
+8 η2
+
+> m
+
+G2
+
+> m
+
+,
+
+where the last inequality uses ∥bgm∥ ≤ Gm/2. Young’s inequality gives 
+
+∥∇ J(θm)∥ϵm ≤ 12 ∥∇ J(θm)∥2 + 12 ϵ2
+
+> m
+
+.
+
+Hence ηm
+
+2 ∥∇ J(θm)∥2 ≤ J(θm+1 ) − J(θm) + ηm
+
+2 ϵ2 
+
+> m
+
++ LJ
+
+8 η2
+
+> m
+
+G2
+
+> m
+
+.
+
+Summing over m = 0 , . . . , M − 1, using J(θM ) ≤ Jmax = Rmax /(1 − γ), and dividing by 
+
+> 12
+
+P 
+
+> m
+
+ηm gives 
+
+PM −1 
+
+> m=0
+
+ηm∥∇ J(θm)∥2
+
+PM −1 
+
+> m=0
+
+ηm
+
+≤ 2( Jmax − J(θ0)) 
+
+PM −1 
+
+> m=0
+
+ηm
+
++
+
+PM −1 
+
+> m=0
+
+ηmϵ2
+
+> m
+
+PM −1 
+
+> m=0
+
+ηm
+
++ LJ
+
+4
+
+PM −1 
+
+> m=0
+
+η2
+
+> m
+
+G2
+
+> m
+
+PM −1 
+
+> m=0
+
+ηm
+
+. (67) Now M −1X
+
+> m=0
+
+ηm = η
+
+> M
+
+X
+
+> m=1
+
+m−1/2 ≥ η√M , 
+
+and M −1X
+
+> m=0
+
+η2 
+
+> m
+
+= η2
+
+> M
+
+X
+
+> m=1
+
+1
+
+m ≤ η2(1 + log M ).
+
+If ϵm ≤ ¯ϵ and Gm ≤ ¯G for all m, then P 
+
+> m
+
+ηmϵ2
+
+> m
+
+P 
+
+> m
+
+ηm
+
+≤ ¯ϵ2
+
+and P 
+
+> m
+
+η2
+
+> m
+
+G2
+
+> m
+
+P 
+
+> m
+
+ηm
+
+≤ η ¯G2 1 + log M
+
+√M .
+
+Substituting these estimates into Equation 67 gives 
+
+PM −1 
+
+> m=0
+
+ηm∥∇ J(θm)∥2
+
+PM −1 
+
+> m=0
+
+ηm
+
+≤ 2( Jmax − J(θ0)) 
+
+η√M + ¯ ϵ2 + LJ η ¯G2
+
+41 + log M
+
+√M .
+
+The minimum of the nonnegative quantities ∥∇ J(θm)∥2 is bounded by any positive weighted aver-age of them, which proves the theorem. □
+
+45 F.6 COMPUTATIONAL COMPLEXITY 
+
+We derive the cost of one LTC actor–critic iteration. Let 
+
+pi =
+
+|N κi |ds + nn
+
+ 1 + |N κi |(ds + da) + dig
+
+
+
+denote the LTC feature dimension for agent i, and let 
+
+nc = Mc(T − 1) , ns = MsT. 
+
+Critic fitting. For each agent i, LSTD forms a pi × pi linear system bAiwi = bbi from the nc critic transitions. Constructing bAi costs O(ncp2 
+
+> i
+
+), while forming the right-hand-side vector bbi costs only 
+
+O(ncpi). A dense solve then costs O(p3 
+
+> i
+
+). Hence, fitting all local critics costs 
+
+O
+
+> N
+
+X
+
+> i=1
+
+ ncp2 
+
+> i
+
++ p3
+
+> i
+
+!
+
+,
+
+while one evaluation of critic i costs O(pi).
+
+Actor update. For each actor transition, agent i uses the local advantages bAℓ,t for ℓ ∈ N κ+κπ 
+
+> i
+
+.The actor phase therefore costs 
+
+O
+
+nsNX
+
+> i=1
+
+X 
+
+> ℓ∈N κ+κπ i
+
+pℓ
+
+ .
+
+For fixed local interaction and policy radii, rollout generation is linear in N , since both the dynamics and policies access only local neighborhoods. 
+
+Centroid update. Suppose that K-medians is fitted on nK sampled global states for IK clustering iterations. Comparing all samples with all K centroids in RN d s costs 
+
+O (IK nK KN d s) ,
+
+with coordinatewise median updates of the same or lower order. Combining these terms, one complete LTC iteration has time complexity 
+
+O
+
+
+
+> N
+
+X
+
+> i=1
+
+ ncp2 
+
+> i
+
++ p3
+
+> i
+
+ + nsNX
+
+> i=1
+
+X 
+
+> ℓ∈N κ+κπ i
+
+pℓ + ( Mc + Ms)T N + IK nK KN d s
+
+ .
+
+To make the dependence on the network structure explicit, suppose the graph has maximum degree 
+
+∆. For fixed state, action, and context dimensions, 
+
+|N κi | = O(∆ κ), pi = O
+
+
+
+∆κ(n+1) 
+
+,
+
+and 
+
+|N κ+κπ 
+
+> i
+
+| = O  ∆κ+κπ  .
+
+Therefore, one LTC iteration costs 
+
+O
+
+
+
+N
+
+h
+
+nc∆2κ(n+1) + ∆ 3κ(n+1) + ns∆κ(n+2)+ κπ + ( Mc + Ms)T + IK nK K
+
+i 
+
+,
+
+where fixed state, action, and context dimensions are absorbed into the constants. For fixed sampling and clustering budgets, this reduces to 
+
+O
+
+
+
+N
+
+h
+
+∆3κ(n+1) + ∆ κ(n+2)+ κπ
+
+i 
+
+.
+
+Thus, for fixed local parameters (∆ , κ, κ π , n ), the total work of one LTC iteration scales linearly with N . The critic and actor computations are also largely parallelizable across agents and samples. 46 G PROOFS OF THE ADDITIONAL APPENDIX RESULTS 
+
+This section contains the proofs of the auxiliary results stated in Appendix E. We first treat the discounted-summability extension and its generalized Taylor Centroid approximation bound, then the sufficient conditions based on stochastic and spectral transition models, and finally the compari-son with Mild smoothness. G.1 DISCOUNTED -SUMMABILITY RESULTS 
+
+Proof of Proposition E.1. Proof. Fix a multi-index β with |β| ≤ q. By Assumption E.1, 
+
+> ∞
+
+X
+
+> t=0
+
+sup 
+
+> z,s,a
+
+γt∂βs gπi,t (z, s, a ) ≤
+
+> ∞
+
+X
+
+> t=0
+
+γt ¯L(t) < ∞.
+
+Hence the series of derivatives converges uniformly. The value series 
+
+Qπi (z, s, a ) = 
+
+> ∞
+
+X
+
+> t=0
+
+γtgπi,t (z, s, a )
+
+also converges uniformly because |gπi,t | ≤ Rmax . Standard term-by-term differentiation therefore gives 
+
+∂βs Qπi (z, s, a ) = 
+
+> ∞
+
+X
+
+> t=0
+
+γt∂βs gπi,t (z, s, a ),
+
+which is Equation 19. Taking absolute values yields 
+
+sup 
+
+> z,s,a
+
+∂βs Qπi (z, s, a ) ≤
+
+> ∞
+
+X
+
+> t=0
+
+γt ¯L(t),
+
+proving Equation 20. □
+
+Proof of Proposition E.2. Proof. Fix a nonzero multi-index β and let 
+
+d := di(β), τd := 
+
+ d
+
+1 + κπ
+
+
+
+.
+
+By Lemma F.1, before time τd the expected reward of agent i cannot depend on every state coordi-nate appearing in β. Therefore 
+
+∂βs gπi,t (z, s, a ) = 0 , t < τ d.
+
+Using Proposition E.1, 
+
+∂βs Qπi (z, s, a ) =
+
+> ∞
+
+X
+
+> t=τd
+
+γt∂βs gπi,t (z, s, a )
+
+≤
+
+> ∞
+
+X
+
+> t=τd
+
+γt ¯L(t) = Λ d,
+
+which is Equation 22. Since τd is nondecreasing in d, Λd is nonincreasing. Moreover, τd → ∞ as 
+
+d → ∞ , so Λd → 0 because P 
+
+> t
+
+γt ¯L(t) < ∞. □
+
+Proof of Proposition E.3. Proof. The value-localization part does not use expected reward smoothness. Hence Lemma F.3 still gives 
+
+sup 
+
+> z,s,a
+
+Qπi (z, s, a ) − ¯Qπi (z, s N κi , a N κi ) ≤ 2Rmax 
+
+1 − γ ρκ+1 . (68) It remains to bound the Taylor remainder of the localized critic. For any multi-index β supported in 
+
+N κi , Proposition E.2 gives, uniformly in the far coordinates, 
+
+∂βs Qπi (z, s, a ) ≤ Λdi(β).
+
+47 Differentiation under the probability integral defining the marginalized critic is therefore justified exactly as in Lemma F.4, and yields 
+
+∂βs ¯Qπi (z, s N κi , a N κi ) ≤ Λdi(β). (69) Fix (z, s, a ), let 
+
+μ := μk(s),N κi , h := sN κi − μ, m := n + 1 ,
+
+and use the integral form of the order-n Taylor remainder of ¯Qπi along the segment from μ to sN κi .Taking absolute values and applying Equation 69 gives 
+
+¯Qπi − bQπi ≤ X 
+
+> |β|=m
+> supp G(β)⊆N κi
+
+Λdi(β)
+
+|hβ |
+
+β! . (70) For 0 ≤ d ≤ κ, define 
+
+Am,d := X 
+
+> |β|=m
+> supp G(β)⊆N di
+
+|hβ |
+
+β! = ∥hN di ∥m
+
+> 1
+
+m! , Am, −1 := 0 ,
+
+where the equality is the multinomial theorem. The contribution of multi-indices with graph reach exactly d is Am,d − Am,d −1, so 
+
+X 
+
+> |β|=m
+> supp G(β)⊆N κi
+
+Λdi(β)
+
+|hβ |
+
+β! =
+
+> κ
+
+X
+
+> d=0
+
+Λd
+
+ Am,d − Am,d −1
+
+
+
+= Λ κAm,κ +
+
+> κ−1
+
+X
+
+> d=0
+
+(Λ d − Λd+1 )Am,d 
+
+≤ 1
+
+m!
+
+"
+
+ΛκW mκ +
+
+> κ−1
+
+X
+
+> d=0
+
+(Λ d − Λd+1 )W md
+
+#
+
+= RΛ
+
+> m
+
+m! .
+
+Combining this with Equation 68 and setting m = n + 1 proves Equation 24. The monomial count is unchanged from Theorem 1, since the generalized envelope changes only the coefficient bounds and not the set Mn 
+
+> Nκi
+
+. □
+
+G.2 SMOOTH STOCHASTIC AND SPECTRAL TRANSITION MODELS 
+
+Proof of Proposition E.4. Proof. Fix an agent j and abbreviate 
+
+xj := ( sNj , a Nj ).
+
+Under Equation 26, the conditional density of S′ 
+
+> j
+
+is 
+
+ptr  
+
+> j
+
+(s′ 
+
+> j
+
+| z, x j ) = 1
+
+| det Mj (z, x j )| pj
+
+ Mj (z, x j )−1 s′ 
+
+> j
+
+− fj (z, x j ) ,
+
+where pj is the density of ηj from the statement of the proposition. Set 
+
+u := Mj (z, x j )−1 s′ 
+
+> j
+
+− fj (z, x j ).
+
+Because fj , Mj , and M −1 
+
+> j
+
+are Cq with uniformly bounded derivatives, repeated use of the product and chain rules gives the following standard bound: for every state multi-index α with |α| = m ≤ q,
+
+∂αs ptr  
+
+> j
+
+(s′ 
+
+> j
+
+| z, x j ) ≤ Cm
+
+| det Mj (z, x j )| (1 + ∥u∥)m X
+
+> |ν|≤ m
+
+|∂ν pj (u)| ,
+
+48 where Cm is uniform in j, z, x j and in the network size. Now change variables from s′ 
+
+> j
+
+to u. The Jacobian | det Mj | cancels the determinant factor above, so 
+
+Z
+
+∂αs ptr  
+
+> j
+
+(s′ 
+
+> j
+
+| z, x j ) ds ′ 
+
+> j
+
+≤ Cm
+
+X
+
+> |ν|≤ m
+
+Z
+
+(1 + ∥u∥)m |∂ν pj (u)| du 
+
+≤ C′
+
+> m
+
+,
+
+where C′ 
+
+> m
+
+< ∞ is uniform by assumption. Thus every local transition density has state derivatives through order q whose L1 norms are uniformly bounded. We next use the graph factorization. Conditional on the current global state, the density of the distributed next state is NY
+
+> j=1
+
+ptr 
+
+> j
+
+ s′ 
+
+> j
+
+| z, s Nj , a Nj
+
+ .
+
+Let β be a state multi-index of total order m ≤ q. A scalar state coordinate of agent ℓ appears only in transition factors associated with agents j such that ℓ ∈ N j . Since the graph degree is bounded by ∆, there are at most ∆ + 1 such factors. Applying the product rule one differentiation at a time therefore produces at most (∆ + 1) m terms. In each term, the undifferentiated factors integrate to one, while the differentiated factors have uniformly bounded L1 norms by the preceding calculation. By Fubini’s theorem, there is therefore a constant Cq < ∞, depending only on q, ∆, and the local bounds, such that for every bounded measurable H,
+
+sup 
+
+> z,s,a
+
+∂βs E[H(Z1, S 1) | Z0 = z, S 0 = s, A 0 = a] ≤ Cq ∥H∥∞, |β| ≤ q. (71) The uniform L1 bounds above also justify differentiating under the integral. For t ≥ 1, define 
+
+Hi,t −1(z′, s ′) := Eπ [ri(Si,t , A i,t ) | Z1 = z′, S 1 = s′] .
+
+Since |ri| ≤ Rmax , we have ∥Hi,t −1∥∞ ≤ Rmax . By the Markov property, 
+
+gπi,t (z, s, a ) = E[Hi,t −1(Z1, S 1) | Z0 = z, S 0 = s, A 0 = a] .
+
+Applying Equation 71 gives 
+
+sup 
+
+> z,s,a
+
+∂βs gπi,t (z, s, a ) ≤ Cq Rmax , t ≥ 1, |β| ≤ q. 
+
+At t = 0 ,
+
+gπi, 0(z, s, a ) = ri(si, a i),
+
+and its state derivatives through order q are uniformly bounded by the first hypothesis of the propo-sition. Taking the larger of these two bounds gives Assumption 1, with a constant independent of 
+
+N .If Z takes finitely many values, the same proof applies mode by mode; uniform modewise bounds give the same conclusion for hidden or observed finite-mode systems. □
+
+Proof of Proposition E.5. Proof. For the local spectral representation Equation 27, a state deriva-tive acts only on the current-state factors φj,h . Thus, for every local state multi-index α with |α| ≤ q,
+
+∂αs pj (s′ 
+
+> j
+
+| sNj , a Nj , z ) = 
+
+> d
+
+X
+
+> h=1
+
+∂αs φj,h (sNj , a Nj , z ) μj,h (s′ 
+
+> j
+
+).
+
+Consequently, 
+
+Z
+
+∂αs pj (s′ 
+
+> j
+
+| sNj , a Nj , z ) ds ′ 
+
+> j
+
+≤
+
+> d
+
+X
+
+> h=1
+
+∂αs φj,h (sNj , a Nj , z ) ∥μj,h ∥L1
+
+≤ Cspec ,
+
+where Cspec is uniform by the assumptions of the proposition. 49 We can now repeat the same product-rule argument as above. Because a state coordinate appears in at most ∆ + 1 local transition factors, the L1 norm of every derivative through order q of the factorized joint next-state density is bounded by a constant independent of N . Therefore, for every bounded measurable H,
+
+sup 
+
+> z,s,a
+
+∂βs E[H(Z1, S 1) | Z0 = z, S 0 = s, A 0 = a] ≤ Cspec  
+
+> q
+
+∥H∥∞, |β| ≤ q. 
+
+For t ≥ 1, use the bounded continuation function 
+
+Hi,t −1(z′, s ′) := Eπ [ri(Si,t , A i,t ) | Z1 = z′, S 1 = s′] , ∥Hi,t −1∥∞ ≤ Rmax .
+
+The Markov property gives 
+
+gπi,t (z, s, a ) = E[Hi,t −1(Z1, S 1) | Z0 = z, S 0 = s, A 0 = a] ,
+
+and hence 
+
+sup 
+
+> z,s,a
+
+∂βs gπi,t (z, s, a ) ≤ Cspec  
+
+> q
+
+Rmax , t ≥ 1.
+
+At t = 0 , gπi, 0 = ri, whose derivatives through order q are uniformly bounded by assumption. This proves Assumption 1 with an N -independent constant. □
+
+G.3 RELATION TO MILD SMOOTHNESS 
+
+Proof of Proposition E.6. Proof. Let x = ( z, s ) denote the augmented state. For a bounded measurable function H(x′), define the state–action function 
+
+FH (x′, a ′) := H(x′).
+
+Since FH does not depend on the action, sup a′ FH (x′, a ′) = H(x′). Hence, with the Bellman operator used in Appendix E, 
+
+(T ⋆FH )( x, a ) − (T ⋆0)( x, a ) = E[H(X1) | X0 = x, A 0 = a] .
+
+If the MDP is ν-Mildly Smooth, both Bellman terms belong to Cν and 
+
+∥E[H(X1) | X0 = ·, A 0 = ·]∥Cν ≤ CT (∥H∥∞ + 2) .
+
+Thus one transition maps an arbitrary bounded continuation function to a uniformly smooth function of the current state–action pair. For t ≥ 1, take 
+
+Hi,t −1(x′) := Eπ [ri(Si,t , A i,t ) | X1 = x′] .
+
+This function is bounded by Rmax , and the Markov property gives 
+
+gπi,t (x, a ) = E[Hi,t −1(X1) | X0 = x, A 0 = a] .
+
+Therefore 
+
+sup 
+
+> t≥1
+
+∥gπi,t ∥Cν ≤ CT (Rmax + 2) .
+
+Since ν > q , the Cν norm controls the classical state derivatives through order q on the compact domain. Hence 
+
+sup 
+
+> t≥1
+
+∥gπi,t ∥Cqs < ∞.
+
+At t = 0 , gπi, 0 = ri, which is Cq with uniformly bounded derivatives by assumption. This proves Assumption 1 of order q. The integer-order implication Equation 29 follows immediately from Equation 28. □
+
+50 Proof of Proposition E.7. Proof. For fixed z, the physical drift 
+
+f (z, s, a ) = A(σ(z)) s + B(σ(z)) a
+
+is linear in the physical state and action. Since there are only two modes, its physical-state deriva-tives are uniformly bounded over z. With M ≡ I, the noise assumptions are exactly those of Proposition E.4, uniformly over the two regimes. That proposition therefore yields Assumption 1 at every finite order q. Importantly, no smoothness of the policy is needed: after the first transition, the future policy is absorbed into a bounded continuation value, while differentiation with respect to the initial physical state acts only on the smooth transition density. Hence the bound is uniform over all admissible policies. It remains to show that the augmented MDP is not Mildly Smooth. Let x = ( z, s ) and use the nonzero vector d from the statement to define the smooth bounded Bellman input 
+
+F (x′, a ′) = d⊤s′.
+
+The state domain is compact, so F is bounded, and it is independent of the next action. Since the noise is centered, 
+
+(T ⋆F )(( z, s ), a ) = r(s, a ) + d⊤ 
+
+A(σ(z)) s + B(σ(z)) a
+
+
+
+.
+
+Evaluating this function at (s, a ) = (¯ s, ¯a), its one-sided values at z = 0 differ by 
+
+d⊤ h 
+
+A(1) − A(0) 
+
+¯s +
+
+
+
+B(1) − B(0) 
+
+¯a
+
+i
+
+= ∥d∥2 > 0.
+
+Thus T ⋆F is discontinuous in the continuous context coordinate z. In particular, it does not belong to Cν for any ν > 0. Therefore the augmented MDP is not Mildly Smooth at any positive order. □
+
+## H NEURAL NETWORK IMPLEMENTATION DETAILS 
+
+H.1 NTC I MPLEMENTATION 
+
+NTC retains the graph-local Taylor structure of LTC and only changes the parameterization of the Taylor coefficients. Recall the local Taylor feature vector 
+
+Ti(s) := 
+
+"   sN κi − μk(s),N κi
+
+β
+
+β!
+
+# 
+
+> β∈M n
+> Nκi
+
+,
+
+and the coefficient context 
+
+ψi
+
+ k(s), y i, a N κi
+
+ = 1; μk(s),N κi ; aN κi ; yi
+
+ .
+
+LTC models each Taylor coefficient as an affine function of this context. NTC replaces this affine map by a neural coefficient map 
+
+fξi : Rdiψ −→ R|M n  
+
+> Nκi|
+
+,
+
+and defines eQNTC 
+
+> i
+
+ yi, s, a N κi ; ξi
+
+ = fξi
+
+ ψi(k(s), y i, a N κi ) , T i(s) . (72) At augmented state (z, s ), we set yi = hi(z).Thus, the critic remains an order-n polynomial in the local state around the current centroid, while its coefficients may depend nonlinearly on the local actions, operating regime, and observable context. LTC is recovered as the special case in which fξi is affine. 
+
+Architecture. We use one independent coefficient network for each agent. The N networks have disjoint parameters but are stored in a single batched implementation, so that all agents can be evaluated in parallel. Each coefficient network is a two-hidden-layer MLP with hidden width 64 ,
+
+tanh activations, and agent-wise Kaiming initialization (He et al., 2015). Importantly, the network does not receive the raw current state as input. The state dependence enters explicitly through the Taylor vector Ti(s); the neural network only receives the coefficient context 
+
+ψi. Hence, increasing the Taylor order changes the output dimension of the network, rather than its input dimension. 51 TD training. NTC is trained by on-policy semi-gradient TD using SARSA targets and a periodi-cally synchronized target network. Let ¯ξi denote the target parameters for agent i. For a transition 
+
+(Zt, S t, A t, r i,t , Z t+1 , S t+1 , A t+1 ),
+
+the target is 
+
+τi,t = ri,t + γ eQNTC 
+
+> i
+
+ hi(Zt+1 ), S t+1 , A t+1 ,N κi ; ¯ξi
+
+ , (73) where the target-network evaluation is detached from the gradient. Given Mc critic rollouts of length 
+
+T , the online parameters minimize 
+
+LNTC  
+
+> i
+
+(ξi) = 1
+
+Mc(T − 1) 
+
+> Mc
+
+X 
+
+> j=1
+> T−2
+
+X
+
+> t=0
+
+h eQNTC 
+
+> i
+
+
+
+hi(Z(j) 
+
+> t
+
+), S (j) 
+
+> t
+
+, A (j) 
+
+> t, Nκi
+
+; ξi
+
+
+
+− τ (j)
+
+> i,t
+
+i2
+
+. (74) We optimize this objective with Adam using a learning rate of 2 × 10 −3. The target network is synchronized every 25 TD updates, ¯ξi ← ξi,
+
+and remains fixed between synchronization steps. We use 50 , 200 , and 200 TD optimization steps for Taylor orders n = 1 , 2, 3, respectively as higher parameter counts require more steps to fit. On Kuramoto, NTC uses learning rate 10 −3, 50 TD updates per iteration on batches of 1024 transitions, and target synchronization every 50 updates. Agents are processed in blocks during training; each block operates only on the corresponding disjoint agent parameters. 
+
+State-value estimate for one-step TD advantages. NTC parameterizes an action-value function whose dependence on the action is generally nonlinear through fξi . Its state-value estimate is there-fore obtained by marginalizing the fitted critic under the current policy, 
+
+eVi(hi(z), s ) = Ea∼π(·| z,s )
+
+h eQNTC 
+
+> i
+
+ hi(z), s, a N κi
+
+i
+
+.
+
+In the implementation, this expectation is approximated using nmc = 16 independent action sam-ples from the current policy. The resulting eVi is then used in the localized one-step TD advantage estimator described in Section 4. With independent action samples, this Monte Carlo marginaliza-tion is unbiased and can be absorbed into the actor-rollout randomness in the analysis. For LTC, this expectation is simpler because the critic is affine in the actions; therefore, only the expected action is needed to compute the value function. H.2 LOCAL MLP CRITIC 
+
+As a generic local function-approximation baseline, we use one independent multilayer perceptron for each agent. The critic directly approximates the local state-value function 
+
+eVi(s) = fξi
+
+ sN κi
+
+ ,
+
+where the input is the same κ-hop state neighborhood used by the Taylor Centroid critics. On the scalar ring benchmarks, this corresponds to input dimensions 3, 5, and 7 for κ = 1 , 2, 3, respectively. Each fξi is a two-hidden-layer MLP with tanh activations and hidden width 128 in the policy ex-periments on LQR and switched LQR, and 64 on Kuramoto and in the critic-estimation experiment. Parameters are not shared across agents: the implementation stores N separate sets of weights and evaluates them in parallel through a batched MLP. The critic is trained on-policy using TD(0) with a target network. For a transition (st, r t, s t+1 ), the target for agent i is 
+
+yi,t = ri,t + γ eV targ  
+
+> i
+
+(st+1 ),
+
+and the training objective is 
+
+LMLP = 1
+
+N |B| 
+
+> N
+
+X
+
+> i=1
+
+X
+
+> t∈B
+
+ eVi(st) − yi,t 
+
+2
+
+.
+
+Training hyperparameters are given in Appendix C. Local state inputs are standardized using rollout statistics, and value targets are rescaled using a fixed scale initialized from the first rollout. The critic directly outputs eVi(s) and is combined with the same localized actor and one-step TD advantage estimator used for the Taylor Centroid methods. 52 H.3 GRAPH NEURAL -NETWORK CRITIC 
+
+As a generic graph-based baseline, we use a message-passing neural network to approximate the local state-value functions. Each node is initialized from its own state, 
+
+h(0)  
+
+> i
+
+= si,
+
+and neighborhood information is propagated through mean aggregation. A message-passing layer takes the form 
+
+h(ℓ+1)  
+
+> i
+
+= tanh 
+
+W (ℓ)self h(ℓ) 
+
+> i
+
++ W (ℓ)nbr 
+
+1
+
+|N i|
+
+X
+
+> j∈N i
+
+h(ℓ) 
+
+> j
+
++ b(ℓ)
+
+ .
+
+A shared linear readout produces the local value estimate 
+
+eVi(s) = w⊤
+
+> out
+
+hi + bout .
+
+The network has L = max {2, κ } message-passing layers, each with its own weights 
+
+(W (ℓ)self , W (ℓ)nbr , b (ℓ)): weights are not reused across layers, and each layer performs at most one round of one-hop aggregation. The neighbor term is included in the first κ layers only, so that eVi depends only on sN κi : every layer aggregates for κ ∈ { 2, 3}, whereas for κ = 1 the second layer acts on each node separately. All weights are shared across agents. In the policy-optimization experiments on LQR and switched LQR, the hidden width is 128 , which gives 17 ,025 , 33 ,409 and 66 ,305 parameters for κ = 1 , 2, 3; since all weights are shared across agents, this number does not depend on N . In the critic-estimation experiment, the width is cho-sen so that the parameter count matches that of the MLP used there. For policy optimization on Kuramoto, the GNN replaces the random-feature map inside the RF-SAC training loop; there it has two layers of width 64 at every κ, hence a receptive field of min {κ, 2}, and SAC’s twin critics are two such networks. On LQR and switched LQR, the GNN critic is trained on-policy by TD(0) with a target network. For each agent i,
+
+yi,t = ri,t + γ eVi, targ (st+1 ),
+
+and the training loss is 
+
+LGNN = 1
+
+N |B| 
+
+> N
+
+X
+
+> i=1
+
+X
+
+> t∈B
+
+ eVi(st) − yi,t 
+
+2
+
+.
+
+Training hyperparameters are given in Appendix C. State inputs are standardized using statistics from the rollout distribution, and value targets use the same fixed rescaling as the local MLP baseline. For policy optimization, this critic is paired with the actor of Ren et al. (2025b) on LQR and Ku-ramoto, taken from their released code. On switched LQR, it is paired with our actor. 53

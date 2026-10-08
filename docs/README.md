@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-10-07</span>
+      <span class="dpr-home-dashboard-kicker">2026-10-08</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 34 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 24 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>21</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>11</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-10-07 23:33:24 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-10-08 23:53:11 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读21篇、速读13篇，共处理34篇，聚焦世界-动作模型与视觉-语言-动作学习。最值得看的是两篇9分工作：Staircase Policy用流式推理处理大动作块，AeroManip-VLA用强化学习生成演示实现空中操作。普通读者可先从这两篇入手，再顺着速读中的舒适区策略与未来阶段规划理解整体脉络。</p>
+<p>2026-10-08 日报筛出 24 篇，精读 11 篇、速读 13 篇，两篇 9.0 分 VLA/灵巧操作论文领跑。</p>
+<p>最值得看的是 VLA 的“记忆+可复用技能”框架，以及物体中心、可跨本体的灵巧操作基元。</p>
+<p>普通读者可先读这两篇 9 分</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +73,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">21 篇</strong>
+    <strong class="dpr-home-dashboard-count">11 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Staircase Policy: Streaming Inference for World-Action Models with Large Action Chunks">Staircase Policy: Streaming Inference for World-Action Models with Large Action Chunks</span></li><li><span class="dpr-home-dashboard-paper-title" title="AeroManip-VLA: Scalable Vision-Language-Action Learning for Aerial Manipulation with RL-Generated Demonstrations">AeroManip-VLA: Scalable Vision-Language-Action Learning for Aerial Manipulation with RL-Generated Demonstrations</span></li><li><span class="dpr-home-dashboard-paper-title" title="MVG-WAM: Multiple View Geometry-Aware World-Action Modeling for Robotic Manipulation">MVG-WAM: Multiple View Geometry-Aware World-Action Modeling for Robotic Manipulation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Inline Memory Meets Reusable Skills: Memory-centric Framework for Vision-Language-Action Model">Inline Memory Meets Reusable Skills: Memory-centric Framework for Vision-Language-Action Model</span></li><li><span class="dpr-home-dashboard-paper-title" title="GOTT: Object-centric Dexterous Manipulation with a Reusable Cross-Embodiment Primitive">GOTT: Object-centric Dexterous Manipulation with a Reusable Cross-Embodiment Primitive</span></li><li><span class="dpr-home-dashboard-paper-title" title="RoboIRS: Inference-Time Internal Representation Steering for Generalist Robot Policies">RoboIRS: Inference-Time Internal Representation Steering for Generalist Robot Policies</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">vla <strong>9</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>5</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>5</strong></span><span class="dpr-home-dashboard-tag">control <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>4</strong></span><span class="dpr-home-dashboard-tag">vla <strong>4</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>3</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -87,9 +89,9 @@
     <strong class="dpr-home-dashboard-count">13 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="ComManip: Overfitting Manipulation Policies to Comfortable Regions">ComManip: Overfitting Manipulation Policies to Comfortable Regions</span></li><li><span class="dpr-home-dashboard-paper-title" title="EVO-WAM: Evolving World Action Models through Video-Action Verification">EVO-WAM: Evolving World Action Models through Video-Action Verification</span></li><li><span class="dpr-home-dashboard-paper-title" title="PhasePlan: Ordered Future-Phase Planning for Robot Brain Models">PhasePlan: Ordered Future-Phase Planning for Robot Brain Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Admissibility-Preserving Control for Multi-Input Systems with Joint Capacity Constraints">Admissibility-Preserving Control for Multi-Input Systems with Joint Capacity Constraints</span></li><li><span class="dpr-home-dashboard-paper-title" title="TOAST: Stochastic Robot Action Tokenization for Autoregressive Vision-Language-Action Models">TOAST: Stochastic Robot Action Tokenization for Autoregressive Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Screw Attention: Rigid-Body Algebra Inside a Transformer">Screw Attention: Rigid-Body Algebra Inside a Transformer</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-learn <strong>7</strong></span><span class="dpr-home-dashboard-tag">control <strong>3</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>2</strong></span><span class="dpr-home-dashboard-tag">vla <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">control <strong>6</strong></span><span class="dpr-home-dashboard-tag">robot-learn <strong>4</strong></span><span class="dpr-home-dashboard-tag">vla <strong>2</strong></span><span class="dpr-home-dashboard-tag">world-model <strong>1</strong></span></div>
 </section>
 </div>
 
