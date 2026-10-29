@@ -1,0 +1,2363 @@
+CARD: Contact-Anchored Retargeting for Dexterous Manipulation
+Cunxi Dai1,2
+Botao He3,2∗
+Francois R Hogan2∗
+Wei Pan2∗
+Rao Fu4,2
+Wen-Han Hsieh1
+Ruoshi Liu3,2
+Jitendra Malik4,2
+Guanya Shi1,2†
+Akash Sharma2†
+1Carnegie Mellon University
+2Amazon Frontier AI & Robotics (FAR)
+3University of Maryland, College Park
+4UC Berkeley
+∗Core contributor
+†Equal advising
+Project page: https://card-retargeting.github.io/
+Contact-anchored retargeting
+Human demonstrations
+multi-input
+RGB video
+CARD
+Tactile glove
+Unified representation
+Tactile Reactive Replay
+sim-free
+object-free
+10Hz
+Mocap + glove
+Tactile reactive replay on hardware
+Rubik’s Cube - Sharpa
+Card Pick up - Sharpa
+Palm Grasp - WUJI2
+Embodiments
+multi-embodiment
+SHARPA
+Wave
+Wuji 
+Hand 2
+Unitree
+Dex3
+Tong Use - Dex3
+Figure 1. CARD is a unified human-to-robot, multi-embodiment tactile retargeting framework. Demonstrations from monocular
+video, tactile gloves, or motion capture with a tactile glove (left) map into a unified hand–contact representation that CARD retargets to robot
+joint commands and contact force targets (center). Our approach can retarget to different embodiments by changing only the semantic
+mapping (right). Finally, a tactile-tracking controller replays open-loop on hardware (bottom) while tracking the desired contact force
+targets, requiring no object model or simulator.
+Abstract
+Humans are dexterous, but traditional data collection
+paradigms such as teleoperation, kinesthetic teaching, and
+wearable exoskeletons force humans to act through the robot
+embodiment, bottlenecking their dexterity. Retargeting can
+avoid this. However, existing methods purely translate kine-
+matics and ignore the real-world contact dynamics essen-
+tial for task success. We present CARD: Contact-Anchored
+Retargeting for Dexterous Manipulation, a simulator and
+object-free framework that retargets human demonstrations
+to robot actions by explicitly preserving contact force targets.
+CARD unifies human data sources including video, motion
+capture, and tactile gloves via a shared hand–contact rep-
+resentation and generates explicit contact force targets in
+addition to kinematics. To maintain these contact targets
+1
+arXiv:2610.36539v1  [cs.RO]  27 Oct 2026
+
+
+during hardware open-loop replay, CARD also introduces a
+tactile tracking controller. For video which does not contain
+an explicit tactile source, we present Vid-HACO, our video-
+to-contact model that sets a new state of the art. Across our
+video, glove, motion-capture data and the GRAB dataset,
+CARD maintains contact on 43–78% of contact frames, while
+kinematic and object-aware retargeting methods maintain
+contact on < 10% and 22.5% of the frames respectively.
+Further, integrating our formulation into physics-based re-
+targeting improves strict task success from 12% to 32% on
+GRAB [70]. Finally, we show that our tactile tracker is
+critical to reproduce demonstrated forces during hardware
+replay. These results establish that contact preservation via
+CARD is a scalable interface for transferring human dexterity
+to robots.
+1. Introduction
+Human demonstrations are the most scalable source of data
+for dexterous manipulation, yet nearly every way we collect
+them today, whether teleoperation [10, 77, 89], wearable
+exoskeletons [11, 79, 87], or kinesthetic teaching [8, 63],
+forces humans to act through a robot embodiment, limiting
+dexterity to what the interface allows. Retargeting natural
+human motion removes this bottleneck. However, existing
+methods [22, 56] treat retargeting as a kinematic problem of
+mapping fingertip positions or joint angles. Further, retarget-
+ing often requires scene reconstruction followed by heavy
+optimization in simulation, and even recent contact-centric
+formulations [33, 66, 84] still presuppose an object model or
+a simulator. For manipulation with contact, reconstructing
+kinematics alone is not enough: millimeters of embodiment
+mismatch decide whether a replayed trajectory hovers, slips
+over, or crushes the object.
+We present CARD, a retargeting framework that treats con-
+tact force targets as a first-class citizen. Instead of relying
+on object geometry, CARD uses per-link contact force targets
+extracted from a human demonstration, comprising a cen-
+ter of pressure, a push direction, and a force, to solve for
+robot configurations that place semantically matched robot
+links on every contact force target inside the demonstrated
+friction cone. CARD produces contact force targets alongside
+the joint trajectory without relying on object information,
+therefore it needs no simulator, object mesh, or object pose
+estimate. Consequently, rigid, articulated, and deformable
+objects need no special handling.
+CARD is agnostic to the demonstration source: any modal-
+ity containing hand pose and contact can be used.
+To
+make heterogeneous sources interchangeable, we introduce
+a unified hand–contact representation that turns monocular
+video (through Vid-HACO, our video contact model), tactile
+gloves, and marker-based motion capture into a common
+interface: a MANO mesh sequence with one contact force
+target per hand region. Because every contact force target is
+bound to the human hand surface, retargeting to a new robot
+requires only a semantic map from hand regions to robot
+bodies.
+On hardware, CARD pairs retargeting with a tactile
+tracking controller, an integral admittance loop over joint
+impedance that maintains the demonstrated contact forces
+during replay. Together they enable open-loop replay of
+dexterous human demonstrations on multiple robot embodi-
+ments mounted on a 7-DoF arm. Here open-loop means no
+object pose estimate and no learned policy. The only feed-
+back is the fingertip force loop that maintains the demon-
+strated contact forces. We prioritize open-loop replay to
+demonstrate the retargeting quality of CARD over policy learn-
+ing, since a closed-loop policy confounds retargeting fidelity
+with other issues such as learning error, partial observability
+and the like.
+Concretely, our contributions are:
+• Contact-Anchored Retargeting: A simulator and object-
+free formulation that optimizes contact reach, friction-cone
+alignment, force weighting, and contact stability per frame
+with a fast GPU sampling optimizer.
+• Unified Hand–Contact Representation: A shared in-
+terface that maps video (through Vid-HACO, our video
+hand-contact model), tactile gloves, and motion capture
+into contact force targets with whole-clip force synthesis
+for sources that measure no force.
+• Tactile Tracking Controller: A real-world force tracking
+controller with feedforward force that replays contact-rich
+tasks open-loop faithfully on physical hardware.
+• Cross-Embodiment Generalization: Cross-embodiment
+retargeting through a semantic map, shown on four robot
+hands from a 22-DoF dexterous hand down to a parallel-
+jaw gripper.
+Across video, glove, and motion-capture sources, CARD
+achieves state-of-the-art contact fidelity, matching demon-
+strated contact on 43–78% of contact frames where kine-
+matic retargeting reaches under 10%, while retargeting meth-
+ods needing object information [18] only reach 22.5%. Fur-
+ther, our trajectories transfer to the real world through open-
+loop replay, where the tactile tracker raises success from 4
+to 25 of 30 trials over position-only replay.
+2. Related Work
+Kinematic retargeting.
+DexPilot [22] established
+the fingertip-vector cost used by most dexterous tele-
+operation
+systems
+since,
+including
+AnyTeleop
+and
+dex-retargeting [56], learned pose imitators [67, 86], and
+VR and exoskeleton interfaces [10, 15, 83, 87]. All these
+approaches retarget hand configuration to hand configura-
+tion. Two recent geometric retargeting methods, TopoRe-
+target [76] and Morphometric Imitation [62], go beyond
+fingertip matching, although their optimization still relies on
+2
+
+
+an object reference. Neither had released code at the time
+of submission, so we cannot compare against them. CARD
+keeps the optimization view but optimizes contact locations,
+push directions, and forces.
+Contact-based retargeting. Contact Transfer [32] and its
+sequel [33] transfer contact areas instead of joint angles.
+Concurrent work anchors retargeting on contact structure,
+under the same name [84] or in the object frame [66], or on
+demonstrated forces [2, 78]. Each needs an object model, a
+simulator, or a learned tracker. CARD needs none, and adds a
+push direction and a force to every contact.
+Dynamic retargeting.
+A complementary line transfers
+demonstrations through simulation with the object in the
+loop [9, 14, 34, 39, 40, 42, 43], optimizes robot and object
+trajectories jointly [82], or rewards contact wrenches com-
+puted on the object [90]. These methods capture contact
+dynamics in simulation but need an object model and a sim-
+ulator per task. CARD needs neither, since its contact force
+targets are obtained directly in the real world.
+Learning from human data. Many pipelines recover hand
+and object pose from video or wearable capture devices and
+retarget kinematically for imitation or RL [19, 24, 25, 44, 50,
+55, 64, 74]. Concurrent ones preserve contact, but anchored
+on a reconstructed object [45, 49, 59, 68]. Hardware inter-
+faces [11, 17, 79, 89] make collection cheaper but tie the
+human to a device built per robot. Human contact and force
+encode grasp function [5, 6, 69, 70] and improve contact-
+rich learning [1, 12, 26, 38], yet retargeting rarely preserves
+them, which is the gap CARD closes.
+Dexterous hand controllers. Tactile and force feedback
+improve multifingered control, from contact-event grasp con-
+trollers [60] and tactile-driven policies [21, 27] to tactile
+servoing and grasp-force regulation [35, 36, 73]. These con-
+trollers regulate forces chosen by a policy or a heuristic.
+CARD outputs tactile targets from a demonstration, so a robot
+hand can replay it open-loop.
+Contact and force from vision. Dense hand contact has
+been predicted from hand–object geometry [20] and from
+images [30], and concurrently from video together with pres-
+sure [29, 47] or force [28]. Forces have also been fitted to
+the tracked object’s wrench [52, 53]. CARD consumes any
+contact source and synthesizes forces from grasp balance
+without an object model.
+3. Method
+Given a demonstration with hand pose and contact, CARD
+(Fig. 2) produces a robot trajectory that reproduces its con-
+tact force targets, not only its kinematics. Per frame we
+solve for the hand pose q = (t, R, θ) ∈R3 × SO(3) × RN:
+wrist position, wrist rotation as an axis–angle vector, and the
+N joint angles (N=22 for the SHARPA Wave), without a
+physics simulator or object model as input. Every contact
+force target is bound to the hand surface, so deformable and
+articulated objects can be handled without additional burden.
+Hats (ˆ) denote unit vectors, q⋆denotes the optimal solution
+of a frame, q−denotes the previous frame’s solution.
+3.1. Unified Hand–Contact Representation
+Every data source is reduced to three components (Fig. 11):
+a MANO [61] hand mesh sequence, a vocabulary of seman-
+tic links (3 regions per finger, 15 finger regions plus the
+palm region, see Appendix D for details) shared by every
+source and every robot, and at most one contact force target
+per link and frame, denoted by Cf = (cf, ˆdf, Ff), where f
+is the finger link and F the full robot link set. The center
+of pressure cf ∈R3 is constrained onto link surface f, ˆdf
+denotes a unit push direction into the object, and Ff ≥0
+denotes the force magnitude. Video does not provide con-
+tact force, so we synthesize it from the contact predictions.
+Source-specific processing into the shared representation is
+detailed in Appendix A.
+3.2. Vid-HACO: Contact from Monocular Video
+For monocular video, we introduce Vid-HACO, a video-
+based hand–object contact estimation model that predicts
+contact probabilities for all 778 MANO vertices, enabling
+video demonstrations to be converted into our unified
+hand–contact representation. Given an 8-frame clip end-
+ing at frame t, Vid-HACO uses hand crops obtained from
+HaWoR [88], a world-frame extension of HaMeR [51]. A
+video-pretrained V-JEPA 2.1 ViT-L encoder [48] and a DPT
+decoder [57] extract multi-scale features. Two prediction
+heads estimate vertex-level contact logits and a frame-level
+binary contact indicator, respectively. Temporal context
+helps distinguish contact transitions during approach, grasp,
+and release.
+Following HACO [30], we use a 10 mm distance thresh-
+old to label vertices as contacting the touched surface and
+set the probability threshold to 0.52 for contact prediction.
+We train on 1.55M frames from 12 datasets spanning ego-
+centric, third-person, and web views, holding out 10% of
+each dataset for validation. We fine-tune the encoder end
+to end with HACO’s class-balanced vertex loss [13] and
+an additional binary cross-entropy loss on the frame head,
+retaining contact-free frames during training. Dataset and
+implementation details appear in Appendix B.
+3.3. Contact-Anchored Retargeting
+Geometric initialization. We first retarget human joint
+angles directly to the robot skeleton using closed form ap-
+proaches (i.e., without optimization) and adjust the wrist
+pose to align the robot and human fingertips in 3D. Because
+the thumb joint ranges and motion axes cannot be mapped
+directly, we compute its pose using a fixed affine transforma-
+tion derived from its bone directions and pad normal (Ap-
+pendix C). The resulting configuration qinit is deterministic
+3
+
+
+Figure 2. CARD overview. Video, glove, and motion capture are converted into a unified hand–contact representation, a MANO mesh with
+one contact force target per semantic link (Sec. 3.1). Geometric initialization maps human joint angles to the robot skeleton, followed by
+contact-anchored retargeting that aligns the corresponding robot pads with the contact force targets (Sec. 3.3). Joint and contact force targets
+are replayed by a tactile tracking controller (Sec. 3.4) on hardware.
+and warm starts the following optimization (Fig. 9).
+Problem formulation. For each frame, we optimize the
+robot joint configuration q⋆by solving:
+q⋆= arg min
+q∈Q Econtact(q) + Estyle(q) + Esmooth(q)
++Ecollision(q),
+(1)
+where Econtact aligns the robot’s fingertip pads with contact
+force targets, Estyle encourages unconstrained (free) fingers
+to mimic human poses, Esmooth maintains smooth joint
+movements, while Ecollision prevents robot self-collisions
+and object penetration. The feasible set Q enforces joint
+position and velocity limits across all joints. A single set
+of loss weights w is used across all motion sequences. The
+weights appear inside each energy term below and are listed
+in Tab. 5 of Appendix D.
+Contact group. Each robot contact region f ∈F on the pad
+surface Sf(q) is defined by its 3D position sf(q) and out-
+ward surface normal ˆn(s), which specifies the central axis
+of its friction cone. To prevent physically unrealistic assign-
+ments (e.g., satisfying a fingertip contact using a mid-link
+surface), we select an optimal contact point s∗
+f(q) by bal-
+ancing geometric contact proximity against human contact
+preferences:
+s∗
+f(q) = arg mins∈Sf (q) ∥s −cf∥2 + αf∥s −Tfψf∥2. (2)
+Here, cf is the target contact location and ψf is the human
+contact preference remapped onto the robot link: the point on
+the link’s palmar centerline at the same fractional position
+uf at which the human touched the corresponding finger
+segment, uf = clip
+  (cf −j0)·(j1−j0)
+∥j1−j0∥2
+, 0, 1
+
+, where j0 and j1
+are the joints bounding that segment (e.g., DIP and fingertip
+for the distal region). The link pose Tf(q) maps ψf into
+the world frame. Because s and ψf lie on the same rigid
+link, the second term acts as a fixed offset in the link frame
+that guides the selection of s∗
+f(q). Once selected, s∗
+f(q) is
+evaluated in the total contact objective Econtact(q):
+Econtact(q) =
+X
+f∈F
+ρ2
+f
+h
+w2
+c
+ s∗
+f(q) −cf
+2
+|
+{z
+}
+contact reach
++ λr2 1 −ˆn(s∗
+f(q)) · ˆdf
+
+|
+{z
+}
+friction cone
+
++ w2
+fix
+s∗
+f(q) −∆Tf(q, q−) s∗
+f(q−)
+2
+|
+{z
+}
+anti-slip
+i
+(3)
+Here, ρf = 1+ 1
+2(Ff/ maxf ′ Ff ′) scales contact priority
+by applied force, ensuring high-force contacts are prioritized.
+The friction cone term aligns the pad normal with the de-
+sired pushing direction ˆdf to prevent slipping. Its weight
+λr2 has a geometric reading: the length scale r converts the
+misalignment 1 −ˆn · ˆdf into an equivalent squared position
+error, so that both terms share units of mm2, and the dimen-
+sionless gain λ prices direction against position. With λ = 2
+and r = 10 mm, a 30◦orientation error costs as much as a
+5 mm position deviation. Finally, the anti-slip term penalizes
+contact migration across the pad surface by transforming
+the previous contact point into the current link frame with
+∆Tf(q, q−) = Tf(q)Tf(q−)−1, encouraging the contact to
+4
+
+
+Monocular video (HACO)
+source frame  |  contact on MANO
+Tactile glove (Wuji)
+source frame  |  contact on MANO
+Motion capture + tactile glove
+source frame  |  contact on MANO
+video: binary label
+glove, mocap: taxel  0
+max
+cordless drill
+spray bottle
+rubber mallet
+can
+cup
+Rubik's cube
+mustard bottle
+eraser
+power grasp
+pinch at the cap
+tripod
+top grasp
+Figure 3. Demonstration sources. We show some demonstration
+exmaples from monocular video (Vid-HACO contact), tactile glove
+(taxel pressure), and motion capture with the tactile glove (taxel
+pressure).
+remain at the same location on the fingerpad across frames
+(Fig. 2).
+Style, smoothness, collision. When a finger is unconstrained
+by contact force targets, Estyle encourages the robot hand
+to mimic human motion. Specifically, Estyle pulls each
+robot pad toward its corresponding MANO fingertip, aligns
+the pad’s belly axis with the MANO surface normal, and
+aligns individual finger segment orientations with the hu-
+man pose. Esmooth, on the other hand, applies a quadratic
+penalty on joint motion relative to the previous frame to
+maintain temporal continuity. Finally, Ecollision uses a soft
+hinge barrier to penalize hand self-collisions and object pene-
+trations. Inter-finger clearance uses capsule-to-capsule gaps.
+Object penetration queries pad samples against an object
+signed distance field (SDF) or, without a mesh (video, glove,
+GRAB), against a pseudo-object SDF built from the convex
+hull of the clip’s contact force targets cf in the wrist frame
+(Fig. 12, Appendix D). Sampling-based optimization. Be-
+cause the objective in Eq. (1) is non-smooth, we minimize it
+using zeroth-order optimization—specifically, an annealed
+Cross-Entropy Method (CEM) [54, 75] whose noise sched-
+ule follows the diffusion-style annealing of DIAL-MPC [80].
+Each frame is warm-started with the geometric initialization
+qinit. At each of the K = 16 iterations, N = 1024 candidate
+configurations are sampled around the mean, clipped to the
+feasible set Q, and evaluated in a single parallelized pass.
+The mean is then updated using a softmax weighting over the
+top 5% lowest-cost candidates while noise is progressively
+annealed. A zero-phase Savitzky–Golay filter (15 frames)
+smooths the result. The solver runs at 10 FPS on one RTX
+5090.
+3.4. Replay: Tactile Tracking Controller
+The retargeting pipeline outputs a joint trajectory qtarget and,
+per finger f, a desired normal force F des
+f
+along the push
+direction ˆdf. A tactile controller tracks both (Fig. 5). An
+Figure 4. Contact-anchored vs. kinematic retargeting on two
+video clips. Per clip: the human source, CARD, DexPilot, AnyTeleop-
+K, AnyTeleop-P, and CARD’s geometric initialization (init only), the
+columns of Tab. 1. The scanned object is for visualization only, and
+orange spheres are the contact force target. Kinematic baselines
+reach the object but do not track the contact.
+feedforward
+impedance
+admittance
++
+SHARPA Wave
+¡
+qtarget
+qcmd
+¢q
+F des
+f
+; ^df
+¿ff
+F meas
+f
+Figure 5. Tactile tracker. Each finger uses fingertip force feedback
+to track the desired contact force through an admittance loop whose
+curls form the joint offset ∆q, while feedforward torque directly
+applies the target force through the joint impedance controller
+(Appendix F).
+integral-dominant admittance on the error between F des
+f
+and
+the measured fingertip normal force F meas
+f
+produces a scalar
+curl κf ∈[0, 1] (Eq. (14) in Appendix F), which closes the
+finger along a fixed unit synergy ˆψf. The summed closures
+form a joint offset ∆q = P
+f κf ˆψf that updates the joint
+target, qcmd = qtarget + ∆q, while a feedforward torque
+injects the desired force through the fingertip Jacobian Jf
+into the joint impedance controller with gains Kp, Kd:
+τ = Kp (qcmd −q) + Kd ( ˙qcmd −˙q) + kff J⊤
+f F des
+f
+ˆdf
+|
+{z
+}
+τff
+.
+(4)
+Because the joints are compliant, the curl adds a bounded
+squeeze rather than a rigid displacement. A contact state
+machine freezes the integrator on sensor dropouts and arms
+the feedforward (gains in Appendix F).
+3.5. Cross-Embodiment Transfer
+Because contact force targets are parameterized in the uni-
+fied representation, transfer to a new embodiment needs only
+5
+
+
+(a) Hammer grasp
+(b) Cup grasp
+(c) Mustard dispensing
+w/ Tactile Tracker
+Grasped
+Grasped
+Grasped
+Grasped
+Dispensed
+Dispensed
+w/o Tactile Tracker
+Slipped
+Slipped
+Slipped
+Slipped
+No dispensing
+No dispensing
+Figure 6. Tactile tracker ablation. We show the same trajectories
+replayed with (top) and without (bottom) tactile tracking. Tactile
+tracking maintains the desired contact forces, enabling stable grasps
+and successful task execution.
+a semantic map (Fig. 10, Appendix D). Defined anchors,
+cost groups, and weights can be used across embodiments.
+Five-fingered hands map one-to-one, region to link. Hands
+with fewer fingers map many-to-one, for instance, the Uni-
+tree Dex3-1 receives the middle, ring, and pinky regions on
+its third finger, with simultaneous anchors merged into a
+force-weighted centroid, and a parallel-jaw gripper maps the
+thumb to one jaw and the four fingers to the other. We show
+four embodiments’ semantic mapping in Figs. 7 and 8.
+4. Experiments
+We evaluate CARD across five aspects: contact fidelity against
+kinematic baselines (Sec. 4.1), force preservation in open-
+loop hardware replay (Sec. 4.2), transfer across embodiments
+(Sec. 4.3), contact estimation from video (Sec. 4.4), and the
+performance of a physics-based retargeting variant, CARD–
+physics (Sec. 4.5). We also provide additional ablations and
+contact analyses: Appendices B.2, E and H.
+4.1. Contact fidelity against kinematic retargeting
+Data. We evaluate on two datasets: clips captured in house
+(Fig. 3: 20 casual phone videos, 18 tactile glove with VIVE
+tracker clips, and 48 motion-capture with tactile glove clips)
+and 100 public GRAB clips [70] with ground-truth object
+meshes. Every method is retargeted to the 22-DoF SHARPA
+Wave.
+Metrics. A contact is considered established when a contact
+force target lies within 2 mm of the assigned link surface
+and the nearest pad sample is on the palmar face. Contact
+rate measures the fraction of anchor-frames with established
+contact. Correct-region rate further requires contact on the
+correct region according to the demonstration, while in-cone
+rate additionally requires the pad normal to align within 45◦
+of the demonstrated push direction. Gap is the median dis-
+tance from the contact force target to the pad and penetration
+the median deepest incursion into the object (Appendix G).
+Baselines.
+We compare against the kinematic retarget-
+ing baselines: DexPilot [22] and the two objectives of
+AnyTeleop [56], key-vector (AnyTeleop-K) and fingertip-
+position (AnyTeleop-P). We also report ReGrind [18] (w/ Ob-
+ject), a contact-preserving retargeting method that requires
+the object mesh, and CARD’s geometric initialization (init
+only). TopoRetarget [76] and Morphometric Imitation [62]
+have not released code at submission time and are therefore
+not compared.
+Results.
+Table 1 compares contact fidelity across both
+datasets. Kinematic baselines establish the demonstrated
+contact on only 3–10% of anchor-frames, with a median
+gap of 10–23 mm. In contrast, CARD establishes contact
+on 61% of anchor-frames on video, 78% on the glove and
+motion-capture clips, and 43% on GRAB, while reducing
+the gap to 1.4–3.6 mm. Importantly, nearly all established
+contacts occur on the correct finger, and over half of anchor-
+frames also satisfy the in-cone constraint. On GRAB, where
+ground-truth object meshes allow us to measure penetration,
+CARD reaches 43% contact against 22.5% for ReGrind, which
+takes the object mesh as input, and also produces the least
+object penetration (7.96 mm) (Fig. 4). We also find that con-
+tact fidelity correlates with contact signal quality: CARD can
+achieve 89% contact on the tactile glove clips, where contact
+is measured, 76% on motion capture, 61% on video, where it
+is inferred, and 43% on GRAB, where contact is calculated
+from geometric proximity (Appendix H).
+4.2. Open-loop replay on hardware
+To directly evaluate the fidelity of CARD’s retargeted actions,
+we replay the trajectories open-loop on real hardware, elimi-
+nating confounding factors such as policy learning. Under
+this setting, task success depends directly on the faithful re-
+production of task-critical contacts and forces. Fig. 7 shows
+sequential snapshots of our hardware replays, including pick-
+ing up a deformable card from a deck and rotating an artic-
+ulated Rubik’s Cube with a single finger. All tasks use our
+tactile tracking controller to preserve contact forces. Full
+videos are available on our project website.
+Tactile tracker ablation. We replay identical CARD trajec-
+tories on the SHARPA Wave with and without the tactile
+tracker on three real-world tasks, 10 trials each (Fig. 6).
+Position-only replay succeeds on 1/10 hammer lifts, 3/10 cup
+lifts, and 0/10 mustard dispenses: the hammer and cup slip
+out during the lift while the bottle is lifted but not squeezed.
+With the tactile tracker the same trajectories succeed on 8/10,
+10/10, and 7/10 respectively. Reproducing the joint motion
+alone does not reproduce the intended contact forces.
+6
+
+
+Table 1. Contact fidelity on our data (video, glove, motion capture) and on GRAB. Rates in percent, pooled over anchor-frames. Millimeter
+columns are medians. Bold: best per bed and metric. Underline: best published baseline. On GRAB we additionally compare against
+ReGrind ported to SHARPA Wave, which takes the GRAB mesh as input. CARD uses only the contact-reconstructed pseudo-object (Fig. 12),
+and the GRAB mesh only to score penetration. The glove+motion capture gap combines the two beds’ medians weighted by anchor-frames.
+CARD
+DexPilot
+AnyTeleop-K
+AnyTeleop-P
+ReGrind
+CARD
+[22]
+[56]
+[56]
+[18] (w/ Object)
+(init only)
+Our data: monocular video (20 clips)
+Contact rate (%) ↑
+61.4
+9.7
+8.3
+7.6
+–
+20.5
+Correct region (%) ↑
+60.1
+9.5
+8.0
+7.5
+–
+19.2
+In-cone (%) ↑
+35.2
+4.2
+4.7
+5.0
+–
+–
+Gap (mm) ↓
+2.40
+9.99
+10.80
+13.19
+–
+5.76
+Our data: tactile glove + motion capture (66 clips)
+Contact rate (%) ↑
+77.7
+3.8
+3.4
+3.5
+–
+15.9
+Correct region (%) ↑
+76.9
+3.7
+3.3
+3.2
+–
+15.8
+In-cone (%) ↑
+46.0
+1.1
+1.0
+2.3
+–
+–
+Gap (mm) ↓
+1.38
+17.17
+16.67
+23.22
+–
+9.32
+GRAB (100 clips) [70]
+Contact rate (%) ↑
+43.1
+4.9
+4.9
+4.6
+22.5
+19.6
+Correct region (%) ↑
+40.6
+4.8
+4.9
+4.5
+20.7
+17.8
+In-cone (%) ↑
+16.2
+1.7
+1.7
+1.7
+5.2
+3.8
+Gap (mm) ↓
+3.56
+20.90
+20.45
+20.66
+7.86
+13.78
+Penetration (mm) ↓
+7.96
+12.71
+12.79
+13.02
+9.80
+11.15
+Table 2. Contact from monocular video. Vid-HACO versus
+released HACO [30] and HACO-R (retrained on our data), on 12-
+dataset validation and held-out HRDexDB [37]. Percent, threshold
+0.52 except for the threshold-free AP. Vertex metrics are pooled
+over all vertices and frames. Frame F1 measures whether any vertex
+is in contact.
+Vertex
+Frame
+F1 ↑
+Prec. ↑
+Rec. ↑
+AP ↑
+F1 ↑
+12-dataset validation
+HACO
+57.1
+44.4
+80.0
+51.7
+86.1
+HACO-R
+74.5
+63.4
+90.3
+70.4
+86.1
+Vid-HACO
+84.3
+80.4
+88.5
+92.4
+98.3
+HRDexDB (held out)
+HACO
+63.3
+56.5
+71.9
+54.3
+76.3
+HACO-R
+62.6
+57.1
+69.2
+54.5
+75.9
+Vid-HACO
+67.2
+67.9
+66.5
+72.2
+95.3
+4.3. Cross-embodiment transfer
+Here we demonstrate that the same contact force targets
+formulation can retarget to new embodiments such as the
+Wuji Hand 2, the Unitree Dex3-1 and a parallel-jaw gripper
+(Fig. 8) by only changing the semantic mapping. Specifically,
+we show hardware rollouts with the first two embodiments
+in Fig. 7. Unitree Dex3-1 has no tactile sensing, so we scale
+its grasp actions 1.2×. Although the Wuji Hand 2 also has
+no tactile sensing, we found that it needs no scaling, since
+its compliant inner surfaces conform to the object.
+4.4. Contact estimation from video
+Setup. We compare our video contact model Vid-HACO
+with HACO [30] and HACO-R, HACO retrained on the
+same 12-dataset training set as ours. We evaluate on the
+Table 3. CARD-physics. We compare CARD-physics, our physics
+retargeting variant, against SPIDER’s physics stage [71]. Strict task
+success in percent on 48 motion-capture demonstrations (2 seeds)
+and 50 GRAB clips (1 seed). A task counts as solved when at least
+one seed succeeds (Appendix I).
+Motion capture (48)
+GRAB (50)
+SPIDER [71]
+40%
+12%
+CARD-physics
+52%
+32%
+∼173k-frame validation split and held-out HRDexDB [37]:
+434 egocentric videos of 94 objects (111.9k frames). All
+models use identical hand crops, the 10 mm contact rule, and
+threshold 0.52.
+Results. Table 2 shows that Vid-HACO achieves 84.3 vertex
+F1 on validation and 67.2 on HRDexDB, improving held-out
+F1 by 3.9 points over released HACO. Retraining HACO
+improves validation F1 to 74.5 but leaves held-out F1 at 62.6.
+Vid-HACO exceeds this matched-data baseline by 4.6 F1
+and 17.7 AP. Frame F1 reaches 95.3 versus 75.9 for both
+baselines, which predict contact on every frame. This is
+important for retargeting since hallucinated contacts during
+a reach can pull robot fingers toward empty space. Further
+analysis is provided in Appendix B.2.
+4.5. CARD with physically plausible retargeting
+We further test whether contact force targets and the con-
+tact objective improve physics-based retargeting. We build
+CARD-physics on SPIDER [71], a simulation-based retar-
+geting framework that tracks kinematic references using a
+sampling-based optimization solver. CARD-physics modifies
+SPIDER in three ways: (1) initialize from CARD’s retargeted
+trajectories, (2) replace SPIDER’s contact-guidance term
+7
+
+
+Figure 7. Replay on hardware. We show a series of snapshots of CARD trajectories replayed on the SHARPA Wave hand, Wuji Hand 2, and
+Unitree Dex3-1. The articulated Rubik’s cube and the bending deck of cards use the same pipeline as the rigid objects.
+Figure 8. Cross-embodiment transfer. Two GRAB demonstra-
+tions (rows) retargeted to SHARPA Wave, Wuji Hand 2, Unitree
+Dex3-1, and a parallel-jaw gripper (columns, after the human
+source). Only the semantic map changes. Orange spheres are
+the contact force targets.
+with our contact objective Econtact(q), and (3) extract con-
+tact force targets using our pipeline (details and weights in
+Appendix I).
+We evaluate on 50 GRAB and 48 motion-capture trajec-
+tories with ground-truth contact, object meshes, and object
+trajectories. CARD-physics raises strict task success from 12%
+to 32% on GRAB and from 40% to 52% on motion capture
+(Tab. 3), showing evidence that our contact representation
+also benefits physics-based retargeting.
+5. Conclusion
+We presented CARD, a simulator- and object-free retar-
+geting framework that preserves task-critical contacts and
+forces across diverse human demonstration sources and
+robot embodiments. Combined with a tactile tracking con-
+troller, CARD enables faithful open-loop hardware replay
+across rigid, articulated, and deformable objects. Our results
+demonstrate substantial gains in contact fidelity and task suc-
+cess, establishing contact preservation as a scalable interface
+for transferring human dexterity to robots.
+Limitations and future work.
+Retargeting quality is
+bounded by the input demonstration, and open-loop replay
+cannot recover from a large object displacement. We will use
+CARD-generated data to train closed-loop sensorimotor poli-
+cies that close this gap, and to scale human demonstrations
+into contact-preserving robot data.
+6. Acknowledgement
+The authors would like to thank Chaoyi Pan, Tingfan Wu,
+and Bipasha Sen for their insightful discussions and valuable
+feedback, and Xinyao Li and Bruno Chen for their assistance
+with the experiments. We also gratefully acknowledge the
+8
+
+
+Amazon FAR group for their continued support throughout
+this work.
+References
+[1] Ademi Adeniji, Zhuoran Chen, Vincent Liu, Venkatesh Pat-
+tabiraman, Raunaq Bhirangi, Siddhant Haldar, Pieter Abbeel,
+and Lerrel Pinto. Feel the force: Contact-driven learning from
+humans. arXiv preprint arXiv:2506.01944, 2025. 3
+[2] Soofiyan Atar, Yao-Ting Huang, and Michael Yip. Trans-
+ferring contact, not just motion: Compliant grasping across
+dexterous hands. arXiv preprint arXiv:2606.15516, 2026. 3
+[3] Prithviraj Banerjee, Sindi Shkodrani, Pierre Moulon, Shreyas
+Hampali, Shangchen Han, Fan Zhang, Linguang Zhang, Jade
+Fountain, Edward Miller, Selen Basol, Richard Newcombe,
+Robert Wang, Jakob Julian Engel, and Tomas Hodan. Hot3d:
+Hand and object tracking in 3d from egocentric multi-view
+videos. In IEEE/CVF Conference on Computer Vision and
+Pattern Recognition (CVPR), 2025. 2
+[4] Siddhant Bansal, Zhifan Zhu, Shashank Tripathi, Jiahe Zhao,
+Michael J. Black, and Dima Damen. Towards in-the-wild
+egocentric 3d hand-object pose estimation. In European Con-
+ference on Computer Vision (ECCV), 2026. 2
+[5] Samarth Brahmbhatt, Ankur Handa, James Hays, and Dieter
+Fox. Contactgrasp: Functional multi-finger grasp synthe-
+sis from contact. In IEEE/RSJ International Conference on
+Intelligent Robots and Systems (IROS), 2019. 3
+[6] Samarth Brahmbhatt, Chengcheng Tang, Christopher D.
+Twigg, Charles C. Kemp, and James Hays. Contactpose:
+A dataset of grasps with object contact and hand pose. In
+European Conference on Computer Vision (ECCV), 2020. 3
+[7] Zhe Cao, Ilija Radosavovic, Angjoo Kanazawa, and Jitendra
+Malik. Reconstructing hand-object interactions in the wild.
+In IEEE/CVF International Conference on Computer Vision
+(ICCV), 2021. 2
+[8] Claire Chen, Zhongchun Yu, Hojung Choi, Mark Cutkosky,
+and Jeannette Bohg. Dexforce: Extracting force-informed
+actions from kinesthetic demonstrations for dexterous ma-
+nipulation. IEEE Robotics and Automation Letters, 10(6):
+6416–6423, 2025. 2
+[9] Yuanpei Chen, Chen Wang, Yaodong Yang, and C. Karen Liu.
+Object-centric dexterous manipulation from human motion
+data. In Conference on Robot Learning (CoRL), pages 3828–
+3846, 2024. 3
+[10] Xuxin Cheng, Jialong Li, Shiqi Yang, Ge Yang, and Xiaolong
+Wang. Open-television: Teleoperation with immersive active
+visual feedback. In Conference on Robot Learning (CoRL),
+2024. 2
+[11] Cheng Chi, Zhenjia Xu, Chuer Pan, Eric Cousineau, Ben-
+jamin Burchfiel, Siyuan Feng, Russ Tedrake, and Shuran
+Song. Universal manipulation interface: In-the-wild robot
+teaching without in-the-wild robots. In Robotics: Science and
+Systems (RSS), 2024. 2, 3
+[12] Jeremy A. Collins, Cody Houff, You Liang Tan, and
+Charles C. Kemp. Forcesight: Text-guided mobile manipula-
+tion with visual-force goals. In IEEE International Confer-
+ence on Robotics and Automation (ICRA), 2024. 3
+[13] Yin Cui, Menglin Jia, Tsung-Yi Lin, Yang Song, and Serge
+Belongie. Class-balanced loss based on effective number of
+samples. In IEEE/CVF Conference on Computer Vision and
+Pattern Recognition (CVPR), 2019. 3
+[14] Sudeep Dasari, Abhinav Gupta, and Vikash Kumar. Learning
+dexterous manipulation from exemplar object trajectories and
+pre-grasps. In IEEE International Conference on Robotics
+and Automation (ICRA), 2023. 3
+[15] Runyu Ding, Yuzhe Qin, Jiyue Zhu, Chengzhe Jia, Shiqi
+Yang, Ruihan Yang, Xiaojuan Qi, and Xiaolong Wang. Bunny-
+visionpro: Real-time bimanual dexterous teleoperation for
+imitation learning. In IEEE/RSJ International Conference on
+Intelligent Robots and Systems (IROS), 2025. 2
+[16] Zicong Fan, Omid Taheri, Dimitrios Tzionas, Muhammed
+Kocabas, Manuel Kaufmann, Michael J. Black, and Otmar
+Hilliges. Arctic: A dataset for dexterous bimanual hand-
+object manipulation. In IEEE/CVF Conference on Computer
+Vision and Pattern Recognition (CVPR), 2023. 1, 2
+[17] Hongjie Fang, Hao-Shu Fang, Yiming Wang, Jieji Ren,
+Jingjing Chen, Ruo Zhang, Weiming Wang, and Cewu Lu.
+Airexo: Low-cost exoskeletons for learning whole-arm ma-
+nipulation in the wild. In IEEE International Conference on
+Robotics and Automation (ICRA), 2024. 3
+[18] Yunhai Feng, Natalie Leung, Jiaxuan Wang, Lujie Yang,
+Haozhi Qi, and Preston Culbertson. A minimalist retargeting-
+guided reinforcement learning recipe for dexterous manipula-
+tion. arXiv preprint arXiv:2607.11874, 2026. 2, 6, 7
+[19] Zipeng Fu, Qingqing Zhao, Qi Wu, Gordon Wetzstein, and
+Chelsea Finn. Humanplus: Humanoid shadowing and imita-
+tion from humans. In Conference on Robot Learning (CoRL),
+2024. 3
+[20] Patrick Grady, Chengcheng Tang, Christopher D. Twigg,
+Minh Vo, Samarth Brahmbhatt, and Charles C. Kemp. Con-
+tactOpt: Optimizing contact to improve grasps. In IEEE/CVF
+Conference on Computer Vision and Pattern Recognition
+(CVPR), 2021. 3
+[21] Irmak Guzey, Ben Evans, Soumith Chintala, and Lerrel Pinto.
+Dexterity from touch: Self-supervised pre-training of tactile
+representations with robotic play. In Conference on Robot
+Learning (CoRL), 2023. 3
+[22] Ankur Handa, Karl Van Wyk, Wei Yang, Jacky Liang, Yu-
+Wei Chao, Qian Wan, Stan Birchfield, Nathan Ratliff, and
+Dieter Fox. Dexpilot: Vision-based teleoperation of dexterous
+robotic hand-arm system. In IEEE International Conference
+on Robotics and Automation (ICRA), 2020. 2, 6, 7, 8
+[23] Mohamed Hassan, Vasileios Choutas, Dimitrios Tzionas, and
+Michael J. Black. Resolving 3d human pose ambiguities with
+3d scene constraints. In IEEE/CVF International Conference
+on Computer Vision (ICCV), 2019. 2
+[24] Tairan He, Zhengyi Luo, Xialin He, Wenli Xiao, Chong
+Zhang, Weinan Zhang, Kris Kitani, Changliu Liu, and Guanya
+Shi. Omnih2o: Universal and dexterous human-to-humanoid
+whole-body teleoperation and learning. In Conference on
+Robot Learning (CoRL), 2024. 3
+[25] Tairan He, Zhengyi Luo, Wenli Xiao, Chong Zhang, Kris
+Kitani, Changliu Liu, and Guanya Shi. Learning human-to-
+humanoid real-time whole-body teleoperation. In IEEE/RSJ
+9
+
+
+International Conference on Intelligent Robots and Systems
+(IROS), 2024. 3
+[26] Yifan Hou, Zeyi Liu, Cheng Chi, Eric Cousineau, Naveen
+Kuppuswamy, Siyuan Feng, Benjamin Burchfiel, and Shu-
+ran Song. Adaptive compliance policy: Navigating complex,
+contact-rich tasks with compliance modulation. In IEEE In-
+ternational Conference on Robotics and Automation (ICRA),
+2025. 3
+[27] Binghao Huang, Yixuan Wang, Xinyi Yang, Yiyue Luo, and
+Yunzhu Li. 3d-vitac: Learning fine-grained manipulation
+with visuo-tactile sensing. In Conference on Robot Learning
+(CoRL), 2024. 3
+[28] Andela Ilic, Rachel Schuchert, Yijing Jiang, and Christian
+Holz. EgoPHI: Estimating 3D hand-object contact and force
+from egocentric vision. In European Conference on Computer
+Vision (ECCV), 2026. 3
+[29] Subin Jeon, Byungjun Kim, and Hanbyul Joo. HOPE: Hand-
+object pressure estimation from monocular videos. arXiv
+preprint arXiv:2608.06192, 2026. 3
+[30] Daniel Sungho Jung and Kyoung Mu Lee. Learning dense
+hand contact estimation from imbalanced data. In Advances
+in Neural Information Processing Systems (NeurIPS), 2025.
+3, 7
+[31] Taein Kwon, Bugra Tekin, Jan Stühmer, Federica Bogo, and
+Marc Pollefeys. H2o: Two hands manipulating objects for
+first person interaction recognition. In IEEE/CVF Interna-
+tional Conference on Computer Vision (ICCV), 2021. 2
+[32] Arjun Lakshmipathy, Dominik Bauer, Cornelia Bauer, and
+Nancy S. Pollard. Contact transfer: A direct, user-driven
+method for human to robot transfer of grasps and manipu-
+lations. In IEEE International Conference on Robotics and
+Automation (ICRA), 2022. 3
+[33] Arjun Lakshmipathy, Jessica K. Hodgins, and Nancy S. Pol-
+lard. Kinematic motion retargeting for contact-rich anthro-
+pomorphic manipulations. ACM Transactions on Graphics,
+2025. 2, 3
+[34] Kailin Li, Puhao Li, Tengyu Liu, Yuyang Li, and Siyuan
+Huang. Maniptrans: Efficient dexterous bimanual manipula-
+tion transfer via residual learning. In IEEE/CVF Conference
+on Computer Vision and Pattern Recognition (CVPR), 2025.
+3
+[35] Miao Li, Yasemin Bekiroglu, Danica Kragic, and Aude Bil-
+lard. Learning of grasp adaptation through experience and
+tactile sensing. In IEEE/RSJ International Conference on In-
+telligent Robots and Systems (IROS), pages 3339–3346, 2014.
+3
+[36] Qiang Li, Carsten Schürmann, Robert Haschke, and Helge
+Ritter. A control framework for tactile servoing. In Robotics:
+Science and Systems (RSS), 2013. 3
+[37] Jongbin Lim, Taeyun Ha, Mingi Choi, Jisoo Kim, Byungjun
+Kim, Subin Jeon, and Hanbyul Joo. Hrdexdb: A paired
+human-robot dataset for cross-embodiment dexterous grasp-
+ing. arXiv preprint arXiv:2604.14944, 2026. 7, 1
+[38] Wenhai Liu, Junbo Wang, Yiming Wang, Weiming Wang, and
+Cewu Lu. Forcemimic: Force-centric imitation learning with
+force-motion capture system for contact-rich manipulation. In
+IEEE International Conference on Robotics and Automation
+(ICRA), 2025. 3
+[39] Xueyi Liu, Kangbo Lyu, Jieqiong Zhang, Tao Du, and Li
+Yi. Quasisim: Parameterized quasi-physical simulators for
+dexterous manipulations transfer. In European Conference
+on Computer Vision (ECCV), 2024. 3
+[40] Xueyi Liu, Jianibieke Adalibieke, Qianwei Han, Yuzhe Qin,
+and Li Yi. Dextrack: Towards generalizable neural tracking
+control for dexterous manipulation from human references.
+In International Conference on Learning Representations
+(ICLR), 2025. 3
+[41] Yunze Liu, Yun Liu, Che Jiang, Kangbo Lyu, Weikang Wan,
+Hao Shen, Boqiang Liang, Zhoujie Fu, He Wang, and Li Yi.
+Hoi4d: A 4d egocentric dataset for category-level human-
+object interaction. In IEEE/CVF Conference on Computer
+Vision and Pattern Recognition (CVPR), 2022. 2
+[42] Zhengyi Luo, Jinkun Cao, Sammy Christen, Alexander Win-
+kler, Kris Kitani, and Weipeng Xu. Omnigrasp: Grasping
+diverse objects with simulated humanoids. In Advances in
+Neural Information Processing Systems (NeurIPS), 2024. 3
+[43] Zhao Mandi, Yifan Hou, Dieter Fox, Yashraj Narang, Ajay
+Mandlekar, and Shuran Song. Dexmachina: Functional retar-
+geting for bimanual dexterous manipulation. In International
+Conference on Machine Learning (ICML), 2026. 3
+[44] Priyanka Mandikal and Kristen Grauman. Dexvip: Learning
+dexterous grasping with human hand pose priors from video.
+In Conference on Robot Learning (CoRL), 2021. 3
+[45] Ting Mao, Yanming Shao, Ziheng Wang, Haoyu Liu, Yiqun
+Wang, Xuanye Wu, and Yao Mu.
+Omnihoi: Dexterous
+hand-object interaction from monocular human video. arXiv
+preprint arXiv:2610.10855, 2026. 3
+[46] Gyeongsik Moon, Shoou-I Yu, He Wen, Takaaki Shiratori,
+and Kyoung Mu Lee. Interhand2.6m: A dataset and baseline
+for 3d interacting hand pose estimation from a single rgb
+image. In European Conference on Computer Vision (ECCV),
+2020. 2
+[47] Seungjun Moon, Subin Jeon, Sangwoo Kim, Hanbyul Joo,
+and Jinwoo Shin. RLHND: Video foundation models as
+physically grounded hand trackers for robot learning. arXiv
+preprint arXiv:2610.09455, 2026. 3
+[48] Lorenzo Mur-Labadia, Matthew Muckley, Amir Bar, Mah-
+moud Assran, Koustuv Sinha, Michael Rabbat, Yann LeCun,
+Nicolas Ballas, and Adrien Bardes.
+V-jepa 2.1: Unlock-
+ing dense features in video self-supervised learning. arXiv
+preprint arXiv:2603.14482, 2026. 3
+[49] Yichen Niu, Haoran Lv, Xinrui Zhang, et al. Egoaero: Learn-
+ing dexterous manipulation from a single egocentric video
+without object assets. arXiv preprint arXiv:2606.08057, 2026.
+3
+[50] Bhawna Paliwal, Haritheja Etukuru, William Liang, Pieter
+Abbeel, Nur Muhammad Mahi Shafiullah, and Jitendra Ma-
+lik. Do as i do: Dexterous manipulation data from everyday
+human videos. arXiv preprint arXiv:2606.19333, 2026. 3
+[51] Georgios Pavlakos, Dandan Shan, Ilija Radosavovic, Angjoo
+Kanazawa, David Fouhey, and Jitendra Malik. Reconstructing
+hands in 3d with transformers. In IEEE/CVF Conference on
+Computer Vision and Pattern Recognition (CVPR), 2024. 3
+[52] Tu-Hoa Pham, Abderrahmane Kheddar, Ammar Qammaz,
+and Antonis A. Argyros. Towards force sensing from vi-
+10
+
+
+sion: Observing hand-object interactions to infer manipula-
+tion forces. In IEEE/CVF Conference on Computer Vision
+and Pattern Recognition (CVPR), pages 2810–2819, 2015. 3,
+1
+[53] Tu-Hoa Pham, Nikolaos Kyriazis, Antonis A. Argyros, and
+Abderrahmane Kheddar. Hand-object contact force estimation
+from markerless visual tracking. IEEE Transactions on Pat-
+tern Analysis and Machine Intelligence, 40(12):2883–2896,
+2018. 3, 1
+[54] Cristina Pinneri, Shambhuraj Sawant, Sebastian Blaes, Jan
+Achterhold, Joerg Stueckler, Michal Rolinek, and Georg Mar-
+tius. Sample-efficient cross-entropy method for real-time
+planning. In Conference on Robot Learning (CoRL), 2020. 5
+[55] Yuzhe Qin, Yueh-Hua Wu, Shaowei Liu, Hanwen Jiang, Rui-
+han Yang, Yang Fu, and Xiaolong Wang. Dexmv: Imitation
+learning for dexterous manipulation from human videos. In
+European Conference on Computer Vision (ECCV), 2022. 3
+[56] Yuzhe Qin, Wei Yang, Binghao Huang, Karl Van Wyk,
+Hao Su, Xiaolong Wang, Yu-Wei Chao, and Dieter Fox.
+Anyteleop: A general vision-based dexterous robot arm-hand
+teleoperation system. In Robotics: Science and Systems (RSS),
+2023. 2, 6, 7, 8
+[57] René Ranftl, Alexey Bochkovskiy, and Vladlen Koltun. Vi-
+sion transformers for dense prediction. In IEEE/CVF Interna-
+tional Conference on Computer Vision (ICCV), 2021. 3
+[58] Nikhila Ravi, Valentin Gabeur, Yuan-Ting Hu, Ronghang Hu,
+Chaitanya Ryali, Tengyu Ma, Haitham Khedr, Roman Rädle,
+Chloe Rolland, Laura Gustafson, et al. Sam 2: Segment
+anything in images and videos. In International Conference
+on Learning Representations (ICLR), 2025. 1
+[59] Jie Ren, Zhehao Jiang, Yinhong Yang, Haorui Jia, Han Jiang,
+Ben Li, Yao Yao, Cheng Lin, Qiu Shen, Zhenshan Bing,
+Xiao-Xiao Long, and Xun Cao. C2dex: Contact-consistent
+reconstruction and retargeting for dexterous manipulation
+from monocular video. arXiv preprint arXiv:2608.07045,
+2026. 3
+[60] Joseph M. Romano, Kaijen Hsiao, Günter Niemeyer, Sachin
+Chitta, and Katherine J. Kuchenbecker.
+Human-inspired
+robotic grasp control with tactile sensing. IEEE Transac-
+tions on Robotics, 27(6):1067–1079, 2011. 3, 5
+[61] Javier Romero, Dimitrios Tzionas, and Michael J. Black.
+Embodied hands: Modeling and capturing hands and bodies
+together. ACM Transactions on Graphics (Proc. SIGGRAPH
+Asia), 36(6), 2017. 3
+[62] Tara Sadjadpour, Siming He, C. K. Wolfe, Haozhi Qi, Lea
+Wilken, S. Shankar Sastry, Claire Tomlin, and Jitendra Ma-
+lik. Morphometric imitation: From morphology and con-
+tact aware hand retargeting to sim-to-real visuomotor policy.
+arXiv preprint arXiv:2609.28660, 2026. 2, 6
+[63] Akash Sharma, Carolina Higuera, Chaithanya Krishna Boddu-
+luri, Zixi Liu, Taosha Fan, Tess Hellebrekers, Mike Lambeta,
+Byron Boots, Michael Kaess, Tingfan Wu, Francois Robert
+Hogan, and Mustafa Mukadam. Self-supervised perception
+for tactile skin covered dexterous hands. In 9th Annual Con-
+ference on Robot Learning, 2025. 2
+[64] Kenneth Shaw, Shikhar Bahl, and Deepak Pathak. Videodex:
+Learning dexterity from internet videos. In Conference on
+Robot Learning (CoRL), 2022. 3
+[65] Soshi Shimada, Vladislav Golyanik, Patrick Pérez, and Chris-
+tian Theobalt. Decaf: Monocular deformation capture for
+face and hand interactions. ACM Transactions on Graphics
+(Proc. SIGGRAPH Asia), 42(6), 2023. 2
+[66] Jihwan Shin, Adrià López Escoriza, Junzhe He, Matthias
+Heyrman, and Marco Hutter. HOI-Retarget: Contact-centric
+retargeting for human-object interaction.
+arXiv preprint
+arXiv:2609.34674, 2026. 2, 3
+[67] Aravind Sivakumar, Kenneth Shaw, and Deepak Pathak.
+Robotic telekinesis: Learning a robotic hand imitator by
+watching humans on youtube. In Robotics: Science and
+Systems (RSS), 2022. 2
+[68] Zhixin Sun, Kairui Shi, Tianao Ren, Ming Yang, Mark
+Cutkosky, and James Jingxi Xu. Egocpt: Learning dexterous
+manipulation from a single ego-centric video with contact-
+aware optimization. arXiv preprint arXiv:2610.17572, 2026.
+3
+[69] Subramanian Sundaram, Petr Kellnhofer, Yunzhu Li, Jun-Yan
+Zhu, Antonio Torralba, and Wojciech Matusik. Learning the
+signatures of the human grasp using a scalable tactile glove.
+Nature, 569:698–702, 2019. 3
+[70] Omid Taheri, Nima Ghorbani, Michael J. Black, and Dim-
+itrios Tzionas. Grab: A dataset of whole-body human grasp-
+ing of objects. In European Conference on Computer Vision
+(ECCV), 2020. 2, 3, 6, 7, 1
+[71] TODO verify authors. Spider: Scalable physics-informed
+dexterous retargeting. arXiv preprint, 2025. 7
+[72] Dimitrios Tzionas, Luca Ballan, Abhilash Srikantha, Pablo
+Aponte, Marc Pollefeys, and Juergen Gall. Capturing hands
+in action using discriminative salient points and physics sim-
+ulation. International Journal of Computer Vision, 118(2):
+172–193, 2016. 2
+[73] Filipe Veiga, Jan Peters, and Tucker Hermans. Grip stabiliza-
+tion of novel objects using slip prediction. IEEE Transactions
+on Haptics, 11(4):531–542, 2018. 3
+[74] Chen Wang, Haochen Shi, Weizhuo Wang, Ruohan Zhang,
+Li Fei-Fei, and C. Karen Liu. Dexcap: Scalable and portable
+mocap data collection system for dexterous manipulation. In
+Robotics: Science and Systems (RSS), 2024. 3
+[75] Grady Williams, Nolan Wagener, Brian Goldfain, Paul Drews,
+James M. Rehg, Byron Boots, and Evangelos A. Theodorou.
+Information theoretic mpc for model-based reinforcement
+learning. In IEEE International Conference on Robotics and
+Automation (ICRA), 2017. 5
+[76] Jielin Wu, Shenzhe Yao, Guanqi He, Xiaohan Liu, Zhaoqing
+Zeng, Xiangrui Jiang, Han Yang, Wentao Zhang, and Hang
+Zhao. Toporetarget: Interaction-preserving retargeting for
+dexterous manipulation. arXiv preprint arXiv:2606.16272,
+2026. 2, 6
+[77] Philipp Wu, Yide Shentu, Zhongke Yi, Xingyu Lin, and Pieter
+Abbeel. Gello: A general, low-cost, and intuitive teleopera-
+tion framework for robot manipulators. In 2024 IEEE/RSJ
+International Conference on Intelligent Robots and Systems
+(IROS), pages 12156–12163. IEEE, 2024. 2
+[78] Yuhang Wu, Lingqi Zeng, Changwei Jing, Jianglong Ye, and
+Xiaolong Wang. Reforce: Learning force-aware retargeting
+for dexterous manipulation. arXiv preprint arXiv:2608.15560,
+2026. 3
+11
+
+
+[79] Mengda Xu, Han Zhang, Yifan Hou, Zhenjia Xu, Linxi Fan,
+Manuela Veloso, and Shuran Song. Dexumi: Using human
+hand as the universal manipulation interface for dexterous
+manipulation. In Conference on Robot Learning (CoRL),
+2025. 2, 3
+[80] Haoru Xue, Chaoyi Pan, Zeji Yi, Guannan Qu, and Guanya
+Shi. Full-order sampling-based mpc for torque-level locomo-
+tion control via diffusion-style annealing. In IEEE Interna-
+tional Conference on Robotics and Automation (ICRA), 2025.
+5
+[81] Lihe Yang, Bingyi Kang, Zilong Huang, Zhen Zhao, Xiao-
+gang Xu, Jiashi Feng, and Hengshuang Zhao. Depth anything
+v2. In Advances in Neural Information Processing Systems
+(NeurIPS), 2024. 1
+[82] Lujie Yang, Xiaoyu Huang, Zhen Wu, Angjoo Kanazawa,
+Pieter Abbeel, Carmelo Sferrazza, C. Karen Liu, Rocky Duan,
+and Guanya Shi. Omniretarget: Interaction-preserving data
+generation for humanoid whole-body loco-manipulation and
+scene interaction. arXiv preprint arXiv:2509.26633, 2025. 3
+[83] Shiqi Yang, Minghuan Liu, Yuzhe Qin, Runyu Ding, Jia-
+long Li, Xuxin Cheng, Ruihan Yang, Sha Yi, and Xiaolong
+Wang. Ace: A cross-platform visual-exoskeletons system for
+low-cost dexterous teleoperation. In Conference on Robot
+Learning (CoRL), 2024. 2
+[84] Zihao Yang, Chengyuan Liu, Yu Zhou, Runze Lv, Tianyu Cui,
+Sheng Yi, Haohua Zhu, Irvine Lu, and JieQ Sun. Dexterous
+robot manipulation from human demonstrations via contact-
+anchored retargeting and residual policy learning.
+arXiv
+preprint arXiv:2609.24093, 2026. 2, 3
+[85] Yifei Yin, Chen Guo, Manuel Kaufmann, Juan Jose Zarate, Jie
+Song, and Otmar Hilliges. Hi4d: 4d instance segmentation
+of close human interaction. In IEEE/CVF Conference on
+Computer Vision and Pattern Recognition (CVPR), 2023. 2
+[86] Zhao-Heng Yin, Changhao Wang, Luis Pineda, Krishna Bod-
+duluri, Tingfan Wu, Pieter Abbeel, and Mustafa Mukadam.
+Geometric retargeting: A principled, ultrafast neural hand
+retargeting algorithm. In IEEE/RSJ International Conference
+on Intelligent Robots and Systems (IROS), 2025. 2
+[87] Han Zhang, Songbo Hu, Zhecheng Yuan, and Huazhe Xu.
+Doglove: Dexterous manipulation with a low-cost open-
+source haptic force feedback glove. In Robotics: Science
+and Systems (RSS), 2025. 2
+[88] Jinglei Zhang, Jiankang Deng, Chao Ma, and Rolan-
+dos Alexandros Potamias. Hawor: World-space hand motion
+reconstruction from egocentric videos. In IEEE/CVF Confer-
+ence on Computer Vision and Pattern Recognition (CVPR),
+2025. 3, 1
+[89] Tony Z. Zhao, Vikash Kumar, Sergey Levine, and Chelsea
+Finn. Learning fine-grained bimanual manipulation with low-
+cost hardware. In Robotics: Science and Systems (RSS), 2023.
+2, 3
+[90] Xinghao Zhu, Zixi Liu, Shalin Jain, Chenran Li, Milad Noori,
+Michael Andres Lin, Huihua Zhao, John Welsh, Mrinal Vergh-
+ese, Wei Liu, Tingwu Wang, Xingye Da, Zhengyi Luo, Vishal
+Kulkarni, Naema Bhatti, Yuke Zhu, Linxi Fan, Bowen Wen,
+Danfei Xu, Soha Pouya, and Yan Chang. Learning dexterous
+manipulation using contact wrench guidance from human
+demonstration. arXiv preprint arXiv:2607.00033, 2026. 3
+12
+
+
+CARD: Contact-Anchored Retargeting for Dexterous Manipulation
+Supplementary Material
+A. Unifying Vision, Glove, and Motion-Capture
+Demonstrations
+Data sources. Vision: A monocular phone video is tracked
+in the world frame with HaWoR [88], while per-vertex hand–
+object contact is predicted by Vid-HACO (Secs. 3.2 and 4.4).
+Hand segmentation and metric scale are obtained using off-
+the-shelf models [58, 81]. Tactile glove: A 744-taxel pres-
+sure grid provides measured contact and pressure, with each
+taxel registered to a personalized MANO mesh, and a wrist-
+mounted tracker provides hand motion. Motion capture
+with tactile glove: The same tactile glove is worn under
+OptiTrack markers, so the glove supplies the contact and
+pressure while the markers provide drift-free wrist motion,
+together with a tracked object mesh used only for evaluation.
+GRAB [70] and ARCTIC [16] are incorporated through their
+native annotations and loaders.
+From sensor measurements to contact force targets. All
+three sources are converted into the same contact force tar-
+gets representation. Each source delivers, per frame and
+link, a set of contacting MANO vertices v with a weight
+wv: the registered taxel pressure for the glove and motion-
+capture sources, and wv = 1 for video, where Vid-HACO
+outputs a binary contact mask, so every contacting vertex
+counts equally. GRAB provides contact from hand–object
+proximity in place of pressure. The center of pressure cf fol-
+lows in three steps. (i) The contacting vertices are expressed
+in the link’s 2-D pad chart, with the bone as the x axis
+and the pad normal as z, and reduced to the weighted cen-
+troid (¯xf, ¯yf) = P
+v wv(xv, yv)/ P
+v wv. (ii) The (¯xf, ¯yf)
+track is smoothed over time with a centered 11-frame mov-
+ing average, which adds no lag and, because it acts on the
+chart, keeps the point on the pad. (iii) The smoothed point
+is mapped back to 3-D and snapped onto the MANO sur-
+face, giving cf. The contact direction ˆdf is the weighted
+mean of the contacting vertices’ outward surface normals,
+oriented toward the object, and the raw force magnitude is
+the total weight P
+v wv of the patch. Because video and
+GRAB do not measure force, we estimate their forces using
+a whole-clip grasp-balance procedure that finds the small-
+est smooth force correction driving the net wrench of each
+grasp toward zero. The same balance principle underlies
+force estimation from video, where contact forces are fitted
+to the tracked object’s Newton–Euler equations [52, 53];
+without an object model, we instead balance the net wrench
+of the contacts themselves. Finally, short contact blinks
+are removed, contact onsets within each grasp are synchro-
+nized, and video-derived contacts are given a short temporal
+pre-roll.
+Figure 9. Initializer vs. solution on six video clips (hanger, can,
+cup, cards, marker, bowl): the geometric initializer qinit (left of
+each pair) seats the hand near the contact force target. The contact
+solve (right) closes the last millimeters. Orange spheres are the
+contact force target.
+B. Additional Vid-HACO Details and Analysis
+The model and baseline comparison are presented in
+Secs. 3.2 and 4.4 and Tab. 2. Here we provide the training-
+data breakdown and additional evaluation details.
+B.1. Training Data and Implementation
+Data composition. Table 4 lists the 12 training datasets and
+their splits. Of the 1.55M training frames, 71% come from
+HOT3D and ARCTIC’s allocentric views, which HACO
+does not use. Labels are defined on the right-hand MANO
+mesh.
+Implementation. The encoder, decoder, and two predic-
+tion heads in Sec. 3.2 have 411M parameters in total. The
+probability threshold of 0.52 is shared with HACO.
+B.2. Evaluation Details and False Contacts
+Benchmarks and metrics. The validation split (172.9k
+frames) measures in-distribution accuracy. HRDexDB [37],
+which no model saw in training, measures generalization:
+434 egocentric videos of a hand grasping 94 objects (111.9k
+frames), with ground truth from the same 10 mm rule. All
+models see the same hand crops and are thresholded at 0.52.
+Vertex precision, recall, and F1 are pooled over all vertices
+1
+
+
+Table 4. Vid-HACO training data. Contact: what the hand
+touches. View: egocentric, third-person (exo, including ARCTIC’s
+eight allocentric cameras), or web images.
+Dataset
+Contact
+View
+Train
+Val.
+HOT3D [3]
+object
+ego
+643,980
+71,792
+ARCTIC [16], allocentric
+object
+exo
+459,867
+51,186
+ARCTIC [16], egocentric
+object
+ego
+168,343
+18,707
+HOI4D [41]
+object
+ego
+106,278
+11,995
+DECAF [65]
+face
+exo
+58,829
+6,493
+Hi4D [85]
+body
+exo
+49,902
+5,306
+InterHand2.6M [46]
+hand
+exo
+33,439
+3,731
+H2O [31]
+object
+ego
+30,117
+3,350
+EPIC-Contact [4]
+object
+ego
+2,035
+233
+MOW [7]
+object
+web
+307
+43
+PROX [23]
+scene
+exo
+157
+21
+HIC [72]
+hand, object
+exo
+99
+16
+Total
+1,553,353
+172,873
+of all frames, so contact predicted on a contact-free frame
+lowers precision. AP is threshold-free, and frame F1 scores
+whether a frame is in contact at all.
+Fewer false contacts. Both HACO models over-predict
+contact, trading 11 points of precision for 3 to 5 points of
+recall on HRDexDB. Their class-balanced sampling removes
+nearly every contact-free frame from training, so they flag
+contact on every frame and score exactly the trivial always-
+in-contact frame F1, where Vid-HACO reaches 98.3 and
+95.3. This matters downstream: CARD turns contacting
+vertices into contact force target, so contact hallucinated
+during a reach pulls fingers onto empty space.
+C. Geometric initialization
+The initializer computes qinit = (tinit, ωinit, θinit) from the
+human skeleton alone, in closed form, once per frame. No
+optimizer runs inside it. Let g0, . . . , g20 be the MANO
+keypoints (g0 the wrist, then MCP, PIP, DIP and TIP of
+each finger), let B be the set of hand bones, bone k run-
+ning from keypoint ik to jk with unit direction ˆeH
+k
+=
+(gjk −gik)/∥gjk −gik∥, and let ˆek(q) be the direction of the
+corresponding robot link, as in Eq. (10). Let P be the pairs
+of adjacent bones (k, l) along one finger, meeting at a joint,
+with the palm segment g0 →gMCP as the first bone of every
+chain.
+Flexion. The robot’s finger joints are hinges, so the angle
+between two adjacent robot links is the hinge angle between
+them. Matching relative bone directions between adjacent
+bones therefore has a closed-form solution at every flexion
+hinge j(k, l) of the index, middle, ring and pinky,
+θinit
+j(k,l) = −arccos
+ ˆeH
+k · ˆeH
+l
+
+,
+(k, l) ∈P,
+(5)
+with the sign of the robot’s flexion convention. The human
+bend is copied exactly. An attenuated copy compounds along
+the chain into a link-direction error (Appendix E).
+Abduction. The component Eq. (5) discards is the spread in
+the palm plane. With Π the projection onto that plane, the
+abduction hinge of finger i receives the signed angle between
+its proximal bone and the middle finger’s, positive toward
+the thumb,
+θinit
+AA,i = ∠
+ Π ˆeH
+prox,i, Π ˆeH
+prox,mid
+
+.
+(6)
+Wrist rotation. The palm frame W = [ ˆf, ˆa, ˆf × ˆa] has ˆf
+pointing from the wrist to the middle knuckle and ˆa from
+the index to the pinky knuckle, made orthogonal to ˆf. W H
+is built from the keypoints each frame and W R once from
+the robot at rest, from its hand centre and the same three
+knuckles:
+Rinit = W H (W R)⊤,
+ωinit = log Rinit.
+(7)
+Finger errors cannot rotate the hand.
+Thumb. The thumb admits neither Eq. (5) nor Eq. (6): the
+human spreads it by about 50◦at the base where the robot’s
+abduction hinge allows 20◦, and the two chains’ axes differ.
+Its five joints are instead an affine function of the human
+thumb geometry expressed in the palm frame,
+θinit
+thumb = A x + b,
+x = (Rinit)⊤
+ˆeH
+CMC→MCP, ˆeH
+MCP→IP,
+ˆeH
+IP→TIP, ˆnH
+thumb
+
+∈R12,
+(8)
+with ˆnH
+thumb the MANO thumb-pad normal of Eq. (10). The
+constants A ∈R5×12 and b ∈R5 are fitted once, by ridge
+regression over 720 frames of 20 video clips, to the mini-
+mizer of the weighted least squares P
+k w2
+k∥ˆek(θ) −ˆeH
+k ∥2 +
+w2
+n∥ˆb(θ)−ˆnH
+thumb∥2 over the thumb joints within their limits
+(bone directions weighted 0.5, 0.7, 1.0 from base to tip, pad
+normal 1.0). On clips held out of the fit the map reproduces
+that minimizer to within half a degree. The per-frame least
+squares it replaces cost 6 ms, the map 0.03 ms.
+Wrist translation. With ai(θ) the robot’s pad apex of finger
+i in the wrist frame, as in Eq. (10), the translation seats the
+centroid of the copied fingertips on the centroid of the human
+fingertips,
+tinit = 1
+5
+5
+X
+i=1
+gTIPi −Rinit 1
+5
+5
+X
+i=1
+ai(θinit),
+(9)
+and θinit is clipped to the joint limits. The wrist keypoint
+is deliberately not used for position: the robot’s fingers are
+about 40 mm longer than the human’s, so matching fingertips
+rather than wrists places the robot palm 25–36 mm behind
+the human palm on the video clips, which is what lets the
+pads start near the contact force target. A rigid fit of rotation
+and translation to the five fingertips was tried and rejected,
+since five near-coplanar points determine a rotation poorly.
+2
+
+
+The initializer is deterministic, so a steady source gives
+a steady start, and it costs under a millisecond per frame.
+It enters the solve only as half of the sampler’s warm start.
+None of the cost groups is evaluated inside it, and the style
+group scores the same quantities—pad apex, pad normal,
+link direction—in task space during the solve. Figure 9
+shows the initializer beside the solved pose. We also tested
+the converse designs: a per-finger least squares on the style
+terms as the initializer places fingertips closer but contorts
+the chains, and the final solve is worse on every contact
+metric. The initializer’s joint copy used as the free-finger
+reward in place of the style group cannot place fingertips
+and loses contact rate. The division of labour between a
+direction-exact initializer and a task-space style reward is
+therefore kept.
+D. Additional CARD implementation details
+Cross-embodiment semantic maps. A semantic map lists,
+for every human region of Fig. 11, the robot body that re-
+ceives its contact force target and the face of that body that
+grasps. Nothing else changes between embodiments: the
+same anchors, cost groups, and weights (Tab. 5) drive ev-
+ery hand. Figure 10 shows the four maps we instantiate.
+SHARPA Wave and Wuji Hand 2 are five-fingered hands
+with three links per finger, so their maps are one-to-one: each
+of the 15 finger regions goes to the robot link of the same
+name (distal region to fingertip pad, middle to middle link,
+proximal to proximal link) and the palm to the palm body,
+and SHARPA additionally receives the pinky base on its
+metacarpal body. The Unitree Dex3-1 has three fingers, so
+its map is many-to-one: the human thumb maps to its thumb
+and the index to its index, while the middle, ring, and pinky
+regions all map to its third finger. Distal and middle regions
+land on the matching tip and middle pads, and when several
+of the grouped fingers touch at once their anchors are merged
+into one by a force-weighted centroid. The parallel-jaw grip-
+per has two pads: the thumb maps to one jaw and the four
+fingers to the other, with the distal, middle, and proximal
+regions landing on the tip, middle, and base zones of the jaw,
+so the within-link location is still carried. Human regions
+without a counterpart, such as the palm on the Dex3-1 and
+on the gripper, carry no contact force targets.
+Cost groups in full. The style group of Sec. 3.3 reads
+Estyle(q) = w2
+tip
+5
+X
+i=1
+ai(q) −aH
+i
+2
++ w2
+n
+5
+X
+i=1
+ 1 −ˆbi(q) · ˆnH
+i
+
++ w2
+b
+X
+ℓ
+ 1 −ˆeℓ(q) · ˆeH
+ℓ
+
+,
+(10)
+where ai(q) is the pad apex of finger i and aH
+i the palmar
+apex of the matching MANO fingertip, ˆbi(q) the pad’s belly
+axis and ˆnH
+i the MANO pad normal, and ˆeℓ, ˆeH
+ℓthe long
+axes of finger region ℓon robot and human. The smoothness
+and collision groups are
+Esmooth(q) = w2
+θ
+θ−θ−2+w2
+t
+t−t−2+w2
+ω
+ω⊖ω−2,
+(11)
+Ecollision(q) = w2
+self
+X
+(i,j)
+max
+ 0, m −hij(q)
+2
++ w2
+obj
+X
+s
+max
+ 0, δs(q) −ϵ
+2,
+(12)
+with ⊖the rotation difference in the axis–angle chart near-
+est ω−, hij(q) the capsule–capsule gap of finger pair (i, j)
+with soft margin m, and δs(q) the penetration depth of hand-
+surface sample s with allowance ϵ. The two hard tests reject
+a candidate when maxs δs(q) > δmax or the palm–finger
+gap falls below m. Finger–finger pairs keep only the soft
+margin, since a valid tripod legitimately overlaps two finger-
+tip capsules.
+Pseudo-object. The video and glove sources have no object
+mesh, so the object field of Eq. (12) is built from the demon-
+stration itself (Fig. 12). The positions cf of the active contact
+force target of every frame, palm excluded, are mapped into
+that frame’s wrist frame and accumulated over the clip, and
+their convex hull is the pseudo-object whose signed-distance
+field supplies δs(q). The hull covers only the contacted part
+of the object, a wedge of the can in Fig. 12, which is exactly
+the region the fingers must stay out of. Since the contact
+force target sit on the object surface, the demonstrating hand
+wraps the hull with little penetration. GRAB clips are solved
+the same way: the pseudo-object is the collision field and the
+GRAB mesh is used only for evaluation. Our own motion-
+capture clips, whose object is tracked live during capture,
+use the tracked mesh with the larger barrier weight of Tab. 5.
+Sampler. At iteration i the sampler draws N candidates
+qj = ¯q(i) + ξj, ξj ∼N(0, diag(σ2
+i )), keeps the elite set Ei
+of the lowest-cost 5%, and updates
+¯q(i+1) =
+X
+j∈Ei
+exp(−˜Ej/η)
+P
+k∈Ei exp(−˜Ek/η)
+qj,
+σi = β iσ0,
+β = γ1/K,
+(13)
+where ˜Ej is the cost standardized over the elite set, so a uni-
+form rescaling of all weights leaves the update unchanged,
+and the per-DoF noise anneals from σ0 to γσ0 over K iter-
+ations. The warm start is ¯q(0) = 1
+2q−+ 1
+2qinit. The incum-
+bent is always re-evaluated and the best candidate seen is
+returned.
+Solver settings. Tab. 5 lists the weights of Eqs. (3) and (10)
+to (12) and the sampler settings. One configuration serves
+the video, glove, and motion-capture sources.
+3
+
+
+1:1 — 15 finger regions +
+palm + pinky base
+1:1 — 15 finger regions +
+palm
+3 fingers — thumb · index
+· middle+ring+pinky
+2 jaws — thumb ·
+index+middle+ring+pinky
+SHARPA
+Wuji Hand 2
+Dex3
+Parallel-jaw
+Figure 10. Semantic maps. The human hand (left of each pair) and the robot it is mapped to, colored by semantic region: the same color
+marks a human region and the robot link that receives its contacts. Skin marks human regions the embodiment has no link for, and grey
+marks unmapped robot bodies. SHARPA Wave and Wuji Hand 2 take the 15 finger regions and the palm one-to-one, and SHARPA also the
+pinky base. The Unitree Dex3-1 folds middle, ring, and pinky onto its third finger, and the parallel-jaw gripper assigns the thumb to one jaw
+and the four fingers to the other.
+Table 5. Solver settings shared by the video, glove, and motion-capture sources. Weights multiply the residual before squaring, as written in
+Eqs. (3) and (10) to (12). Residual units differ across groups, so weights are not comparable by magnitude.
+Group
+Term
+Symbol
+Value
+Contact
+reach and cone, Eq. (3)
+wc
+40
+direction price
+λ, r
+2, 10 mm
+correspondence blend
+αf
+0.15 (distal, middle), 0 (proximal)
+contact stability
+wfix
+2.5
+force weighting
+ρf
+1 + 1
+2 Ff/Fmax ∈[1, 1.5]
+Style
+fingertip apex
+wtip
+3
+pad normal
+wn
+60
+bone direction
+wb
+20
+Smoothness
+joints
+wθ
+0.1
+wrist translation
+wt
+√
+52 + 102†
+wrist rotation
+wω
+10
+Collision
+self-collision weight, margin
+wself, m
+1.5, 6 mm
+object barrier weight, allowance
+wobj, ϵ
+3.5 (pseudo-object), 14 (motion capture, tracked mesh), 2 mm
+hard penetration floor
+δmax
+3 mm
+Sampler
+candidates, iterations
+N, K
+1024, 16
+elite fraction, temperature
+—, η
+5%, 0.1
+initial noise (translation, rotation, joints)
+σ0
+2 mm, 0.016 rad, 0.05 rad
+final noise scale
+γ
+0.2
+velocity caps (joints, translation)
+—
+0.25 rad, 20 mm per frame
+warm start
+¯q(0)
+1
+2 q−+ 1
+2 qinit
+Post-processing
+Savitzky–Golay window, order
+—
+15 frames, 3
+†The implementation applies a weight of 5 to the translation step and a weight of 10 to the full 6-DoF base step. The latter also supplies wω.
+middle_MP
+middle_DP
+ring_PP
+ring_MP
+ring_DP
+pinky_PP
+pinky_MP
+pinky_DP
+pinky_base
+thumb_MC
+thumb_PP
+thumb_DP
+index_PP
+index_MP
+index_DP
+middle_PP
+palm
+palm_upper
+Figure 11. Semantic regions. The 18 regions shared by every
+source and robot, three per finger, the palm, the upper palm, and
+the pinky base, each with its region center of pressure.
+E. Ablations
+All ablations use 20 of the monocular-video recordings of
+Tab. 1 with the contact force target exactly as released by the
+upstream HACO pipeline, whose conservative gating leaves
+4,297 anchor-frames. Rates are pooled over anchor-frames,
+Gap is the per-clip median and Pen. the per-clip maximum
+penetration, averaged over clips, and the full method is the
+mean of two sampler seeds (spread at most 1.1 points on
+rates, 0.1 mm on distances).
+Initializer and barrier. Table 6 removes the geometric
+initializer so the sampler starts from the previous frame alone,
+reverts to the earlier initializer (flexion copied at a gain of
+0.7 with a per-frame least-squares thumb), and removes the
+4
+
+
+registered contact cloud
+fitted convex hull (pseudo-object)
+hand grasping the pseudo-object
+input video (same frame)
+Figure 12. Pseudo-object for video. Left to right: the contact force target of every frame of a video clip, mapped into the wrist frame
+and accumulated (registered contact cloud); their convex hull, the pseudo-object that serves as the collision field; the MANO hand at the
+peak-contact frame grasping the translucent hull; and the input video at the same frame. The first three panels are drawn in the camera frame
+of that frame, so their orientation matches the video.
+soft penetration barrier. The initializer matters more than
+any single reward term. Without it the sampler still finds
+the contact force target on half the frames, but its worst
+misses grow to 3 cm and penetration to 6 mm: the warm start
+carries the fingertip information the sampler’s small noise
+cannot recover. The earlier initializer lands 13 points below
+the current one. Its attenuated copy compounds along the
+chain to a 20◦link error, whereas the exact copy leaves 8◦.
+The barrier costs 5.5 points of contact and keeps the deepest
+incursion at 4 mm rather than 6.
+Contact terms. Table 7 switches the ingredients of the
+contact group Eq. (3) on and off and removes the style group
+Eq. (10). Every variant keeps the anti-slip term, the force
+weights, the smoothness and collision groups, the initializer,
+and the sampler budget of Tab. 5, and the contact point is
+always the nearest pad sample. Reach only sets αf=0 and
+λ=0, a pure pull of the nearest sample onto the contact
+force targets. No correspondence restores the cone but keeps
+αf=0. Correspondence only is the opposite corner, αf=1
+and λ=0. No cone is the full method with λ=0, and no style
+the full method with wtip=wn=wb=0.
+Three things follow. The friction-cone term buys direc-
+tion and pays for it in contact: every variant without it sits at
+53–58% in-cone, every variant with it at 80–82%, but since
+the cone can only act by rotating the finger, the rotated pad
+reaches 4 points fewer contact force target (69.1 without the
+cone vs. 64.7 with it). We accept that trade, because a contact
+that cannot carry the demonstrated push is not the contact
+the human made. The correspondence term buys contact
+in either regime: adding pH
+f at αf=0.15 raises the contact
+rate from 58.4 to 64.7 with the cone and from 62.7 to 69.1
+without it, while letting it own the position entirely (αf=1)
+over-constrains the pad (50.4 and 59.1), so the blend must
+stay small. The style group costs 5 points on the anchored
+links (59.9 vs. 64.7) but is what shapes the free fingers.
+F. Tactile tracking controller
+Formulation. Figure 5 and Eq. (4) in the main text define
+the loop, one per finger f at 100 Hz, with the kinematic
+path in blue and the force path in orange; the contact state
+machine below is not drawn. The SHARPA Wave measures
+the contact wrench at each fingertip, from which we take
+the pad’s surface-normal force F meas
+f
+, clamped at zero so a
+dropped frame reads as free space, and the force error ef =
+F des
+f
+−F meas
+f
+is low-passed at 10 Hz to ¯ef. The admittance
+is a rate-limited integrator with a small proportional term,
+˙κI
+f = clip
+ ki ¯ef, ±˙κmax
+
+,
+κf = clip
+ κI
+f+kp ¯ef, 0, 1
+
+,
+(14)
+with ki = 1.0 curl / (N·s), kp = 0.05 curl / N, ˙κmax = 6 s−1,
+and kff = 0.3 in Eq. (4). The rate limit and the clamp supply
+both the anti-slam approach limit and anti-windup, and the
+proportional term sits outside the integrator state so it cannot
+wind up. The curl deflects only the finger’s flexion joints,
+along the fixed unit synergy ˆψf, toward closure; the Jacobian
+in τff is evaluated at qcmd. Five independent loops run on
+the 22-DoF hand, and the gains are dimensionless in curl, so
+they carry between simulation and hardware unchanged.
+Contact state machine. Following the contact-event grasp
+controllers of Romano et al. [60], the contact state machine
+enters on 0.05 N confirmed for one frame and exits below
+0.01 N sustained for 0.6 s. During that wait the integrator
+freezes rather than continuing to integrate the full set-point,
+which is what prevents a finger from crushing shut on a
+momentary sensor dropout. On declared loss the applied
+curl relaxes toward the retargeted trajectory with a 1.0 s
+time constant, and a re-touch resumes from the decayed curl
+rather than from the pre-loss integrator. The feedforward
+torque uses kff = 0.3, is armed only on confirmed contact,
+and is scaled uniformly—not clipped per element, which
+would distort the torque distribution across a finger’s joints—
+5
+
+
+Table 6. Initializer and penetration barrier on the 20-clip video bed. Rates in percent, Gap median and Pen. maximum in mm. Best in
+bold.
+Variant
+Contact ↑
+Region | contact ↑
+In-cone ↑
+Gap (mm) ↓
+Pen. (mm) ↓
+CARD (full)
+64.7
+97.4
+82.2
+2.0
+4.2
+−geometric initializer
+52.3
+98.8
+79.0
+2.5
+6.0
+previous initializer (gain 0.7)
+51.7
+97.2
+81.4
+2.3
+3.4
+−penetration barrier
+59.2
+97.6
+81.5
+2.0
+6.0
+Table 7. Contact-term ablation on the 20-clip video bed. αf is the correspondence blend and λ the friction-cone weight of Eq. (3), and
+Estyle is the style group Eq. (10). Gap median and Pen. maximum in mm. The contact point is the nearest pad sample throughout. Best in
+bold.
+Variant
+Setting
+Contact ↑
+Region | contact ↑
+In-cone ↑
+Gap ↓
+Pen. ↓
+CARD (full)
+αf=0.15, λ=2
+64.7
+97.4
+82.2
+2.0
+4.2
+Reach only
+αf=0, λ=0
+62.7
+98.1
+57.5
+1.7
+4.4
+No correspondence
+αf=0, λ=2
+58.4
+98.5
+81.3
+2.1
+4.5
+Correspondence only
+αf=1, λ=0
+59.1
+97.6
+53.3
+1.9
+4.2
+Correspondence + cone
+αf=1, λ=2
+50.4
+97.8
+80.3
+2.5
+4.0
+No cone
+αf=0.15, λ=0
+69.1
+97.3
+54.6
+1.5
+4.2
+No style
+Estyle ≡0
+59.9
+96.9
+80.1
+2.1
+4.1
+to ∥τff∥∞≤0.15 N·m. The curl deflection is capped at
+0.10 rad per joint beyond the retargeted target and desired
+forces at 10 N per finger.
+Friction identification.
+The feedforward torque only
+reaches the fingertip if joint friction is known, so we iden-
+tified it before the experiments. Joint friction is compen-
+sated as a per-joint, per-direction Coulomb-plus-viscous
+model with a stiction breakaway threshold, fit from constant-
+velocity sweeps and breakaway ramps in simulation on the
+hand’s own model and validated against its ground-truth fric-
+tion parameters. It is evaluated on commanded rather than
+measured velocity.
+Arm. The arm tracks the retargeted wrist by differential
+inverse kinematics, smoothed with a zero-phase Savitzky–
+Golay filter (7-frame window, order 2) under a 90◦/s per-
+joint velocity ceiling, then interpolated to a 500 Hz stream.
+Results. Figure 13 shows the closed-loop force tracking on a
+fixed object and in a three-finger grasp. The task-level effect
+of the loop is the replay study in Sec. 4.2 and Fig. 6, which
+compares identical retargeted trajectories with and without
+the tracker.
+G. Metric definitions
+Evaluation metrics. We keep the notation of Sec. 3.1: A is
+the set of anchor-frames — one contact force targets Cf =
+(cf, ˆdf, Ff) of one frame — and Na = |A| their number.
+For an anchor-frame a ∈A with assigned link f, Mf is the
+link’s visual geometry in its body frame, Spal
+f
+⊂Sf the pad
+samples on its palmar face, and s∗
+f the sample nearest the
+contact force targets. Every method is graded against the
+identical stored contact force target, so only the hand pose
+varies between columns. We use the following five metrics:
+• Contact rate: A contact is considered established when
+the contact force targets lies inside the assigned link, or
+lies within δc = 2 mm of its surface and is reached with the
+palmar face of the pad. CR is the fraction of anchor-frames
+whose contact is established:
+χa = 1[cf ∈Mf] ∨1[dist(cf, ∂Mf) ≤δc]
+· 1
+h
+s∗
+f ∈Spal
+f
+i
+,
+CR =
+1
+Na
+X
+a∈A
+χa.
+(15)
+• Correct region: A contact is only considered in the cor-
+rect region when the contact is established, and the palmar
+pad nearest the anchor over the whole hand belongs to the
+demonstrated finger. RR is the fraction of anchor-frames
+in the correct region.
+• In-cone: A contact is only considered in-cone when the
+contact is established, and the contact normal ˆn(s∗
+f(q)) lies
+within the 45◦friction cone centered on the demonstrated
+push direction ˆdf. The dot product is signed, so a normal
+facing away from the push fails. IC is the fraction of
+in-cone anchor-frames:
+IC = 1
+Na
+X
+a∈A
+χa 1
+h
+ˆn(s∗
+f(q)) · ˆdf ≥cos 45◦i
+.
+(16)
+• Contact gap: The gap of an anchor-frame is the distance
+from the contact force targets to the assigned link’s surface,
+in mm:
+Gapa = dist(cf, ∂Mf) .
+(17)
+6
+
+
+0
+2
+4
+6
+8
+10
+time (s)
+0
+1
+2
+3
+4
+index force (N)
+(a) periodic force tracking
+target
+measured
+0
+5
+10
+15
+time (s)
+0
+2
+4
+6
+8
+10
+12
+force (N)
+(b) grasp force tracking
+thumb
+index
+middle
+measured
+target
+Figure 13. Force tracking on the SHARPA Wave. (a) The index finger follows a 0–4 N periodic contact force target against a fixed object:
+the measured force reaches the peaks within a few tenths of a newton and lags the target by about 0.2 s. The floor near 0.5 N is the preload
+the state machine keeps while in contact. (b) A three-finger grasp with step targets during mustard bottle pick-up replay (thumb 9.7 N,
+middle 7 N, index 2.6 N): the forces rise to their set-points within a second of the step, the thumb overshoots while the object settles, and
+release returns every finger to zero within about a second.
+• Penetration: The penetration of a frame is the deepest
+incursion of the hand surface into the object, in mm, with
+δs the signed incursion of hand-surface sample s into the
+object’s signed-distance field:
+Pen = max
+s
+δs(q).
+(18)
+It is reported only where a ground-truth tracked object
+mesh exists (GRAB, motion capture); the video and glove
+clips carry no object ground truth.
+H. Contact fidelity by demonstration source
+Table 8 splits the clips of Tab. 1 by how the contact signal
+was obtained: measured taxel pressure on the glove, contact
+inferred by Vid-HACO on video, proximity-thresholded con-
+tact on our motion capture, and GRAB, whose contact comes
+from the ground-truth meshes. CARD follows the quality of
+the contact signal: it is strongest where contact is measured
+(89.1% contact, 52.2% in-cone, 1.5 mm gap on the glove),
+then on tracked motion capture (76.1%), weaker on video
+(61.4%), where Vid-HACO infers the contact and a wrong
+label places the robot pad on empty space, and weakest on
+GRAB (43.1%), whose proximity labels carry no pressure
+and no true center of pressure. The kinematic baselines stay
+at 1–10% on every source and move the other way, best on
+video (7.6–9.7%) and worst on the glove (1.3–1.8%), which
+is what methods that track keypoints should do: they gain
+nothing from a better contact signal. The geometric initial-
+izer, CARD’s own deterministic warm start, already exceeds
+every baseline on every source (12.2–43.2%): a human-
+isomorphic pose places centers of pressure inside the link
+far more reliably than fitting scaled fingertip targets does.
+I. CARD–physics
+Setup. SPIDER [71] retargets in two stages. A kinematic
+stage fits the robot fingertips to the MANO keypoints by
+inverse kinematics and synthesizes contact targets from a
+replay of those keypoints; a physics stage rolls the hand and
+the object forward in MuJoCo with a sampling-based model-
+predictive controller that tracks the kinematic reference and
+rewards contact. CARD-physics keeps the physics stage and
+its budget (256 samples and 8 iterations per 2 s segment,
+early-abort gate off so that every rollout covers the whole
+demonstration) and changes three things. (1) The sampler is
+initialized with, and tracks, the CARD trajectory of Sec. 3.3 in
+place of the fingertip-IK reference; the object track and the
+resampling, padding, and smoothing of SPIDER’s kinematic
+stage are kept, so both arms follow the identical object ref-
+erence. (2) SPIDER’s fingertip contact term is replaced by
+our contact objective Econtact(q) of Eq. (3): the squared dis-
+tance of each contacting pad to its contact force target enters
+the reward with weight 10 and the 45◦friction-cone term on
+the demonstrated push with weight 2, relative to SPIDER’s
+tracking terms; the anti-slip term is omitted. (3) The contact
+force targets come from our pipeline (Appendix A) with the
+geometric contact rule used for GRAB, a contact probability
+of 1 −d/9 mm at hand–object distance d, thresholded at 0.5.
+SPIDER needs the object mesh and pose track to run at all,
+so the anchors add no information the baseline lacks.
+Data. 48 motion-capture demonstrations from our Table-
+Mocap sessions, including glove-instrumented grasps of a
+mustard bottle, each with a tracked object mesh (two seeds
+per arm), and 50 GRAB clips cut to the stored contact win-
+dow plus 0.5 s on either side (one seed).
+7
+
+
+Table 8. Contact fidelity by source. The clips of Tab. 1 grouped by contact signal. Rates in percent, pooled over anchor-frames; millimeter
+rows are the median over clips of the per-clip median. Penetration is reported only where a tracked object mesh exists. Bold: best per source
+and metric.
+CARD
+DexPilot
+AnyTeleop-K
+AnyTeleop-P
+CARD
+[22]
+[56]
+[56]
+(init only)
+Tactile glove, measured pressure (18 clips, 5,464 anchor-frames)
+Contact rate (%) ↑
+89.1
+1.8
+1.3
+1.3
+43.2
+Correct region (%) ↑
+87.8
+1.8
+1.3
+1.3
+43.2
+In-cone (%) ↑
+52.2
+0.5
+0.4
+0.4
+6.8
+Gap (mm) ↓
+1.54
+30.59
+30.25
+29.16
+8.54
+Monocular video, inferred contact (20 clips, 5,259 anchor-frames)
+Contact rate (%) ↑
+61.4
+9.7
+8.3
+7.6
+20.5
+Correct region (%) ↑
+60.1
+9.5
+8.0
+7.5
+19.2
+In-cone (%) ↑
+35.2
+4.2
+4.7
+5.0
+–
+Gap (mm) ↓
+2.40
+9.99
+10.80
+13.19
+5.76
+Motion capture, proximity contact (48 clips, 40,254 anchor-frames)
+Contact rate (%) ↑
+76.1
+4.0
+3.6
+3.8
+12.2
+Correct region (%) ↑
+75.5
+4.0
+3.6
+3.5
+12.1
+In-cone (%) ↑
+45.1
+1.2
+1.1
+2.6
+–
+Gap (mm) ↓
+1.36
+15.35
+14.83
+22.41
+9.43
+GRAB, mesh-derived contact (100 clips, 99,969 anchor-frames)
+Contact rate (%) ↑
+43.1
+4.9
+4.9
+4.6
+19.6
+Correct region (%) ↑
+40.6
+4.8
+4.9
+4.5
+17.8
+In-cone (%) ↑
+16.2
+1.7
+1.7
+1.7
+3.8
+Gap (mm) ↓
+3.56
+20.90
+20.45
+20.66
+13.78
+Penetration (mm) ↓
+7.96
+12.71
+12.79
+13.02
+11.15
+Scoring. SPIDER’s own criterion, a final object pose within
+10 cm and 90◦of the reference, is met by rollouts that never
+touch an object that returns near its start, so we score each
+run post hoc from its trajectory. A run succeeds when it
+covers the whole demonstration, the object travels at least
+half the demonstrated distance and, if the demonstration
+lifts it by 5 cm or more, rises by at least 3 cm and half the
+demonstrated lift, and the peak object position error stays
+below 15 cm. A task is solved when at least one seed suc-
+ceeds; runs with invalid physics do not count. Table 3 reports
+task success. Per run, CARD-physics succeeds on 51% of the
+motion-capture runs against 39% for SPIDER and on 43%
+of the GRAB runs against 10%, with median peak object
+errors of 106 vs. 138 mm and 120 vs. 274 mm. The rollouts
+show the mechanism: the IK reference forms thumb–finger
+opposition only after the object has started to move, so the
+sampler must find the grasp on its own, whereas the CARD
+reference encloses the object at the demonstrated contact
+onset and the sampler only has to squeeze.
+8

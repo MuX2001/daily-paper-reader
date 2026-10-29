@@ -1,0 +1,2821 @@
+Author Accepted Manuscript (AAM)
+Mixture of Flow Matching and Particle Filter for Proprioception-Based
+Online Contact Estimation
+Seo Wook Han and Min Jun Kim
+This is the final author manuscript incorporating the revisions made during peer review.
+Published in IEEE Transactions on Robotics, vol. 42, pp. 3646–3665, 2026.
+The version of record is available at
+https://doi.org/10.1109/TRO.2026.3723975.
+© 2026 IEEE. Personal use of this material is permitted. Permission from IEEE must be obtained for all other
+uses, in any current or future media, including reprinting/republishing this material for advertising or
+promotional purposes, creating new collective works, for resale or redistribution to servers or lists, or reuse of
+any copyrighted component of this work in other works.
+arXiv:2610.29568v1  [cs.RO]  21 Oct 2026
+
+
+HAN AND KIM: MIXTURE OF FLOW MATCHING AND PARTICLE FILTER FOR PROPRIOCEPTION-BASED ONLINE CONTACT ESTIMATION
+Mixture of Flow Matching and Particle Filter for
+Proprioception-Based Online Contact Estimation
+Seo Wook Han , and Min Jun Kim , Member, IEEE,
+Abstract—In this article, we propose ContactFlowFilter, a novel
+approach for contact estimation that determines the number of
+active contacts, their locations, and the associated force vectors.
+We consider a robot manipulator equipped with joint torque
+sensors and a base force/torque sensor; such a proprioceptive-
+only setup presents a challenging inverse problem characterized
+by (i) multi-modality from non-unique solutions, (ii) temporal
+dependencies in state evolution, and (iii) discrete contact events
+involving contact addition/removal. Existing approaches, such as
+particle filters (PFs) and learning-based methods, often struggle
+to address these challenges simultaneously. To overcome this,
+ContactFlowFilter integrates a generative model into the PF
+framework. The recursive structure of the PF captures temporal
+dependencies, while the flow matching model serves as an
+auxiliary proposal distribution to track multi-modal beliefs and
+detect contact events. Extensive validation in both simulation and
+real-world experiments confirms the effectiveness of the proposed
+method. In real-world settings, ContactFlowFilter achieves the
+lowest dissimilarity from the target distribution, with errors of
+only 0.36 cm and 0.88 cm for single- and dual-contact scenarios,
+respectively, while operating at 0.69 ms and 2.69 ms.
+Index Terms—Contact estimation, particle filters, generative
+models, flow matching, proprioceptive sensors.
+I. INTRODUCTION
+C
+ONTACT information is crucial for robots performing
+physical interactions. While collision detection [1]–[3]
+typically provides simple binary information (i.e., contact or
+no-contact), estimating a detailed contact state that includes
+contact location and force (e.g., ri and Fi in Fig. 1) unlocks
+a wide range of interactive applications. For example, such
+detailed contact information can transform the robot’s body
+into an intuitive human-robot interface, allowing users to
+trigger different commands by touching specific locations [4],
+[5] or to control the robot by leveraging the contact state
+as a virtual joystick [6]. It also supports interactive control
+schemes, such as constraining the contact force on the robot’s
+body [7], and substituting for a dedicated force/torque (F/T)
+sensor used for admittance [8]–[10] or direct force control
+Manuscript received: December 19, 2025; Revised: June 4, 2026; Accepted:
+July 13, 2026. This work was supported by the National Research Foundation
+of Korea (NRF) Grant funded by the Korean government (MSIT) (Project
+RS2025-02213804), the Industrial Technology Innovation Program funded
+by the Ministry of Trade, Industry and Resources (MOTIR) through the
+Korea Evaluation Institute of Industrial Technology (KEIT) (Grant No. RS-
+2024-00441872) and the Korea Institute for Advancement of Technology
+(KIAT) (Grant No. P0028404), and BK21 FOUR (Connected AI Education
+& Research Program for Industry and Society Innovation, KAIST EE, No.
+4120200113769). (Corresponding author: Min Jun Kim.)
+Seo Wook Han and Min Jun Kim are with the Intelligent Robotic Systems
+Laboratory, School of Electrical Engineering, Korea Advanced Institute of
+Science and Technology (KAIST), Daejeon 34141, South Korea (e-mail:
+seowook.han@kaist.ac.kr; minjun.kim@kaist.ac.kr).
+JTSs
+Base F/T 
+sensor
+F2
+r1
+r2
+(a)
+JTSs
+Base F/T 
+sensor
+F2
+r1
+(b)
+Fig. 1. (a) This work focuses on the problem of contact estimation for robotic
+arms: identifying the number of active contacts, their locations (ri ∈R3),
+and the associated forces (Fi ∈R3) using proprioceptive sensing (e.g., joint
+torque sensors (JTSs) and a base force/torque (F/T) sensor). (b) The proposed
+method addresses up to two active contacts, with the estimation results for the
+first and second contacts represented by magenta and blue arrows, respectively.
+[11]. Furthermore, this detailed estimation capability enables
+advanced strategies such as hybrid motion-force control under
+unknown forces from outside the target region [12], safe
+navigation through cluttered environments where unexpected
+contacts can occur [13]–[15], and whole-body manipulation of
+humanoid robots [16]–[18].
+In essence, all these applications rely on the ability to
+identify the detailed contact state, which consists of (i) the
+total number of contacts, (ii) their locations, and (iii) the
+associated force vectors. However, accurately estimating the
+contact state remains a largely unsolved problem. To address
+this, researchers have explored two main sensory pathways.
+The first approach uses exteroceptive sensors, such as surface-
+mounted tactile skins [19], [20], to directly obtain rich contact
+information at the interaction region. The second relies on
+proprioceptive sensors, such as joint torque sensors (JTSs)
+and F/T sensors [21]–[23], to infer the contact state from
+the robot’s internal state. We focus on the latter approach
+because these sensors are widely available and integrated into
+modern robotic systems. For instance, commercially available
+platforms such as the Franka Emika Panda, KUKA iiwa and
+iisy, and Kinova Gen3 are already equipped with JTSs, while
+F/T sensors can be readily installed (see Fig. 1).
+However, due to their sparse placement, proprioceptive
+sensors provide only indirect information about external con-
+
+
+IEEE TRANSACTIONS ON ROBOTICS, 2026
+F1b
+F1a
+Identical 
+observation
+F1b
+F1a
+(a) Multi-Modality
+F1
+F2
+Sliding
+t-2
+t-1
+t
+New
+contact
+Discrete 
+evolution
+Continuous 
+evolution
+F1
+F1
+F2
+(b) Temporal Dependency
+F1
+F2
+F1
+Contact addition
+Contact removal
+(c) Contact Event Detection
+Fig. 2.
+Examples of key challenges in the contact estimation problem: (a) Multi-modality: Two distinct contact forces (F1a and F1b) result in identical
+observations. (b) Temporal dependency: Current contact states depend on history, involving discrete changes in the number of contacts (e.g., when a new
+contact F2 occurs, t-2→t-1) and continuous updates in locations or forces (e.g., when an existing contact F1 slides, t-1→t). (c) Contact event detection:
+Determining the number of active contacts relies on identifying the exact timing of a transition and whether a contact is added or removed.
+tacts, as they capture the resulting internal joint torques and
+forces. We need to solve an inverse problem that estimates
+the contact state that best explain these sparse, internal sensor
+measurements. As shown in Fig. 1, our objective is to estimate
+the contact state, which includes the contact locations on
+distinct links (ri ∈R3), the corresponding three-dimensional
+(3D) force vectors (Fi ∈R3), and the number of contacts (up
+to two). By constraining our scope to scenarios with up to two
+point contacts, we isolate and tackle the core challenges of the
+contact estimation problem:
+• Multi-modality (Singularity): The primary challenge stems
+from the inherent ambiguity of the inverse problem. While
+the forward mapping (from contact to sensor reading) is
+deterministic, the inverse mapping is ambiguous; as illus-
+trated in Fig. 2(a), distinct contact states may correspond
+to identical sensor measurements. This singularity [24],
+[25] implies that the contact state might not be reliably
+determined from a single observation, leading to inherent
+uncertainty in the estimation. Consequently, the probability
+distribution of possible solutions becomes multi-modal. Due
+to the uncertain nature of the problem, it is more informative
+and important to predict the multi-modal distribution, rather
+than yielding a single deterministic solution.
+• Temporal Dependency: Although the ambiguity of inferring
+contact states from single observations remains an inher-
+ent problem, it can be mitigated in specific contexts by
+leveraging temporal dependency. For instance, consider the
+discrete state evolution depicted in Fig. 2(b). In this scenario,
+the ambiguity is significantly compounded as the number
+of contacts increases (e.g., when simultaneously estimating
+two contacts). Nevertheless, estimating the second contact
+becomes more reliable by incorporating past information
+about the first contact [21]. In the case of continuous evo-
+lution such as the sliding contact force shown in Fig. 2(b),
+knowing the previous contact location simplifies the estima-
+tion. Performing localization around the previous estimate
+improves efficiency by avoiding the need to explore the
+entire robot surface [22]. Consequently, leveraging temporal
+dependency, specifically utilizing past estimates, provides a
+prior context for inferring the current state.
+• Contact Event Detection: Determining the number of active
+contacts requires identifying discrete transitions, specifically
+the addition or removal of contacts (see Fig. 2(c)). While
+providing a prior context enables effective temporal track-
+ing, its validity strictly depends on the correct discrete state;
+otherwise, undetected contact events cause the estimator
+to propagate incorrect past information. Therefore, robust
+contact event detection serves as a critical prerequisite for
+reliable estimation of the complete contact state, including
+the number, location, and force.
+Furthermore, these challenges need to be addressed while
+remaining computationally efficient, as practical applications
+often require real-time estimation of the contact state.
+As detailed in Section II, prior work on proprioception-
+based contact estimation can be broadly categorized into
+model-based and learning-based approaches. The former is
+dominated by particle filter (PF)-based methods [22], [26]–
+[29], while the latter includes deep learning techniques, from
+probabilistic mapping [30] to diffusion models [21]. Each of
+these categories exhibits distinct strengths and weaknesses.
+While PF-based approaches are well-suited for addressing
+temporal dependency through recursive belief updates, they
+often fail to handle multi-modality due to particle starvation
+[31]–[33]. This well-known issue of PFs arises when the parti-
+cles fail to populate high-belief regions. In contrast, learning-
+based approaches excel at estimating multi-modal distribu-
+tions. For instance, to capture multi-modality, probabilistic
+mapping [30] evaluates probabilities for each region of a
+discretized state space, and generative models [21] learn the
+underlying data distribution. These feed-forward approaches,
+however, are typically non-recursive and trained on tempo-
+rally independent samples, thus lacking a native mechanism
+for leveraging temporal dependency. As for contact event
+detection, it remains a challenge for both categories of ap-
+proaches. Although PFs recursively track contact states, they
+rely on hard-to-tune thresholds to identify discrete transitions.
+Feed-forward learning-based methods struggle to model these
+discrete transitions, as their non-recursive nature inherently
+restricts temporal reasoning.
+In this paper, we propose a novel framework called Con-
+tactFlowFilter that tackles the aforementioned challenges: our
+approach is built upon a recursive structure of PFs for captur-
+ing temporal dependency, while a generative model serves as
+an auxiliary proposal distribution to track multi-modal beliefs
+and detect contact events.
+
+
+HAN AND KIM: MIXTURE OF FLOW MATCHING AND PARTICLE FILTER FOR PROPRIOCEPTION-BASED ONLINE CONTACT ESTIMATION
+Recursive Update
+Distribution via Particle Filter
+(captures Temporal Context)
+Distribution via Flow Matching
+(captures Multi-Modality)
+Flow Matching Proposal
+F1
+F1
+F1
+Particles from 
+previous time step
+Random 
+position update
+Assign
+importance weights
+~
+p[0]
+p[1]
+Particle Filter Proposal
+F1
+F1
+F2
+F2
+Combined Distribution
+Fig. 3.
+Overview of the proposed ContactFlowFilter framework. The proposed method samples particles from two complementary proposal distributions:
+Top: The PF’s temporal prediction involves sampling from the previous time step, random position updates, and importance weighting (indicated by pink
+circles proportional to their weights). The same procedure applies to the particles around the second contact F2; only F1 is visualized for clarity. Bottom:
+The flow matching samples (indicated by pink and blue points) are transported along a probability path (p[0] →p[1]) to represent the contact points. Right:
+These proposals are merged to integrate temporal context and multi-modality, forming the combined distribution for the subsequent recursive prediction.
+A. Contributions of the Article
+As depicted in Fig. 3, ContactFlowFilter updates the con-
+tact belief by drawing particles from two complementary
+proposal distributions: the PF’s temporal prediction and the
+generative auxiliary proposal. By preserving the PF’s recursive
+structure, the proposed method effectively captures temporal
+dependency, while the generative component complements
+the PF by representing multi-modal distributions. Building
+upon this hybrid framework, we propose a robust method for
+contact event detection that augments conventional criteria by
+combining temporal context with generative estimates.
+To formally implement the mixture of two proposal distri-
+butions, we adopt the dual-sampling concept [31]. We first
+formulate the PF motion model as Gaussian sampling on the
+robot surface, providing a basis for integrating the generative
+model and deriving its importance weights.
+The generative component is built upon a novel data rep-
+resentation designed to capture the underlying distribution of
+contact states. We utilize a fixed-size array of paired contact
+points to represent up to two simultaneous contacts, which
+allows the model to infer the spatial relationships between the
+points. This is supported by our proposed observation repre-
+sentation, where spatially aligned robot kinematics data, JTSs
+data, and base F/T sensor data are mapped as a sequence along
+the kinematic chain. A transformer encoder then processes this
+sequence to extract cross-modal correlations.
+To achieve real-time performance for high-fidelity temporal
+tracking, we employ flow matching [34], [35] as the generative
+backbone, leveraging linearized probability paths for few-step
+inference rather than curved diffusion trajectories [36]–[38].
+We also implement a computationally efficient motion model
+using pre-processed mesh data [26].
+In summary, our contributions are centered on a main
+framework (C1), which is realized through key technical
+contributions (C2, C3):
+• C1) A novel hybrid framework, ContactFlowFilter, that
+synergistically combines a generative model and a particle
+filter to address the key challenges of the contact estimation
+problem (multi-modality, temporal dependency, and con-
+tact event detection) while ensuring real-time performance.
+(Validated in simulation (Section VII-C) and real-world
+experiments (Section VII-D and supplementary video).)
+• C2)
+A
+spatially
+aligned
+data
+representation
+and
+a
+transformer-based architecture tailored to extract cross-
+modal correlations, enabling the flow matching model to
+effectively learn the multi-modal distribution of contact
+points. (Validated in Section VII-A.)
+• C3) A robust method for contact event detection that lever-
+ages a combination of distributions generated by the flow
+matching model and the PF. (Validated in Section VII-B.)
+We present thorough validation in both simulation and real-
+world settings. Comparative experiments confirm that Contact-
+FlowFilter achieves superior performance compared to exist-
+ing methods. To assess the estimation accuracy, we employ
+localization error metrics along with the defined dissimilarity
+based on the approximated likelihood of the time-dependent
+belief. In the real-world experiment, the proposed method
+achieved the lowest dissimilarity to the target distribution, with
+localization errors of 0.36 cm and 0.88 cm while maintaining
+average execution times of 0.69 ms and 2.69 ms for single-
+contact and dual-contact scenarios, respectively.
+B. Organization of the Article
+The rest of this article is organized as follows. Section II
+reviews related research, and Section III presents the prelim-
+
+
+IEEE TRANSACTIONS ON ROBOTICS, 2026
+TABLE I
+COMPARISON OF DIFFERENT APPROACHES BASED ON KEY CAPABILITIES.
+Model-based Approaches
+Learning-based Approaches
+Ours
+Line of force
+Particle filter
+QP-based
+algorithm
+Probabilistic
+mapping
+Binary
+classification
+Regression
+Diffusion
+model
+Contact Number Support
+1
+≥2
+1
+≥2
+1
+1
+2
+2
+Multi-Modal Distribution
+×
+×
+⃝
+⃝
+×
+×
+⃝
+⃝
+Temporal Reasoning
+×
+⃝
+×
+×
+×
+×
+△
+⃝
+Contact Force Estimation
+⃝
+⃝
+⃝
+×
+×
+×
+×
+⃝
+References
+[23],
+[39]–[41]
+[22],
+[26]–[29],
+[42]–[44]
+[24], [25]
+[30]
+[45], [46]
+[4], [46]
+[21]
+–
+inaries. Section IV introduces the baseline PF framework for
+contact estimation, followed by a discussion of its limitations.
+We then present the proposed method, ContactFlowFilter,
+in Section V and detail its implementation in Section VI.
+Section VII demonstrates the experimental validation of the
+proposed method. Finally, Section VIII concludes this article.
+II. RELATED WORK
+Characterizing the state of external contacts can be divided
+into four categories. The first two, contact detection (deter-
+mining if a contact exists) and contact isolation (identifying
+the affected link), confirm the presence of a contact. The latter
+two provide more detailed information: contact localization
+focuses solely on the contact’s position, while contact esti-
+mation aims to determine both location and force simulta-
+neously. This section covers the literature on proprioception-
+based contact localization and estimation, and a comparative
+summary is provided in Table I. A primary approach for these
+problems utilizes external force/torque values, which originate
+exclusively from contacts rather than the robot’s own dynamics
+(see Section III-C for details).
+A. Model-Based Approaches
+The line-of-force (LoF) method is a widely adopted tech-
+nique that geometrically localizes a contact and identifies the
+corresponding force from the external wrench [23], [39]–
+[41]. Because this geometric construction yields a single,
+deterministic solution based solely on the current observation,
+it is inherently limited to single-contact scenarios. Although
+[23] demonstrates dual-contact estimation on a robot with
+redundant sensing (i.e., JTSs and F/T sensors at the base and
+end-effector), the LoF method lacks temporal reasoning; the
+estimation is instead enabled by the dual F/T sensor setup,
+which prevents the spatial mixing of forces. Intuitively, the
+base F/T sensor localizes a contact along the robot’s main
+kinematic chain, while the end-effector F/T sensor identifies a
+second contact on any attached tool.
+Another family of methods is based on the PF [22], [26]–
+[29], [42]–[44]. As a recursive approach, the PF naturally
+incorporates temporal information, allowing it to track contact
+states over time. In this framework, a set of particles, repre-
+senting contact points, is updated and resampled at each time
+step to minimize an error metric, defined via quadratic pro-
+gramming (QP). However, a well-known issue with standard
+PF-based algorithms is particle starvation [31]–[33], where the
+greedy resampling process causes all particles to converge
+to a single high-belief region (even to a local minimum),
+which prevents the particle set from representing a multi-
+modal distribution.
+To address the challenge of multi-modality (i.e., the sin-
+gularity problem), several approaches have been proposed.
+For instance, the methods in [24], [25] employ a non-greedy
+strategy to narrow down contact point candidates, evaluating
+each using a QP-based error metric. However, extending these
+approaches to scenarios with more than one contact point is
+not straightforward.
+While such non-greedy schemes effectively handle multi-
+modality, both they and the LoF method rely on a static
+formulation that cannot capture the time-dependent charac-
+teristic of the contact estimation problem. In contrast, the PF
+framework inherently supports temporal reasoning, making it
+a more promising foundation. Therefore, this work focuses
+on advancing the PF-based approach by overcoming its own
+limitations.
+A key limitation of existing PF-based approaches for sce-
+narios with more than a single contact [22], [26]–[29] is
+their reliance on a hard-to-tune threshold for contact event
+detection. While these methods track each contact point with
+a dedicated particle set, managing the number of sets depends
+on a highly sensitive threshold. Such dependency limits the
+adaptation to contact changes, leading to detection errors such
+as false positives or missed contacts. To overcome this, we
+introduce a robust particle set management scheme that utilizes
+the output of flow matching, as detailed in Section V-D.
+Additionally, PF-based methods are mainly distinguished
+by their strategies for representing and updating particles on
+the robot’s surface. These include projecting particles repre-
+sented in Cartesian space onto the robot surface [22], [43],
+parameterizing the surface with a single variable [29], [42],
+and using graph-based searches directly on the mesh [26]–
+[28]. In Section IV-B, we introduce a highly efficient particle
+update method that performs Gaussian sampling directly on
+the robot’s surface by using pre-computed geodesic distances
+from the mesh data.
+B. Learning-Based Approaches
+Recently, several learning-based approaches have been pro-
+posed for contact localization [4], [21], [30], [45], [46], which
+vary in their formulations. For example, the probabilistic
+mapping approach in [30] treats the robot’s link surfaces as 2D
+images and estimates the contact probability for each region.
+
+
+HAN AND KIM: MIXTURE OF FLOW MATCHING AND PARTICLE FILTER FOR PROPRIOCEPTION-BASED ONLINE CONTACT ESTIMATION
+Other formulations include binary classification over prede-
+fined points on the robot’s surface [45], [46], or regression of
+the contact location, either as a 3D point in Cartesian space
+[4] or as a single 1D parameter on the robot’s surface [46].
+However, a common limitation of these approaches is that
+they do not estimate the contact force and inherently lack a
+mechanism for temporal reasoning.
+Among these learning-based methods, the work most rele-
+vant to ours is the diffusion model-based approach presented
+in [21]. While it employs a recursive inference scheme similar
+to the PF, relying on temporally independent training data
+forces the model to assume that the first contact point remains
+fixed. It also shares the common limitation of other learning-
+based approaches in its inability to estimate contact force.
+In contrast, by integrating the output of a generative model
+into the PF framework, the proposed method performs both
+temporal reasoning and contact force estimation, while main-
+taining the representational power of the generative model. By
+utilizing a flow matching model, our approach further achieves
+significantly faster inference (15.97 ms →2.69 ms) while even
+demonstrating substantial improvements in performance.
+III. PRELIMINARIES
+A. Particle Filter
+The PF is a non-parametric version of the Bayes filter that
+estimates the posterior distribution of robot states conditioned
+on sensor data [31], [32]. In the Bayes filter approach, the
+target posterior that we aim to estimate is commonly referred
+to as the belief:
+bel(xt) := p(xt|o0:t),
+(1)
+which represents the probability distribution over the state xt,
+conditioned on all past observations o0:t. In our setup, it is
+assumed that the state evolution depends solely on the system
+dynamics; i.e., there is no control input for the state xt. Under
+the Markov assumption (i.e., if the current state is known,
+future observations are independent of past observations), the
+following recursive equations are obtained from (1):
+bel(xt) =
+Z
+p(xt|xt−1)bel(xt−1) dxt−1 ,
+(2)
+bel(xt) = ηp(ot|xt)bel(xt),
+(3)
+where bel(xt) is the belief after the prediction step, and η is
+a normalization constant. Such a recursive filtering algorithm
+operates starting from t = 0 and a common setup for the initial
+belief bel(x0) is a uniform distribution when the initial state is
+unknown. A fundamental limitation of this recursive approach,
+however, is that each belief update requires the functional
+form of all posteriors to be specified. Instead, non-parametric
+approaches, such as the PF, represent the posterior using a
+finite number of samples, which simplifies the implementation.
+The key idea of the PF is to approximate the belief (1) using
+a set of particles Xt:
+bel(xt) ≈Xt = {x(m)
+t
+, w(m)}M
+m=1,
+(4)
+where x(m)
+t
+is the mth particle with its corresponding weight
+denoted as w(m), and M is the total number of particles in Xt.
+1) Sampling: The sampling procedure includes the motion
+model and the measurement model of the PF, which corre-
+spond to (2) and (3), respectively. First, after applying the
+motion model, the particle set is distributed as the predicted
+belief; i.e., bel(xt) ≈¯
+Xt. The particle x(m)
+t
+∈¯
+Xt is obtained
+via the following sampling procedure:
+x(m)
+t−1 ∼bel(xt−1),
+(5)
+x(m)
+t
+∼p(xt|x(m)
+t−1).
+(6)
+The resulting pair of particles ⟨x(m)
+t−1, x(m)
+t
+⟩is distributed as
+the following distribution called the proposal distribution:
+q(xt) := p(xt|xt−1)bel(xt−1).
+(7)
+The measurement model determines the perceptual likeli-
+hood of the particle to compensate for the gap between the
+proposal distribution from which the particles are drawn, and
+the following target distribution:
+ηp(ot|x(m)
+t
+)p(x(m)
+t
+|x(m)
+t−1)bel(x(m)
+t−1),
+(8)
+which can be derived from (2) and (3) for ⟨x(m)
+t−1, x(m)
+t
+⟩. The
+weight of the particle is obtained as a ratio of the target
+distribution (8) to the proposal distribution (7):
+w(m) = ηp(ot|x(m)
+t
+)p(x(m)
+t
+|x(m)
+t−1)bel(x(m)
+t−1)
+p(x(m)
+t
+|x(m)
+t−1)bel(x(m)
+t−1)
+= ηp(ot|x(m)
+t
+).
+(9)
+2) Dual-Sampling: In contrast to the standard sampling
+procedure, dual-sampling [31] generates particles based solely
+on observations in a non-recursive manner. These particles,
+referred to as dual particles, are drawn from the dual-proposal
+distribution, which is defined as follows:
+¯q(xt) := p(ot|xt)
+π(ot) ,
+(10)
+where π(ot) =
+R
+p(ot|x′
+t) dx′
+t. Given a dual particle, x(m)
+t
+∼
+¯q(xt), the pair of particles ⟨x(m)
+t−1, x(m)
+t
+⟩is distributed as
+p(ot|xt)
+π(ot) bel(xt−1).
+(11)
+As in the standard sampling procedure, the weight of a dual
+particle is defined as
+w(m) =
+ 
+p(ot|x(m)
+t
+)
+π(ot)
+bel(x(m)
+t−1)
+!−1
+ηp(ot|x(m)
+t
+)p(x(m)
+t
+|x(m)
+t−1)bel(x(m)
+t−1)
+∝p(x(m)
+t
+|x(m)
+t−1),
+(12)
+which takes the same form as the distribution of the motion
+model in (6). Note that while (6) represents the process of
+sampling a particle from a conditional distribution given a
+single particle, (12) computes the probability given a pair of
+particles.
+
+
+IEEE TRANSACTIONS ON ROBOTICS, 2026
+3) Importance Resampling: After the sampling procedure,
+the weighted particles (the pair of x(m)
+t
+and w(m)) are
+distributed as the current belief bel(xt). To ensure that the
+belief is represented solely by the particles (without relying
+on weights), the importance resampling process is commonly
+applied [26], which involves drawing a new particle set based
+on their weights.
+B. Flow Matching Model
+Generative models, such as diffusion models [36]–[38] and
+flow matching models [34], [35], are designed to generate
+a new sample ˆx that follows the data distribution p(x). In
+practice, this distribution is accessible only empirically.
+In the context of flow matching, p[k] denotes the probability
+path that connects a simple distribution to the data distribution.
+At the boundary, p[0] is typically defined as the standard
+Gaussian N(0, I), while p[1] approximately corresponds to the
+target data distribution p. By adopting the optimal transport
+flow matching objective [34], x[k] ∼p[k](x) is defined as a
+linear interpolation between a data point x[1] ∼D and a noise
+point x[0] ∼p[0](x):
+x[k] = (1 −k)x[0] + kx[1],
+(13)
+v[k] = x[1] −x[0],
+(14)
+where v[k] denotes the vector field associated with the prob-
+ability path p[k]. For a sampled pair ⟨x[0], x[1]⟩, the flow
+matching objective is defined as
+Lθ =
+E
+k,x[0],x[1]
+v[k] −vθ(x[k], k)
+
+2
+,
+(15)
+where θ represents learnable network parameters, and k ∼
+U(0, 1), which is the uniform distribution.
+A sample is generated by starting from a noise input x[0] ∼
+N(0, I) and solving the ordinary differential equation (ODE)
+defined by the learned vector field vθ, which transports the
+sample along the probability path from p[0] to p[1].
+C. Contact Induced Sensor Measurements
+Our proprioception setup includes the JTSs and the base F/T
+sensor (see Fig. 1). Suppose that nc ∈{1, 2} contacts exist on
+the nq-DOF robotic arm (up to one contact per link), and let
+the location and force of the ith contact be denoted as ri ∈R3
+and Fi ∈R3, respectively. Then, the relations between the
+contacts and the available proprioception are given by:
+τext =
+nc
+X
+i=1
+JT
+i (q, ri)Fi,
+(16)
+Fext =
+nc
+X
+i=1
+I3×3
+[ri]×
+
+| {z }
+≜Ai(ri)
+Fi,
+(17)
+where τext ∈Rnq is the external joint torque, Fext ∈R6 is
+the base wrench due to contacts, q ∈Rnq denotes the joint
+variables, Ji(q, ri) is the associated positional Jacobian matrix
+at the contact point, and [·]× denotes the skew-symmetric
+matrix such that [a]×b = a×b for any a, b ∈R3. For brevity,
+we define the vector Wext = (τext, Fext).
+1) External Joint Torque Estimation: We consider the fol-
+lowing link dynamics of a flexible joint robot model:
+M(q)¨q + C(q, ˙q) ˙q + g(q) = τj + τext,
+(18)
+where M(q) is the link-side inertia matrix, C(q, ˙q) is the
+Coriolis/centrifugal matrix that satisfies
+˙
+M = C + CT , g(q)
+is the gravity vector, and τj is the joint torque measured by the
+JTSs. The estimated external joint torque, denoted as ˆτext, can
+be obtained using the following momentum-based disturbance
+observer [47], [48]:
+ˆτext(t) = Ko
+
+p −
+Z t
+0
+(τj + n(q, ˙q) + ˆτext) ds
+
+,
+(19)
+where p = M(q) ˙q, n(q, ˙q) = CT (q, ˙q) ˙q −g(q), and Ko
+is a diagonal observer gain matrix. The observer output can
+be regarded as a first-order low-pass filtered estimate of the
+actual τext [47], [49].
+2) External Base Wrench Estimation:
+We employ the
+method proposed in [39] to explicitly compensate for the
+dynamic effects of the robot itself from the base F/T sensor
+measurements Fb. First, we calculate the nominal joint accel-
+eration ¨qn by subtracting the estimated external joint torque
+(19) from the robot dynamics (18). The nominal acceleration
+corresponds to a contact-free scenario where the nominal robot
+has the same joint configuration as the real robot, but without
+any external contact forces. For the nominal robot, the inter-
+action wrench between the base F/T sensor and the robot base
+link represents the dynamic effects that we aim to compensate
+for. This wrench is efficiently computed using the recursive
+Newton-Euler algorithm (RNEA) as Fn = RNEA(q, ˙q, ¨qn),
+where Fn is the nominal base wrench exerted by the base
+F/T sensor on the robot base link. The estimate ˆFext is
+then obtained by subtracting the nominal wrench from the
+measurements: ˆFext = Fb −Fn.
+IV. PARTICLE FILTER FOR CONTACT ESTIMATION
+This section presents the baseline PF algorithm for contact
+estimation and identifies its limitations, motivating the sub-
+sequent section. Throughout this paper, we use the following
+notation:
+- Xt,i: the ith set of particles at time t
+- x(m)
+t,i : the mth particle in Xt,i
+- w(m)
+i
+: the weight of the particle x(m)
+t,i
+- Xt: the collection of particle sets, i.e., Xt = {Xt,1, · · · , Xt,nc}
+A. Problem Statement
+Let rt = {rt,i}nc
+i=1 denote the set of contact points at time t.
+The contact localization problem is formulated as estimating
+the following belief:
+bel(rt) := p(rt|O0:t),
+(20)
+which is the probability distribution over the contact points
+rt, conditioned on all past observations O0:t. The observation
+at each time step Ot consists of (i) kinematic quantities
+(e.g., link frame pose and Jacobian), and (ii) the estimated
+external value
+ˆ
+Wext. These components will be discussed
+
+
+HAN AND KIM: MIXTURE OF FLOW MATCHING AND PARTICLE FILTER FOR PROPRIOCEPTION-BASED ONLINE CONTACT ESTIMATION
+(a) 
+(b) 
+Fig. 4.
+The Link 1 meshes of the Franka Emika Panda robot are used for
+(a) visualization and (b) motion model computation. Non-contact faces are
+removed (red circle), and the mesh is refined into uniform triangular faces
+(blue circle).
+in more detail later. The goal of the PF algorithm is to
+approximate the belief (20) using a collection of particle
+sets, i.e., bel(rt) ≈Xt, where Xt,i ∈Xt estimates the ith
+contact point rt,i. The contact force identification problem
+is simultaneously addressed within the PF framework via the
+measurement model (detailed in Section IV-C).
+Note that we place no restrictions on robot configurations or
+contact locations; by utilizing the base F/T sensor, we retain
+observability even when the Jacobian (16) is rank-deficient,
+such as during kinematic singularities or contacts on proximal
+links (e.g., Link 1).
+B. Motion Model
+The prediction step of the PF begins by drawing particles
+from the belief at the previous time step, i.e., x(m)
+t−1,i ∼
+bel(rt−1). The particle for the current time step x(m)
+t,i
+is
+then sampled from the distribution of the motion model,
+p(xt|x(m)
+t−1,i). In the absence of control input for the state
+evolution, a common choice is to use a random walk [22],
+[26], [27] by adding random perturbations. To express this
+mathematically, we represent the motion model as a Gaussian:
+p(xt|x(m)
+t−1,i) := N(µ, Σ),
+(21)
+where µ = x(m)
+t−1,i and Σ = σ2I represent the mean and the
+covariance matrix of the Gaussian distribution, respectively,
+with σ denoting the standard deviation. However, particles
+sampled from (21) may not lie on the robot surface, requiring
+additional, time-consuming processing (e.g., projection onto
+the surface). To address this, we propose a highly efficient
+method that enables sampling directly on the robot surface.
+1) Mesh Preprocessing: Adopting the particle representa-
+tion from [26], we utilize the robot’s mesh data to repre-
+sent particle positions, ensuring that particles remain con-
+strained to the robot surface. The position of the particle
+is given by a link index and a face index; i.e., x(m)
+t,i
+=
+(link_idx, face_idx). To this end, we perform mesh
+preprocessing as shown in Fig. 4. Using Blender [50], we
+manually remove the faces where contact cannot occur, and
+apply an isotropic remeshing algorithm [51] to ensure that the
+faces are of uniform size. In our implementation, the target
+edge length of the mesh faces is set to approximately 0.36 cm.
+Geodesic Distance (cm)
+0.00
+5.00
+10.00
+15.00
+20.00
+23.20
+(a) Pre-computed geodesic distances
+(b) Gaussian sampling
+…
+d1
+d2
+dnf
+dnf-1
+x(m)
+t,i
+Weight-based Sampling
+Assign Weights
+(Weight    Distance-1)
+…
+w1
+w2
+wnf
+wnf-1
+∝
+Fig. 5.
+The proposed motion model consists of two steps: (a) For the given
+particle x(m)
+t−1,i, the geodesic distances to all other faces {dj}
+nf
+j=1 are retrieved
+from a pre-computed lookup table. (b) The weights {wj}
+nf
+j=1 are set inversely
+proportional to the geodesic distances; the particle for current time step x(m)
+t,i
+is then sampled from the resulting distribution.
+n
+si,1
+si,3
+si,4
+si,2
+n
+rt,i
+(a) 
+(b)
+Fc(rt,i)
+rt,i
+Fig. 6.
+(a) For each contact point rt,i, the friction cone Fc is defined by
+the surface normal n. (b) The friction cone is approximated as a polyhedral
+cone spanned by support vectors {si,j}4
+j=1.
+2) Approximating the Gaussian on the Surface: The pro-
+posed motion model is illustrated in Fig. 5. We pre-compute
+the geodesic distances for all face pairs on the robot’s surface
+and store these values in a lookup table (see Fig. 5(a)).
+This enables efficient retrieval of geodesic distances from a
+source face to all other faces. Using this lookup table, (21)
+is approximated by a discretized distribution (see Fig. 5(b))
+with weights proportional to
+1
+σ
+√
+2π exp
+ −0.5(d/σ)2
+, where
+d ∈R+ is the geodesic distance retrieved from the table.
+Remark 1: Since computationally intensive tasks, such as
+mesh preprocessing and geodesic distance computation, are
+performed offline, the online execution of the proposed motion
+model is highly efficient. Specifically, our implementation
+requires approximately 0.6 µs to update a single particle.
+C. Measurement Model
+The measurement model determines how well the given
+particle explains the observation by computing p(Ot|x(m)
+t,i ).
+We first formulate the contact force identification problem as
+a QP and use its solution to define the weight of a particle.
+1) QP Formulation: Let Ft denote the set of contact
+forces at time t; i.e., Ft = {Ft,i}nc
+i=1. Using (16) and (17),
+
+
+IEEE TRANSACTIONS ON ROBOTICS, 2026
+we formulate the contact force identification problem as an
+optimization problem:
+min
+Ft
+
+ˆ
+Wext −
+nc
+X
+i=1
+
+Ji(q, rt,i)
+Ai(rt,i)T T Ft,i
+
+2
+subject to Ft,i ∈Fc(rt,i), ∀i ∈{1, · · · , nc},
+(22)
+where Fc(rt,i) is the friction cone at the ith contact point rt,i.
+Here, the friction cone constraint accounts for the point contact
+assumption, where only pushing forces (i.e., no pulling forces)
+can be applied to the robot surface (see Fig. 6(a)). 1 Note that
+the decision variables in (22) are the contact forces, while
+the contact points are treated as inputs. In other words, (22)
+identifies the contact forces that best explain the observation,
+given the contact point locations.
+To make the friction cone constraint tractable, Fc(·) is
+approximated as a polyhedral cone as shown in Fig. 6(b). The
+ith contact force is expressed as Ft,i = Sifi, where Si =
+[si,1, . . . , si,4] is the matrix of support vectors (si,• ∈R3)
+spanning the polyhedral friction cone, and fi = (fi,1, . . . , fi,4)
+is the vector of corresponding weights (fi,• ≤0). Substituting
+this force expression into (22), we reformulate the optimization
+problem as a QP:
+QP(Ot|rt) = min
+ft
+ ˆ
+Wext −QT ft
+
+2
+subject to fi ⪯0, ∀i ∈{1, · · · , nc},
+(23)
+where ft = (f1, · · · , fnc) ∈R4nc, and Q ∈R4nc×(nq+6) is a
+matrix constructed from ST
+i Ji and AiSi matrices. Intuitively,
+a particle with a smaller QP error corresponds to a more
+probable contact point.
+2) Importance Factor: Consider a single-contact scenario
+(nc = 1) where the number of particle sets is properly adjusted
+(as presented in Section IV-D). In this case, the weight of a
+particle in Xt,1 is defined using the QP error metric (23) as
+w(m)
+1
+= p(Ot|x(m)
+t,1 )
+:= η exp
+
+−αQP(Ot|{x(m)
+t,1 })
+
+,
+(24)
+where α ∈R+ controls the steepness of the exponential
+function, thereby determining the sensitivity to the QP error.
+However, in the case of nc contacts, the particle sets for all
+contacts must be considered jointly, as the input to the QP (23)
+consists of contact point candidates. Evaluating all possible
+combinations of particles poses a significant computational
+burden. For instance, in a dual-contact scenario with M = 100
+particles per set, the total number of QP computations would
+be 1002. In order to reduce such a burden, the following
+assumption is introduced:
+Assumption 1: When updating the weight of a particle in
+Xt,i, the other particle sets Xt\Xt,i ={Xj|∀j =1,· · ·, nc, j̸ =i}
+have already converged to the true contact points.
+This assumption allows us to jointly consider only a single
+particle from each set in Xt \ Xt,i; i.e., a particle set is
+represented by a single particle. To introduce randomness,
+1In practice, tuning the friction cone balances physical strictness and
+algorithmic convergence: an expanded force space smooths the QP error across
+the surface, yielding a continuous update path for particles.
+we sample one representative particle according to its weight,
+rather than selecting the particle with the highest weight. The
+weight of a particle in Xt,i is defined as
+w(m)
+i
+= p(Ot|x(m)
+t,i )
+:= η exp
+
+−αQP(Ot|{x(m)
+t,i , x#(Xt \ Xt,i)})
+
+,
+(25)
+where x#(Xt \ Xt,i) = {x#(Xj)|∀Xj ∈Xt \ Xt,i}, and
+x#(Xj) is a particle sampled from Xj based on the weights.
+Algorithm 1 Manage-Particle-Set (Xt)
+// increasing condition
+1: if ϵ(Ot, Xt) > ¯ϵ then
+2:
+add Xinit to Xt
+3:
+return Xt
+4: end if
+// decreasing condition
+5: for Xt,i in Xt do
+6:
+if ϵ(Ot, Xt \ Xt,i) < ¯ϵ then
+7:
+discard Xt,i from Xt
+8:
+return Xt
+9:
+end if
+10: end for
+11: return Xt
+D. Particle Set Management
+The number of particle sets (the size of Xt) must be properly
+adjusted to match the number of active contacts. In this
+subsection, we present the method of [22] as a preliminary,
+which will be extended further in Section V-D.
+In Algorithm 1, the error metric is defined as ϵ(Ot, Xt) =
+QP(Ot|x∗(Xt)), where x∗(Xt) = {x∗(Xt,i)|∀Xt,i ∈Xt},
+and x∗(Xt,i) is the particle with the highest weight in Xt,i.
+If Xt = ∅, ϵ(Ot, Xt) is set to ∥ˆ
+Wext∥2 to initialize the
+PF algorithm. In lines 1 – 4, if the QP error of the current
+collection Xt exceeds the threshold ¯ϵ, indicating that the
+current observation cannot be explained by Xt, then a new
+particle set Xinit is added. Here, the particles in Xinit are
+uniformly distributed over the robot surface. Similarly, in
+lines 5 – 10, we check whether the current observation can
+be sufficiently explained without a certain particle set Xt,i. If
+that is the case, Xt,i is removed from Xt.
+Algorithm 2 CPF (Xt−1)
+1: ¯Xt ←Motion-Model(Xt−1)
+▷in Sec. IV-B
+2: Xt ←Measurement-Model(¯Xt)
+▷in Sec. IV-C
+3: Xt ←Importance-Resampling(Xt)
+▷in Sec. III-A3
+4: Xt ←Manage-Particle-Set(Xt)
+▷in Sec. IV-D
+5: Return Xt
+E. Contact Particle Filter
+Algorithm 2 outlines the Contact Particle Filter (CPF),
+which sequentially executes the procedures detailed in the
+previous sections. In line 3, we employ the resampling process
+
+
+HAN AND KIM: MIXTURE OF FLOW MATCHING AND PARTICLE FILTER FOR PROPRIOCEPTION-BASED ONLINE CONTACT ESTIMATION
+QP error (log scale)
+F1
+F1
+F1
+(a) Contact state
+(b) Estimation results
+Xt,1:
+Trial 1
+Trial 2
+Fig. 7.
+(a) The results of the QP defined in (23) are visualized over the entire
+surface for a single contact (F1) on link 2, where high-belief (low QP error)
+regions are observed on both links 1 and 2. (b) The conventional PF algorithm
+populates the particle set Xt,1 on only a single link in each execution (see
+Trial 1 and Trial 2).
+described in Section III-A3. Through this recursive algorithm,
+the particles in Xt approximate the belief (20), where the
+ith particle set (Xt,i ∈Xt) corresponds to the ith contact
+point. The estimated ith contact force is derived from the
+corresponding QP solution (23) computed for the weight
+update of the ith particle set Xt,i.
+F. Limitation of CPF
+1) Particle Starvation: A fundamental challenge in PFs
+is the failure of particles to populate high-belief regions.
+This particle starvation [31]–[33] primarily stems from the
+mismatch between the proposal and target distributions, as
+captured in (9). The motion model is a simple random walk
+that does not guide particles toward high-belief regions. Con-
+vergence relies solely on the importance resampling process,
+requiring a high α value in (25) to ensure that only particles
+with higher weights survive in a more greedy manner. How-
+ever, coupled with the intrinsic sparsity of the solution space,
+this setting further constricts p(Ot|·), resulting in isolated, nar-
+row high-belief regions surrounded by low-probability areas
+(e.g., see Fig. 7(a)). This prevents particles from traversing
+to other modes, causing the PF to become trapped in local
+minima or fail to capture the multi-modality. For example, as
+depicted in Fig. 7(b), in a scenario with two belief modes,
+F1
+F1
+F2
+New 
+contact
+(a) 
+(b) 
+Xt,1:
+Drift
+Fig. 8.
+(a) The first particle set Xt,1 converges to the first contact point.
+(b) After the second contact (F2) occurs, the delayed initialization of Xt,2
+causes the existing set Xt,1 to drift away from the first contact point.
+the CPF algorithm converges to only a single mode, unable to
+properly represent the distribution.
+Although the proposed motion model is computationally
+efficient, it has a key limitation: particles cannot transition
+across links, as the geodesic distances are not defined across
+different links in the pre-computed lookup table. If no particles
+are present on the actual contact link, they cannot move to the
+high-belief regions.
+2) Particle Drift: When the number of contacts nc changes,
+particle drift occurs as the low-pass filtered estimate
+ˆ
+Wext
+gradually adapts to such discrete transitions in contact states.
+As illustrated in Fig. 8, this may result in particles erroneously
+drifting to compensate for the changed observation, leading to
+a delay or even a failure in contact event detection. Even if a
+new particle set is eventually added after the delay, the existing
+particles may have already drifted away from the true contact
+point; this violates Assumption 1, thereby causing erroneous
+evaluations within the measurement model. Although lowering
+the threshold (¯ϵ in Algorithm 1) can mitigate the delay, it often
+induces false positives, such as initializing new particle sets
+in the absence of actual contact events.
+V. MIXTURE OF FLOW MATCHING AND PARTICLE FILTER
+This section presents the proposed method, ContactFlow-
+Filter, which integrates the flow matching model and the
+particle filter. We employ the dual-sampling introduced in
+Section III-A2 by incorporating the output from the flow
+matching model into the PF as dual particles.
+For the contact localization problem, the dual-proposal
+distribution (10) is defined as
+¯q(rt) := p(Ot|rt)
+π(Ot) ,
+(26)
+which can be expressed in a posterior form that enables
+generation via classifier-free guidance [52] using the flow
+matching model [34], [35]:
+q(rt) =
+p(Ot|rt)
+R
+p(Ot|r′
+t) dr′
+t
+=
+p(Ot|rt)p(rt)
+R
+p(Ot|r′
+t)p(r′
+t) dr′
+t
+= p(rt|Ot).
+(27)
+
+
+IEEE TRANSACTIONS ON ROBOTICS, 2026
+r1
+r1
+r1
+r1
+r1
+r1
+r1
+X[1]
+Ns
+(a) nc = 1
+r1
+r2
+X[1]
+r1
+r2
+r1
+r2
+r1
+r2
+Ns
+(b) nc = 2
+Fig. 9. The training sample X[1] ∈RNs×6 for flow matching is constructed
+based on the number of contact points nc: (a) nc = 1: All Ns rows are filled
+with r1, extending across the full width of the matrix. (b) nc = 2: The matrix
+is divided into two blocks horizontally; the first three columns consist of r1,
+and the remaining three consist of r2.
+Here, the prior term p(rt) can be placed inside the integration
+assuming a non-informative prior over contact locations; i.e.,
+contacts can occur anywhere on the robot.
+The remainder of this section details the generation process
+from (27) and describes how the resulting sample is weighted
+and incorporated into the PF. We then introduce a robust
+particle set management method for contact event detection.
+For brevity, when only the current time t is considered, the
+time subscript of quantities will be omitted.
+A. Contact Dataset
+We first define a contact dataset D = {ξi}Nd
+i=1, where
+Nd denotes the number of data points, and each data point
+ξ consists of (i) a sample representing the contact point
+locations, and (ii) the corresponding observations.
+1) Sample: To handle our scope of up to two contacts (nc ∈
+{1, 2}), we define a 2D data tensor X[1] ∈RNs×6, where Ns
+denotes the number of duplicated sets of contact points. As
+illustrated in Fig. 9, when nc = 1, X[1] is constructed by
+concatenating the first contact point r1 with itself to form
+(r1, r1) ∈R6, and replicating this row Ns times. When nc =
+2, X[1] is defined by constructing each row as (r1, r2) ∈R6.
+The proposed sample representation offers the following
+advantages: (i) The dimension of X[1] remains constant re-
+gardless of the number of contacts nc, allowing a single model
+to handle both single-contact and dual-contact scenarios. (ii)
+It provides Ns points for each contact, facilitating the rep-
+resentation of the contact distribution. (iii) By learning the
+relationship between the pair of points within each row, the
+model can infer the number of contacts, enabling the generated
+sample to be leveraged for contact event detection (presented
+in Section V-D).
+2) Observation: As detailed in Section V-B, the proposed
+method leverages a transformer-based neural network to ef-
+fectively extract contact features from the observations. A key
+requirement for this architecture is a consistent input represen-
+tation across both kinematic and contact-related observations.
+We express all inputs in their respective link frames (see
+Fig. 10), enabling the network to process them as a coherent
+sequence.
+We represent kinematic observations using the pose of each
+link frame. Specifically, Tl = {tl, Rl} denotes the pose of the
+Virtual 
+wrench
+Frame
+pose
+Fv,1
+T1
+Fv,2
+T2
+Tl
+Fv,nq
+Tnq
+Fv,l
+Ad−T
+Ad−T
+Ad−T
+ˆFext {B}
+ˆτext,1 {L1}
+ˆτext,2 {L2}
+ˆτext,l {Ll}
+Fv,l {Ll}
+(a) 
+(b) 
+Fig. 10. (a) The observation for flow matching is defined as a sequence where
+each link’s pose Tl is augmented with the virtual wrench Fv,l. (b) Fv,l is
+obtained by projecting the spatially distributed external base wrench ˆFext and
+the first l elements of the external joint torque, (ˆτext,1, ˆτext,2, · · · , ˆτext,l),
+onto the corresponding frame {Ll} via the adjoint transformation Ad−T .
+lth link frame {Ll}, where tl ∈R3 and Rl ∈R3×3 represent
+the position and orientation of {Ll}, respectively. For contact
+observations, we consider the external value ˆ
+Wext. However,
+its components are expressed in different reference frames;
+e.g., the lth element of the external torque ˆτext corresponds to
+the z-axis of {Ll}, whereas the external base wrench ˆFext
+is defined in the base F/T sensor frame {B}. To achieve
+consistency, we align ˆ
+Wext with each link frame by adopting
+the virtual wrench sensor method, which is a modification
+of the approach in [45]. As illustrated in Fig. 10, the virtual
+wrench at the lth link frame, denoted as Fv,l, is defined as
+Fv,l = {Ll}Ad−T
+{B} ˆFext
++
+l
+X
+j=1
+{Ll}Ad−T
+{Lj}(0, 0, 0, 0, 0, ˆτext,j),
+(28)
+where ˆτext,j is the jth element of ˆτext, and {Ll}Ad−T
+{Lj} is an
+adjoint matrix that transforms the wrench represented in the
+jth link frame {Lj} to the lth link frame {Ll}. The adjoint
+matrix {Ll}Ad−T
+{Lj} is defined as follows:
+{Ll}Ad−T
+{Lj} =
+
+lRj
+0
+[ltj]×lRj
+lRj
+
+,
+(29)
+where lRj ∈R3×3 and ltj ∈R3 are the rotation matrix and
+translation vector from {Ll} to {Lj}, respectively. Intuitively,
+Fv,l represents the sum of all available external wrenches
+acting on the predecessor links up to the lth link, projected onto
+{Ll}. Consequently, the observation for the flow matching
+model is defined as {Tl, Fv,l}nq
+l=1.
+Remark 2: Our approach differs from [21] primarily in
+the sample definition, which inherently encodes the number
+of contacts nc. In [21], each row of a sample represents an
+individual contact point (R•×3) and is processed independently
+by the network. This design makes it difficult to learn nc,
+requiring an additional classifier to distinguish between single-
+contact and dual-contact scenarios. In contrast, our paired-
+point representation (X[1] ∈R•×6) captures nc, thereby
+eliminating the need for a separate classifier.
+
+
+HAN AND KIM: MIXTURE OF FLOW MATCHING AND PARTICLE FILTER FOR PROPRIOCEPTION-BASED ONLINE CONTACT ESTIMATION
+≈
+Ot
+Fv,1
+T1
+Fv,2
+T2
+Fv,nq
+Tnq
+Observation
+Multi-Head
+Attention
+MLP
+×N
+Virtual 
+wrench
+Self-Attention Block
+distance
+gradient
+∀xi ∈X[k]
+t
+SDF
+N×
+Self-Attention 
+Block
+g1
+d1
+g2
+d2
+gnq
+dnq
+xi
+Observation Embedding
+Ns×
+Input
+Embedding
+SDF
+Embedding
+Input
+Embedding
+SDF
+Embedding
+Input
+Embedding
+SDF
+Embedding
+Avg. Pooling
+Avg. Pooling
+(a) Global feature encoder
+(b) Pointwise feature encoder
+×Ns
+Input
+Embedding
+SDF
+Embedding
+Input
+Embedding
+SDF
+Embedding
+Input
+Embedding
+SDF
+Embedding
+vθ
+Output: 
+concatenation
+(c) Decoder
+MLP
+Affine
+Transform
+MLP
+MLP
+γ
+β
+MLP
+Observation 
+Embedding
+MLP
+MLP
+Time Encoding
+k
+Affine
+Transform
+Positional 
+Encoding
+pose
+Fig. 11.
+(a) Global feature encoder: Encodes the correlated features of robot kinematics and external contacts. (b) Pointwise feature encoder: Captures
+the spatial context relative to the robot surface for each query point in X[k]. (c) Decoder: Outputs the vector field by conditioning the pointwise features on
+the global feature.
+B. Neural Network Model
+We rewrite the dual-proposal distribution (27) using the
+definition of the sample X:
+p(X|O).
+(30)
+The first step of dual-sampling is to generate a new sample
+from (30), i.e., ˆ
+X ∼pθ(X|O), by integrating the correspond-
+ing ODE using the learned vector field network vθ(X|O, k).
+The overall structure of vθ is shown in Fig. 11, with details
+provided in the remainder of this subsection.
+1) Global Feature Encoder: As discussed in Section V-A2,
+the observations are represented with respect to each link
+frame ({Tl, Fv,l}nq
+l=1); i.e., the number of links nq corresponds
+to the sequence length, and the feature size of each link to
+the embedding dimension, as in standard Transformer input
+representations [53]. Specifically, for the lth link frame, tl,
+Rl, and Fv,l are flattened and concatenated into a single
+feature vector, and these vectors are stacked across all links. As
+shown in Fig. 11(a), the resulting sequence is then processed
+through self-attention blocks to capture relationships between
+observations across links. Finally, average pooling is applied
+over the sequence dimension to produce a single vector, which
+serves as the observation embedding.
+2) Pointwise Feature Encoder: Similar to [21], we utilize
+a pre-trained SDF network [54] to embed surface information
+corresponding to each point in the sample. For notational
+convenience,2 we will refer to xi ∈R3 as the ith point in
+the sample X[k]. The SDF network output for the query point
+xi with respect to the lth link surface is defined as:
+(dl, gl) = fϕl(xi, O) ∈R4,
+(31)
+where dl ∈R≥0 and gl ∈R3 respectively denote the shortest
+distance and direction (unit vector) from xi to the nearest
+2Although we denote the query point as xi ∈R3, the actual implementa-
+tion processes a 6D vector representing a pair of contact points. The pointwise
+feature encoder is adapted to handle this input dimension accordingly.
+point on the lth link surface, while ϕl represents the pre-
+trained parameters for the lth link. Consequently, the set of
+SDF outputs for all link surfaces is given by {dl, gl}nq
+l=1.
+Similar to the global feature encoder, {dl, gl}nq
+l=1 is pro-
+cessed through self-attention blocks followed by average
+pooling (Fig. 11(b)). The resulting SDF embedding is then
+concatenated with the input embedding of xi to form a single
+vector. Note that, as this operation is performed pointwise, it
+yields Ns such feature vectors.
+3) Decoder: Similar to U-Net [55], we adopt multi-layer
+perceptrons (MLPs) with skip connections for the decoder
+structure (see Fig. 11(c)). Each point embedding is conditioned
+with FiLM layers [56], where the observation embedding and a
+Fourier encoding [57] of the flow matching time step k jointly
+produce the modulation parameters γ and β. These parameters
+are then applied uniformly to the pointwise feature h via the
+affine transformation γ ⊙h + β.
+Algorithm 3 Sample-Allocation ( ˆ
+Xt, Xt−1)
+// initialize particle sets at the current time step
+1: Xt = ∅
+2: for xi in ˆ
+Xt do
+3:
+dmin ←∞, j∗←None
+4:
+for Xt−1,j in Xt−1 do
+// sample particle from previous belief
+5:
+d ←∥xi −x#(Xt−1,j)∥
+6:
+if d < dmin then
+7:
+dmin ←d, j∗←j
+8:
+end if
+9:
+end for
+// add dual particle to current particle set
+10:
+Add xi to Xt,j∗
+11: end for
+12: Return Xt
+
+
+IEEE TRANSACTIONS ON ROBOTICS, 2026
+C. Dual-Sampling
+As shown in (27), the output of the flow matching model
+serves as a sample from the dual-proposal distribution; i.e.,
+ˆ
+Xt ∼pθ(Xt|Ot)≈¯q(rt). To incorporate the generated sample
+into the PF framework, we first assign the points in
+ˆ
+Xt to
+form a new collection of particle sets Xt with a size equal to
+that maintained by the PF. This sample-allocation process is
+performed based on the distance between each point in ˆ
+Xt and
+the particle sets from the previous time step Xt−1, as detailed
+in Algorithm 3.
+Recall the definition of the importance factor for dual
+particles given in (12). The weight is computed by evaluating
+the Gaussian probability density of the motion model (21):
+p(x(m)
+t,i |x(m)
+t−1,i) = η exp
+
+−0.5
+x(m)
+t,i −x(m)
+t−1,i
+/σ
+2
+, (32)
+where x(m)
+t−1,i ∼Xt−1,i. Here, σ represents the standard
+deviation used in the Gaussian model of (21). Intuitively, dual
+particles that are more consistent with the previous step’s
+particle set receive higher weights.
+D. Flow-Guided Particle Set Management
+We introduce Flow-Guided-Management for robust contact
+event detection. While Algorithm 1 relies solely on the QP
+computation (23), our approach augments this conventional
+criterion by integrating generative estimates ˆ
+Xt from the dual-
+proposal distribution.
+Increasing condition: We combine the QP criterion with
+the spatial distribution of the dual particles. While the QP
+condition is used with a relatively low threshold to maintain
+sensitivity, the dual-particle distribution is assessed subsequent
+to the sample-allocation process (Algorithm 3). Specifically,
+the increasing condition is satisfied only when the QP condi-
+tion is met and the dual particles are widely spread, i.e., when
+their standard deviation within a set Xt,i exceeds that of the
+motion model (σ).
+Decreasing condition: For particle set removal, we identify
+a set as a candidate if it is not assigned any particles from ˆ
+Xt
+during the allocation process (Algorithm 3). If the QP-based
+condition supports this removal, the corresponding particle set
+is removed.
+Remark 3: To address multi-modal belief distributions, as
+depicted in Fig. 7, we integrate a new condition into the con-
+ventional criteria using a logical AND. Conversely, combining
+them via a logical OR may lead to erroneous behavior. For
+instance, particles in the high-belief regions of Fig. 7(a) might
+still exhibit a spread exceeding the motion model’s standard
+deviation, causing unintended particle set initialization.
+Algorithm 4 ContactFlowFilter (Xt−1)
+1: X(1)
+t
+←Sampling(Xt−1)
+▷in Secs. IV-B and IV-C
+2: X(2)
+t
+←Dual-Sampling(Xt−1)
+▷in Sec. V-C
+3: Xt ←X(1)
+t
+∪X(2)
+t
+4: Xt ←Importance-Resampling(Xt)
+▷in Sec. III-A3
+5: Xt ←Flow-Guided-Management(Xt)
+▷in Sec. V-D
+6: Return Xt
+E. ContactFlowFilter
+As detailed in Algorithm 4, ContactFlowFilter integrates
+two complementary sampling strategies: standard sampling
+(incorporating motion and measurement models) for tempo-
+ral prediction (line 1) and dual-sampling to address multi-
+modality (line 2). The particle sets generated from these
+procedures are subsequently merged (line 3), where each
+unified set Xt,i ∈Xt contains a varying number of standard
+and dual particles. To ensure a consistent size for each particle
+set throughout the recursive estimation, a fixed number of
+particles M is drawn via importance resampling (line 4).
+Finally, the number of particle sets is adjusted to match the
+actual number of contacts (line 5).
+VI. IMPLEMENTATION DETAILS
+The proposed method, ContactFlowFilter, was implemented
+using both Python and C++. The flow matching model was
+implemented in Python using JAX [58], while all other com-
+ponents were written in C++. To bridge these components, we
+utilized Python bindings for the C++ modules. The QP in (23)
+was solved using qpSWIFT [59]. Training and evaluation were
+performed on a system with an Intel Core i7-12700 CPU, an
+RTX 4090 GPU, and 64GB of RAM. The experimental setup
+consisted of a 7-DOF Franka Emika Panda robot arm equipped
+with JTSs and a base-mounted F/T sensor (ATI Omega191)
+(see Fig. 1).
+A. Dataset for Dual-Sampling
+The dataset for training the flow matching model was
+collected in a simulation environment using MuJoCo [60]. A
+robot with a random configuration was simulated, operating at
+1000 Hz. During each simulation, one or two contact forces
+were applied, and a data point (ξ ∈D) was collected once
+the system reached a stable state. Each contact force, lying
+within the friction cone, had a magnitude randomly selected
+between 10 and 25 N. To facilitate sim-to-real transfer, noise
+was added to the JTSs and base F/T sensor measurements (as
+demonstrated in Section VII-D). A total of 102.4M data points
+were collected, of which 80% were used for training and the
+remaining 20% for evaluation. Empirically, we observed that
+constructing the dataset with 70% dual-contact cases yielded
+optimal performance.
+B. Training Details for Dual-Sampling
+We utilized the shortcut flow matching model [35] with
+K = 128 to enable fast inference with reduced ODE steps. As
+demonstrated in Section VII-A, two ODE steps were found to
+be sufficient; thus, this setting was adopted in the remainder
+of this paper. For stable training, the dataset was normalized
+to have zero mean and unit variance. The vector field network,
+vθ, was trained for 5M steps with a batch size of 1024, taking
+approximately 66 hours. The network comprises a total of
+18.1M parameters: 12.6M for the global feature encoder, 1.6M
+for the pointwise feature encoder, and 3.9M for the decoder
+(see Fig. 11).
+
+
+HAN AND KIM: MIXTURE OF FLOW MATCHING AND PARTICLE FILTER FOR PROPRIOCEPTION-BASED ONLINE CONTACT ESTIMATION
+Importance-Resampling
+Flow-Guided-Management
+C++ program
+Sampling
+Assign Weights
+Python program
+Flow Matching Inference
+Dual-Sampling
+Sample
+Allocation
+Fig. 12.
+Asynchronous execution of the flow matching inference (Python)
+and the main algorithm loop (C++).
+C. Asynchronous Sampling and Execution Time
+In our implementation, the proposed algorithm performs
+sampling and dual-sampling asynchronously, as illustrated
+in Fig. 12. The flow matching inference is executed on a
+dedicated thread, separate from the main algorithm. The last
+available sample is incorporated into the PF through sample
+allocation and weight computation.
+We configure each particle set to contain M = 100 particles
+with 64 dual particles (Ns = 32) to balance execution time
+with the particle density required to represent the contact
+distribution. Under these settings, the flow matching inference
+takes approximately 2.57 ms, regardless of the number of
+contacts. For the main algorithmic loop, the execution time
+varies depending on the number of contacts: 0.69 ms for
+the single-contact scenario and 2.69 ms for the dual-contact
+scenario.
+VII. EXPERIMENTAL VALIDATION
+This section evaluates our approach in both simulated
+(Sections VII-A–VII-C) and real-world (Section VII-D) envi-
+ronments. For each trial across all experiments, we randomized
+both the robot configuration and the contact location, covering
+the entire surface of the manipulator.
+A. Validation of the Proposed Architecture for Dual-Sampling
+In Experiment A, we validate the proposed architecture
+(Section V-B) for dual-sampling through a two-stage compar-
+ative analysis: (i) We demonstrate its superiority by bench-
+marking it against a baseline method [21]. (ii) We evaluate
+Flow Matching [35] against DDIM [61] to identify the superior
+generative framework for our architecture. The evaluation
+considers both sample quality and computational efficiency
+across varying numbers of ODE integration steps.
+1) Metrics: To quantitatively evaluate the generated sam-
+ples, we employ two variants of the Root Mean Squared Error
+(RMSE), which we denote as Minimum-RMSE (M-RMSE)
+and Cluster-RMSE (C-RMSE):
+M-RMSE( ˆ
+Xt):= 1
+nc
+nc
+X
+i=1
+min
+∀xj∈ˆ
+Xt
+r[1]
+t,i −xj
+,
+(33)
+C-RMSE( ˆ
+Xt):= 1
+nc
+nc
+X
+i=1
+r[1]
+t,i −ci
+.
+(34)
+k = 0.5
+k = 0.5
+(a-1)
+(a-3)
+(b-1)
+(b-3)
+(a-2)
+(b-2)
+128-step ODE
+k
+k
+2-step ODE
+2-step ODE
+Flow Matching
+DDIM
+Flow Matching
+DDIM
+Flow Matching
+DDIM
+Fig. 13.
+Experiment A: Comparison of generative processes implemented
+with our architecture, using (a) Flow Matching [35] and (b) DDIM [61].
+(•-1): Sample trajectories visualized over ODE time steps k (128-step
+integration). (•-2): Accelerated generation paths with 2-step integration.
+(•-3): Resulting samples via the 2-step integration.
+where r[1]
+t,i is the ith contact point in the ground-truth sample
+X[1]
+t , and ci ∈R3 is the centroid of the ith K-means cluster
+of ˆ
+Xt, with the number of clusters set to nc. A low M-RMSE
+(33) indicates that the generated samples effectively cover the
+ground-truth contact points, while a low C-RMSE (34) im-
+plies that the samples closely converge to each corresponding
+contact point.
+2) Results and Analysis: The quantitative results are sum-
+marized in Table II. The proposed architecture outperforms the
+baseline [21] with a lower RMSE, given the same generation
+method (Flow Matching or DDIM). Notably, the baseline
+model exhibits a high C-RMSE relative to its M-RMSE; this
+indicates that while the generated samples cover the contact
+regions, they fail to converge to the ground-truth contact
+points. This limitation stems from the baseline’s inability to
+encode the number of contacts (as discussed in Remark 2),
+frequently resulting in misclassifications between single- and
+dual-contact scenarios. Misidentifying a single-contact case as
+a dual one causes the generated samples to spread out rather
+than converge to a single location.
+Within our proposed architecture, we identify Flow Match-
+ing with 2-step ODE integration as the optimal generative
+scheme, offering an exceptional balance between accuracy
+and efficiency. As detailed in Table II, 2-step Flow Matching
+achieves M-RMSE values of 0.17 cm (single-contact) and
+0.72 cm (dual-contact), competitively matching or even sur-
+passing methods utilizing 16 ODE steps. This 2-step process
+is eight times faster than the 16-step integration, requiring
+only 2.57 ms for inference. Fig. 13 visually complements
+these quantitative results. The sample trajectories generated by
+Flow Matching (Fig. 13(a)) are markedly more linear than the
+
+
+IEEE TRANSACTIONS ON ROBOTICS, 2026
+TABLE II
+EXPERIMENT A: QUANTITATIVE RESULTS OF SAMPLES GENERATED VIA DUAL-SAMPLING (INFERENCE TIME: APPROX. 1.28 ms/STEP)
+Generation method
+Architecture
+ODE-step
+Single-contact (nc = 1)
+Dual-contact (nc = 2)
+M-RMSE (cm) ↓
+C-RMSE (cm) ↓
+M-RMSE (cm) ↓
+C-RMSE (cm) ↓
+Flow Matching
+✓Proposed
+2
+0.17 ± 0.27
+0.45 ± 0.63
+0.72 ± 0.92
+2.20 ± 2.75
+4
+0.16 ± 0.27
+0.44 ± 0.62
+0.67 ± 0.89
+2.18 ± 2.86
+8
+0.15 ± 0.26
+0.43 ± 0.62
+0.62 ± 0.86
+2.17 ± 2.91
+16
+0.14 ± 0.26
+0.42 ± 0.62
+0.56 ± 0.85
+2.16 ± 2.94
+Flow Matching
+✗Baseline
+2
+0.40 ± 0.51
+1.36 ± 1.88
+1.17 ± 1.15
+3.88 ± 3.59
+4
+0.31 ± 0.44
+1.20 ± 1.85
+0.92 ± 1.05
+3.60 ± 3.79
+8
+0.25 ± 0.42
+1.09 ± 1.80
+0.77 ± 1.00
+3.46 ± 3.85
+16
+0.21 ± 0.41
+1.01 ± 1.74
+0.69 ± 0.98
+3.36 ± 3.87
+DDIM
+✓Proposed
+2
+0.26 ± 0.53
+0.60 ± 0.72
+6.13 ± 2.50
+13.63 ± 5.12
+4
+0.21 ± 0.36
+0.53 ± 0.71
+1.54 ± 1.62
+6.03 ± 2.39
+8
+0.19 ± 0.29
+0.50 ± 0.71
+1.05 ± 1.22
+2.86 ± 2.87
+16
+0.18 ± 0.26
+0.50 ± 0.72
+0.85 ± 1.04
+2.43 ± 3.07
+DDIM
+✗Baseline
+2
+0.73 ± 1.02
+1.46 ± 1.45
+8.80 ± 2.92
+15.09 ± 6.11
+4
+0.43 ± 0.83
+1.04 ± 1.38
+2.32 ± 1.85
+7.25 ± 3.08
+8
+0.32 ± 0.60
+0.89 ± 1.35
+1.33 ± 1.32
+3.69 ± 3.40
+16
+0.26 ± 0.46
+0.82 ± 1.36
+0.96 ± 1.08
+3.15 ± 3.61
+F1
+F2
+t
+∥ˆ
+Wext∥
+F2
+F1
+F1
+F2
+F1
+Contact 
+addition
+Contact 
+removal
+Phase 2
+Phase 1
+Phase 1
+Phase 2
+Fig. 14.
+Experiment B: Evaluation of particle set management for contact
+event detection under sequential addition (Phase 1) and removal (Phase 2) of
+contact forces.
+curved paths produced by DDIM (Fig. 13(b)). This inherent
+linearity preserves high consistency between the results of 2-
+step and 128-step ODE integration.
+B. Performance Evaluation of Particle Set Management
+The objective of Experiment B is to compare the contact
+event detection performance of the proposed Flow-Guided-
+Management (Section V-D) against the baseline version (Algo-
+rithm 1). To this end, we compare the proposed ContactFlow-
+Filter (Algorithm 4) with the baseline CPF (Algorithm 2). As
+detailed in Section VII-C, the baseline method shows longer
+execution time compared to our approach. To ensure a fair
+comparison that isolates the algorithmic performance, we set
+the execution time of the baseline to be identical to that of the
+proposed method for this experiment.
+As illustrated in Fig. 14, the experiment involves the ad-
+dition and subsequent removal of a second contact force. We
+define Phase 1 and Phase 2 as the periods following the contact
+addition and removal, respectively. A total of 2000 trials were
+conducted. Each trial has a duration of 3 seconds, during which
+a force is added at t = 1 s and removed at t = 2 s.
+TABLE III
+EXPERIMENT B: QUANTITATIVE RESULTS OF PARTICLE SET
+MANAGEMENT
+Suc. Rate ↑
+Adj. Delay ↓
+Fau. Rate ↓
+Method
+Phase 1
+(%)
+Phase 2
+(%)
+Phase 1
+(ms)
+Phase 2
+(ms)
+Overall
+(%)
+✓Proposed
+99.60
+99.65
+3.21
+26.74
+0.75
+✗Baseline
+97.30
+91.55
+2.89
+51.46
+16.50
+1) Metrics: We evaluate the particle set management pro-
+cess using the following metrics:
+• Success Rate: During Phases 1 and 2, a trial is considered
+successful if the number of particle sets matches the ground-
+truth number of contacts.
+• Adjustment Delay: The time elapsed from the onset of a
+contact event (addition or removal) until the system first
+reaches the successful state.
+• Fault Rate: The percentage of trials exhibiting any mis-
+match between the number of particle sets and the ground-
+truth number of contacts (e.g., the erroneous initialization
+of a particle set in the absence of a new contact), excluding
+the transition period captured by the adjustment delay.
+2) Quantitative Analysis: The evaluation results are sum-
+marized in Table III. The proposed method achieves a higher
+Success Rate, outperforming the baseline by 2.3 % in Phase 1
+and 8.1 % in Phase 2. Although the Adjustment Delay is
+comparable to that of the baseline in Phase 1, it is markedly
+reduced in Phase 2. Most notably, the proposed method
+demonstrates significantly superior robustness, yielding a Fault
+Rate of only 0.75 %, in contrast to 16.5 % for the baseline.
+3) Qualitative Analysis: In the following, we analyze spe-
+cific failure trials observed in both the baseline and proposed
+methods.
+Particle starvation: A common failure scenario in the
+baseline method arises from particle starvation, where the
+initial particle set fails to populate high-belief regions (see
+Fig. 15(a-1)). This leads to a high QP error (23), triggering the
+erroneous addition of a second particle set (see Fig. 15(a-2))
+and often causing a subsequent failure in Phase 2 (see
+Fig. 15(a-4)). During the decreasing condition check (Algo-
+
+
+HAN AND KIM: MIXTURE OF FLOW MATCHING AND PARTICLE FILTER FOR PROPRIOCEPTION-BASED ONLINE CONTACT ESTIMATION
+F1
+Xt,1:
+Xt,2:
+Phase 1
+Phase 2
+Baseline
+Proposed
+(a-1)
+(a-2)
+(a-4)
+(a-3)
+(b-1)
+(b-2)
+(b-4)
+(b-3)
+F1
+F2
+F1
+F1
+F1
+F1
+F1
+F1
+F1
+F2
+False
+positive
+Fig. 15.
+Experiment B: Sequential snapshots comparing the baseline and proposed methods. (a) The baseline method suffers from erroneous set initialization
+due to local minima caused by particle starvation. (b) The proposed method effectively performs contact event detection without such false positives.
+Phase 1
+Phase 2
+(b-1)
+(b-2)
+(b-3)
+(a-1)
+(a-2)
+(a-3)
+F1
+F2
+F1
+F1
+Drift
+Drift
+F1
+F2
+F1
+F1
+F1
+Xt,1:
+Xt,2:
+Baseline
+Proposed
+Fig. 16.
+Experiment B: (a) Due to particle drift, the baseline method often fails to detect contact removal. (b) Conversely, the proposed method is robust
+against particle drift by utilizing the dual-particle distribution.
+F1
+F2
+F1
+Xt,1:
+Phase 1
+Proposed & Baseline
+Fig. 17.
+Experiment B: A failure trial was observed in Phase 1 for both
+the baseline and proposed methods, as two adjacent contact forces are often
+indistinguishable from a single resultant force.
+rithm 1), the QP error remains above the threshold even after
+omitting one particle set, thereby preventing the algorithm
+from reducing the number of particle sets. In contrast, as
+shown in Fig. 15(b), the proposed method avoids this issue
+by generating particles directly within high-belief regions.
+Although this specific scenario accounts for less than 2.7 % of
+Phase 1 errors, the resulting false positive (i.e., erroneous set
+addition) is the primary reason of the baseline’s substantially
+higher Fault Rate.
+Particle drift: The particle drift discussed in Section IV-F2
+adversely affects the management of particle sets. As shown in
+Fig. 16(a-2), when the number of contacts increases (Phase 1),
+the first particle set drifts to compensate for the new ob-
+servation. Similarly, in Phase 2 (see Fig. 16(a-3)), drift is
+also observed in the second particle set. This causes the
+QP-based decreasing condition (Algorithm 1) to fail, as the
+algorithm cannot determine which particle set to remove. In
+contrast, the proposed method directly generates dual particles,
+regardless of any particle drift (see Fig. 16(b)). By leveraging
+the distribution of these dual particles for set management, our
+approach demonstrates robustness against particle drift.
+Ambiguity of Adjacent Contacts: Due to the sparsity
+of proprioceptive sensors, two contact forces with similar
+locations and directions are often indistinguishable from a
+single resultant force acting at their center (see Fig. 17). This
+
+
+IEEE TRANSACTIONS ON ROBOTICS, 2026
+inevitable ambiguity leads to estimation failures for both the
+baseline and the proposed methods, as particles converge to
+a single point. In the proposed method, this ambiguity is the
+primary cause of failure, with approximately 90.9 % of the
+failures in Phase 1 occurring when the two contacts are located
+on adjacent links.
+C. Comparative Study of Contact Estimation Algorithms
+In Experiment C, we conduct a comparative evaluation to
+assess the contact estimation performance of the proposed
+ContactFlowFilter. Our evaluation focuses on two primary
+aspects: the dissimilarity between the particle distribution and
+the ground-truth distribution, and the estimation error with
+respect to the ground-truth contact state (rt,i and Ft,i). As in
+the previous section, we consider a sequential contact scenario,
+i.e., the period until the end of Phase 1 (see Fig. 14). We
+benchmark our approach against the following three baseline
+methods:
+• CPF [22]: This baseline is identical to Algorithm 2 except
+for its motion model. Instead of using pre-processed mesh
+data, the motion model first adds 3D Gaussian noise to the
+particles and then projects them onto the robot’s surfaces.
+This projection step introduces computational overhead,
+increasing the execution time to 33.93 ms and 69.08 ms
+for single- and dual-contact scenarios, respectively.
+• MCP-EP [26]: In this baseline, the dual-sampling step in
+Algorithm 4 is replaced with a random sampling strategy.
+When the current particle set fails to explain the observation
+(as indicated by a high QP error), the algorithm generates
+random particles to explore neighboring links. Its execution
+time is identical to that of the proposed method: 0.69 ms
+and 2.69 ms for single-contact and dual-contact scenarios,
+respectively.
+• Dual-Particle only: This baseline utilizes samples generated
+via the flow matching model. To enable comparison with PF-
+based approaches, we use the dual particles for this baseline,
+i.e., the particles allocated to the particle set (output of
+Algorithm 3).
+1) Metrics: We present the metrics used to evaluate dis-
+similarity and estimation error.
+Dissimilarity: Computing the dissimilarity requires the
+ground truth of the target distribution (20). We construct this
+distribution by defining a likelihood function derived from
+the QP (23). For sequential contact scenarios, the likelihood
+function is defined as follows (see Fig. 18 for a visualization):
+L(O0:t|•):=
+(
+η exp (−αQP(Ot|{•}))
+if nc = 1
+η exp (−αQP(Ot|{rt,1, •})) if nc = 2 .
+(35)
+For a single contact (nc = 1), the QP is computed for each
+face of the pre-processed mesh. For dual contacts (nc = 2), the
+location of the first contact is fixed at its ground-truth value,
+while the second contact is computed over the entire robot
+surface. Notably, since the dual-contact scenario incorporates
+the first contact as known historical information in (35), this
+setup allows us to assess the algorithm’s capability to handle
+temporal dependencies related to discrete state evolution.
+F1
+0
+max
+(a) nc = 1
+(b) nc = 2
+F1
+F2
+Fig. 18. Experiment C: The likelihood function, defined in (35), is visualized
+over the entire robot surface for two scenarios: (a) single-contact (nc = 1) and
+(b) dual-contact (nc = 2). In (b), the likelihood is computed for the second
+contact, resulting in a negligible value at the first contact point (indicated by
+pink circle).
+Based on (35), we employ two metrics to quantify the
+dissimilarity between distributions: the Particle log-Likelihood
+Score (PLS) and the Earth Mover’s Distance (EMD). The
+PLS is defined as the average negative log-likelihood of the
+particles:
+PLS := 1
+M
+M
+X
+m=1
+−log
+
+L(O0:t|x(m)
+t,nc)
+
+.
+(36)
+Here, the PLS is evaluated for particles x(m)
+t,nc ∈Xt,nc cor-
+responding to the final index nc. The EMD measures the
+minimum cost required to transform one distribution into
+another by solving the following optimization problem:
+EMD :=
+min
+T ∈RM×Nf
+Nf
+X
+n=1
+M
+X
+m=1
+Tn,m ·
+y(n) −x(m)
+t,nc
+
+(37a)
+s.t.
+Nf
+X
+n=1
+Tn,m = 1
+M ,
+∀m∈{1,2,··· ,M},
+(37b)
+M
+X
+m=1
+Tn,m = L(O0:t|y(n)),
+∀n∈{1,2,··· ,Nf },
+(37c)
+where y(n) represents the centroid of the nth face of the Nf
+faces in the mesh. Here, we assume that all particles have
+uniform weights, as this stage follows the resampling process.
+While PLS is effective for verifying that particles are
+concentrated in high-likelihood regions, it is limited in multi-
+modal cases. It indicates good performance even when par-
+ticles converge to only a single mode (e.g., the multi-modal
+case in Fig. 18(a)). In contrast, EMD measures the transport
+cost; thus, particles must populate all modes to minimize this
+metric.
+Estimation
+error:
+As
+in
+Section
+VII-A,
+we
+report
+the Minimum-RMSE (M-RMSE) and Weighted-RMSE (W-
+RMSE) for the particle sets Xt:
+M-RMSE(Xt):= 1
+nc
+X
+Xt,i∈Xt
+min
+∀x(m)
+t,i ∈Xt,i
+rt,i −x(m)
+t,i
+,
+(38)
+W-RMSE(Xt):= 1
+nc
+X
+Xt,i∈Xt
+∥rt,i −x∗(Xt,i)∥.
+(39)
+
+
+HAN AND KIM: MIXTURE OF FLOW MATCHING AND PARTICLE FILTER FOR PROPRIOCEPTION-BASED ONLINE CONTACT ESTIMATION
+TABLE IV
+EXPERIMENT C: QUANTITATIVE RESULTS OF THE SIMULATION EVALUATION
+Scenario
+Metric
+Method
+ContactFlowFilter (Ours)
+CPF
+MCP-EP
+Dual-Particle only
+Single-Contact
+(nc = 1)
+M-RMSE (cm) ↓
+0.04 ± 0.08
+1.84 ± 5.27
+0.57 ± 1.64
+0.18 ± 0.13
+W-RMSE (cm) ↓
+0.09 ± 0.54
+1.94 ± 5.55
+0.71 ± 1.85
+N/A
+M-RMSE (N) ↓
+0.12 ± 0.07
+0.14 ± 0.16
+0.13 ± 0.07
+N/A
+W-RMSE (N) ↓
+0.17 ± 0.07
+0.20 ± 0.16
+0.17 ± 0.08
+N/A
+PLS ↓
+5.67 ± 8.52
+6.83 ± 10.38
+7.95 ± 13.34
+6.56 ± 16.84
+EMD ↓
+0.70 ± 1.84
+2.22 ± 5.18
+1.41 ± 1.95
+0.87 ± 1.80
+Dual-Contact
+(nc = 2)
+M-RMSE (cm) ↓
+0.51 ± 2.66
+2.94 ± 5.92
+2.50 ± 5.79
+0.59 ± 1.56
+W-RMSE (cm) ↓
+2.03 ± 3.71
+4.69 ± 6.69
+4.84 ± 6.50
+N/A
+M-RMSE (N) ↓
+2.73 ± 3.21
+4.65 ± 4.59
+4.29 ± 4.06
+N/A
+W-RMSE (N) ↓
+6.09 ± 5.03
+8.88 ± 6.70
+9.44 ± 6.81
+N/A
+PLS ↓
+9.77 ± 14.57
+10.26 ± 18.36
+11.80 ± 19.14
+14.37 ± 24.40
+EMD ↓
+3.29 ± 4.33
+6.37 ± 7.17
+5.40 ± 6.98
+3.48 ± 4.08
+(a-1)
+(b-1)
+(c-1)
+(a-2)
+(b-2)
+(c-2)
+Xt,1:
+Fig. 19. Experiment C: Comparison of three methods in multi-modal single-
+contact scenarios: (a) ContactFlowFilter, (b) CPF, and (c) Dual-Particle-Only.
+The W-RMSE quantifies the error of the particle with the
+highest weight (x∗(Xt,i)) relative to the ground truth. We also
+apply the same M-RMSE and W-RMSE metrics to contact
+forces.
+2) Quantitative Analysis: The results presented in Table IV
+indicate that the proposed method outperforms the baselines
+across all metrics. Our approach achieves the lowest dissim-
+ilarity from the ground-truth target distribution, as evidenced
+by the lowest PLS and EMD values. It also achieves the lowest
+RMSE for both contact point and force estimation.
+3) Qualitative Analysis: Fig. 19 illustrates scenarios involv-
+ing multi-modal contact distributions in a single-contact case.
+As depicted in the first column (Fig. 19(a-•)), the proposed
+method successfully distributes particles across both high-
+belief regions. In contrast, the CPF method, shown in the
+second column (Fig. 19(b-•)), fails to capture this multi-
+modality, with its particles converging to a single region. This
+F1
+Drift
+(a-1)
+(b-1)
+(a-2)
+(b-2)
+F1
+F2
+F2
+F1
+F1
+Xt,1:
+Xt,2:
+F1
+F1
+Contact 
+addition
+Contact 
+addition
+Fig. 20.
+Experiment C: The first row (a-•) presents the results of
+ContactFlowFilter, and the second row (b-•) shows those of CPF. Each
+row illustrates the sequential contact scenario, evolving from a single-contact
+(nc = 1) to a dual-contact (nc = 2).
+limitation results in a significantly higher EMD value, indicat-
+ing a substantial dissimilarity from the ground-truth distribu-
+tion. Moreover, as shown in the third column (Fig. 19(c-•)),
+certain particles generated by the flow matching model are
+located outside the high-belief contact regions (highlighted
+in orange). This occurs because the flow matching model
+predicts contact points in 3D space rather than being strictly
+constrained to the robot surface. Even when incorporated into
+the PF framework, these outliers are effectively suppressed by
+assigning low weights during (i) the dual-sampling step (due
+to inconsistency) and (ii) the QP-based measurement update.
+Fig. 20 demonstrates a failure case caused by particle drift
+(discussed in Section IV-F2) in sequential contact estimation.
+The results of the proposed method and CPF are presented
+
+
+IEEE TRANSACTIONS ON ROBOTICS, 2026
+TABLE V
+EXPERIMENT D: QUANTITATIVE RESULTS OF THE REAL-WORLD EVALUATION
+Scenario
+Metric
+Method
+ContactFlowFilter (Ours)
+CPF
+MCP-EP
+Dual-Particle only
+Single-Contact
+(nc = 1)
+M-RMSE (cm) ↓
+0.36 ± 0.52
+1.36 ± 3.99
+0.77 ± 1.40
+0.51 ± 0.63
+W-RMSE (cm) ↓
+1.62 ± 1.08
+2.88 ± 5.48
+2.99 ± 2.84
+N/A
+M-RMSE (N) ↓
+1.98 ± 1.11
+2.36 ± 2.66
+2.02 ± 1.70
+N/A
+W-RMSE (N) ↓
+2.62 ± 2.43
+3.86 ± 4.29
+6.17 ± 5.91
+N/A
+PLS ↓
+8.85 ± 14.03
+12.36 ± 34.12
+30.10 ± 34.59
+16.76 ± 30.76
+EMD ↓
+1.14 ± 1.94
+2.62 ± 6.91
+3.14 ± 2.39
+2.15 ± 3.28
+Dual-Contact
+(nc = 2)
+M-RMSE (cm) ↓
+0.88 ± 2.31
+5.49 ± 11.36
+2.44 ± 5.15
+1.04 ± 1.59
+W-RMSE (cm) ↓
+2.90 ± 3.51
+7.13 ± 11.24
+4.51 ± 5.63
+N/A
+M-RMSE (N) ↓
+3.25 ± 2.78
+6.60 ± 7.13
+4.34 ± 4.22
+N/A
+W-RMSE (N) ↓
+6.82 ± 4.57
+10.66 ± 7.99
+8.98 ± 6.66
+N/A
+PLS ↓
+12.52 ± 25.41
+34.89 ± 94.74
+19.96 ± 56.66
+17.11 ± 30.29
+EMD ↓
+3.18 ± 4.67
+7.93 ± 12.25
+4.75 ± 6.29
+3.42 ± 3.63
+6-axis F/T sensor
+for force tracking
+Optitrack Marker 
+for pose tracking
+(a)
+(b)
+Fig. 21.
+Experiment D: The real-world evaluation dataset was collected (a)
+using a tool for acquiring ground-truth contact states (ri and Fi), (b) under
+a sequential dual-contact scenario.
+in Fig. 20(a-•) and Fig. 20(b-•), respectively. While both
+methods initially achieve accurate estimation for the first
+contact, the first particle set in the baseline method begins to
+drift when the second contact occurs (see Fig. 20(b-2)). Since
+CPF relies on the measurement model that updates weights
+assuming other particle sets have converged to their true
+contact points (Assumption 1), this drift leads to a cascading
+error. As a result, the second particle set fails to populate the
+high-belief region of its target distribution.
+D. Real-World Experiment
+Experiment D validates the proposed method in a real-world
+setting. We employed the same evaluation metrics and exper-
+imental scenarios as in the simulation experiments detailed in
+Section VII-C. For dual-sampling, the flow matching model
+trained in simulation was directly transferred to the physical
+robot.
+To assess the contact estimation algorithms under consistent
+real-world contact scenarios, we collected a dedicated evalua-
+tion dataset (i.e., not for training). We used a specialized tool,
+shown in Fig. 21(a), to acquire ground-truth contact locations
+(ri) and forces (Fi). As illustrated in Fig. 21(b), this tool
+was used to apply two sequential contacts to the robot while
+recording the corresponding observations. A total of 200 trials
+were conducted across 20 distinct robot configurations.
+The quantitative results of the real-world experiment are
+summarized in Table V. Consistent with the simulation results,
+the proposed method demonstrates superior performance, even
+in the real-world setting. The supplementary video presents the
+experimental procedure and qualitative analysis, along with
+additional contact scenarios (e.g., sliding contact shown in
+Fig. 2(b) and contact during robot motion).
+VIII. SUMMARY, CONCLUSION, AND DISCUSSION
+In this paper, we propose a novel method called Contact-
+FlowFilter for proprioception-based online contact estimation.
+Our method integrates a generative model with a particle filter
+(PF) by adopting a dual-sampling concept. In this framework,
+particles are drawn from a mixture of two proposal distribu-
+tions: (i) “standard particles” from the PF’s prediction step and
+(ii) “dual particles” from the generative model. The mixture
+proposal enables ContactFlowFilter to simultaneously tackle
+key challenges in contact estimation: multi-modality, temporal
+dependency, and contact event detection.
+To address temporal dependency, we utilize the PF frame-
+work as the foundation of our approach, leveraging its re-
+cursive nature to handle time-dependent belief distributions.
+However, PFs alone encounter two fundamental limitations
+that restrict their ability to address the remaining challenges.
+To handle multi-modality, we resolve “particle starvation”
+(Section IV-F1) by incorporating dual particles from the
+generative model. This dual-sampling step enables the direct
+generation of samples in high-belief regions, even where
+the particles fail to populate. To mitigate the sensitivity of
+conventional criteria for contact event detection, we propose a
+method leveraging generative estimates. Our approach main-
+tains robustness against “particle drift” (Section IV-F2), which
+typically leads to contact state tracking failure; e.g., significant
+errors in localization or erroneous contact event detection.
+To implement our dual-sampling strategy, we employ a
+flow matching model, specifically exploiting its linearized
+probability path. This feature enables rapid state estimation,
+
+
+HAN AND KIM: MIXTURE OF FLOW MATCHING AND PARTICLE FILTER FOR PROPRIOCEPTION-BASED ONLINE CONTACT ESTIMATION
+critical for high-fidelity temporal tracking, while remaining
+highly effective at capturing the multi-modal distribution of
+contact states. Such capabilities are underpinned by our novel
+architecture, which incorporates a spatially aligned data rep-
+resentation and a tailored transformer-based neural network.
+We validate ContactFlowFilter through extensive compara-
+tive studies in both simulation and real-world settings. Quan-
+titative and qualitative analyses confirm that the proposed
+method effectively resolves the aforementioned challenges.
+We validate the proposed generative architecture for dual-
+sampling (Section VII-A) and the robustness of our method
+in handling discrete contact transitions (Section VII-B). Ul-
+timately, our approach outperforms the baselines in contact
+estimation, achieving the highest accuracy and the lowest
+dissimilarity to the target posterior (Sections VII-C and VII-D,
+and supplementary video).
+Despite the promising results, the current implementation
+of our method is limited to estimating a maximum of two
+contacts. This constraint stems from the generative component,
+which relies on a fixed-size array of training samples with
+up to two contacts (Section V-A1). Although it readily scales
+to additional contacts, we constrained the scope to isolate
+the core challenges, particularly multi-modality. For up to
+two contacts, the generative model captures multi-modality
+within the solution space bounded by the base F/T sensor.
+Beyond two, estimating multiple contacts from single obser-
+vations becomes ill-posed, as the solution space for the time-
+independent model contains numerous distinct contact states
+yielding identical sensor measurements. We plan to extend the
+method to multi-contact scenarios by incorporating additional
+sensing modalities (e.g., F/T sensors or a dual-arm setup) or
+by conditioning the generative component on temporal context
+to disambiguate the solution space.
+REFERENCES
+[1] J. Liang, J. Wu, H. Huang, W. Xu, B. Li, and F. Xi, “Soft sensitive
+skin for safety control of a nursing robot using proximity and tactile
+sensors,” IEEE Sensors Journal, vol. 20, no. 7, pp. 3822–3830, 2020.
+[2] Y. J. Heo, D. Kim, W. Lee, H. Kim, J. Park, and W. K. Chung, “Collision
+detection for industrial collaborative robots: A deep learning approach,”
+IEEE Robotics and Automation Letters, vol. 4, no. 2, pp. 740–746, 2019.
+[3] D. Kim, D. Lim, and J. Park, “Transferable collision detection learning
+for collaborative manipulator using versatile modularized neural net-
+work,” IEEE Transactions on Robotics, vol. 38, no. 4, pp. 2426–2445,
+2022.
+[4] W. Fu, H. Li, I. X. He, S. Tellex, and S. Sridhar, “Unitac: Whole-robot
+touch sensing without tactile sensors,” arXiv preprint arXiv:2507.07980,
+2025.
+[5] M. Iskandar, A. Albu-Sch¨affer, and A. Dietrich, “Intrinsic sense of touch
+for intuitive physical human-robot interaction,” Science Robotics, vol. 9,
+eadn4008, 2024.
+[6] A. Confente, T. Jin, T. Kobayashi, J. R. Guadarrama-Olvera, and
+G. Cheng, “Skin-machine interface with multimodal contact motion
+classifier,” arXiv preprint arXiv:2507.19760, 2025.
+[7] T. Pang and R. Tedrake, “Easing reliance on collision-free planning with
+contact-aware control,” in 2022 International Conference on Robotics
+and Automation (ICRA), pp. 8375–8381.
+[8] M. J. Kim, W. Lee, C. Ott, and W. K. Chung, “A passivity-based
+admittance control design using feedback interconnections,” in 2016
+IEEE/RSJ International Conference on Intelligent Robots and Systems
+(IROS), pp. 801–807.
+[9] M. J. Kim, W. Lee, J. Y. Choi, G. Chung, K.-L. Han, I. S. Choi,
+C. Ott, and W. K. Chung, “A passivity-based nonlinear admittance
+control with application to powered upper-limb control under unknown
+environmental interactions,” IEEE/ASME Transactions on Mechatronics,
+vol. 24, no. 4, pp. 1473–1484, 2019.
+[10] D. Lee, D. Ko, M. J. Kim, and W. K. Chung, “Bidirectional energy
+flow modulation for passive admittance control,” IEEE Transactions on
+Robotics, vol. 40, pp. 3917–3932, 2024.
+[11] M. Iskandar, C. Ott, A. Albu-Sch¨affer, B. Siciliano, and A. Dietrich,
+“Hybrid force-impedance control for fast end-effector motions,” IEEE
+Robotics and Automation Letters, vol. 8, no. 7, pp. 3931–3938, 2023.
+[12] S. W. Han, M. Iskandar, J. Lee, and M. J. Kim, “Online multi-contact
+feedback model predictive control for interactive robotic tasks,” in 2024
+IEEE International Conference on Robotics and Automation (ICRA), pp.
+11 556–11 562.
+[13] A. Jain, M. D. Killpack, A. Edsinger, and C. C. Kemp, “Reaching in
+clutter with whole-arm tactile sensing,” The International Journal of
+Robotics Research, vol. 32, no. 4, pp. 458–482, 2013.
+[14] M. D. Killpack, A. Kapusta, and C. C. Kemp, “Model predictive control
+for fast reaching in clutter,” Autonomous Robots, vol. 40, pp. 537–560,
+2016.
+[15] M. S. Saleem, L. Yuan, and M. Likhachev, “A contact-driven framework
+for manipulating in the blind,” arXiv preprint arXiv:2510.20177, 2025.
+[16] M. Murooka, T. Hoshi, K. Fukumitsu, S. Masuda, M. Hamze, T. Sasaki,
+M. Morisawa, and E. Yoshida, “TACT: Humanoid whole-body contact
+manipulation through deep imitation learning with tactile modality,”
+IEEE Robotics and Automation Letters, vol. 10, no. 8, pp. 7819–7826,
+2025.
+[17] J. A. Barreiros, A. ¨O. ¨Onol, M. Zhang, S. Creasey, A. Goncalves,
+A. Beaulieu, A. Bhat, K. M. Tsui, and A. Alspach, “Learning contact-
+rich whole-body manipulation with example-guided reinforcement learn-
+ing,” Science Robotics, vol. 10, eads6790, 2025.
+[18] S. Armleder, F. Bergner, J. R. Guadarrama-Olvera, J. Nakanishi, and
+G. Cheng, “Real-time control of a humanoid robot for whole-body tactile
+interaction,” Advanced Intelligent Systems, vol. 7, no. 12, p. e202500149,
+2025.
+[19] P. Mittendorfer, E. Yoshida, and G. Cheng, “Realizing whole-body
+tactile interactions with a self-organizing, multi-modal artificial skin on
+a humanoid robot,” Advanced Robotics, vol. 29, no. 1, pp. 51–67, 2015.
+[20] V. A. Ho and S. Nakayama, “Iotouch: whole-body tactile sensing
+technology toward the tele-touch,” Advanced Robotics, vol. 35, no. 11,
+pp. 685–696, 2021.
+[21] S. W. Han and M. J. Kim, “CDM: Contact diffusion model for multi-
+contact point localization,” in 2025 IEEE International Conference on
+Robotics and Automation (ICRA), pp. 4702–4708.
+[22] L. Manuelli and R. Tedrake, “Localizing external contact using pro-
+prioceptive sensors: The contact particle filter,” in 2016 IEEE/RSJ
+International Conference on Intelligent Robots and Systems (IROS), pp.
+5062–5069.
+[23] M. Iskandar, O. Eiberger, A. Albu-Sch¨affer, A. De Luca, and A. Dietrich,
+“Collision detection, identification, and localization on the dlr sara robot
+with sensing redundancy,” in 2021 IEEE International Conference on
+Robotics and Automation (ICRA), pp. 3111–3117.
+[24] T. Pang, J. Umenberger, and R. Tedrake, “Identifying external con-
+tacts from joint torque measurements on serial robotic arms and its
+limitations,” in 2021 IEEE International Conference on Robotics and
+Automation (ICRA), pp. 6476–6482.
+[25] D. Popov, A. Klimchik, and A. Pashkevich, “Real-time estimation of
+multiple potential contact locations and forces,” IEEE Robotics and
+Automation Letters, vol. 6, no. 4, pp. 7025–7032, 2021.
+[26] S. W. Han and M. J. Kim, “Proprioceptive sensor-based simultaneous
+multi-contact point localization and force identification for robotic
+arms,” in 2023 IEEE International Conference on Robotics and Au-
+tomation (ICRA), pp. 12 099–12 105.
+[27] A. Zwiener, R. Hanten, C. Schulz, and A. Zell, “Armcl: Arm contact
+point localization via monte carlo localization,” in 2019 IEEE/RSJ
+International Conference on Intelligent Robots and Systems (IROS), pp.
+7105–7111.
+[28] D. Popov, S. Mikhel, R. Yagfarov, A. Klimchik, and A. Pashkevich,
+“Multi-scenario contacts handling for collaborative robots applications,”
+in 2021 IEEE/RSJ International Conference on Intelligent Robots and
+Systems (IROS), pp. 2985–2992.
+[29] T.-D. Job, M. Bensch, and M. Schappler, “Multiple-contact estimation
+for tendon-driven continuum robots with proprioceptive sensor informa-
+tion by contact particle filter and kinetostatic models,” in 2023 IEEE/RSJ
+International Conference on Intelligent Robots and Systems (IROS), pp.
+10 224–10 231.
+[30] J. Liang and O. Kroemer, “Contact localization for robot arms in motion
+without torque sensing,” in 2021 IEEE International Conference on
+Robotics and Automation (ICRA), pp. 6322–6328.
+
+
+IEEE TRANSACTIONS ON ROBOTICS, 2026
+[31] S. Thrun, D. Fox, W. Burgard, and F. Dellaert, “Robust monte carlo
+localization for mobile robots,” Artificial intelligence, vol. 128, no. 1-2,
+pp. 99–141, 2001.
+[32] S. Thrun, “Probabilistic robotics,” Communications of the ACM, vol. 45,
+no. 3, pp. 52–57, 2002.
+[33] M. C. Koval, N. S. Pollard, and S. S. Srinivasa, “Pose estimation
+for planar contact manipulation with manifold particle filters,” The
+International Journal of Robotics Research, vol. 34, no. 7, pp. 922–
+945, 2015.
+[34] X. Liu, C. Gong, and Q. Liu, “Flow straight and fast: Learning
+to generate and transfer data with rectified flow,” arXiv preprint
+arXiv:2209.03003, 2022.
+[35] K. Frans, D. Hafner, S. Levine, and P. Abbeel, “One step diffusion via
+shortcut models,” arXiv preprint arXiv:2410.12557, 2024.
+[36] J. Ho, A. Jain, and P. Abbeel, “Denoising diffusion probabilistic models,”
+Advances in neural information processing systems, vol. 33, pp. 6840–
+6851, 2020.
+[37] Y. Song, J. Sohl-Dickstein, D. P. Kingma, A. Kumar, S. Ermon, and
+B. Poole, “Score-based generative modeling through stochastic differ-
+ential equations,” arXiv preprint arXiv:2011.13456, 2020.
+[38] C. Luo, “Understanding diffusion models: A unified perspective,” arXiv
+preprint arXiv:2208.11970, 2022.
+[39] G. Buondonno and A. De Luca, “Combining real and virtual sensors for
+measuring interaction forces and moments acting on a robot,” in 2016
+IEEE/RSJ International Conference on Intelligent Robots and Systems
+(IROS), pp. 794–800.
+[40] S. Haddadin, A. De Luca, and A. Albu-Sch¨affer, “Robot collisions: A
+survey on detection, isolation, and identification,” IEEE Transactions on
+Robotics, vol. 33, no. 6, pp. 1292–1312, 2017.
+[41] D. Popov, A. Klimchik, and A. Pashkevich, “Analytical estimation of
+interaction force and its application point for collaborative robots,” IFAC-
+PapersOnLine, vol. 55, no. 10, pp. 2451–2456, 2022.
+[42] A. Mohammad, M. Schappler, and T. Ortmaier, “Collision isolation and
+identification using proprioceptive sensing for parallel robots to enable
+human-robot collaboration,” in 2023 IEEE/RSJ International Conference
+on Intelligent Robots and Systems (IROS), pp. 5910–5917.
+[43] D. Zurlo, T. Heitmann, M. Morlock, and A. De Luca, “Collision
+detection and contact point estimation using virtual joint torque sensing
+applied to a cobot,” in 2023 IEEE International Conference on Robotics
+and Automation (ICRA), pp. 7533–7539.
+[44] J. Bimbo, C. Pacchierotti, N. G. Tsagarakis, and D. Prattichizzo,
+“Collision detection and isolation on a robot using joint torque sensing,”
+in 2019 IEEE/RSJ International Conference on Intelligent Robots and
+Systems (IROS), pp. 7604–7609.
+[45] A. Zwiener, C. Geckeler, and A. Zell, “Contact point localization
+for articulated manipulators with proprioceptive sensors and machine
+learning,” in 2018 IEEE International Conference on Robotics and
+Automation (ICRA), pp. 323–329.
+[46] D. Popov and A. Klimchik, “Transfer learning for collision localization
+in collaborative robotics,” in Proceedings of the 3rd International
+Conference on Applications of Intelligent Systems, 2020, pp. 1–7.
+[47] A. De Luca, A. Albu-Schaffer, S. Haddadin, and G. Hirzinger, “Collision
+detection and safe reaction with the dlr-iii lightweight manipulator arm,”
+in 2006 IEEE/RSJ International Conference on Intelligent Robots and
+Systems (IROS), pp. 1623–1630.
+[48] M. J. Kim, Y. J. Park, and W. K. Chung, “Design of a momentum-
+based disturbance observer for rigid and flexible joint robots,” Intelligent
+Service Robotics, vol. 8, pp. 57–65, 2015.
+[49] S. Haddadin, A. Albu-Schaffer, A. De Luca, and G. Hirzinger, “Collision
+detection and reaction: A contribution to safe physical human-robot
+interaction,” in 2008 IEEE/RSJ International Conference on Intelligent
+Robots and Systems (IROS), pp. 3356–3363.
+[50] R. Hess, Blender Foundations: The Essential Guide to Learning Blender
+2.6.
+Focal Press, 2010.
+[51] D.-M. Yan, B. L´evy, Y. Liu, F. Sun, and W. Wang, “Isotropic remeshing
+with fast and exact computation of restricted voronoi diagram,” in
+Computer graphics forum, vol. 28, no. 5.
+Wiley Online Library, 2009,
+pp. 1445–1454.
+[52] J. Ho and T. Salimans, “Classifier-free diffusion guidance,” arXiv
+preprint arXiv:2207.12598, 2022.
+[53] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez,
+L. u. Kaiser, and I. Polosukhin, “Attention is all you need,” in Advances
+in Neural Information Processing Systems, vol. 30, 2017.
+[54] D. Rebain, K. Li, V. Sitzmann, S. Yazdani, K. M. Yi, and A. Tagliasac-
+chi, “Deep medial fields,” arXiv preprint arXiv:2106.03804, 2021.
+[55] O. Ronneberger, P. Fischer, and T. Brox, “U-Net: Convolutional net-
+works for biomedical image segmentation,” in Medical Image Comput-
+ing and Computer-Assisted Intervention (MICCAI), 2015, pp. 234–241.
+[56] E. Perez, F. Strub, H. De Vries, V. Dumoulin, and A. Courville, “FiLM:
+Visual reasoning with a general conditioning layer,” in Proceedings of
+the AAAI conference on artificial intelligence, vol. 32, no. 1, 2018.
+[57] M. Tancik, P. Srinivasan, B. Mildenhall, S. Fridovich-Keil, N. Raghavan,
+U. Singhal, R. Ramamoorthi, J. Barron, and R. Ng, “Fourier features let
+networks learn high frequency functions in low dimensional domains,”
+Advances in neural information processing systems, vol. 33, pp. 7537–
+7547, 2020.
+[58] J.
+Bradbury,
+R.
+Frostig,
+P.
+Hawkins,
+M.
+J.
+Johnson,
+C. Leary, D. Maclaurin, G. Necula, A. Paszke, J. VanderPlas,
+S.
+Wanderman-Milne,
+and
+Q.
+Zhang,
+“JAX:
+composable
+transformations
+of
+Python+NumPy
+programs,”
+2018.
+[Online].
+Available: http://github.com/google/jax
+[59] A. G. Pandala, Y. Ding, and H.-W. Park, “qpSWIFT: A real-time sparse
+quadratic program solver for robotic applications,” IEEE Robotics and
+Automation Letters, vol. 4, no. 4, pp. 3355–3362, 2019.
+[60] E. Todorov, T. Erez, and Y. Tassa, “MuJoCo: A physics engine for
+model-based control,” in 2012 IEEE/RSJ International Conference on
+Intelligent Robots and Systems (IROS), pp. 5026–5033.
+[61] J. Song, C. Meng, and S. Ermon, “Denoising diffusion implicit models,”
+arXiv preprint arXiv:2010.02502, 2020.

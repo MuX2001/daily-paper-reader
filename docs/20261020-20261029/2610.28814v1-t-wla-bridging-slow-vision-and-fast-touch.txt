@@ -1,0 +1,1741 @@
+T-WLA: BRIDGING SLOW VISION AND FAST TOUCH
+Kaichen Zhou1,2,∗
+Yuzhen Chen2,∗
+Hannah Yao3,∗
+Chonghe Jiang1
+Rao Fu4
+Xihang Yu1
+Wei Dai1
+Bashar Kabbarah4
+Haoyu Chen2
+Ishita Goluguri1
+Zhiyang Dou1
+Haonan Chen2
+Fangneng Zhan1
+Mengyu Wang2
+Wojciech Matusik1
+Antonio Torralba1
+Paul Pu Liang1
+1Massachusetts Institute of Technology
+2Harvard University
+3University of California, Davis
+4University of California, Berkeley
+∗Equal contribution
+(c)  Real-world tactile manipulation
+(a)  Learning from human demonstrations
+Without tactile
+With tactile
+(b)  Predicting future hand poses
+Future hand poses
+t
+now
+future
+colour = time ahead
+Success (w/ tactile): Grasp
+Success (w/ tactile): Lift
+Failure (w/o tactile): Contact only
+Failure (w/o tactile): Egg slips
+Visual memory
+Frame t
+Frame t+7
+Touch t+1
+Touch t+2
+Touch t+3
+Touch t+4
+Touch t+5
+Touch t+6
+a0
+corrected 
+a1 
+corrected 
+a2
+corrected 
+a3
+corrected 
+a4
+corrected 
+a5
+corrected 
+a6
+a7
+Figure 1:
+Tactile World–Language–Action (T-WLA). The visual branch uses current and past
+visual information to produce an action chunk and visual memory. Between visual updates, the
+tactile editor uses this cached visual memory and recent touch to correct the action chunk. During
+training, predicting future images and pressure helps the model learn features useful for control.
+ABSTRACT
+In contact-rich manipulation, contact conditions can change before a visual pol-
+icy updates its action plan. Recomputing the plan through the visual policy adds
+latency, while tactile feedback alone does not specify how the ongoing motion
+should be revised for the task. We introduce T-WLA, a world–language–action
+architecture that uses shared visual memory to guide both action generation and
+tactile correction. At each visual update, the visual branch integrates the current
+image, task instruction, and retrieved history into a visual memory that condi-
+tions base-action generation. The same memory is cached for a lightweight tac-
+tile editor, which combines it with the active action chunk and incoming touch
+to predict residual corrections to unexecuted actions without rerunning the visual
+branch. Future-image and future-pressure prediction provide training-only super-
+vision, encouraging the visual memory and tactile features to capture interaction
+dynamics relevant to action generation and correction. We evaluate T-WLA on
+tactile-conditioned hand-motion prediction using EgoTouch and Tachin, and on
+four real-world dexterous manipulation tasks. T-WLA reduces finger-joint MPJPE
+by 30% relative to the strongest reported baseline and achieves an average success
+rate of approximately 50.0% across real-robot manipulation tasks. Videos and
+codes are available at the project website.
+1
+arXiv:2610.28814v1  [cs.RO]  20 Oct 2026
+
+
+Keywords: Robot foundation models; Vision–language–action models (VLA);
+World-action models (WAM); Visuotactile Manipulation; Residual Action Cor-
+rection.
+1
+INTRODUCTION
+Contact-rich manipulation refers to tasks whose success depends on precisely managing physical
+contact with objects or the surrounding environment (Hogan, 2022; Lee et al., 2019). Tactile feed-
+back complements vision by revealing local contact conditions that are difficult to infer from images
+alone (Niu et al., 2026; Song et al., 2025; Xue et al., 2025; Zhou et al., 2026b). For example, when
+inserting a plug into a socket, vision guides alignment and approach, while touch provides feedback
+on contact and insertion resistance. Because these conditions can change between visual updates,
+tactile feedback supports rapid corrections to the ongoing motion.
+Despite the importance of tactile feedback in contact-rich manipulation, many general-purpose robot
+policies rely primarily on vision. Vision–language–action (VLA) models adapt pretrained vision–
+language backbones to predict robot actions from visual observations and language instructions
+(Kim et al., 2024; Physical Intelligence et al., 2025). World–action models further integrate future-
+state prediction with action generation, linking control decisions to the anticipated evolution of the
+environment (Zhang et al., 2026b; Yuan et al., 2026). Without tactile feedback, these models must
+infer local contact conditions from visual cues, which may limit their response to visually subtle
+contact changes during precise manipulation.
+Recent work incorporates tactile feedback into robot control through variable-rate expert architec-
+tures (Niu et al., 2026), residual adaptation (Wang et al., 2026), and inference-time policy steering
+(Wu et al., 2026b). We investigate a complementary question: how can fast tactile feedback correct
+a slow visual policy between visual updates? Our central idea is to generate asynchronous tactile
+corrections conditioned on persistent visual memory. The visual branch processes RGB observa-
+tions at 39.7 Hz, producing a base action chunk and a history-aware visual memory at each update.
+The tactile branch processes touch at 119.1 Hz, combining recent tactile context with the cached vi-
+sual memory and the active action chunk to predict residual corrections to its remaining, unexecuted
+actions. This allows contact feedback to refine ongoing motion without waiting for the next visual
+update or rerunning the visual branch.
+We instantiate this idea in T-WLA, a multi-rate architecture for asynchronous visual–tactile con-
+trol (Fig. 1). The visual branch generates an action chunk and a history-aware visual representation,
+which is cached until the next visual update. Between these updates, a lightweight tactile editor com-
+bines the cached representation with recent tactile observations to produce high-frequency residual
+corrections to the ongoing action chunk. This separation allows the controller to respond to chang-
+ing contact conditions without repeatedly running the visual branch. During training, future-image
+and future-pressure prediction regularize the control representations, encouraging them to capture
+information relevant to subsequent interactions. Our contributions are summarized as follows:
+• Memory-guided asynchronous control.
+We propose T-WLA, which uses the same
+history-aware visual memory to guide base-action generation and tactile correction. A
+lightweight tactile editor uses this memory and the active action chunk to correct unexe-
+cuted actions between visual updates, without rerunning the visual branch.
+• Predictive supervision for control. We regularize the visual memory through future-
+image prediction and the tactile features through both future-image and future-pressure
+prediction. These auxiliary objectives complement action supervision, and their prediction
+heads are removed at inference.
+• Evaluation across hand-motion prediction and robot manipulation. Experiments on
+EgoTouch and Tachin show improved finger-joint prediction accuracy, while real-robot
+tests show that T-WLA increases mean task success from 17.0% to 50.0%. Ablations ex-
+amine the contributions of tactile input, visual history, and predictive supervision.
+2
+
+
+2
+RELATED WORK
+2.1
+MEMORY AND ACTION CHUNK EXECUTION
+A single observation may not provide enough information to determine the next action. Memory-
+based policies address this limitation by retaining information from earlier observations; for ex-
+ample, MemoryVLA stores consolidated perceptual and cognitive entries that can be queried over
+long horizons (Shi et al., 2026). A complementary line of work predicts temporally extended action
+sequences. ACT introduced transformer-based action chunking to reduce the effective decision hori-
+zon (Zhao et al., 2023), while generative policies such as Diffusion Policy, RDT-1B, and π0 generate
+multi-step actions with diffusion or flow-based objectives (Chi et al., 2025; Liu et al., 2025a; Black
+et al., 2024a). Such temporal coherence can reduce responsiveness when new observations arrive
+during execution (Liu et al., 2025b; Zeng et al., 2026). Bidirectional Decoding improves closed-loop
+adaptation by selecting among candidate chunks (Liu et al., 2025b), while Consistency Policy and
+Streaming Diffusion Policy accelerate generative action synthesis (Prasad et al., 2024; Høeg et al.,
+2025). Real-time chunking instead explicitly accounts for inference latency when transitioning be-
+tween successive chunks (Black et al., 2025). T-WLA addresses a complementary setting: it retains
+visual history across policy updates and uses high-rate tactile feedback to revise the unexecuted
+portion of an active action chunk.
+2.2
+TACTILE FOUNDATION MODELS
+Tactile representation learning aims to produce features that transfer across sensors and tasks (Bi
+et al., 2026a; Tao et al., 2026; Heng et al., 2025; Zhang et al., 2026c; Huang et al., 2025). Het-
+erogeneous Tactile Transformer learns a shared model across sensor types (Bi et al., 2026b), while
+FG-CLTP aligns tactile features with visual and language representations (Ma et al., 2026). Other
+work explores transferring representations learned from human tactile recordings to dexterous robots
+(Zhang et al., 2026a) and scaling pretraining through tactile foundation models (Team et al., 2026;
+Zhou et al., 2026b). Our tactile encoder follows this direction through contrastive pretraining on
+synchronized tactile and hand-pose histories. Building on tactile representations, several systems
+study how to incorporate touch into manipulation policies. Multi-rate architectures allow tactile
+feedback to influence control between visual updates. T-Rex assigns vision and touch to experts op-
+erating at different rates (Niu et al., 2026), while Reactive Diffusion Policy combines a slow visual
+diffusion policy with a fast latent tactile controller (Xue et al., 2025). FA-RDP adapts this division
+to task demand (Zhuo et al., 2026), and DSWAM organizes world–action modeling into cooperat-
+ing slow and fast systems (Zhu et al., 2026). Residual adaptation provides another mechanism for
+incorporating touch into existing policies. ViTaR attaches a lightweight visuotactile residual branch
+to a frozen backbone (Wang et al., 2026), while ResTacVLA applies residual adaptation in feature
+space (Zhang et al., 2026d). Tactile feedback can also guide action execution through inference-
+time adaptation. FBFM introduces asynchronous feedback during flow-matching execution without
+additional training (Li et al., 2026), while inference-time policy steering adjusts a fixed policy using
+vision and touch (Wu et al., 2026b). Complementary approaches use touch as training supervi-
+sion without requiring tactile input at deployment (Gubernatorov et al., 2026; Cheng et al., 2026).
+These approaches enable tactile feedback to influence action generation and execution. In T-WLA,
+a cached, history-aware visual representation connects a slow visual policy to a fast tactile editor,
+which combines visual memory with recent touch to refine the ongoing action chunk. Predictive su-
+pervision encourages these representations to capture evolving interaction dynamics, while auxiliary
+predictors are used only during training and add no inference cost.
+3
+METHODOLOGY
+3.1
+OVERVIEW
+During contact-rich manipulation, high frequency changes in contact pressure or location may re-
+quire the robot to adjust its motion before the next visual update. Tactile feedback captures these
+local changes, but deciding how to respond also depends on the task instruction and visual infor-
+mation about the ongoing interaction. To retain this information between visual updates, T-WLA
+shares a history-aware visual memory between a visual policy and a lightweight tactile editor. The
+3
+
+
+Vision branch
+At RGB update
+Tactile branch
+At tactile update
+Current RGB
+Vision encoder
+Task
+instruction
+Text tokenizer
+Current state
+& FoV
+Learned queries
+Memory
+retrieval
+Memory bank
+Vision–language
+model
+Visual memory
+Action expert
+Base action chunk
+Held between RGB updates
+Tactile history
+Tactile
+encoder
+Tactile context
+Residual editor
+Transformer + FiLM
+Action corrections
++
+Final action chunk
+Executed Remaining
+New touch → update all remaining actions
+Figure 2:
+Shared memory connects slow visual planning with fast tactile correction. Each
+visual update generates a base action chunk and visual memory. Between updates, the tactile editor
+reads this cached pair and revises unexecuted actions without rerunning the visual branch.
+editor combines this cached memory with recent tactile observations to asynchronously correct the
+remaining actions planned by the visual policy, avoiding the computational cost of rerunning the
+visual branch. As shown in Fig. 2, T-WLA processes RGB observations It and higher-frequency
+tactile observations Tt,τ, where t indexes visual updates and τ indexes tactile updates between them.
+At each visual update, the visual branch produces memory M t
+V and an H-step base action chunk
+Abase
+t
+= fact(M t
+V). Both are cached while the tactile editor updates the remaining actions:
+bAt,τ = fact
+
+M t
+V
+
++ E
+
+M t
+V , Abase
+t
+, Zt,τ , ∆tt,τ
+
+.
+(1)
+Shared visual memory
+Base-action generation
+Tactile editor
+Cached base action chunk
+Tactile context
+Elapsed time
+Here, Zt,τ summarizes recent tactile history, ∆tt,τ is the elapsed time since current active chunk
+started, and E returns an effective residual ∆At,τ for valid, unexecuted actions. The base chunk is
+sampled once per visual update; each correction is recomputed relative to this cached action chunk.
+3.2
+HISTORY-AWARE VISUAL MEMORY
+A current image may obscure information that was visible earlier or leave the recent approach to
+contact ambiguous (Wang et al., 2025; Zhou et al., 2026c; 2023). We retain a compact visual history
+so that both planning and correction can use earlier observations without repeatedly encoding the
+full image sequence. As illustrated in Fig. 3(a), learned queries QV retrieve input memory from a
+bank Bt−1
+V
+containing the last K sets of visual output-memory tokens:
+M t
+V,in = MV
+ Bt−1
+V
+, QV
+
+.
+(2)
+The visual backbone then combines this history with current image tokens Et, instruction tokens
+Lℓ, field-of-view tokens ct, and state tokens St:
+M t
+V = fV
+ Et, Lℓ, ct, St, M t
+V,in
+
+.
+(3)
+The updated visual memory M t
+V conditions the action expert fact in Eq. 1. The bank update Bt
+V =
+AppendK(Bt−1
+V
+, M t
+V) appends the new memory while retaining at most the K most recent memory
+sets. The tactile editor uses the updated visual memory M t
+V, which combines visual history with
+the current observation and task instruction. The visual branch is trained to predict demonstrated
+action chunks using conditional flow matching (Lipman et al., 2022), with future-image prediction
+providing auxiliary supervision in Section 3.4. Details are specified in Appendix B.1 and C.1.
+4
+
+
+Visual context bank
+Learned
+queries
+Memory
+retrieval
+Retrieved memory
+Current RGB
+& Instruction Vision–language
+model
+Visual output memory
+Tactile
+context
+Fixed
+reference
+Shared tactile encoder
+CNN
+BiGRU
+Touch
+features
+Reference
+features
+−
+Tactile context
+Cached visual
+memory
+Elapsed
+time
+Base action
+chunk
+Projection + concatenate
+Transformer
+Action
+hidden
+features
+Tactile
+context
+Linear
+×
+scale
++
+shift
+FiLM
+Residual head
++
+Final action chunk
+(a) Memory Retrieval
+(b) Tactile Encoder
+(c) Residual Editor
+Figure 3:
+The memory-to-editor interface. (a) Retrieved history is combined with the current
+observation and instruction. (b) Observed tactile history is encoded relative to a fixed reference. (c)
+Touch modulates action features conditioned on the cached visual memory, base chunk, and elapsed
+time. Module details are in Appendices B.1–B.3.
+3.3
+ASYNCHRONOUS TACTILE CORRECTION
+The editor asynchronously refines an active plan through residual corrections rather than generating
+a new action plan from touch alone. Visual memory supplies retained task and scene information;
+the base action chunk specifies what is being executed; and elapsed time identifies the remaining
+action positions as in Eq. 1. Between visual updates, M t
+V and Abase
+t
+remain fixed, while each tactile
+update τ runs only the lightweight tactile encoder and residual editor, enabling efficient corrections
+without rerunning the visual branch. This formulation assumes that the base plan remains a useful
+reference between visual updates.
+Tactile context. We encode recent causally available tactile frames Ht,τ as Zt,τ = EncT(Ht,τ). A
+temporal window exposes contact evolution that a single pressure map cannot resolve. Figure 3(b)
+shows the shared encoder and reference subtraction; more information are detailed in Appendix B.2.
+Plan-conditioned correction. As illustrated in Fig. 3(c), a small Transformer combines the cached
+visual memory, base action chunk, and elapsed time to produce action features at each tactile update.
+FiLM (Perez et al., 2018) uses the tactile context to scale and shift these features, which a residual
+head converts into action corrections. After masking, the corrections ∆At,τ affect only valid, un-
+executed actions; a hand with missing tactile input receives zero correction. The residual is added
+to the original cached base action chunk, yielding bAt,τ = Abase
+t
++ ∆At,τ as in Eq. 1, rather than
+accumulated on previously corrected actions. More structure details are provided in Appendix B.3.
+With the visual branch frozen, we supervise the corrected actions using a group-balanced Smooth L1
+loss against demonstrations and regularize the predicted residuals with a magnitude penalty. These
+objectives train the tactile encoder and residual editor to correct action errors while discouraging
+unnecessarily large corrections. Definitions of objectives are provided in Appendix C.1.
+3.4
+PREDICTIVE SUPERVISION AND TRAINING
+Action supervision specifies the demonstrated command, but may not distinguish states with differ-
+ent subsequent visual or contact outcomes. We add future-image and future-pressure prediction to
+supervise information about these outcomes in the representations used for control. Both prediction
+heads are training-only auxiliaries, not inference-time planners.
+Complementary prediction targets. The image predictor conditions on current image tokens and
+output visual memory to predict future latents supplied by a frozen image encoder. During editor
+training, tactile context also conditions this predictor through a learned adapter. The adapter changes
+only the auxiliary prediction path, leaving the cached memory used for control unchanged. Future-
+5
+
+
+Table 1: Tactile-conditioned future hand-motion prediction. EgoTouch is reported across five native
+environments and as a macro-average; Tachin is evaluated on its held-out test split. Metrics use the
+same prediction horizon and are averaged per sequence before aggregation. Lower prediction error
+is better. Gray highlights T-WLA. Bold/underline indicate the best/second-best distinct reported
+errors within each metric and column, including ties. Tactile Freq. denotes the effective tactile-
+correction rate under our multi-rate protocol. Frequency is reported in Hz and is not ranked.
+EgoTouch
+Tachin
+Method
+Home Workb. Office Retail Outdoor Avg. Overall Tactile Freq.
+Wrist translation error (cm, ↓)
+VITRA + tactile
+4.54
+3.71
+2.84
+3.98
+5.34
+4.08
+1.48
+58.2
+SmolVLA + tactile
+4.55
+3.74
+2.88
+3.98
+5.33
+4.10
+1.50
+69.0
+MemoryVLA + tactile
+4.65
+3.78
+2.96
+4.08
+5.41
+4.18
+1.55
+15.0
+T-Rex
+4.63
+3.76
+2.95
+4.05
+5.41
+4.16
+1.54
+17.16
+T-WLA
+4.36
+3.63
+2.73
+3.82
+5.24
+3.96
+1.39
+119.1
+Wrist rotation geodesic error (degrees, ↓)
+VITRA + tactile
+6.29
+6.22
+4.81
+6.86
+7.15
+6.27
+4.55
+58.2
+SmolVLA + tactile
+6.29
+6.22
+4.87
+6.85
+7.16
+6.28
+4.20
+69.0
+MemoryVLA + tactile
+6.34
+6.39
+4.88
+6.89
+7.20
+6.34
+4.39
+15.0
+T-Rex
+6.29
+6.29
+4.84
+6.87
+7.17
+6.29
+4.25
+17.16
+T-WLA
+6.18
+5.83
+4.79
+6.66
+7.03
+6.10
+4.17
+119.1
+Wrist-relative finger-joint MPJPE (cm, ↓)
+VITRA + tactile
+0.51
+0.51
+0.45
+0.51
+0.53
+0.50
+0.63
+58.2
+SmolVLA + tactile
+0.51
+0.50
+0.46
+0.50
+0.53
+0.50
+1.28
+69.0
+MemoryVLA + tactile
+1.37
+1.37
+1.17
+1.34
+1.46
+1.34
+1.87
+15.0
+T-Rex
+1.17
+1.13
+1.07
+1.17
+1.18
+1.14
+1.08
+17.16
+T-WLA
+0.36
+0.33
+0.31
+0.36
+0.40
+0.35
+0.46
+119.1
+pressure prediction instead supervises subsequent contact, conditioned on visual memory, tactile
+context, and upcoming edited actions. This action condition links tactile features to how contact may
+evolve under the active plan. Predictor conditions, gradient routes, and normalization are specified
+in Appendix C.2; future targets never enter the controller.
+Staged optimization. The visual action expert and predictive heads use conditional flow match-
+ing (Lipman et al., 2022). We first train the visual branch with action and image-prediction supervi-
+sion, and separately pretrain the tactile encoder through contrastive learning on synchronized tactile
+and hand-pose histories from EgoTouch. We then freeze the visual branch and use its cached visual
+memory and base action chunks to train the tactile encoder and residual editor with a group-balanced
+Smooth L1 action loss, a residual-magnitude penalty, and the two predictive objectives. The visual
+predictor remains frozen, while its tactile conditioning adapter and the pressure predictor are trained.
+Objective definitions and custom reductions are provided in Appendices C.1 and C.2. Stage-specific
+training details and a proposed joint fine-tuning extension are described in Appendix C.3. Both
+prediction heads are removed at inference.
+4
+EXPERIMENTS
+We organize our experiments around four questions. First, does combining visual memory with
+high-rate tactile feedback improve future hand-motion prediction on human-interaction datasets
+(Section 4.2)? Second, does the tactile branch improve closed-loop success on real contact-rich
+robot tasks under a matched visual backbone and training budget (Section 4.3)? Third, which
+components—tactile input, recurrent memory, memory capacity, and predictive supervision—
+account for the improvement (Section 4.4)? Finally, does the visual branch remain a strong stan-
+dalone predictor when tactile observations are unavailable (Appendix E)?
+4.1
+EXPERIMENTAL SETUP
+Datasets and tasks. For tactile-conditioned future hand-motion prediction, we evaluate on Ego-
+Touch from TouchAnything (Zhou et al., 2026a) and the Tachin glove dataset (Tachintech, 2026).
+EgoTouch is evaluated in its five native environments—Home, Workbench, Office, Retail, and
+Outdoor—whereas Tachin is reported over its complete held-out test set. For visual-only predic-
+6
+
+
+Figure 4: Qualitative comparison on EgoTouch and Tachin. VITRA, SmolVLA, MemoryVLA,
+and T-Rex denote the tactile-augmented variants used in Table 1. For each dataset, we show the
+source RGB frame at t0, ground truth, and predictions from each of the models at t0 +100 ms. RGB
+overlays depict ground-truth hand poses in green and predictions in orange. Fingertip-detail views
+show wrist-aligned hands rendered from a +60◦visualization view, with ground-truth hand mesh
+in green and predicted fingertips in orange crosses. MPJPE is reported in centimeters (↓: lower is
+better). T-WLA obtains the lowest MPJPE on both displayed examples.
+tion, we use GigaHands (Fu et al., 2025), OakInk2 (Zhan et al., 2024), and TACO (Liu et al., 2024).
+GigaHands is reported over its five official activity families, while OakInk2 and TACO are each
+evaluated over their complete held-out test sets. Our real-robot benchmark contains four contact-
+rich tasks: egg handling, single-sheet pickup, paper-cup nesting, and paper-bag opening.
+Baselines and controlled comparison. For tactile-conditioned prediction, we compare with VI-
+TRA (Li et al., 2025), SmolVLA (Shukor et al., 2025), MemoryVLA (Shi et al., 2026), and T-
+Rex (Niu et al., 2026). When a baseline does not natively accept touch, its “+ tactile” variant
+receives the same synchronized tactile stream and uses the same task-specific tactile encoder, pre-
+diction head, and optimization budget as the other adapted baselines. T-Rex and T-WLA retain their
+native multi-rate interfaces. Appendix D specifies the action representation, temporal alignment,
+metric definitions, evaluation masks, and aggregation procedure.
+4.2
+TACTILE- AND VISION-CONDITIONED ACTION PREDICTION
+Tactile-conditioned hand-motion prediction. Table 1 shows that T-WLA achieves the lowest re-
+ported errors across all three metrics in every EgoTouch environment and on Tachin. The clear-
+est advantage, however, is in finger articulation: wrist-relative MPJPE decreases by approximately
+30.0% on EgoTouch and 27.0% on Tachin relative to the strongest reported baseline for each dataset.
+Because this metric measures joint positions relative to the wrist, the improvement is not simply a
+7
+
+
+Table 2: Closed-loop success rates (%, ↑) on four contact-rich robot tasks after adaptation with
+30 teleoperated demonstrations per task.
+Avg.
+denotes the unweighted mean across tasks.
+Bold/underline indicate the best/second-best distinct results in each column, including ties. Gray
+highlights tactile-enabled T-WLA.
+Controller
+Egg
+Transfer
+Single-Sheet
+Pickup
+Paper-Cup
+Nesting
+Paper-Bag
+Dragging
+Avg.
+SmolVLA
+0
+28
+0
+39 16.75
+SmolVLA + Tactile
+0
+30
+1
+37
+17.0
+T-ReX
+4
+3
+22
+63
+23.0
+T-WLA w/o tactile
+18
+72
+17
+82 47.25
+T-WLA
+21
+78
+17
+84
+50.0
+
+
+
+
+
+	
+ 
+
+
+	
+Figure 5: Representative real-robot trials for cup stack and egg transfer. Each column shows the
+start, contact, and goal frames of one episode; the left column of each task is a successful T-WLA
+trial and the right column is a failed baseline trial.
+consequence of predicting the global wrist position more accurately. Wrist translation and rotation
+also improve, but more modestly. This contrast is consistent with the intended role of the tactile
+editor: refining fine-grained hand motion within an ongoing visual plan, rather than replacing the
+plan altogether. The same pattern across both datasets, together with lower errors in all five Ego-
+Touch environments, indicates that the benefit is not confined to a single environment. The accuracy
+improvements also coexist with a higher effective tactile-correction rate. Under our multi-rate pro-
+tocol, T-WLA reaches 119.1 Hz, compared with 69.0 Hz for the fastest reported baseline. Thus,
+the lightweight correction pathway combines more frequent tactile updates with lower prediction
+errors, rather than requiring a lower update rate to obtain better predictions. This accuracy–update-
+rate combination is particularly relevant to asynchronous visuotactile control, where contact-driven
+corrections are needed between slower visual updates.
+4.3
+REAL-ROBOT EVALUATION
+Next, we test whether the prediction improvements translate into closed-loop manipulation on four
+tasks: egg transfer, single-sheet pickup, paper-cup nesting, and paper-bag dragging. These tasks
+are contact-sensitive: egg transfer involves small in-hand slip that is difficult to observe visually;
+sheet pickup and cup nesting require a secure grip without crumpling or crushing the object; and
+bag dragging requires maintaining a grasp on the loaded bag’s rim under changing fingertip loads.
+Together, they test whether tactile feedback can refine visually guided actions using contact infor-
+mation that images alone may not resolve. As shown in Table 2, T-WLA with tactile input achieves
+a mean success rate of 50.0% with only 30 teleoperated demonstrations per task. Before robot adap-
+tation, T-WLA, including its tactile editor, is trained only on human-hand data. Even without tactile
+input, T-WLA reaches 47.25% mean success, compared with 16.75% for SmolVLA, which shares
+components with our visual branch. VITRA and MemoryVLA achieve no successful trials under
+8
+
+
+Table 3: Ablation of tactile input, memory, and predictive supervision. World-prediction ablations
+remove auxiliary objectives during editor training, not backbone pretraining. Lower is better for
+every metric. Bold/underline indicate the best/second-best distinct results in each column.
+EgoTouch
+Tachin
+Variant
+Trans. (cm)
+Rot. (◦)
+Joint (cm)
+Trans. (cm)
+Rot. (◦)
+Joint (cm)
+Without tactile input
+4.010
+6.200
+0.430
+1.450
+4.400
+0.500
+Without recurrent memory
+4.070
+6.280
+0.370
+1.690
+4.560
+0.490
+Shorter memory (Kshort < K)
+3.980
+6.150
+0.360
+1.480
+4.310
+0.460
+Without world prediction (T+V)
+3.963
+6.113
+0.353
+1.413
+4.283
+0.463
+Without world prediction (T)
+3.962
+6.112
+0.352
+1.412
+4.263
+0.462
+Without world prediction (V)
+3.963
+6.113
+0.353
+1.423
+4.273
+0.463
+T-WLA
+3.960
+6.100
+0.350
+1.390
+4.170
+0.460
+the same demonstration budget. These closed-loop results complement the finger-motion prediction
+improvements in Table 1. The benefit of tactile input varies across tasks, with the largest gain in
+single-sheet pickup (6 percentage points). A thin sheet requires a precise pinch with enough force to
+prevent slipping but not enough to crumple it, so this improvement is consistent with tactile feedback
+helping regulate a delicate grasp. The smaller gains in egg transfer and bag dragging may similarly
+reflect the value of sensing changes in grasp stability and fingertip load. Cup nesting, however, re-
+mains at 17%: maintaining a secure grasp without crushing the cup addresses only part of the task,
+which also requires correct alignment and placement. Grip-related corrections may be insufficient
+if failures occur during these other stages, although the aggregate success rate does not identify the
+limiting stage. In observed SmolVLA failures, the hand often closes away from the target, leaving
+little contact feedback to guide a correction. This may explain its smaller tactile gain when the base
+action fails to establish contact.
+4.4
+ABLATION STUDIES
+Table 3 isolates the effects of tactile input, recurrent history, memory capacity, and predictive super-
+vision under matched settings. Removing tactile input produces the largest increase in finger-joint
+error on both datasets: 22.9% on EgoTouch and 8.7% on Tachin. Translation and rotation errors also
+increase by 1.3% and 1.6% on EgoTouch, and by 4.3% and 5.5% on Tachin. Removing recurrent
+memory has a larger effect on wrist prediction, particularly on Tachin, where translation and rota-
+tion errors increase by 21.6% and 9.4%. Shortening memory from K = 8 to Kshort = 4 increases
+error by 2.3% on average across the six metrics, while removing both world-prediction objectives
+increases it by 1.0% on the same basis. The full T-WLA achieves the lowest error in five of six
+metrics and ties for the lowest Tachin joint error.
+5
+CONCLUSION
+We presented T-WLA, a multi-rate visuotactile architecture that caches history-aware visual memory
+to guide high-frequency tactile corrections. A slow visual policy generates base action chunks, while
+a lightweight tactile editor reuses the cached visual memory to refine ongoing actions at a higher
+frequency. Future-image and future-pressure prediction regularize the control representations during
+training, complementing action supervision with interaction dynamics. Extensive results show that
+joint visual-tactile modeling and predictive supervision improve contact-rich manipulation.
+9
+
+
+REFERENCES
+Jianxin Bi, Kevin Yuchen Ma, Ce Hao, Mike Shou Zheng, and Harold Soh. Vla-touch: Enhancing
+vision-language-action model with dual-level tactile feedback. IEEE Robotics and Automation
+Letters, 2026a.
+Jianxin Bi, Qiang Wang, Jayaram Reddy, Kelvin Lin, Soibkhon Khajikhanov, Ruihan Gao, and
+Harold Soh. Heterogeneous tactile transformer. arXiv preprint arXiv:2606.29948, 2026b.
+Johan Bjorck, Fernando Castañeda, Nikita Cherniadev, Xingye Da, Runyu Ding, Linxi Fan,
+Yu Fang, Dieter Fox, Fengyuan Hu, Spencer Huang, et al. Gr00t n1: An open foundation model
+for generalist humanoid robots. arXiv preprint arXiv:2503.14734, 2025.
+Kevin Black, Noah Brown, Danny Driess, Adnan Esmail, Michael Equi, Chelsea Finn, Niccolo
+Fusai, Lachy Groom, Karol Hausman, Brian Ichter, Szymon Jakubczak, Tim Jones, Liyiming Ke,
+Sergey Levine, Adrian Li-Bell, Mohith Mothukuri, Suraj Nair, Karl Pertsch, Lucy Xiaoyang Shi,
+James Tanner, Quan Vuong, Anna Walling, Haohuan Wang, and Ury Zhilinsky. π0: A Vision-
+Language-Action Flow Model for General Robot Control.
+arXiv preprint arXiv:2410.24164,
+2024a.
+Kevin Black, Noah Brown, Danny Driess, Adnan Esmail, Michael Equi, Chelsea Finn, Niccolo
+Fusai, Lachy Groom, Karol Hausman, Brian Ichter, et al. π0: A vision-language-action flow
+model for general robot control. arXiv preprint arXiv:2410.24164, 2024b.
+Kevin Black, Manuel Galliker, and Sergey Levine. Real-Time Execution of Action Chunking Flow
+Policies. In Advances in Neural Information Processing Systems, volume 38, 2025. doi: 10.
+52202/085713-1122.
+Anthony Brohan, Noah Brown, Justice Carbajal, Yevgen Chebotar, Joseph Dabis, Chelsea Finn,
+Keerthana Gopalakrishnan, Karol Hausman, Alex Herzog, Jasmine Hsu, et al. Rt-1: Robotics
+transformer for real-world control at scale. arXiv preprint arXiv:2212.06817, 2022.
+Anthony Brohan, Noah Brown, Justice Carbajal, Yevgen Chebotar, Xi Chen, Krzysztof Choroman-
+ski, Tianli Ding, Danny Driess, Avinava Dubey, Chelsea Finn, et al. Rt-2: Vision-language-action
+models transfer web knowledge to robotic control. arXiv preprint arXiv:2307.15818, 2023.
+Ning Cheng, Jinan Xu, Wanlin Li, Yangzhi Chen, Jing Gao, Yiqun Wang, Kelan Peng, and Wen-
+juan Han. τ: Learning Touch-Augmented Vision-Language-Action Models from Future Visual
+Supervision. arXiv preprint arXiv:2607.24485, 2026.
+Cheng Chi, Zhenjia Xu, Siyuan Feng, Eric Cousineau, Yilun Du, Benjamin Burchfiel, Russ Tedrake,
+and Shuran Song. Diffusion policy: Visuomotor policy learning via action diffusion. The Inter-
+national Journal of Robotics Research, 44(10-11):1684–1704, 2025.
+Danny Driess, Fei Xia, Mehdi SM Sajjadi, Corey Lynch, Aakanksha Chowdhery, Brian Ichter,
+Ayzaan Wahid, Jonathan Tompson, Quan Vuong, Tianhe Yu, et al. Palm-e: An embodied multi-
+modal language model. arXiv preprint arXiv:2303.03378, 2023.
+Rao Fu, Dingxi Zhang, Alex Jiang, Wanjia Fu, Austin Funk, Daniel Ritchie, and Srinath Sridhar. Gi-
+gahands: A massive annotated dataset of bimanual hand activities. In 2025 IEEE/CVF Conference
+on Computer Vision and Pattern Recognition (CVPR), pp. 17461–17474. IEEE, 2025.
+Konstantin Gubernatorov, Mikhail Sannikov, Ilya Mikhalchuk, Egor Kuznetsov, Makar Artemov,
+Ogunwoye Faith Oluwatobi, Marcelino Fernando, Artem Asanov, Ziang Guo, and Dzmitry
+Tsetserukou. Hapticvla: Contact-rich manipulation via vision-language-action model without
+inference-time tactile sensing. arXiv preprint arXiv:2603.15257, 2026.
+Liang Heng, Haoran Geng, Kaifeng Zhang, Pieter Abbeel, and Jitendra Malik.
+Vitacformer:
+Learning cross-modal representation for visuo-tactile dexterous manipulation.
+arXiv preprint
+arXiv:2506.15953, 2025.
+Sigmund Hennum Høeg, Yilun Du, and Olav Egeland. Streaming Diffusion Policy: Fast Policy
+Synthesis with Variable Noise Diffusion Models. In 2025 IEEE International Conference on
+Robotics and Automation (ICRA). IEEE, 2025.
+10
+
+
+Neville Hogan. Contact and physical interaction. Annual Review of Control, Robotics, and Au-
+tonomous Systems, 5(1):179–203, 2022.
+Bohan Hou, Gen Li, Jindou Jia, Tuo An, Xinying Guo, Sicong Leng, Haoran Geng, Yanjie Ze,
+Tatsuya Harada, Philip Torr, et al. World model for robot learning: A comprehensive survey.
+arXiv preprint arXiv:2605.00080, 2026.
+Jialei Huang, Shuo Wang, Fanqi Lin, Yihang Hu, Chuan Wen, and Yang Gao. Tactile-vla: unlock-
+ing vision-language-action model’s physical knowledge for tactile generalization. arXiv preprint
+arXiv:2507.09160, 2025.
+Moo Jin Kim, Karl Pertsch, Siddharth Karamcheti, Ted Xiao, Ashwin Balakrishna, Suraj Nair,
+Rafael Rafailov, Ethan Foster, Grace Lam, Pannag Sanketi, et al.
+Openvla: An open-source
+vision-language-action model. arXiv preprint arXiv:2406.09246, 2024.
+Moo Jin Kim, Chelsea Finn, and Percy Liang. Fine-tuning vision-language-action models: Opti-
+mizing speed and success. arXiv preprint arXiv:2502.19645, 2025.
+Michelle A Lee, Yuke Zhu, Peter Zachares, Matthew Tan, Krishnan Srinivasan, Silvio Savarese,
+Li Fei-Fei, Animesh Garg, and Jeannette Bohg. Making sense of vision and touch: Learning
+multimodal representations for contact-rich tasks. arXiv preprint arXiv:1907.13098, 2019.
+Peize Li, Ruimeng Zhang, Ru Zhang, Cong Huang, Kai Chen, and Shanghang Zhang. Fbfm: A
+training-free asynchronous feedback mechanism for flow-matching in world-action models exe-
+cution. arXiv preprint arXiv:2607.29235, 2026.
+Qixiu Li, Yu Deng, Yaobo Liang, Lin Luo, Lei Zhou, Chengtang Yao, Lingqi Zeng, Zhiyuan Feng,
+Huizhi Liang, Sicheng Xu, et al. Scalable vision-language-action model pretraining for robotic
+manipulation with real-life human activity videos. arXiv preprint arXiv:2510.21571, 2025.
+Yaron Lipman, Ricky TQ Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow matching
+for generative modeling. arXiv preprint arXiv:2210.02747, 2022.
+Songming Liu, Lingxuan Wu, Bangguo Li, Hengkai Tan, Huayu Chen, Zhengyi Wang, Ke Xu,
+Hang Su, and Jun Zhu. Rdt-1b: a diffusion foundation model for bimanual manipulation. In
+International Conference on Learning Representations, volume 2025, pp. 29982–30009, 2025a.
+Yuejiang Liu, Jubayer Hamid, Annie Xie, Yoonho Lee, Max Du, and Chelsea Finn. Bidirectional
+decoding: Improving action chunking via guided test-time sampling. In International Conference
+on Learning Representations, volume 2025, pp. 4594–4627, 2025b.
+Yun Liu, Haolin Yang, Xu Si, Ling Liu, Zipeng Li, Yuxiang Zhang, Yebin Liu, and Li Yi. TACO:
+Benchmarking Generalizable Bimanual Tool-ACtion-Object Understanding. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), pp. 21740–
+21751, 2024.
+Wenxuan Ma, Chaofan Zhang, Yinghao Cai, Guocai Yao, Shaowei Cui, and Shuo Wang. Fg-cltp:
+Fine-grained contrastive language tactile pretraining for robotic manipulation. IEEE Robotics and
+Automation Letters, 2026.
+Dantong Niu, Zhuoyang Liu, Zekai Wang, Boning Shao, Zhao-Heng Yin, Anirudh Pai, Yuvan
+Sharma, Stefano Saravalle, Ruijie Zheng, Jing Wang, et al. T-rex: Tactile-reactive dexterous
+manipulation. arXiv preprint arXiv:2606.17055, 2026.
+Abby O’Neill, Abdul Rehman, Abhiram Maddukuri, Abhishek Gupta, Abhishek Padalkar, Abraham
+Lee, Acorn Pooley, Agrim Gupta, Ajay Mandlekar, Ajinkya Jain, et al. Open x-embodiment:
+Robotic learning datasets and rt-x models: Open x-embodiment collaboration 0. In 2024 IEEE
+International Conference on Robotics and Automation (ICRA), pp. 6892–6903. IEEE, 2024.
+Ethan Perez, Florian Strub, Harm De Vries, Vincent Dumoulin, and Aaron Courville. Film: Visual
+reasoning with a general conditioning layer. In Proceedings of the AAAI conference on artificial
+intelligence, volume 32, 2018.
+11
+
+
+Karl Pertsch, Kyle Stachowicz, Brian Ichter, Danny Driess, Suraj Nair, Quan Vuong, Oier Mees,
+Chelsea Finn, and Sergey Levine. Fast: Efficient action tokenization for vision-language-action
+models. arXiv preprint arXiv:2501.09747, 2025.
+Physical Intelligence, Kevin Black, Noah Brown, James Darpinian, Karan Dhabalia, Danny Driess,
+Adnan Esmail, Michael Equi, Chelsea Finn, Niccolo Fusai, et al. pi0.5: A Vision-Language-
+Action Model with Open-World Generalization. arXiv preprint arXiv:2504.16054, 2025.
+Aaditya Prasad, Kevin Lin, Jimmy Wu, Linqi Zhou, and Jeannette Bohg. Consistency Policy: Ac-
+celerated Visuomotor Policies via Consistency Distillation. In Proceedings of Robotics: Science
+and Systems, 2024. doi: 10.15607/RSS.2024.XX.071.
+Scott Reed, Konrad Zolna, Emilio Parisotto, Sergio Gomez Colmenarejo, Alexander Novikov,
+Gabriel Barth-Maron, Mai Gimenez, Yury Sulsky, Jackie Kay, Jost Tobias Springenberg, et al.
+A generalist agent. arXiv preprint arXiv:2205.06175, 2022.
+Hao Shi, Bin Xie, Yingfei Liu, Lin Sun, Fengrong Liu, Tiancai Wang, Erjin Zhou, Haoqiang Fan,
+Xiangyu Zhang, and Gao Huang. Memoryvla: Perceptual-cognitive memory in vision-language-
+action models for robotic manipulation. In International Conference on Learning Representa-
+tions, volume 2026, pp. 18567–18602, 2026.
+Mustafa Shukor, Dana Aubakirova, Francesco Capuano, Pepijn Kooijmans, Steven Palma,
+Adil Zouitine, Michel Aractingi, Caroline Pascal, Martino Russi, Andres Marafioti, et al.
+Smolvla: A vision-language-action model for affordable and efficient robotics. arXiv preprint
+arXiv:2506.01844, 2025.
+Yuxin Ray Song, Jinzhou Li, Rao Fu, Devin Murphy, Kaichen Zhou, Rishi Shiv, Yaqi Li, Haoyu
+Xiong, Crystal Elaine Owens, Yilun Du, et al. Opentouch: Bringing full-hand touch to real-world
+interaction. arXiv preprint arXiv:2512.16842, 2025.
+Tachintech. TachinTactileGlove-Demo01. Hugging Face dataset, 2026. Accessed September 23,
+2026.
+Zhengyu Tao, Xin Li, and Xin Wang. Foretac-vla: A forecasting-based tactile-vision-language-
+action model for contact-rich robotic manipulation. arXiv preprint arXiv:2609.20980, 2026.
+Gemini Robotics Team, Saminda Abeyruwan, Joshua Ainslie, Jean-Baptiste Alayrac, Montser-
+rat Gonzalez Arenas, Travis Armstrong, Ashwin Balakrishna, Robert Baruch, Maria Bauza,
+Michiel Blokzijl, et al. Gemini robotics: Bringing ai into the physical world. arXiv preprint
+arXiv:2503.20020, 2025.
+NeoteAI Team, Fudan TEAI Team, et al. N0-foundation: Towards the age of tactile intelligence,
+2026.
+Octo Model Team, Dibya Ghosh, Homer Walke, Karl Pertsch, Kevin Black, Oier Mees, Sudeep
+Dasari, Joey Hejna, Tobias Kreiman, Charles Xu, et al. Octo: An open-source generalist robot
+policy. arXiv preprint arXiv:2405.12213, 2024.
+Jianyuan Wang, Minghao Chen, Nikita Karaev, Andrea Vedaldi, Christian Rupprecht, and David
+Novotny. Vggt: Visual geometry grounded transformer. In 2025 IEEE/CVF Conference on Com-
+puter Vision and Pattern Recognition (CVPR), pp. 5294–5306. IEEE, 2025.
+Yi Wang, Renjun Wu, Jinyan Liu, and Xuesong Li. Vitar: Visuo-tactile residual adaptation for
+foundation vla manipulation. arXiv preprint arXiv:2608.15816, 2026.
+Wei Wu, Fan Lu, Yunnan Wang, Shuai Yang, Shi Liu, Fangjing Wang, Qian Zhu, He Sun, Yong
+Wang, Shuailei Ma, et al. A pragmatic vla foundation model. arXiv preprint arXiv:2601.18692,
+2026a.
+Yilin Wu, Zilin Si, Zeynep Temel, Oliver Kroemer, and Andrea Bajcsy. Inference-time policy steer-
+ing via vision and touch. arXiv preprint arXiv:2606.14981, 2026b.
+12
+
+
+Han Xue, Jieji Ren, Wendi Chen, Gu Zhang, Yuan Fang, Guoying Gu, Huazhe Xu, and Cewu Lu.
+Reactive diffusion policy: Slow-fast visual-tactile policy learning for contact-rich manipulation.
+arXiv preprint arXiv:2503.02881, 2025.
+Seonghyeon Ye, Yunhao Ge, Kaiyuan Zheng, Shenyuan Gao, Sihyun Yu, George Kurian, Suneel
+Indupuru, You Liang Tan, Chuning Zhu, Jiannan Xiang, et al. World action models are zero-shot
+policies. arXiv preprint arXiv:2602.15922, 2026a.
+Seonghyeon Ye, Yunhao Ge, Kaiyuan Zheng, Shenyuan Gao, Sihyun Yu, George Kurian, Suneel
+Indupuru, You Liang Tan, Chuning Zhu, Jiannan Xiang, et al. World action models are zero-shot
+policies. arXiv preprint arXiv:2602.15922, 2026b.
+Tianyuan Yuan, Zibin Dong, Yicheng Liu, and Hang Zhao. Fast-wam: Do world action models need
+test-time future imagination? arXiv preprint arXiv:2603.16666, 2026.
+Michael Zeng, Abhinav Agarwal, Ajay Bati, Brian Lee, Siddharth Ancha, and Russ Tedrake. Revis-
+iting open-loop execution in robotics: Toward reactive, higher-performing policies. arXiv preprint
+arXiv:2608.15938, 2026.
+Xinyu Zhan, Lixin Yang, Yifei Zhao, Kangrui Mao, Hanlin Xu, Zenan Lin, Kailin Li, and Cewu
+Lu. Oakink2: A dataset of bimanual hands-object manipulation in complex task completion. In
+2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), pp. 445–456.
+IEEE, 2024.
+Chi Zhang, Penglin Cai, Ziheng Xi, Haoqi Yuan, Hao Luo, Wanpeng Zhang, Sipeng Zheng, Chaoyi
+Xu, and Zongqing Lu. Human-centric transferable tactile pre-training for dexterous robotic ma-
+nipulation. arXiv preprint arXiv:2607.01067, 2026a.
+Chushan Zhang, Jinguang Tong, Xuesong Li, Yikai Wang, and Hongdong Li. Keep the future, drop
+the rollout: Rift for world action models. arXiv preprint arXiv:2608.11521, 2026b.
+Kaidi Zhang, Heng Zhang, Zhengtong Xu, Zhiyuan Zhang, Md Rakibul Islam Prince, Xiang Li,
+Xiaojing Han, Yuhao Zhou, Arash Ajoudani, and Yu She. Tacvla: Contact-aware tactile fusion
+for robust vision-language-action manipulation. arXiv preprint arXiv:2603.12665, 2026c.
+Pengwei Zhang, Bin Xie, Xinpan Meng, Xinyu Guo, Ce Hao, Fang Deng, Long Cheng, and Tian-
+cai Wang. Feeling the unexpected: Restacvla for contact-rich manipulation via residual tactile
+representation. arXiv preprint arXiv:2607.03387, 2026d.
+Tony Z. Zhao, Vikash Kumar, Sergey Levine, and Chelsea Finn. Learning Fine-Grained Bimanual
+Manipulation with Low-Cost Hardware. In Proceedings of Robotics: Science and Systems, 2023.
+doi: 10.15607/RSS.2023.XIX.016.
+Ruijie Zheng, Jing Wang, Scott Reed, Johan Björck, Yu Fang, Fengyuan Hu, Joel Jang, Kaushil
+Kundalia, Zongyu Lin, Loic Magne, Avnish Narayan, You Liang Tan, Guanzhi Wang, Qi Wang,
+Jiannan Xiang, Yinzhen Xu, Seonghyeon Ye, Jan Kautz, Furong Huang, Yuke Zhu, and Linxi
+Fan. FLARE: Robot Learning with Implicit World Modeling. In Conference on Robot Learning
+(CoRL), 2025.
+Jianyi Zhou, Ziteng Gao, Feiyang Hong, Zirui Liu, Guannan Zhang, Weisheng Dai, Ruichen Zhen,
+Chuqiao Lyu, Haotian Wu, Yinian Mao, et al. Touchanything: A dataset and framework for
+bimanual tactile estimation from egocentric video. arXiv preprint arXiv:2605.13083, 2026a.
+Jianyi Zhou, Feiyang Hong, Yunhao Li, Yicheng Zhao, Yongjue Cen, Zirui Liu, Jiakang Huang,
+Zirui Chen, Ruiyang Zhang, Weizhuo Zhu, et al. Touchworld: A predictive and reactive tactile
+foundation model for dexterous manipulation. arXiv preprint arXiv:2607.07287, 2026b.
+Kaichen Zhou, Jia-Xing Zhong, Sangyun Shin, Kai Lu, Yiyuan Yang, Andrew Markham, and Niki
+Trigoni. Dynpoint: Dynamic neural point for view synthesis. Advances in Neural Information
+Processing Systems, 36:69532–69545, 2023.
+Kaichen Zhou, Yuhan Wang, Grace Chen, Gaspard Beaudouin, Fangneng Zhan, Paul Liang, and
+Mengyu Wang. Page-4d: Disentangled pose and geometry estimation for vggt-4d perception. In
+International Conference on Learning Representations, volume 2026, pp. 36401–36414, 2026c.
+13
+
+
+Jian Zhu, Jianjun Zhang, Taiyi Su, Tianbin Liu, Zhangyuan Wang, Kai Xie, Zitai Huang, Chong
+Ma, Youzhang He, Tianjian Wang, et al. Dswam: A dual-system world action foundation model
+for fine-grained robot manipulation. arXiv preprint arXiv:2607.04927, 2026.
+Lifeng Zhuo, Wendi Chen, Han Xue, Shirun Tang, Jun Lv, Cewu Lu, and Chuan Wen. Fa-rdp:
+A frequency-adaptive reactive diffusion policy for contact-rich manipulation.
+arXiv preprint
+arXiv:2607.28596, 2026.
+14
+
+
+APPENDIX
+A Action Foundation Model
+16
+B
+Module Implementation
+16
+B.1
+Visual Memory Retrieval . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+16
+B.2
+Tactile Encoding
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+17
+B.3
+Residual Editing . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+17
+C Learning Details
+18
+C.1
+Loss Function . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+18
+C.2
+Predictive Conditions . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+19
+C.3
+Training Strategy . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+19
+D Action and Evaluation Conventions
+19
+D.1
+Action Layout and Temporal Alignment . . . . . . . . . . . . . . . . . . . . . . .
+19
+D.2
+Evaluation Masks and Aggregation . . . . . . . . . . . . . . . . . . . . . . . . . .
+20
+E
+Visual-Only Action Prediction
+21
+F
+Real-Robot Setup and Demonstration Collection
+21
+G Additional Qualitative Results
+22
+G.1
+Additional EgoTouch Qualitative Examples . . . . . . . . . . . . . . . . . . . . .
+22
+G.2
+Additional Tachin Qualitative Examples . . . . . . . . . . . . . . . . . . . . . . .
+24
+G.3
+Additional Real-Robot Qualitative Examples
+. . . . . . . . . . . . . . . . . . . .
+26
+15
+
+
+A
+ACTION FOUNDATION MODEL
+General-purpose manipulation policies increasingly adapt large pretrained backbones to action pre-
+diction (Wu et al., 2026a; Ye et al., 2026a; Yuan et al., 2026; Black et al., 2024b; Pertsch et al.,
+2025; Kim et al., 2025; Team et al., 2024; Liu et al., 2025a; Bjorck et al., 2025; Team et al., 2025;
+Shukor et al., 2025; O’Neill et al., 2024; Driess et al., 2023; Brohan et al., 2022; Reed et al., 2022).
+Vision–language–action (VLA) models follow this approach by predicting robot commands from
+visual observations and language instructions. RT-2 (Brohan et al., 2023) represents actions as to-
+kens to jointly train on robot trajectories and web data, while OpenVLA (Kim et al., 2024) fine-tunes
+a pretrained vision–language backbone on a large collection of real robot demonstrations. More re-
+cent work expands the data and supervision available for policy learning. π0.5 (Physical Intelligence
+et al., 2025) combines robot trajectories, web data, and subtask supervision to support generaliza-
+tion to unseen environments. SmolVLA (Shukor et al., 2025) emphasizes efficient training with
+community demonstrations, while VITRA (Li et al., 2025) learns a hand-motion prior from human
+activity videos. World–action models (WAMs) (Hou et al., 2026) further incorporate future-state
+prediction to learn representations of how the environment evolves. FLARE (Zheng et al., 2025)
+predict future observation embeddings rather than reconstructing future pixels. Dream-zero Ye et al.
+(2026b) jointly predict future video and robot actions. Fast-WAM (Yuan et al., 2026) use predic-
+tive learning during training while removing the predictor at deployment. These methods motivate
+learning control representations through future prediction. However, they run on single clock: visual
+observations, learned representations, and action predictions are updated together. In contact-rich
+manipulation, this coupling is restrictive because local contact conditions can change faster than the
+visual policy is updated. In these situations, a further challenge is to make these representations
+useful for tactile corrections between visual updates. T-WLA addresses this challenge by caching a
+history-aware visual representation that a faster tactile controller can reuse.
+B
+MODULE IMPLEMENTATION
+This appendix expands the implementation of the operators introduced in the main text. We retain
+M t
+V for the final visual memory, Zt,τ for the reference-centered tactile context, and ∆At,τ for the
+effective action correction. Numerical specifications below refer to the reference implementation;
+the contact-filtered variant is identified where it changes an operation or its valid supervision set.
+B.1
+VISUAL MEMORY RETRIEVAL
+Queries, reference slots, and historical tokens. Let t denote the current visual update. The re-
+trieval module has S = 8 learned query tokens QV = [QV,1, . . . , QV,S] ∈RS×d, each of width
+d = 960. Its history bank stores up to K = 8 previous visual output-memory sets M t−k
+V
+∈RS×d,
+where k = 1 denotes the most recent set. For slot j ∈1, . . . , S, eslot
+j
+∈Rd identifies the slot; for age
+k ∈1, . . . , K, eage
+k
+∈Rd identifies how many visual updates ago the set was produced. The query
+stream starts from QV, while the key/value stream contains learned reference slots and available
+historical tokens:
+rj = QV,j + eslot
+j
+,
+(4)
+bt
+k,j = M t−k
+V,j + eslot
+j
++ eage
+k ,
+k ∈{1, . . . , K}.
+(5)
+Thus, rj is the reference token for slot j, reusing the query parameter rather than introducing a
+separate learned vector; bt
+k,j is the token from slot j of the output memory written k visual updates
+earlier. Queries attend to all reference tokens and valid historical tokens; unavailable history is
+masked. Slot and age embeddings are added only during retrieval and are not stored in the bank.
+Age is measured in visual updates, not tactile events or action-flow steps.
+Masking and output extraction. Unused bank positions are zeroed and excluded by the attention
+mask; reference slots remain valid even when the bank is empty. Two retrieval blocks use pre-
+normalized cross-attention and SwiGLU feed-forward layers, with 15 attention heads and an inter-
+mediate width of 2560. The blocks use Q/K RMS normalization, a learned attention-logit scale, and
+zero-initialized tanh gates on their residual branches. The retrieved input memory is placed after the
+image, field-of-view, language, and state tokens in the visual backbone input. The final M t
+V is read
+16
+
+
+directly from the last decoder layer at these eight memory positions, without an additional readout
+projection. The bank stores this observation-contextualized output, not the retrieved input memory.
+Episode boundaries reset the bank; a visual event writes one new memory set, independently of the
+number of action-flow integration steps.
+B.2
+TACTILE ENCODING
+Sensor processing and temporal encoding. Each hand is represented by its eight most recent
+causally available 21×21 pressure maps. Invalid temporal observations are zeroed, and the left-hand
+maps are flipped along the spatial horizontal axis to establish a common hand convention. Pressure
+and the spatial sensor-validity mask form two input channels. A shared CNN uses three 5 × 5
+convolutional layers with 32 channels, padding 2, ReLU activations, and 2 × 2 max-pooling. The
+resulting 128-dimensional frame features enter a two-layer bidirectional GRU with hidden width
+120 per direction. The final forward and initial backward states are concatenated and projected
+from 240 to 64 dimensions, followed by ℓ2 normalization. Both GRU directions operate within the
+observed history window; neither accesses a future tactile frame.
+Reference subtraction.
+Let FT denote the shared tactile encoder, including its output normalization but excluding reference
+subtraction. At tactile update (t, τ), Hr
+t,τ is the ordered tactile history for hand r ∈{L, R}, and
+Hr
+ref is its fixed, hand-specific reference history. Both are encoded with the same module FT. The
+reference-centered representation supplied to the tactile editor is
+Zr
+t,τ = vr
+t,τ
+
+FT(Hr
+t,τ) −FT(Hr
+ref)
+
+.
+(6)
+Here vr
+t,τ ∈{0, 1} equals one only when the encoded history passes its validity check and the most
+recent tactile observation is valid; otherwise, the representation is set to zero. In the contact-filtered
+variant, contact validity additionally affects the temporal mask used to encode the history, rather than
+introducing a separate gate after subtraction. Each encoder output is normalized before subtraction;
+the resulting difference is not normalized again.
+The fixed reference is a raw pressure window, not a cached embedding. Actual and reference win-
+dows are concatenated along the batch dimension, encoded together on every forward pass, and
+separated before subtraction. Consequently, both encoding paths receive gradients when the en-
+coder is trained. The reference-statistics routine pools valid training pressure observations from
+history windows and the associated future-pressure targets, and repeats the per-taxel mean across
+the eight reference frames. These are fixed training-set statistics, not sample-specific future inputs
+to the controller. The exact statistics asset belongs to the training configuration.
+B.3
+RESIDUAL EDITING
+Action features and tactile modulation. The editor maps the visual memory and base-action to-
+kens to width 256. Visual tokens use RMS normalization followed by a bias-free projection; base-
+action tokens are standardized for their input projection. Modality, action-position, and elapsed-
+time embeddings distinguish the token roles. The elapsed-time projection receives 10∆tt,τ, with
+elapsed time expressed in seconds. A two-layer pre-normalized Transformer uses eight heads, a
+feed-forward width of 1024, GELU activations, and zero dropout. Only its action-position outputs,
+denoted Hact, enter the residual readout.
+For each hand, a bias-free linear map from its 64-dimensional tactile context produces the FiLM
+scale and shift. Here Zr abbreviates the reference-centered context Zr
+t,τ defined above, and Hact
+denotes the action features associated with the active base chunk. The scale and shift have dimen-
+sions compatible with Hact, allowing each hand’s tactile context to modulate these action features
+before readout. With U r denoting an internal, unmasked correction, the readout is
+U r = W r
+out[γr(Zr) ⊙Hact + βr(Zr)] ,
+(7)
+∆At,τ =
+X
+r∈{L,R}
+mr
+edit ⊙U r.
+(8)
+Here ⊙denotes element-wise multiplication. Each output projection W r
+out maps the modulated
+features to action coordinates; it is bias-free and zero-initialized so that training starts with zero
+17
+
+
+correction. The mask mr
+edit intersects the editable action positions, that hand’s component mask,
+and hand validity. Thus ∆At,τ retains its main-text meaning as the effective correction added to the
+cached base chunk, rather than the raw network output. Every update is relative to the same base
+chunk, not to a previously corrected chunk.
+Causal contact gate. The contact-filtered variant uses a hard gate computed from observed pressure
+history. Let Pj,r be the pressure map of hand r at history index j, let Sr contain its valid sensor sites,
+and let Jr contain its valid history indices. The gate is
+cr = 1
+
+max
+j∈Jr
+1
+5
+X
+u∈Top5(Pj,r|Sr )
+Pj,r,u ≥η
+
+,
+η = 0.25.
+(9)
+Here Top5 returns the indices of the five largest valid pressure values. An empty valid history gives
+cr = 0. The reference threshold is expressed in the input pressure scale. The gate detects whether
+a valid history frame crosses the threshold; it does not require contact at the latest frame and is not
+learned from future contact labels.
+The same cr is intersected with the hand’s temporal tactile-validity mask, action-supervision mask,
+and future-pressure-validity mask. A gated-out hand therefore receives zero correction and retains
+its base action, but its excluded action entries are not counted as zero-error observations in the loss.
+The contact wrapper does not directly change the RGB target validity mask. Sample-level contact
+filtering and its evaluation denominator are described in Appendix D.2.
+C
+LEARNING DETAILS
+C.1
+LOSS FUNCTION
+Visual action loss. The group-balanced operators for the visual expert and the tactile editor have
+different reduction orders. Let b, j, and d index a minibatch sample, an action position, and an action
+component. For visual velocity error eb,j,d, validity mask mV
+b,j,d, and component group Dg, define
+ng =
+X
+b,j
+X
+d∈Dg
+mV
+b,j,d,
+ℓg =
+P
+b,j
+P
+d∈Dg mV
+b,j,de2
+b,j,d
+ng
+,
+(10)
+LV
+act =
+P
+g:ng>0 wgℓg
+P
+g:ng>0 wg
+.
+(11)
+Here ℓg is defined only for ng > 0; a minibatch with no valid groups contributes zero loss. The
+within-group mean is formed over the entire minibatch, not separately for each sample. Empty
+groups are excluded. The reference configuration uses equal group weights and no additional hori-
+zon weighting.
+Edited-action loss and residual penalty. Let b, j, and d index a minibatch sample, an action
+position, and an action component, respectively, and let Dg be the components in group g. For
+corrected-action error eb,j,d = bAb,j,d −A⋆
+b,j,d, where bA is the corrected action chunk and A⋆is
+the demonstration chunk, let mE
+b,j,d denote the effective valid, editable supervision mask and nb,g =
+P
+j
+P
+d∈Dg mE
+b,j,d the number of supervised entries in group g for sample b. Write Gb = {g : nb,g >
+0} for the nonempty groups in sample b and B+ = {b : |Gb| > 0} for the supervised samples. The
+minibatch estimator is
+Ledit =
+1
+|B+|
+X
+b∈B+
+1
+|Gb|
+X
+g∈Gb
+P
+j
+P
+d∈Dg mE
+b,j,dρ(eb,j,d)
+nb,g
+,
+(12)
+where ρ(e) = 1
+2e2 for |e| < 1 and ρ(e) = |e| −1
+2 otherwise. Thus the editor averages nonempty
+groups within each sample before averaging supervised samples. Invalid targets are replaced safely
+before elementwise evaluation so that invalid entries do not introduce non-finite losses.
+In contrast, the residual penalty is a single mean over all effective action entries:
+bR∆=
+P
+b,j,d mE
+b,j,d(∆Ab,j,d)2
+P
+b,j,d mE
+b,j,d
+,
+(13)
+18
+
+
+where ∆Ab,j,d is the effective residual added to the base action at that entry. It does not rebalance
+groups or hands. When B+ is empty, or when the residual penalty has no valid entries, the corre-
+sponding loss is defined as zero. Contact filtering changes the valid sets in both expressions, rather
+than adding artificial zero-loss examples.
+C.2
+PREDICTIVE CONDITIONS
+Tactile-conditioned visual prediction. During tactile editor training, a learned adapter maps the
+tactile context Zt,τ to an additive update of the eight visual-memory tokens used by the frozen vi-
+sual predictor. This update affects only the prediction condition; the cached visual memory used
+for action generation remains unchanged. Let y denote the clean future-image latent, ε the sampled
+Gaussian noise, and vZ the predictor’s velocity under the tactile-augmented condition. We super-
+vise vZ with the conditional flow-matching target ε −y. Although the implementation expresses
+this objective relative to the unaugmented prediction, the resulting loss is algebraically identical to
+the conditional flow-matching loss. The predictor’s parameters are frozen, but gradients through its
+tactile-augmented forward pass update the adapter and tactile encoder. The squared error is spatially
+weighted, normalized by the weighted valid element count for each sample–horizon pair, and aver-
+aged over valid pairs. Reference ROI weights are 1 for the hand region and 0.1 for the background.
+Future-pressure prediction. The pressure predictor uses detached cached visual memory, tactile
+context, and a detached window of upcoming edited actions generated by the controller to predict
+future pressure. Detaching the action window prevents this loss from sending gradients through the
+action condition into the residual readout, while gradients through the tactile context can update the
+shared tactile encoder. The target is measured future pressure, not a learned tactile embedding. For
+hand r ∈{L, R} and pressure site u ∈{1, . . . , 441}, a fixed codec canonicalizes hand orientation
+and standardizes the future pressure P +,r
+u
+using the corresponding training-set mean µr
+u and standard
+deviation σr
+u:
+yr
+u =
+P +,r
+u
+−µr
+u
+max(σru, 10−3).
+(14)
+Future-hand validity and spatial sensor masks select the sites included in the flow-matching loss,
+which is averaged over all valid sites rather than weighting the two hands equally. In the contact-
+filtered variant, the future-hand mask also includes the gate computed from current tactile history;
+no gate is computed from the future target. The reference predictor uses four Transformer decoder
+layers of width 256 with eight attention heads.
+C.3
+TRAINING STRATEGY
+For tactile pretraining, synchronized tactile and hand-pose histories from EgoTouch are encoded
+into normalized embeddings ui and pi, with tactile embeddings taken before reference subtraction.
+Their similarities are computed as Sij = αu⊤
+i pj, where α > 0 is a learned scale. The symmetric
+contrastive objective averages row-wise cross-entropy over S and S⊤, treating synchronized pairs
+as positives and other pairs in the minibatch as negatives. During editor training, the visual branch
+supplies cached visual memory and base action chunks and remains frozen. The tactile encoder,
+residual editor, tactile conditioning adapter, and pressure predictor are updated, while the visual
+predictor remains frozen. As a proposed extension, both control branches could be jointly fine-tuned
+on EgoTouch using the same action and predictive objectives. In this stage, visual memory and base
+action chunks would be recomputed online, allowing the corrected-action loss to also update the
+visual branch through the memory interface. The visual predictor would remain frozen.
+D
+ACTION AND EVALUATION CONVENTIONS
+D.1
+ACTION LAYOUT AND TEMPORAL ALIGNMENT
+Action coordinates. The hand-motion interface uses H = 16 action positions and 192 channels
+per position. Of these, 138 channels contain motion data and 54 are padding. Table 4 gives the
+component groups used by the losses. Padding is excluded from supervision and from valid sampled
+action components; it is not an additional action degree of freedom.
+19
+
+
+Table 4: Hand-motion action layout. Indices are zero-based, half-open intervals. Joint channels
+store 21 three-dimensional local positions per hand.
+Component
+Left hand
+Right hand
+Channels per hand
+Wrist translation increment
+[0, 3)
+[69, 72)
+3
+Wrist Euler rotation increment
+[3, 6)
+[72, 75)
+3
+Palm-local joint coordinates
+[6, 69)
+[75, 138)
+63
+Padding
+[138, 192)
+—
+Table 5: Visual-only future hand-motion prediction. GigaHands uses its five official activity fami-
+lies; OakInk2 and TACO use their complete held-out test sets. The GigaHands average gives equal
+weight to the five families. Lower prediction error is better. Gray highlights T-WLA. Bold/underline
+indicate the best/second-best distinct reported errors within each metric and column, including ties.
+Frequency is reported in Hz and is not ranked. Dashes indicate unavailable results and are excluded
+from ranking.
+GigaHands
+OakInk2
+TACO
+Method
+Cook. Office Craft. Entert. Housew. Avg.
+Overall
+Overall Freq.
+Wrist translation error (cm, ↓)
+VITRA
+1.16
+1.25
+1.11
+1.44
+1.37
+1.27
+0.53
+0.97
+19.4
+SmolVLA
+0.84
+0.81
+0.73
+1.01
+0.98
+0.87
+0.50
+0.72
+23.0
+MemoryVLA
+1.32
+1.26
+1.23
+1.35
+1.35
+1.30
+1.05
+1.20
+8.8
+T-WLA
+0.63
+0.60
+0.56
+0.69
+0.74
+0.65
+0.44
+0.75
+39.7
+Wrist rotation geodesic error (degrees, ↓)
+VITRA
+5.32
+5.79
+5.13
+6.72
+7.00
+5.99
+2.03
+4.76
+19.4
+SmolVLA
+3.75
+3.91
+3.69
+5.07
+5.23
+4.33
+2.03
+3.68
+23.0
+MemoryVLA
+6.52
+6.54
+6.07
+6.97
+7.25
+6.67
+5.27
+6.66
+8.8
+T-WLA
+3.19
+3.41
+3.13
+4.01
+4.45
+3.64
+1.38
+3.40
+39.7
+Wrist-relative finger-joint MPJPE (cm, ↓)
+VITRA
+1.48
+1.32
+1.36
+1.41
+1.36
+1.39
+2.04
+2.74
+19.4
+SmolVLA
+0.96
+0.94
+0.94
+0.95
+0.95
+0.95
+1.13
+1.03
+23.0
+MemoryVLA
+4.00
+3.91
+3.78
+3.90
+3.99
+3.92
+3.92
+4.02
+8.8
+T-WLA
+0.43
+0.43
+0.41
+0.44
+0.45
+0.43
+0.37
+0.46
+39.7
+Chunk positions and auxiliary action windows. The visual branch and tactile editor operate at
+39.7 Hz and 119.1 Hz, respectively. Each visual update produces a new base action chunk. Between
+visual updates, the tactile editor uses incoming tactile observations to revise the unexecuted actions
+in the active chunk. The elapsed time ∆tt,τ is measured from the start of that chunk rather than
+inferred from the tactile update index.
+For future-pressure conditioning, the action window begins at k0 = ⌈fcmd∆tt,τ⌉, where fcmd is
+the action command rate, and contains the next eight edited actions. A floating-point tolerance is
+applied at integer boundaries. Positions beyond the chunk are zero-padded and marked invalid. This
+auxiliary window-indexing rule is distinct from the loss horizon and from the temporal mask that
+marks already executed actions as non-editable.
+D.2
+EVALUATION MASKS AND AGGREGATION
+Physical hand-motion errors. The hand-motion evaluator supports a declared horizon Heval of
+eight or sixteen positions. A hand is eligible only if its complete evaluated prefix is valid; a truncated
+prefix is not silently substituted for the declared horizon. Predictions and targets are compared in
+the physical action coordinates used by the evaluator.
+At prediction step k, wrist translation increments are accumulated from the start of the prediction
+window before computing the Euclidean error in centimeters. Euler rotation increments are con-
+verted using the xyz convention and composed by left multiplication, Rk = δRkRk−1 with R0 = I;
+20
+
+
+predicted rotations are composed in the same way. The resulting rotational error, in degrees, is
+erot(R, bR) = 180
+π arccos
+ 
+clip[−1,1]
+ 
+tr( bR⊤R) −1
+2
+!!
+.
+(15)
+Finger-joint MPJPE compares the stored palm-local positions directly, averaging joints 1–20 and
+reporting centimeters. Joint 0 is the fixed local origin and is excluded; the evaluator does not subtract
+a predicted wrist position from already local joint coordinates.
+Sequence-level aggregation. For each metric, errors are first summed over eligible hand–time
+entries within each sequence and divided by their valid count. Sequences with no eligible entries
+are excluded. Environment-level means then weight these sequence means equally. The EgoTouch
+macro-average gives equal weight to its five environment means; the Tachin overall score gives equal
+weight to its eligible sequence means. This aggregation differs from pooling all frames and should
+not be replaced by a sample-weighted mean from a different evaluation entry point.
+Contact-conditioned evaluation. In the contact-filtered protocol, a sample is admitted when at least
+one supervised hand satisfies the causal gate in Eq. 9. Per-hand masks then exclude noncontact hands
+from action and future-pressure supervision. These exclusions define a contact-conditioned subset
+of the held-out data, not the complete held-out test set. Retaining the base action for an excluded
+hand does not insert that hand into the metric denominator. Comparisons under this protocol require
+a common sample set, hand mask, and prediction horizon; results on an unfiltered test set represent
+a separate evaluation protocol.
+E
+VISUAL-ONLY ACTION PREDICTION
+The visual-only experiment evaluates future hand-motion prediction when touch is unavailable. Tac-
+tile observations are excluded during both training and evaluation, and tactile supervision is disabled
+during training. The model uses only RGB, language, pose history, recurrent visual memory, and
+the visual action expert. Thus,
+a = abase,
+Lvisual-only = Lact + λvisLvis.
+(16)
+This setting isolates the visual pathway rather than testing cross-modal transfer.
+Table 5 shows that T-WLA remains competitive without touch and achieves the best completed
+result on eight of the nine dataset-level metric comparisons. On GigaHands, T-WLA obtains average
+translation, rotation, and joint errors of 0.65 cm, 3.64◦, and 0.43 cm. Relative to SmolVLA, these
+values correspond to reductions of 25.3%, 15.9%, and 54.7%, respectively. The improvement is
+consistent across all five activity families rather than being concentrated in a single category.
+On OakInk2, T-WLA reaches 0.44 cm translation error, 1.38◦rotation error, and 0.37 cm joint
+MPJPE, reducing the corresponding SmolVLA errors by 12.0%, 32.0%, and 67.3%. On TACO, T-
+WLA achieves the lowest completed rotation and joint errors at 3.40◦and 0.46 cm, improving over
+SmolVLA by 7.6% and 55.3%. Its translation error is 0.75 cm, slightly above SmolVLA’s 0.72 cm
+but still 22.7% below VITRA. These results show that separating tactile correction from visual
+action generation does not weaken the visual predictor; instead, the visual memory and predictive
+supervision provide a strong action prior even when the tactile branch is absent.
+F
+REAL-ROBOT SETUP AND DEMONSTRATION COLLECTION
+Hardware. Our platform is a dual-arm Linker A7black robot with a 7-DoF arm and a Linker Hand
+L6 dexterous hand on each side. The hands provide fingertip tactile sensing. We mounted an Intel
+RealSense D435i on a custom 3D-printed bracket to capture an egocentric view of the workspace
+and calibrated its pose relative to the robot.
+Teleoperation. An operator wears Wuji data gloves to capture finger articulation and HTC VIVE
+Tracker 3.0 devices at the wrists to track wrist motion. Two SteamVR Base Station 2.0 units track
+the VIVE devices. The tracked wrist poses and glove measurements are mapped to the robot arms
+and dexterous hands to collect task demonstrations; no VR headset is required.
+Demonstration budget. We collect 30 teleoperated episodes for each of the four real-robot tasks:
+egg handling, single-sheet pickup, paper-cup nesting, and paper-bag opening.
+21
+
+
+(a) Rrobot hardware platform
+(b) Data glove
+Figure 6: Robot platform and data glove
+G
+ADDITIONAL QUALITATIVE RESULTS
+We provide additional qualitative comparisons on EgoTouch and Tachin to complement the exam-
+ples shown in Fig. 4. Throughout this section, VITRA, SmolVLA, MemoryVLA, and T-Rex refer to
+their tactile-augmented variants used in Table 1, whereas T-WLA uses its native tactile-conditioned
+interface. We follow the same visualization protocol as Fig. 4. For each example, the source RGB
+observation is shown at t0, while the ground-truth pose and all model predictions correspond to
+t0 + 100 ms. Camera-frame overlays visualize the complete predicted hand pose, whereas wrist-
+aligned views emphasize differences in finger articulation. The value below each prediction is the
+per-example wrist-aligned MPJPE over the 20 non-root hand joints at t0 + 100 ms. These val-
+ues are intended only as diagnostics for the displayed examples and should not be interpreted as
+dataset-level test averages. They isolate finger-articulation error after wrist alignment and are there-
+fore distinct from the wrist-translation and wrist-rotation metrics reported in Table 1. Across the
+displayed examples, T-WLA consistently produces fingertip configurations that more closely match
+the ground truth and achieves the lowest per-example wrist-aligned MPJPE among the compared
+methods. This mirrors the quantitative results in Table 1: the largest gains from T-WLA occur in
+finger-joint MPJPE, substantially exceeding the relative improvements in wrist translation and rota-
+tion. Together, these results suggest that T-WLA is particularly effective at predicting fine-grained
+fingertip and finger-articulation dynamics.
+G.1
+ADDITIONAL EGOTOUCH QUALITATIVE EXAMPLES
+Figures 7 and 8 show six additional EgoTouch examples. We first visualize predictions in the camera
+frame and then use wrist-aligned renderings to isolate differences in finger articulation.
+22
+
+
+Figure 7: Additional camera-frame qualitative comparisons on EgoTouch. Each row shows the
+source RGB observation at t0, followed by the ground-truth hand pose and predictions from VITRA,
+SmolVLA, MemoryVLA, T-Rex, and T-WLA at t0 + 100 ms. Ground truth is shown in green and
+model predictions in orange. Values below each prediction report the corresponding wrist-aligned
+finger-joint MPJPE in centimeters.
+23
+
+
+Figure 8: Additional wrist-aligned fingertip comparisons on EgoTouch. The same six examples
+from Fig. 7 are shown after wrist alignment to emphasize finger articulation independently of global
+wrist motion. Within each example, all hands share the same alignment, scale, and +60◦visualiza-
+tion rotation. The ground-truth hand mesh is shown in green, with ground-truth fingertips marked
+by green circles and predicted fingertips marked by orange crosses. Values below each prediction
+report wrist-aligned MPJPE over the 20 non-root hand joints at t0 + 100 ms. These values are per-
+example diagnostics rather than dataset-level test averages.
+G.2
+ADDITIONAL TACHIN QUALITATIVE EXAMPLES
+Figures 9 and 10 show six additional Tachin examples covering diverse hand orientations and fin-
+ger configurations. We first visualize the future hand-pose predictions directly in the camera frame,
+where the source RGB observation is shown at t0 and the ground-truth and predicted poses corre-
+spond to t0 +100 ms. This view preserves both global wrist motion and finger articulation, allowing
+direct comparison of the complete predicted hand pose.
+24
+
+
+Figure 9:
+Additional camera-frame qualitative comparisons on Tachin. Each row shows one
+source RGB observation at t0, followed by the ground-truth hand pose and predictions from VITRA,
+SmolVLA, MemoryVLA, T-Rex, and T-WLA at t0 + 100 ms. Ground-truth hand poses are shown
+in green and model predictions in orange. This camera-frame visualization preserves both global
+wrist motion and finger articulation. The values below each prediction report the corresponding
+wrist-aligned finger-joint MPJPE in centimeters.
+We then show wrist-aligned fingertip-detail renderings for the same examples. Removing global
+wrist displacement makes differences in finger articulation easier to inspect independently of the
+hand’s position in the camera frame. Across the displayed examples, T-WLA more closely matches
+the ground-truth fingertip configuration and achieves the lowest per-example wrist-aligned MPJPE
+in every row. These qualitative examples complement the dataset-level quantitative results reported
+in Table 1.
+25
+
+
+Figure 10: Additional wrist-aligned fingertip comparisons on Tachin. The same six examples
+from Fig. 9 are shown after wrist alignment to emphasize finger articulation independently of global
+wrist motion. Within each example, all hands share the same alignment, scale, and +60◦visualiza-
+tion rotation. The ground-truth hand mesh is shown in green, with ground-truth fingertips marked
+by green circles and predicted fingertips marked by orange crosses. Values below each prediction
+report wrist-aligned MPJPE over the 20 non-root hand joints at t0 + 100 ms. These values are per-
+example diagnostics rather than dataset-level test averages.
+G.3
+ADDITIONAL REAL-ROBOT QUALITATIVE EXAMPLES
+Figure 11 presents additional real-robot examples of paper-bag dragging and single-sheet pickup.
+Both tasks require precise contact with a thin edge, but impose different demands after grasping:
+sheet pickup requires maintaining a secure pinch without crumpling the paper, whereas dragging a
+loaded bag requires sustaining the grasp under changing fingertip loads. Tactile feedback provides
+26
+
+
+contact information relevant to these adjustments, complementing visual guidance. These examples
+supplement the closed-loop success rates reported in Table 2.
+
+ 
+
+
+	
+
+		
+
+	
+Figure 11: Additional real-robot qualitative examples. Selected frames from paper-bag dragging
+and single-sheet pickup. Both tasks involve grasping thin, deformable edges, requiring sustained
+contact during dragging or a delicate pinch during lifting.
+27
