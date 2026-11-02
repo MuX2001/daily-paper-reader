@@ -48,17 +48,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-10-20 ~ 2026-10-29</span>
+      <span class="dpr-home-dashboard-kicker">2026-10-24 ~ 2026-11-02</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 26 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 0 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>15</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>0</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>0</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-10-29 01:46:42 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-11-02 10:31:49 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -69,10 +69,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共生成 26 篇推荐（精读 15 篇，速读 11 篇）</p>
-<p>精读：《GPT-6-Astra Understands Touch and Outperform Vision--Tactile--Language--Action Models》（10.0/10）, 《Tactile-Based Robotic Manipulation: From Mechanics-Driven to Data-Driven Perspectives》（10.0/10）</p>
-<p>速读：《Learning Adaptable Dexterous Skills via Hybrid Dexterous Mimicking》（8.0/10）, 《Training in Deployment: Human-in-the-loop Online Post-Training for Robot Manipulation》（8.0/10）, 《AtomicRL: Atomic Reinforcement Learning for Long-Horizon Robotic Manipulation》（8.0/10）</p>
-<p>这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。</p>
+<p>今日无新推荐，系统未产出可展示论文。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -81,12 +78,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">15 篇</strong>
+    <strong class="dpr-home-dashboard-count">0 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="GPT-6-Astra Understands Touch and Outperform Vision--Tactile--Language--Action Models">GPT-6-Astra Understands Touch and Outperform Vision--Tactile--Language--Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Tactile-Based Robotic Manipulation: From Mechanics-Driven to Data-Driven Perspectives">Tactile-Based Robotic Manipulation: From Mechanics-Driven to Data-Driven Perspectives</span></li><li><span class="dpr-home-dashboard-paper-title" title="Embodied Task Agents Can Perform Fine Manipulation through Tactile In-Context Learning">Embodied Task Agents Can Perform Fine Manipulation through Tactile In-Context Learning</span></li></ul>
+<p class="dpr-home-dashboard-empty">今日暂无推荐。</p>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-touch <strong>15</strong></span></div>
+
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -94,12 +91,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">11 篇</strong>
+    <strong class="dpr-home-dashboard-count">0 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Learning Adaptable Dexterous Skills via Hybrid Dexterous Mimicking">Learning Adaptable Dexterous Skills via Hybrid Dexterous Mimicking</span></li><li><span class="dpr-home-dashboard-paper-title" title="Training in Deployment: Human-in-the-loop Online Post-Training for Robot Manipulation">Training in Deployment: Human-in-the-loop Online Post-Training for Robot Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="AtomicRL: Atomic Reinforcement Learning for Long-Horizon Robotic Manipulation">AtomicRL: Atomic Reinforcement Learning for Long-Horizon Robotic Manipulation</span></li></ul>
+<p class="dpr-home-dashboard-empty">今日暂无推荐。</p>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">robot-touch <strong>11</strong></span></div>
+
 </section>
 </div>
 
