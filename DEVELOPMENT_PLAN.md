@@ -231,3 +231,5 @@ paper_states 新增 note_text（默认空串、最多50000字符），复用 own
 新增 `npm run test:reader:cloud`（显式启用，不加入无服务的普通测试）：通过 `DPR_LOCAL_SUPABASE_CONNECTION` 指向私有本地status JSON，`DPR_TEST_URL` 指向本地生产构建服务。入口只允许回环地址；服务密钥仅Node测试进程用于建立/清理临时账户，不注入页面。三个隔离浏览器context使用真实Auth登录取得的会话，页面Supabase请求无mock，只有论文元数据为fixture。
 
 实际通过：账户A的两次独立登录可保存/聚焦刷新同步笔记，B会话未保存草稿遇到A的新保存时保留草稿并禁止直接覆盖；账户B的独立笔记不泄露到A；最终真实REST读取也只返回当前账户内容。测试后临时账户已删除。此证据证明本地Auth/Data API与生产前端互通，不替代托管服务、GitHub OAuth或真实公网多设备验证。
+
+云端浏览器CI已核验成功：运行 https://github.com/MuX2001/daily-paper-reader/actions/runs/45241920217 对应提交 e8c63ce4f20139847a3eaa4204481f6f4bab1ec7。build job137928509420全部步骤success，包含Chromium安装、生产子路径七组浏览器测试及reader-site artifact上传。不能将此运行归到后续51c8816提交；后者新增的真实本地多会话测试已单独执行通过。
