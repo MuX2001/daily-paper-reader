@@ -9,7 +9,7 @@ await page.route('https://api.github.com/**',async route=>{
   await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({workflow_run_id:42,html_url:'https://github.com/test/reader/actions/runs/42'})});
  }else await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id:42,status:'completed',conclusion:'success',html_url:'https://github.com/test/reader/actions/runs/42'})});
 });
-await page.goto('http://127.0.0.1:5173/');
+await page.goto(process.env.DPR_TEST_URL||'http://127.0.0.1:5173/');
 await page.locator('.paper-card').first().waitFor();
 await page.keyboard.press('d');
 await page.getByLabel('GitHub 仓库',{exact:true}).fill('test/reader');

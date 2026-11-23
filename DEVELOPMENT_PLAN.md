@@ -203,3 +203,9 @@ Markdown 下载与 Obsidian URI 共用完整待读卡片：YAML 作者/来源/�
 paper_states 新增 note_text（默认空串、最多50000字符），复用 owner RLS 与 revision 乐观并发；已有部署需重新应用 sql/create_paper_states_schema.sql。前端个人笔记保存、草稿按账户/论文隔离并跨切篇保留、离页未保存提示、云端冲突对照与明确替换选择已接入。保存完成时保留保存期间继续输入的内容。访客可以写草稿，登录前按钮先下载备份；不承诺 OAuth 页面跳转保留内存草稿。Markdown 和 Obsidian 导出包含当前草稿，反馈管道仍只读取 feedback 字段，不发送私人笔记给推荐模型。
 
 本地 PostgreSQL17 实际执行更新后 schema 与 RLS 验证：匿名/跨用户读写拒绝、笔记旧 revision 不覆盖、收藏状态独立、50000长度上限。20项前端测试与生产构建通过；静态产物浏览器用 mock Supabase 验证切篇草稿、revision保存、其他设备编辑冲突、保留草稿下载与主动采用云端内容。真实 Supabase schema 尚未部署，实际多端同步仍待联调。
+
+### 生产子路径浏览器 CI
+
+新增 npm run test:reader:browser，自建临时只读 HTTP 服务，在 /reader-preview/ 下加载实际生产 JS/CSS，使用明确合成数据与各测试的外部 API mock，依次验证会议、笔记、管理、专题、聊天、精读、引用七组场景。无需真实论文数据、服务密钥或付费模型；不把模拟响应标为云端联调。子路径解析保留路径边界检查，结束后关闭服务，单组90秒超时退出。
+
+本地七组全部通过，验证模块资源、数据路径和懒加载在 Pages 子路径下可用。reader-check 新增 Chromium 安装与此浏览器验收步骤；这轮云端运行结果需在推送后单独核对。
