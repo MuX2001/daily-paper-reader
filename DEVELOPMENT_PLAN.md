@@ -293,3 +293,13 @@ paper_states 新增 note_text（默认空串、最多50000字符），复用 own
 每轮生成状态/耗时报告，包含完成、延后、缓存命中、chat_structured调用次数、已返回token及逐篇结果。缺用量明确usage_complete=false；usage_scope为returned_responses_only，不包含无法观测的SDK内部重试消耗，cost保持null，不推算金额。报告仅记录异常类型，不复制可能含敏感URL的供应商错误正文。CLI支持--report / DPR_TRIAGE_REPORT；Actions写runner.temp并在失败时也上传triage-run-report，保留7天，不会从缓存恢复旧报告冒充本轮完成。
 
 46项Python链路测试通过，新增坏缓存/错误身份/错误证据缓存预算检查、已返回用量计数、失败后续跑与旧结果保留。未调用真实付费模型，供应商实际账单仍应以其计费记录为准。
+
+### 实际 Actions 解析失败与专用校验
+
+提交a75e954的运行45246486207在GitHub解析阶段失败，错误为job级env中不能引用runner.temp（第85行），尚未执行日报。已将DPR_TRIAGE_REPORT移至实际流水线step.env；根据GitHub上下文可用性规则，该位置允许runner上下文。普通YAML解析不能验证此规则。
+
+本地使用官方release校验SHA256后的actionlint1.7.7验证日报/精读/reader-check/reader-publish四个工作流通过；旧版本相同文件可复现同一错误。reader-check新增固定版本与哈希校验的actionlint步骤，同时补充日报/发布工作流路径触发器，校验在安装项目依赖前执行；仅校验Actions结构/表达式，Python与shell行为仍由既有测试负责。
+
+同一提交a75e954的轻量完整回归运行45246489835已全部success（包含真实cloud embedding/reranker smoke）；新版前端运行45246489388已通过Python/JS/构建，核对时仍在安装浏览器，未将其报告为全部成功。修复后的远端状态需以新提交对应运行另行核验。
+
+规则来源：https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#context-availability
