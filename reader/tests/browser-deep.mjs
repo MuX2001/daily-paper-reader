@@ -19,6 +19,7 @@ await page.getByRole('button',{name:'保存任务设置',exact:true}).click();
 await page.getByRole('button',{name:'关闭对话框',exact:true}).click();
 await page.keyboard.press('d');
 assert.equal(await page.getByRole('heading',{name:'生成这篇论文的深度笔记'}).isVisible(),true);
+assert.equal(await page.getByText(/最多12段加1次合成调用/).isVisible(),true);
 await page.getByRole('button',{name:'确认调用强模型',exact:true}).click();
 await page.getByText('精读任务完成，可下载笔记',{exact:true}).waitFor({timeout:20000});
 assert.match(dispatched.inputs.arxiv_id,/v\d+$/);
