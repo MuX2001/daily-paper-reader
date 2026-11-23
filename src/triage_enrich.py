@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
+import time
 
 PROMPT_VERSION = 'triage-v1'
 SYSTEM = '''You produce Chinese research triage cards from a title and abstract only.
@@ -63,23 +64,41 @@ def validate(result, paper):
     return result
 
 
-def enrich_paper(paper, client, cache_dir):
+def read_cache(path,key,paper):
+    try:
+        cached=json.loads(Path(path).read_text())
+        if cached.get('cache_key')!=key:return None
+        return validate(cached['result'],paper)
+    except (OSError,ValueError,KeyError,TypeError,AttributeError):
+        return None
+
+
+def enrich_paper(paper, client, cache_dir,metrics=None,allow_new=True):
     if not paper.get('abstract'):
         raise ValueError('Abstract missing; triage cannot be generated')
     key = cache_key(paper,client.model,client.base_url)
     path = Path(cache_dir) / f'{key}.json'
-    if path.exists():
-        cached = json.loads(path.read_text())
-        result = validate(cached['result'],paper)
+    result=read_cache(path,key,paper)
+    if result is not None:
+        if metrics is not None:metrics['cache_hits']+=1
     else:
+        if not allow_new:raise ValueError('Cache became invalid after budget check; no model call performed')
+        if metrics is not None:metrics['model_requests']+=1
+        started=time.monotonic()
         response = client.chat_structured([
             {'role':'system','content':SYSTEM},
             {'role':'user','content':json.dumps(model_input(paper),ensure_ascii=False)},
         ],schema_name='paper_triage',schema=SCHEMA)
+        elapsed=time.monotonic()-started
+        if metrics is not None:
+            tokens=response.get('tokens')
+            if isinstance(tokens,dict) and all(isinstance(tokens.get(k),int) and not isinstance(tokens[k],bool) and tokens[k]>=0 for k in ('prompt','content','reasoning','total')):
+                for name in metrics['reported_tokens']:metrics['reported_tokens'][name]+=tokens[name]
+                metrics['responses_with_usage']+=1
         if response.get('parse_error') or response.get('refusal') or response.get('finish_reason') == 'length':
             raise ValueError('Triage model response was incomplete or invalid')
         result = validate(response.get('parsed'),paper)
-        atomic_json(path,{'cache_key':key,'result':result,'tokens':response.get('tokens')})
+        atomic_json(path,{'cache_key':key,'result':result,'tokens':response.get('tokens'),'elapsed_seconds':elapsed})
     enriched = dict(paper)
     enriched.update(title_zh=result['title_zh'],tldr=result['tldr'],
                     breakdown={k:result[k]['text'] for k in ('problem','method','results')},
@@ -90,18 +109,51 @@ def enrich_paper(paper, client, cache_dir):
     return enriched
 
 
-def enrich_feed(path, cache_dir, client, max_new=50):
+def enrich_feed(path, cache_dir, client, max_new=50,report_path=None):
     if max_new < 0: raise ValueError('max_new must be non-negative')
     path = Path(path)
     feed = json.loads(path.read_text())
-    used = 0
-    for index,paper in enumerate(feed['papers']):
-        cached = Path(cache_dir) / f'{cache_key(paper,client.model,client.base_url)}.json'
-        if not cached.exists() and used >= max_new: continue
-        if not cached.exists(): used += 1
-        # Fail stops this invocation, while prior successful items remain published/cached.
-        feed['papers'][index] = enrich_paper(paper,client,cache_dir)
-        atomic_json(path,feed)
+    report_path=Path(report_path) if report_path else Path(cache_dir)/'latest-run.json'
+    started=time.monotonic()
+    report={'status':'running','model':client.model,'max_new':max_new,'papers':len(feed['papers']),
+            'completed':0,'deferred':0,'cache_hits':0,'model_requests':0,'responses_with_usage':0,
+            'reported_tokens':dict.fromkeys(('prompt','content','reasoning','total'),0),
+            'usage_complete':True,'usage_scope':'returned_responses_only',
+            'request_unit':'chat_structured_calls','cost':None,'items':[]}
+    def checkpoint():
+        report['elapsed_seconds']=time.monotonic()-started
+        report['usage_complete']=report['responses_with_usage']==report['model_requests']
+        atomic_json(report_path,report)
+    checkpoint()
+    try:
+        for index,paper in enumerate(feed['papers']):
+            key=cache_key(paper,client.model,client.base_url)
+            cached=Path(cache_dir)/f'{key}.json'
+            if read_cache(cached,key,paper) is None and report['model_requests']>=max_new:
+                report['deferred']+=1
+                report['items'].append({'paper_key':paper['paper_key'],'status':'deferred'})
+                checkpoint();continue
+            item={'paper_key':paper['paper_key'],'status':'running'};report['items'].append(item)
+            before=report['model_requests'];item_started=time.monotonic()
+            try:
+                feed['papers'][index]=enrich_paper(paper,client,cache_dir,report,
+                                                  allow_new=report['model_requests']<max_new)
+                atomic_json(path,feed)
+                item.update(status='succeeded',reused=report['model_requests']==before)
+                report['completed']+=1
+            except Exception as exc:
+                # Provider exceptions can contain sensitive URLs. Report their
+                # type only, leaving normal CLI failure handling to the caller.
+                item.update(status='failed',error_type=type(exc).__name__)
+                raise
+            finally:
+                item['elapsed_seconds']=time.monotonic()-item_started
+                checkpoint()
+        report['status']='partial' if report['deferred'] else 'succeeded'
+    except Exception:
+        report['status']='failed'
+        raise
+    finally:checkpoint()
     return feed
 
 
@@ -111,6 +163,7 @@ def main():
     parser.add_argument('--feed',required=True)
     parser.add_argument('--cache-dir',required=True)
     parser.add_argument('--max-new',type=int,default=50)
+    parser.add_argument('--report',default=os.getenv('DPR_TRIAGE_REPORT'),help='Run report path; defaults to DPR_TRIAGE_REPORT or cache-dir/latest-run.json')
     args=parser.parse_args()
     key=os.getenv('TRIAGE_API_KEY') or os.getenv('DEEPSEEK_API_KEY')
     model=os.getenv('TRIAGE_MODEL') or os.getenv('DEEPSEEK_MODEL')
@@ -118,7 +171,7 @@ def main():
     if not key or not model: raise ValueError('Configure TRIAGE_API_KEY/TRIAGE_MODEL (or DEEPSEEK equivalents)')
     client=LLMClient(key,model,endpoint)
     client.kwargs.update(max_tokens=2500,temperature=0,thinking={'type':'disabled'})
-    enrich_feed(args.feed,args.cache_dir,client,args.max_new)
+    enrich_feed(args.feed,args.cache_dir,client,args.max_new,args.report)
 
 
 if __name__ == '__main__': main()
