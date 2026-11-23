@@ -1,4 +1,5 @@
 export interface Paper {
+  venue?: string | null;
   publication_date?: string | null; publication_date_precision?: string | null;
   work_id?: string; fulltext_path?: string; reading_path?: string; legacy_routes?: string[];
   paper_key: string; original_id: string; canonical_id: string; source: string; version: number | null;
@@ -29,12 +30,6 @@ export function filterPapers(papers: Paper[], states: Record<string, PaperState>
 export function editableTarget(target: EventTarget | null) {
   return target instanceof HTMLElement && !!target.closest('input,textarea,select,[contenteditable="true"],[role="textbox"]');
 }
-export function noteMarkdown(p: Paper) {
-  // JSON strings are valid YAML scalars; no raw user content in frontmatter.
-  const fields = {paper_key:p.paper_key,title:p.title,arxiv_id:p.source === 'arxiv' ? p.original_id : null,tags:p.tags,status:'to-read',pdf:safeURL(p.pdf_url)||safeURL(p.url)||null,code:safeURL(p.code_url)||null};
-  return `---\n${Object.entries(fields).map(([k,v])=>`${k}: ${JSON.stringify(v)}`).join('\n')}\n---\n\n# ${p.title}\n\n${p.tldr || ''}\n\n## 推荐理由\n\n${p.reason || '尚无推荐理由'}\n\n## 摘要\n\n${p.abstract || '摘要缺失'}\n\n## 阅读笔记\n\n`;
-}
-
 export function thumbnailURL(value: string | undefined): string | undefined {
   if(value && /^\.\/docs\/data\/previews\/[a-f0-9]{24}\.webp$/.test(value))return value;
   return safeURL(value);

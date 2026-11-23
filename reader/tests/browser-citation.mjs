@@ -15,6 +15,10 @@ try{
  const download=await downloadPromise;assert.ok(download.suggestedFilename().endsWith('.bib'));
  const text=await readFile(await download.path(),'utf8');assert.ok(text.startsWith('@misc{'));assert.ok(text.includes('eprint = {'));
  assert.ok(selectedTitle);
+ const noteDownload=page.waitForEvent('download');await page.getByRole('button',{name:'下载 Markdown',exact:true}).click();
+ const note=await noteDownload;const markdown=await readFile(await note.path(),'utf8');
+ assert.ok(markdown.includes('## BibTeX'));assert.ok(markdown.includes('未执行全文精读'));assert.ok(markdown.includes('https://arxiv.org/'));assert.ok(markdown.includes('authors: ['));
+ assert.ok(!note.suggestedFilename().includes(':'));
  await page.locator('nav').getByRole('button',{name:'研究管理'}).click();
  assert.equal(await page.locator('meta[data-reader-citation]').count(),0);
  console.log('Production citation checks passed: selection updates metadata, no duplicates, BibTeX download, management clears metadata');

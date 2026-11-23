@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { filterPapers, emptyState, safeURL, noteMarkdown, type Paper } from '../src/domain.ts';
+import { filterPapers, emptyState, safeURL, type Paper } from '../src/domain.ts';
+import {noteMarkdown} from '../src/notes.ts';
 const paper = {paper_key:'arxiv:1234.56789v2',original_id:'1234.56789v2',title:'A paper',source:'arxiv',tags:['robot'],abstract:'abstract',tldr:null,reason:null,url:'https://arxiv.org/abs/1234.56789v2',pdf_url:null,code_url:null} as Paper;
 test('independent states and search',()=>{
  const state={...emptyState(paper.paper_key),starred:true,read_at:'2026-11-24'};

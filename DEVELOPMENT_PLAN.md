@@ -191,3 +191,9 @@ Supabase 扩展已找到但尚未安装/连接；需要连接用户项目后才�
 修复 Validate inputs 在安装 requirements-reader 前导入 requests 的隐式依赖；reader_identity 仅依赖标准库，并由下载器/精读入口/Actions 共用。测试直接提取工作流实际校验代码，以 python -S 执行，覆盖正常参数、未指定版本、路径输入与换行请求 ID，失败不写 GITHUB_OUTPUT。模型配置缺失时先生成 stage=configuration 的 failed status.json，再退出，便于 artifact 解释任务未启动原因，不抓取全文也不调用模型。
 
 7项相关测试通过。reader-check 的触发路径扩展至 reader 后端、精读、依赖和测试/工作流变更，避免仅后端变更绕过 CI；新增启动验证已加入 CI。真实付费精读及私有笔记同步仍未执行。
+
+### Obsidian 快速剪藏内容补齐
+
+Markdown 下载与 Obsidian URI 共用完整待读卡片：YAML 作者/来源/确切版本/公布日期精度、原文与 PDF 分离字段、可用代码链接、速览、原摘要与 BibTeX。显式标记 triage，避免被误认为全文精读。URI 按编码后长度保守限制，过长下载全文卡片；不带 overwrite/append，避免覆盖或重复追加已有用户笔记。文件名转义 Windows 不允许字符并保留身份差异。
+
+20项前端测试、生产构建通过；静态站点浏览器实际下载 Markdown 与 BibTeX，检查作者、原文链接与待读声明。URI 编码及长中文内容回退有单元测试；未启动本地 Obsidian，不能将协议构造验证当成笔记实际落库。协议对照官方说明：https://help.obsidian.md/Extending+Obsidian/Obsidian+URI 。
