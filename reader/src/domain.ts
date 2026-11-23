@@ -12,7 +12,7 @@ export type StatePatch = Partial<Pick<PaperState, 'starred' | 'read_at' | 'dismi
 export type View = 'inbox' | 'starred' | 'topics' | 'archive' | 'manage';
 export interface Feed { schema_version: number; run_id: string; papers: Paper[] }
 export interface CatalogEntry {run_id:string;count:number;path:string;title?:string;kind?:string}
-export interface Catalog { schema_version: number; runs: CatalogEntry[]; topics?:CatalogEntry[] }
+export interface Catalog { schema_version: number; runs: CatalogEntry[]; topics?:CatalogEntry[]; conferences?:CatalogEntry[]; migration?:{unresolved_conference_routes?:string[]} }
 export const emptyState = (key: string): PaperState => ({paper_key:key, starred:false, read_at:null, dismissed_at:null, feedback:0, revision:0});
 export function safeURL(value: string | null | undefined): string | undefined {
   if (!value) return;

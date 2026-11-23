@@ -538,6 +538,9 @@ def build_conference_markdown(
             tags.append(f"{kind}:{label}")
 
     lines = ["---"]
+    lines.append(f"original_id: {yaml_escape_value(norm_text(paper.get('id')) or norm_text(ranked_item.get('paper_id')))}")
+    lines.append(f"original_url: {yaml_escape_value(link)}")
+    lines.append(f"authors_list: {json.dumps(authors, ensure_ascii=False)}")
     lines.append(f"title: {yaml_escape_value(title)}")
     if title_zh:
         lines.append(f"title_zh: {yaml_escape_value(title_zh)}")

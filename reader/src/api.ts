@@ -11,7 +11,7 @@ export async function catalog(signal?: AbortSignal) {
   return data;
 }
 export async function feed(path: string, signal?: AbortSignal) {
-  if (!/^(?:daily\/\d{8}(?:-\d{8})?|topics\/\d{8}-[a-f0-9]{12})\.json$/.test(path)) throw new Error('数据路径无效');
+  if (!/^(?:daily\/\d{8}(?:-\d{8})?|topics\/\d{8}-[a-f0-9]{12}|conferences\/conference-[a-f0-9]{16})\.json$/.test(path)) throw new Error('数据路径无效');
   const data = await readJSON<Feed>(`./docs/data/${path}`, signal);
   if (data.schema_version !== 1 || !Array.isArray(data.papers)) throw new Error('不支持的论文数据版本');
   return data;

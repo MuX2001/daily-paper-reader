@@ -63,7 +63,7 @@ function App() {
   useEffect(()=>{void refresh(); const handler=()=>void refresh(); window.addEventListener('focus',handler); return ()=>window.removeEventListener('focus',handler);},[refresh]);
   useEffect(()=>{
     const controller = new AbortController(); setLoading(true); setError('');
-    catalog(controller.signal).then(data=>{setRuns([...data.runs,...(data.topics||[])]);setRun(current=>current || data.runs[0]?.run_id || ''); if(!data.runs.length)setLoading(false);}).catch(e=>{if(!controller.signal.aborted){setError(String(e));setLoading(false);}});
+    catalog(controller.signal).then(data=>{setRuns([...data.runs,...(data.conferences||[]),...(data.topics||[])]);setRun(current=>current || data.runs[0]?.run_id || data.conferences?.[0]?.run_id || data.topics?.[0]?.run_id || ''); if(!data.runs.length)setLoading(false);if(data.migration?.unresolved_conference_routes?.length)setNotice(`${data.migration.unresolved_conference_routes.length} 篇历史会议论文缺少可核验身份，仍保留在旧版归档。`);}).catch(e=>{if(!controller.signal.aborted){setError(String(e));setLoading(false);}});
     return ()=>controller.abort();
   },[retry]);
   useEffect(()=>{

@@ -12,7 +12,7 @@ export default defineConfig({
   }}}, {name:'reader-data', configureServer(server) {
     server.middlewares.use(async (req,res,next)=>{
       const path = (req.url || '').split('?')[0];
-      if (!/^\/docs\/data\/(catalog\.json|daily\/\d{8}(?:-\d{8})?\.json|topics\/\d{8}-[a-f0-9]{12}\.json|previews\/[a-f0-9]{24}\.webp)$/.test(path)) return next();
+      if (!/^\/docs\/data\/(catalog\.json|daily\/\d{8}(?:-\d{8})?\.json|topics\/\d{8}-[a-f0-9]{12}\.json|conferences\/conference-[a-f0-9]{16}\.json|previews\/[a-f0-9]{24}\.webp)$/.test(path)) return next();
       try {
         const root = process.env.DPR_READER_DATA_DIR || resolve(homedir(),'workspace/runs/daily-paper-reader/reader-data');
         const data = await readFile(resolve(root,path.slice('/docs/data/'.length)));

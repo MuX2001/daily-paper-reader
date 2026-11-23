@@ -5,6 +5,7 @@ import json
 import re
 from triage_export import export_feed, project_paper
 from triage_enrich import atomic_json
+from reader_conferences import conference_catalog
 
 
 def local_route(root, route):
@@ -148,7 +149,8 @@ def build_catalog(root: Path, destination: Path):
         atomic_json(output,feed)
         if feed['papers']:entries[run_id]={'run_id':run_id,'count':len(feed['papers']),'path':f'daily/{run_id}.json'}
     records=sorted(entries.values(),key=lambda e:e['run_id'],reverse=True)
-    atomic_json(destination/'catalog.json',{'schema_version':1,'runs':records,'topics':topic_catalog(root,destination,routes)})
+    conferences,skipped=conference_catalog(root,destination)
+    atomic_json(destination/'catalog.json',{'schema_version':1,'runs':records,'conferences':conferences,'migration':{'unresolved_conference_routes':skipped},'topics':topic_catalog(root,destination,routes)})
     return records
 
 
