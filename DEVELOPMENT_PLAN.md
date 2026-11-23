@@ -217,3 +217,11 @@ paper_states 新增 note_text（默认空串、最多50000字符），复用 own
 新增当前页面内撤销最近一批归档；逐项使用归档后 revision，后续改动产生冲突时停止，避免覆盖新笔记/状态。已成功恢复项从撤销列表移除，账户或项目切换后不可操作旧批次；刷新页面后仍可在已归档逐篇恢复。浏览器模拟验证收藏不归档、撤销恢复、私人笔记保留及后续变更拒绝覆盖。
 
 真实运行45240684601已通过Ubuntu24.04浏览器安装，会议/笔记场景通过；管理场景因断言早于React effect更新而失败。现改为等待确认区真实移除，仍验证旧确认不可提交，不用固定sleep。用户授权自行选择联调项目；当前无Supabase管理工具/环境服务凭据，仅有论文库公开配置，下一步采用隔离本地Supabase验证真实Auth/Data API，不能冒称托管项目已部署。
+
+### 真实本地 Supabase Auth / REST 验证
+
+按用户“自行决定”授权，采用隔离本地项目 supabase-integration（运行态位于 workspace/runs/daily-paper-reader），CLI固定3.3.0，经 --help 确认 init/start/status 参数；仅运行Postgres/Auth/Kong/PostgREST，未连接或修改任何托管项目。已在真实Supabase数据库应用 paper_states schema。
+
+新增 scripts/check_reader_cloud.py：只允许回环项目，读取权限受限的connection JSON，在真实Auth创建两个临时账户并密码登录/refresh token，调用真实REST验证匿名与跨账户隔离、私人笔记写入、revision冲突拒绝覆盖、50000字符上限，最后删除自身创建的账户。实际执行全部通过，不使用mock transport。命令：`python scripts/check_reader_cloud.py --connection <私有本地status-json文件>`。connection文件包含本地服务密钥，不提交、不输出。
+
+前端连接地址校验仅在本地页面允许HTTP回环项目，线上仍要求HTTPS，拒绝凭据/路径/query/hash；21项前端测试和生产构建通过。真实浏览器多会话、GitHub OAuth回调和托管部署尚未验证。GitHub CI 45241288564目前仍在浏览器运行时安装步骤，继续观察同一运行，不重复启动。

@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import {cloudURL} from './cloudURL.ts';
 import { mergeLibrary, type Catalog, type Feed, type PaperState, type StatePatch } from './domain.ts';
 export async function readJSON<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, {signal});
@@ -20,7 +21,7 @@ let client: SupabaseClient | null = null;
 export function getClient(): SupabaseClient | null { return client; }
 export function configureCloud(url: string, key: string) {
   if (!url && !key) { client = null; return; }
-  if (!url.startsWith('https://')) throw new Error('Supabase 地址必须使用 HTTPS');
+  url=cloudURL(url,typeof location==='undefined'?'https://reader.invalid':location.href);
   if (key.startsWith('sb_secret_')) throw new Error('浏览器禁止使用 secret key');
   if (key.startsWith('ey')) {
     try { const payload = JSON.parse(atob(key.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))); if (payload.role !== 'anon') throw new Error('仅支持 anon 公钥'); }
