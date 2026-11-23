@@ -181,7 +181,7 @@ research.mount(root, { getProfiles: () => profiles, getConfig: () => ({}), hasUn
   assert.ok(css.includes('.dpr-admin-add-row .arxiv-tool-btn {\n  border-color: #d4e0d7;\n  background: #fff;'), '新增入口使用低调描边样式');
   assert.ok(!manager.includes('name="dpr-quick-run-mode" value="90"'));
   assert.ok(!manager.includes('id="arxiv-admin-starter-pack-btn"'));
-  const index = fs.readFileSync('index.html', 'utf8');
+  const index = fs.readFileSync('legacy.html', 'utf8');
   for (const script of ['topic-preview.js', 'topic-research.js', 'topic-results.js']) assert.ok(index.includes("path: 'app/" + script + "'"));
   console.log('topic research tests passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

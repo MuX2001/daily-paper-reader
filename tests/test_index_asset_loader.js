@@ -5,7 +5,7 @@ const vm = require('node:vm');
 function extractAssetLoaderScript(html) {
   const scripts = [...String(html).matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
   const script = scripts.find((body) => body.includes('window.DPRLoadAssets'));
-  assert.ok(script, 'index.html should contain DPRLoadAssets bootstrap script');
+  assert.ok(script, 'legacy.html should contain DPRLoadAssets bootstrap script');
   return script;
 }
 
@@ -55,8 +55,8 @@ async function runAssetLoader(hostname, assets, windowOverrides = {}, appendElem
   sandbox.window.setTimeout = sandbox.setTimeout;
   sandbox.window.clearTimeout = sandbox.clearTimeout;
 
-  const script = extractAssetLoaderScript(fs.readFileSync('index.html', 'utf8'));
-  vm.runInNewContext(script, sandbox, { filename: 'index.html' });
+  const script = extractAssetLoaderScript(fs.readFileSync('legacy.html', 'utf8'));
+  vm.runInNewContext(script, sandbox, { filename: 'legacy.html' });
   await sandbox.window.DPRLoadAssets(assets);
   appended.fetches = fetches;
   appended.jsonPromises = sandbox.window.DPR_ASSET_JSON_PROMISES || {};
@@ -85,7 +85,7 @@ async function testLocalScriptRetriesAfterTransientFailure() {
 }
 
 function testInitialLoadFailureCannotLeavePendingBlankScreen() {
-  const html = fs.readFileSync('index.html', 'utf8');
+  const html = fs.readFileSync('legacy.html', 'utf8');
   assert.match(html, /window\.DPRShowInitialLoadError\s*=\s*function/);
   assert.match(html, /app\.removeAttribute\(['"]data-dpr-pending['"]\)/);
   assert.match(html, /secretGate\.classList\.add\(['"]secret-gate-hidden['"]\)/);
@@ -161,7 +161,7 @@ async function testJsonAssetsArePrefetchedWithAssetBatch() {
 }
 
 function testFeedbackModuleLoadsAfterGithubToken() {
-  const html = fs.readFileSync('index.html', 'utf8');
+  const html = fs.readFileSync('legacy.html', 'utf8');
   const tokenIndex = html.indexOf("path: 'app/subscriptions.github-token.js'");
   const feedbackIndex = html.indexOf("path: 'app/feedback.issue.js'");
 

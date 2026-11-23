@@ -109,6 +109,35 @@ class MainPipelineTest(unittest.TestCase):
             self.assertIn("Step 3 - Rerank", labels)
             self.assertIn("Step 4 - LLM refine", labels)
 
+    def test_triage_export_is_opt_in_and_precedes_legacy_generation(self):
+        for enabled in (False, True):
+            with self.subTest(enabled=enabled), patch.object(
+                self.mod, "resolve_run_date_token", return_value="20261124"
+            ), patch.object(self.mod, "resolve_sidebar_date_label", return_value=None), patch.object(
+                self.mod, "should_skip_fetch", return_value=True
+            ), patch.object(self.mod, "run_step") as run, patch.object(
+                sys, "argv", ["main.py"] + (["--export-triage"] if enabled else [])
+            ), patch.dict(os.environ, {}, clear=True):
+                self.mod.main()
+                labels = [call.args[0] for call in run.call_args_list]
+                self.assertEqual("Step 5.1 - Export triage JSON" in labels, enabled)
+                self.assertIn("Step 6 - Generate Docs", labels)
+                if enabled:
+                    self.assertLess(labels.index("Step 5.1 - Export triage JSON"), labels.index("Step 6 - Generate Docs"))
+                    self.assertIn("--run-id", run.call_args_list[labels.index("Step 5.1 - Export triage JSON")].args[1])
+                    self.assertEqual(labels[-1], "Step 7 - Reader catalog")
+
+    def test_triage_mode_does_not_generate_legacy_long_summaries(self):
+        with patch.object(self.mod, "resolve_run_date_token", return_value="20261124"), patch.object(
+            self.mod, "resolve_sidebar_date_label", return_value=None
+        ), patch.object(self.mod, "should_skip_fetch", return_value=True), patch.object(
+            self.mod, "run_step"
+        ) as run, patch.object(sys, "argv", ["main.py", "--content-mode", "triage"]), patch.dict(os.environ, {}, clear=True):
+            self.mod.main()
+            labels = [call.args[0] for call in run.call_args_list]
+            self.assertIn("Step 5.2 - Enrich triage cards", labels)
+            self.assertNotIn("Step 6 - Generate Docs", labels)
+
     def test_main_keeps_local_rerank_in_deepseek_mode(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

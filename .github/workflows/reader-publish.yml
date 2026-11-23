@@ -1,0 +1,89 @@
+name: Publish compiled reader to existing Pages
+on:
+  workflow_dispatch:
+    inputs:
+      notify_run:
+        description: 'Optional completed run token to notify after publication'
+        type: string
+        default: ''
+  workflow_call:
+    inputs:
+      notify_run:
+        type: string
+        default: ''
+permissions:
+  contents: write
+  pages: write
+concurrency:
+  group: reader-pages-release
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DPR_WEB_OUTPUT_DIR: ${{ runner.temp }}/reader-site
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -r requirements-reader.txt
+      - run: npm ci
+      - run: npm run test:reader
+      - run: npm run build
+      - name: Check existing Pages and stage compiled assets
+        id: stage
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/stage_reader_release.py --build "$DPR_WEB_OUTPUT_DIR"
+      - name: Commit compiled entry and data
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html app/reader-assets docs/data
+          if ! git diff --cached --quiet; then
+            git commit -m 'Build reader site' -m 'Co-Authored-By: xixi <3495302215@qq.com>'
+            git push origin HEAD:"$GITHUB_REF_NAME"
+          fi
+      - name: Verify current Pages commit
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/request_pages_build.py --timeout 600
+
+      - name: Restore notification receipts
+        if: inputs.notify_run != ''
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/reader-notifications
+          key: reader-notify-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: reader-notify-
+      - name: Optional daily digest after verified publication
+        if: inputs.notify_run != ''
+        continue-on-error: true
+        env:
+          NOTIFY_RUN: ${{ inputs.notify_run }}
+          READER_SITE_URL: ${{ steps.stage.outputs.site_url }}
+          DPR_NOTIFY_FEISHU_WEBHOOK: ${{ secrets.DPR_NOTIFY_FEISHU_WEBHOOK }}
+        run: |
+          PYTHONPATH=src python - <<'PY'
+          import os, re
+          from pathlib import Path
+          from reader_notify import notify
+          run=os.environ['NOTIFY_RUN']
+          if not re.fullmatch(r'\d{8}(?:-\d{8})?',run): raise ValueError('Invalid notification run')
+          print(notify(Path('docs/data/daily')/(run+'.json'),os.environ['READER_SITE_URL'],os.environ.get('DPR_NOTIFY_FEISHU_WEBHOOK',''),Path(os.environ['RUNNER_TEMP'])/'reader-notifications'))
+          PY
+      - name: Save notification receipts
+        if: always() && inputs.notify_run != ''
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/reader-notifications
+          key: reader-notify-${{ github.run_id }}-${{ github.run_attempt }}

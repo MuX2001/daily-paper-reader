@@ -1,0 +1,15 @@
+import {chromium} from '@playwright/test';
+import assert from 'node:assert/strict';
+const browser=await chromium.launch({headless:true});const page=await browser.newPage({viewport:{width:1440,height:1000}});
+let sent;
+await page.route('https://model.example/**',async route=>{sent=route.request().postDataJSON();await route.fulfill({status:200,contentType:'text/event-stream',body:'data: {"choices":[{"delta":{"content":"根据已提供全文，核心假设如下。"}}]}\n\ndata: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'});});
+await page.goto('http://127.0.0.1:5173/');await page.locator('.paper-card').first().waitFor();
+await page.getByRole('button',{name:'连接你的工作空间 账户与阅读偏好'}).click();
+await page.getByLabel('模型端点',{exact:true}).fill('https://model.example/v1');
+await page.getByLabel('聊天模型',{exact:true}).fill('test');await page.getByLabel('聊天 API Key（仅当前页面）',{exact:true}).fill('mock-api-key');
+await page.getByRole('button',{name:'保存聊天设置',exact:true}).click();await page.getByRole('button',{name:'关闭对话框',exact:true}).click();
+await page.getByLabel('向论文提问',{exact:true}).fill('解释核心假设');await page.getByRole('button',{name:'发送问题',exact:true}).click();
+await page.getByText('根据已提供全文，核心假设如下。',{exact:true}).waitFor();
+assert.ok(sent.messages[1].content.length>4000);assert.match(sent.messages[1].content,/References|references/);assert.match(sent.messages[1].content,/Paper full text/);
+assert.equal(await page.evaluate(()=>Object.values(localStorage).some(v=>String(v).includes('mock-api-key'))),false);
+await browser.close();console.log('Chat UI passed with mocked model: real full text included, streaming response shown, API key memory-only');

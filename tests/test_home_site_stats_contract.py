@@ -94,7 +94,7 @@ def test_home_panel_modules_are_embedded_in_the_init_homepage():
 
 
 def test_site_stats_script_is_loaded_without_blocking_core_assets():
-    html = (ROOT / "index.html").read_text(encoding="utf-8")
+    html = (ROOT / "legacy.html").read_text(encoding="utf-8")
     assert "app/site-stats.js" in html
     assert "[DPR] 首页统计加载失败" in html
 

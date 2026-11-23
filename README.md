@@ -1,3 +1,5 @@
+> **dev 分支新版阅读工作台**：主入口正在迁移到 React 分诊台；旧阅读库保留在 `legacy.html`。开发规格与当前验收记录见 [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md)。本地运行 `npm ci && npm run dev`，首次先用项目 Python 环境执行 `python src/reader_catalog.py --output "$HOME/workspace/runs/daily-paper-reader/reader-data"`。生产构建使用 `npm run build`，输出由 `DPR_WEB_OUTPUT_DIR` 指定，默认位于 workspace/runs。下方原版部署说明仅适用于旧入口；新版发布使用 `reader-publish.yml`，不会自动改变 Pages 配置。
+
 <p align="center">
   <img src="others/LOGO.png" alt="Daily Paper Reader Logo" width="720" />
 </p>

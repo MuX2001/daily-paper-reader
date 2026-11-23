@@ -1,0 +1,22 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {loadConfig,saveProfiles} from '../src/github.ts';
+const config={repository:'owner/repo',ref:'dev',token:'test-token'};
+test('subscription edits preserve unrelated YAML and send optimistic SHA',async()=>{
+ const original=globalThis.fetch;let written:any;
+ try{
+  const yaml='# original comment\nmodels:\n  name: unchanged\nsubscriptions:\n  intent_profiles:\n    - tag: robot\n      keywords:\n        - keyword: robot manipulation\n          query: learning robot skills\n';
+  globalThis.fetch=async(_url,options)=>{
+   if(options?.method==='PUT'){written=JSON.parse(String(options.body));return Response.json({content:{sha:'next-sha'}});}
+   return Response.json({encoding:'base64',content:btoa(yaml),sha:'original-sha'});
+  };
+  const snapshot=await loadConfig(config);
+  const saved=await saveProfiles(config,snapshot,[{...snapshot.profiles[0],description:'机器人'}]);
+  assert.equal(written.sha,'original-sha');assert.equal(written.branch,'dev');
+  const text=new TextDecoder().decode(Uint8Array.from(atob(written.content),c=>c.charCodeAt(0)));
+  assert.match(text,/# original comment/);assert.match(text,/name: unchanged/);assert.match(text,/keyword: robot manipulation/);assert.match(text,/query: learning robot skills/);assert.equal(saved.sha,'next-sha');
+ }finally{globalThis.fetch=original;}
+});
+test('configuration conflicts are not silently overwritten',async()=>{
+ const original=globalThis.fetch;try{globalThis.fetch=async()=>new Response(null,{status:409});await assert.rejects(()=>loadConfig(config),/其他任务修改/);}finally{globalThis.fetch=original;}
+});

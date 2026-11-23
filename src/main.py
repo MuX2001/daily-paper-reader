@@ -32,6 +32,13 @@ def run_step(label: str, args: list[str], env: dict[str, str] | None = None) -> 
     subprocess.run(args, check=True, env=env)
 
 
+def report_reader_run(run_id: str) -> None:
+    output = os.getenv("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write(f"reader_run_id={run_id}\n")
+
+
 def _load_full_config() -> dict:
     if not os.path.exists(CONFIG_FILE):
         return {}
@@ -565,6 +572,11 @@ def main() -> None:
         action="store_false",
         help="强制执行 Step 1（全量数据拉取），即使 Supabase 已启用。",
     )
+    parser.add_argument("--triage-previews", action="store_true", help="为入围论文提取可选缩略图")
+    parser.add_argument("--content-mode", choices=["legacy", "dual", "triage"], default="legacy",
+                        help="triage 只生成轻量结构化卡片；dual 同时生成旧阅读页")
+    parser.add_argument("--export-triage", action="store_true",
+                        help="同时导出版本化分诊 JSON；保留旧阅读材料生成")
     args = parser.parse_args()
     if args.fetch_days is not None and not 1 <= args.fetch_days <= 365:
         parser.error('--fetch-days 必须在 1–365 天之间')
@@ -694,6 +706,13 @@ def main() -> None:
     )
     if trace_ids:
         print_trace_retrieval("RERANK", rerank_path, trace_ids)
+    if os.getenv("DPR_FEEDBACK_USER_ID"):
+        feedback_path = os.path.join(ROOT_DIR, ".local-runs", "reader-feedback.json")
+        run_step("Step 3.5 - Recent reader feedback", [
+            python, os.path.join(SRC_DIR, "reader_feedback.py"),
+            "--root", ROOT_DIR, "--output", feedback_path,
+        ])
+        os.environ["DPR_FEEDBACK_CONTEXT"] = feedback_path
     run_step(
         "Step 4 - LLM refine",
         [python, os.path.join(SRC_DIR, "4.llm_refine_papers.py")],
@@ -710,6 +729,30 @@ def main() -> None:
     )
     if trace_ids:
         print_trace_recommend("RECOMMEND", recommend_path, trace_ids)
+    if args.export_triage or args.content_mode != "legacy":
+        run_step(
+            "Step 5.1 - Export triage JSON",
+            [python, os.path.join(SRC_DIR, "triage_export.py"),
+             "--input", recommend_path, "--run-id", run_date_token,
+             "--output", os.path.join(ROOT_DIR, "docs", "data", "daily", f"{run_date_token}.json")],
+        )
+    if args.content_mode != "legacy":
+        run_step("Step 5.2 - Enrich triage cards", [
+            python, os.path.join(SRC_DIR, "triage_enrich.py"),
+            "--feed", os.path.join(ROOT_DIR, "docs", "data", "daily", f"{run_date_token}.json"),
+            "--cache-dir", os.getenv("DPR_TRIAGE_CACHE_DIR", os.path.join(ROOT_DIR, ".local-runs", "triage-cache")),
+        ])
+        if args.triage_previews:
+            run_step("Step 5.3 - Paper previews", [
+                python, os.path.join(SRC_DIR, "reader_thumbnail.py"),
+                "--feed", os.path.join(ROOT_DIR, "docs", "data", "daily", f"{run_date_token}.json"),
+                "--output-dir", os.path.join(ROOT_DIR, "docs", "data", "previews"),
+            ])
+        if args.content_mode == "triage":
+            run_step("Step 6 - Reader catalog", [python, os.path.join(SRC_DIR, "reader_catalog.py"),
+                     "--root", ROOT_DIR, "--output", os.path.join(ROOT_DIR, "docs", "data")])
+            report_reader_run(run_date_token)
+            return
     run_step(
         "Step 6 - Generate Docs",
         [
@@ -724,6 +767,11 @@ def main() -> None:
         ],
         env=resolve_summary_step_env(),
     )
+    if args.export_triage or args.content_mode == "dual":
+        run_step("Step 7 - Reader catalog", [python, os.path.join(SRC_DIR, "reader_catalog.py"),
+                 "--root", ROOT_DIR, "--output", os.path.join(ROOT_DIR, "docs", "data")])
+
+    report_reader_run(run_date_token)
 
 
 if __name__ == "__main__":

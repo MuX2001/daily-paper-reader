@@ -461,6 +461,8 @@ def call_filter(
         "motivation_cn=\"不相关\", method_cn=\"不相关\", result_cn=\"不相关\", conclusion_cn=\"不相关\", "
         "score 0, matched_requirement_index=0, while keeping title_zh as the translated paper title."
     )
+    from reader_feedback import feedback_context
+    user_prompt += feedback_context(all_requirements)
     if retry_note:
         user_prompt += f"\n\nRetry correction note:\n{retry_note}"
     repeated_user_prompt = build_repeated_user_prompt(user_prompt)
