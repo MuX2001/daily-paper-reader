@@ -225,3 +225,9 @@ paper_states 新增 note_text（默认空串、最多50000字符），复用 own
 新增 scripts/check_reader_cloud.py：只允许回环项目，读取权限受限的connection JSON，在真实Auth创建两个临时账户并密码登录/refresh token，调用真实REST验证匿名与跨账户隔离、私人笔记写入、revision冲突拒绝覆盖、50000字符上限，最后删除自身创建的账户。实际执行全部通过，不使用mock transport。命令：`python scripts/check_reader_cloud.py --connection <私有本地status-json文件>`。connection文件包含本地服务密钥，不提交、不输出。
 
 前端连接地址校验仅在本地页面允许HTTP回环项目，线上仍要求HTTPS，拒绝凭据/路径/query/hash；21项前端测试和生产构建通过。真实浏览器多会话、GitHub OAuth回调和托管部署尚未验证。GitHub CI 45241288564目前仍在浏览器运行时安装步骤，继续观察同一运行，不重复启动。
+
+### 真实浏览器多会话同步验收
+
+新增 `npm run test:reader:cloud`（显式启用，不加入无服务的普通测试）：通过 `DPR_LOCAL_SUPABASE_CONNECTION` 指向私有本地status JSON，`DPR_TEST_URL` 指向本地生产构建服务。入口只允许回环地址；服务密钥仅Node测试进程用于建立/清理临时账户，不注入页面。三个隔离浏览器context使用真实Auth登录取得的会话，页面Supabase请求无mock，只有论文元数据为fixture。
+
+实际通过：账户A的两次独立登录可保存/聚焦刷新同步笔记，B会话未保存草稿遇到A的新保存时保留草稿并禁止直接覆盖；账户B的独立笔记不泄露到A；最终真实REST读取也只返回当前账户内容。测试后临时账户已删除。此证据证明本地Auth/Data API与生产前端互通，不替代托管服务、GitHub OAuth或真实公网多设备验证。
