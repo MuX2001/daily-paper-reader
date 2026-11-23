@@ -1,4 +1,5 @@
 export interface Paper {
+  publication_date?: string | null; publication_date_precision?: string | null;
   work_id?: string; fulltext_path?: string; reading_path?: string; legacy_routes?: string[];
   paper_key: string; original_id: string; canonical_id: string; source: string; version: number | null;
   title: string; title_zh: string | null; abstract: string | null; authors: string[]; published: string | null;
