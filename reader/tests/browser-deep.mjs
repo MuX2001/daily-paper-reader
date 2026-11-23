@@ -2,12 +2,13 @@ import {chromium} from '@playwright/test';
 import assert from 'node:assert/strict';
 const browser=await chromium.launch({headless:true});
 const page=await browser.newPage({viewport:{width:1440,height:1000}});
-let dispatched;
+let dispatched,posts=0;
 await page.route('https://api.github.com/**',async route=>{
  if(route.request().method()==='POST'){
-  dispatched=route.request().postDataJSON();
+  posts++;dispatched=route.request().postDataJSON();
   await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({workflow_run_id:42,html_url:'https://github.com/test/reader/actions/runs/42'})});
- }else await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id:42,status:'completed',conclusion:'success',html_url:'https://github.com/test/reader/actions/runs/42'})});
+ }else if(route.request().url().includes('/runs?'))await route.fulfill({json:{workflow_runs:[{id:42,display_title:`Deep read ${dispatched.inputs.request_id} · ${dispatched.inputs.arxiv_id}`,head_branch:'dev',status:'completed',conclusion:'success',html_url:'https://github.com/test/reader/actions/runs/42'}]}});
+ else await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id:42,status:'completed',conclusion:'success',html_url:'https://github.com/test/reader/actions/runs/42'})});
 });
 await page.goto(process.env.DPR_TEST_URL||'http://127.0.0.1:5173/');
 await page.locator('.paper-card').first().waitFor();
@@ -24,5 +25,9 @@ assert.match(dispatched.inputs.arxiv_id,/v\d+$/);
 assert.equal(dispatched.ref,'dev');
 assert.equal(await page.evaluate(()=>Object.values(localStorage).some(value=>String(value).includes('mock-browser-token'))),false);
 assert.equal(await page.getByRole('link',{name:'查看运行与下载笔记'}).getAttribute('href'),'https://github.com/test/reader/actions/runs/42');
+await page.reload();await page.locator('.paper-card').first().waitFor();
+await page.getByRole('button',{name:'恢复这篇的精读任务',exact:true}).click();
+await page.getByLabel('GitHub Token（Actions 读写）',{exact:true}).fill('mock-browser-token');await page.getByRole('button',{name:'关闭对话框',exact:true}).click();
+await page.getByRole('button',{name:'恢复这篇的精读任务',exact:true}).click();await page.getByText('精读任务完成，可下载笔记',{exact:true}).waitFor();assert.equal(posts,1);
 await browser.close();
 console.log('Deep-read UI passed with mocked GitHub transport: explicit confirmation, exact version, correlated polling, memory-only token');

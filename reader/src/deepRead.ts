@@ -10,8 +10,11 @@ async function request(config:GitHubConfig,path:string,body?:unknown) {
   if(!response.ok)throw new Error(`GitHub 请求失败 (${response.status})，请检查仓库、分支与 Actions 权限`);
   return response.status===204?null:response.json();
 }
-export async function dispatchDeepRead(config:GitHubConfig,paperId:string):Promise<DeepTask>{
+function validatePaperId(paperId:string){
   if(!/^(?:\d{4}\.\d{4,5}|[A-Za-z.-]+\/\d{7})v[1-9]\d*$/.test(paperId))throw new Error('精读需要明确 arXiv 版本；不会自动替换为最新版本');
+}
+export async function dispatchDeepRead(config:GitHubConfig,paperId:string):Promise<DeepTask>{
+  validatePaperId(paperId);
   const requestId=crypto.randomUUID();
   const data=await request(config,'/actions/workflows/deep-read.yml/dispatches',{ref:config.ref,inputs:{arxiv_id:paperId,request_id:requestId}});
   return {requestId,repository:config.repository,ref:config.ref,paperId,status:'queued',...(data?.workflow_run_id?{runId:data.workflow_run_id,url:data.html_url}:{})};
@@ -27,4 +30,21 @@ export async function pollDeepRead(config:GitHubConfig,task:DeepTask):Promise<De
   if(!run)return task;
   const status=run.status==='completed'?(run.conclusion==='success'?'succeeded':'failed'):(run.status==='in_progress'?'running':'queued');
   return {...task,status,runId:run.id,url:run.html_url,...(status==='failed'?{error:`GitHub Actions: ${run.conclusion}，请查看运行日志`}:{})};
+}
+
+/** GitHub remains the durable source of task status; no local token persistence. */
+export async function recoverDeepRead(config:GitHubConfig,paperId:string):Promise<DeepTask|null>{
+  validatePaperId(paperId);
+  for(let page=1;page<=3;page++){
+    const data=await request(config,`/actions/workflows/deep-read.yml/runs?event=workflow_dispatch&branch=${encodeURIComponent(config.ref)}&per_page=100&page=${page}`);
+    if(!Array.isArray(data.workflow_runs))throw new Error('GitHub 返回的任务列表无效');
+    for(const run of data.workflow_runs){
+      const title=/^Deep read ([A-Za-z0-9_-]{8,80}) · (.+)$/.exec(run.display_title||'');
+      if(!title||title[2]!==paperId||run.head_branch!==config.ref)continue;
+      const status:DeepTask['status']=run.status==='completed'?(run.conclusion==='success'?'succeeded':'failed'):(run.status==='in_progress'?'running':'queued');
+      return {requestId:title[1],paperId,repository:config.repository,ref:config.ref,status,runId:run.id,url:run.html_url,...(status==='failed'?{error:`GitHub Actions: ${run.conclusion}，请查看运行日志`}:{})};
+    }
+    if(data.workflow_runs.length<100)break;
+  }
+  return null;
 }
