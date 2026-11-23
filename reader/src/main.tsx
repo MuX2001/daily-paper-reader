@@ -36,8 +36,8 @@ function App() {
   const [dispatching,setDispatching]=useState(false);
   useEffect(()=>{
     if(!deepTask || ['succeeded','failed'].includes(deepTask.status) || !githubToken)return;
-    let stopped=false;
-    const timer=setInterval(()=>{pollDeepRead({repository,ref:branch,token:githubToken},deepTask).then(value=>{if(!stopped)setDeepTask(value);}).catch(e=>{if(!stopped)setError(String(e));});},10000);
+    let stopped=false, polling=false;
+    const timer=setInterval(()=>{if(polling)return;polling=true;pollDeepRead({repository,ref:branch,token:githubToken},deepTask).then(value=>{if(!stopped)setDeepTask(value);}).catch(e=>{if(!stopped)setError(String(e));}).finally(()=>{polling=false;});},10000);
     return ()=>{stopped=true;clearInterval(timer);};
   },[deepTask,githubToken,repository,branch]);
   const pending = useRef(false);
@@ -128,7 +128,7 @@ function App() {
       <div className="summary-strip"><span><b>{papers.length}</b> 篇推荐</span><span><b>{high}</b> 篇高相关</span><span><b>{papers.filter(p=>states[p.paper_key]?.starred).length}</b> 篇待精读</span><span className="summary-end">先发现，再深入</span></div>
       {error&&<div className="banner error" role="alert">{error}<button onClick={()=>setRetry(x=>x+1)}>重试读取</button></div>}
       {notice&&<div className="banner" role="status">{notice}<button aria-label="关闭提示" onClick={()=>setNotice('')}>×</button></div>}
-      {view==='manage'?<Suspense fallback={<p>正在加载研究管理…</p>}><ManagementPanel config={{repository,ref:branch,token:githubToken}} configure={()=>setSettings(true)}/></Suspense>:view==='topics'?<TopicsPanel entries={runs.filter(r=>r.kind==='topic')} open={(id,key)=>{setRun(id);setView('inbox');if(key)setSelected(key);}}/>:<>
+      {view==='manage'?<Suspense fallback={<p>正在加载研究管理…</p>}><ManagementPanel key={`${repository}:${branch}`} config={{repository,ref:branch,token:githubToken}} configure={()=>setSettings(true)}/></Suspense>:view==='topics'?<TopicsPanel entries={runs.filter(r=>r.kind==='topic')} open={(id,key)=>{setRun(id);setView('inbox');if(key)setSelected(key);}}/>:<>
       <div className="toolbar"><label className="search"><span>⌕</span><input aria-label="搜索论文" placeholder="搜索标题、摘要或研究方向…" value={query} onChange={e=>setQuery(e.target.value)}/><kbd>/</kbd></label><select aria-label="推荐日期" disabled={view==='starred'||view==='archive'} value={view==='starred'||view==='archive'?'all':run} onChange={e=>setRun(e.target.value)}><option value="all">全部日期</option>{runs.map(r=><option key={r.run_id} value={r.run_id}>{r.title||r.run_id} · {r.count} 篇</option>)}</select><button className="quiet" disabled={busy||!batchTargets.length} onClick={()=>setArchiveConfirm(true)}>批量归档</button></div>
       <div className={'reading-layout'+(detail?' detail-open':'')}><section className="paper-list" aria-label="论文列表"><div className="list-caption"><span>{visible.length} 篇论文</span><span>按匹配得分排序</span></div>
         {loading?<div className="empty">正在读取论文…</div>:!visible.length?<div className="empty"><span className="empty-icon">▤</span><h2>{papers.length?'这里暂时没有论文':'尚无推荐数据'}</h2><p>{papers.length?'试试其他日期或筛选条件。':'运行每日流水线后，论文会出现在这里。'}</p></div>:visible.map(p=>{const s=states[p.paper_key]||emptyState(p.paper_key);return <article key={p.paper_key} data-paper-key={p.paper_key} className={'paper-card'+(current?.paper_key===p.paper_key?' selected':'')}>

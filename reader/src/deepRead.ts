@@ -1,5 +1,5 @@
 export interface GitHubConfig { repository: string; ref: string; token: string }
-export interface DeepTask { requestId: string; paperId: string; status: 'queued'|'running'|'succeeded'|'failed'; runId?: number; url?: string; error?: string }
+export interface DeepTask { requestId: string; repository: string; ref: string; paperId: string; status: 'queued'|'running'|'succeeded'|'failed'; runId?: number; url?: string; error?: string }
 function endpoint(config: GitHubConfig) {
   if(!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(config.repository)) throw new Error('请输入 owner/repository 格式的仓库名');
   if(!config.token || !config.ref.trim()) throw new Error('请填写 GitHub Token 和运行分支');
@@ -14,9 +14,10 @@ export async function dispatchDeepRead(config:GitHubConfig,paperId:string):Promi
   if(!/^(?:\d{4}\.\d{4,5}|[A-Za-z.-]+\/\d{7})v[1-9]\d*$/.test(paperId))throw new Error('精读需要明确 arXiv 版本；不会自动替换为最新版本');
   const requestId=crypto.randomUUID();
   const data=await request(config,'/actions/workflows/deep-read.yml/dispatches',{ref:config.ref,inputs:{arxiv_id:paperId,request_id:requestId}});
-  return {requestId,paperId,status:'queued',...(data?.workflow_run_id?{runId:data.workflow_run_id,url:data.html_url}:{})};
+  return {requestId,repository:config.repository,ref:config.ref,paperId,status:'queued',...(data?.workflow_run_id?{runId:data.workflow_run_id,url:data.html_url}:{})};
 }
 export async function pollDeepRead(config:GitHubConfig,task:DeepTask):Promise<DeepTask>{
+  config={...config,repository:task.repository,ref:task.ref};
   let run;
   if(task.runId)run=await request(config,`/actions/runs/${task.runId}`);
   else {

@@ -9,7 +9,8 @@ test('dispatch exact version then correlate 204 response by request id',async()=
   const task=await dispatchDeepRead(config,'1706.03762v7');
   assert.equal(body.inputs.arxiv_id,'1706.03762v7');assert.equal(body.inputs.request_id,task.requestId);
   globalThis.fetch=async()=>Response.json({workflow_runs:[{id:9,display_title:'Other request',status:'completed',conclusion:'success'},{id:10,display_title:`Deep read ${task.requestId} · 1706.03762v7`,status:'in_progress',html_url:'https://github.com/owner/repo/actions/runs/10'}]});
-  const running=await pollDeepRead(config,task);assert.equal(running.runId,10);assert.equal(running.status,'running');
+  const fetchRun=globalThis.fetch;globalThis.fetch=async(url,options)=>{assert.ok(String(url).startsWith('https://api.github.com/repos/owner/repo/'));assert.ok(String(url).includes('branch=dev'));return fetchRun(url,options);};
+  const running=await pollDeepRead({...config,repository:'other/repo',ref:'main'},task);assert.equal(running.runId,10);assert.equal(running.status,'running');
   globalThis.fetch=async()=>Response.json({id:10,status:'completed',conclusion:'failure',html_url:running.url});
   assert.equal((await pollDeepRead(config,running)).status,'failed');
  }finally{globalThis.fetch=original;}
