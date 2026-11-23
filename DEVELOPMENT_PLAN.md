@@ -147,3 +147,11 @@
 本轮验证：36项 Python 测试与2项子测试、13项新前端测试、全部现有 JS 测试通过。原生管理浏览器测试使用 mock GitHub，覆盖读取、编辑、SHA 保存、确认后派发与移动端模式卡片。生产构建通过；发布脚本测试确认不会修改 Pages 设置，拒绝非默认分支并保留源码及旧入口。
 
 仍未证明：真实 Supabase OAuth/跨设备、真实强模型精读工作流、私有 Obsidian 仓库同步、实际 Pages 发布/通知。后续继续功能与安全审计、真实 CI 验证；不将 mock 或本地构建标记为线上完成。
+
+### 真实 CI 验证
+
+代码已提交并推送 dev：81fc3ad；首次 CI 在执行前发现 job 级 env 不能引用 runner.temp，已由 135053c 修复为步骤内设置输出目录。
+
+GitHub Actions 运行 https://github.com/MuX2001/daily-paper-reader/actions/runs/45236775434 对应 135053c0574857e63a2b7ab940a630951919e180，build 成功，Python 3.11 依赖安装、Node 24 npm ci、前后端测试、构建及 reader-site artifact 上传全部通过。构建产物约48 MB，包含旧阅读资料。此证据仅证明干净 CI 构建通过，不等于生产 Pages 已部署。
+
+Supabase 扩展已找到但尚未安装/连接；需要连接用户项目后才能做真实 Auth/RLS 联调。当前本地 PostgreSQL 验证仍不能替代此项。main 未合并，生产 Pages 配置未改变，未执行付费精读或发送通知。
