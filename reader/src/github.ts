@@ -18,11 +18,21 @@ export async function loadConfig(config:GitHubConfig):Promise<ConfigSnapshot>{
  return {document,sha:file.sha,profiles:raw.subscriptions?.intent_profiles||[],raw};
 }
 export function validateProfiles(profiles:Profile[]){
+ if(!Array.isArray(profiles))throw new Error('研究方向必须是数组');
  const tags=new Set();
  for(const p of profiles){
-  if(!p.tag?.trim()||tags.has(p.tag))throw new Error('研究方向 tag 必须非空且唯一');tags.add(p.tag);
+  if(!p||typeof p!=='object'||typeof p.tag!=='string'||!p.tag.trim()||p.tag!==p.tag.trim()||tags.has(p.tag))throw new Error('研究方向 tag 必须非空、无首尾空白且唯一');tags.add(p.tag);
+  if(p.description!==undefined&&typeof p.description!=='string')throw new Error('方向说明必须是文本');
+  if(p.enabled!==undefined&&typeof p.enabled!=='boolean')throw new Error('enabled 必须是布尔值');
+  if(p.paper_sources!==undefined&&(!Array.isArray(p.paper_sources)||p.paper_sources.some(s=>typeof s!=='string'||!s.trim())))throw new Error('论文来源必须为非空字符串数组');
   if(p.keywords!==undefined&&!Array.isArray(p.keywords))throw new Error('keywords 必须是数组');
   if(p.intent_queries!==undefined&&!Array.isArray(p.intent_queries))throw new Error('intent_queries 必须是数组');
+  for(const kind of ['keywords','intent_queries'] as const)for(const item of p[kind]||[]){
+   const keys=kind==='keywords'?['keyword','text','expr']:['query','text','keyword','expr'];
+   const value=typeof item==='string'?item:item&&typeof item==='object'?keys.map(k=>(item as Record<string,unknown>)[k]).find(v=>v):null;
+   if(typeof value!=='string'||!value.trim())throw new Error(kind==='keywords'?'英文关键词不能为空':'独立语义查询不能为空');
+   if(item&&typeof item==='object'&&'query' in item&&typeof item.query!=='string')throw new Error('语义改写必须是文本');
+  }
  }
  return profiles;
 }
