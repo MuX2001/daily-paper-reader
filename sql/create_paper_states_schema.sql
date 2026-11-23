@@ -15,6 +15,8 @@ create table if not exists public.paper_states (
 alter table public.paper_states add column if not exists legacy_status text
     check (legacy_status in ('read','good','blue','orange','bad'));
 alter table public.paper_states add column if not exists legacy_imported_at timestamptz;
+alter table public.paper_states add column if not exists note_text text not null default ''
+    check (length(note_text) <= 50000);
 alter table public.paper_states enable row level security;
 revoke all on public.paper_states from anon;
 grant select, insert, update, delete on public.paper_states to authenticated;

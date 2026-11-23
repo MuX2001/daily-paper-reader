@@ -197,3 +197,9 @@ Supabase 扩展已找到但尚未安装/连接；需要连接用户项目后才�
 Markdown 下载与 Obsidian URI 共用完整待读卡片：YAML 作者/来源/确切版本/公布日期精度、原文与 PDF 分离字段、可用代码链接、速览、原摘要与 BibTeX。显式标记 triage，避免被误认为全文精读。URI 按编码后长度保守限制，过长下载全文卡片；不带 overwrite/append，避免覆盖或重复追加已有用户笔记。文件名转义 Windows 不允许字符并保留身份差异。
 
 20项前端测试、生产构建通过；静态站点浏览器实际下载 Markdown 与 BibTeX，检查作者、原文链接与待读声明。URI 编码及长中文内容回退有单元测试；未启动本地 Obsidian，不能将协议构造验证当成笔记实际落库。协议对照官方说明：https://help.obsidian.md/Extending+Obsidian/Obsidian+URI 。
+
+### 个人笔记上云与冲突保护
+
+paper_states 新增 note_text（默认空串、最多50000字符），复用 owner RLS 与 revision 乐观并发；已有部署需重新应用 sql/create_paper_states_schema.sql。前端个人笔记保存、草稿按账户/论文隔离并跨切篇保留、离页未保存提示、云端冲突对照与明确替换选择已接入。保存完成时保留保存期间继续输入的内容。访客可以写草稿，登录前按钮先下载备份；不承诺 OAuth 页面跳转保留内存草稿。Markdown 和 Obsidian 导出包含当前草稿，反馈管道仍只读取 feedback 字段，不发送私人笔记给推荐模型。
+
+本地 PostgreSQL17 实际执行更新后 schema 与 RLS 验证：匿名/跨用户读写拒绝、笔记旧 revision 不覆盖、收藏状态独立、50000长度上限。20项前端测试与生产构建通过；静态产物浏览器用 mock Supabase 验证切篇草稿、revision保存、其他设备编辑冲突、保留草稿下载与主动采用云端内容。真实 Supabase schema 尚未部署，实际多端同步仍待联调。
