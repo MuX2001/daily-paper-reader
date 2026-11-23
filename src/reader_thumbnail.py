@@ -6,6 +6,7 @@ import io
 import json
 from pathlib import Path
 import re
+import time
 from urllib.parse import urljoin
 
 from reader_fulltext import download, validate_id
@@ -62,21 +63,44 @@ def preview(paper_id, output, downloader=download):
     return {'kind':'first_page','evidence':'Official PDF page 1 (not Figure 1)','source_url':pdf_url,'figure_fallback_reason':'; '.join(errors)}
 
 
-def enrich_previews(feed_path, output_dir):
+def enrich_previews(feed_path, output_dir, *, retry_failed=False, now=None, extractor=preview):
     feed_path=Path(feed_path);data=json.loads(feed_path.read_text());output_dir=Path(output_dir)
+    timestamp=time.time() if now is None else now
     for paper in data['papers']:
         if paper.get('source')!='arxiv':continue
         paper_id=paper['original_id'];key=hashlib.sha256(paper_id.encode()).hexdigest()[:24]
         image=output_dir/(key+'.webp');meta=output_dir/(key+'.json')
+        cached={}
+        if meta.exists():
+            try:
+                cached=json.loads(meta.read_text())
+                if not isinstance(cached,dict) or cached.get('paper_id')!=paper_id:cached={}
+            except (ValueError,OSError):pass
+        retry_at=cached.get('retry_after')
+        if (not retry_failed and cached.get('status')=='failed'
+            and isinstance(retry_at,(int,float)) and timestamp<retry_at<=timestamp+21600):
+            paper['thumbnail']=None;paper['thumbnail_error']=cached.get('error','Preview unavailable')
+            paper['thumbnail_retry_after']=retry_at
+            atomic_json(feed_path,data)
+            continue
         try:
-            if meta.exists() and image.exists():result=json.loads(meta.read_text())
+            reusable=False
+            if cached.get('status')=='succeeded' and image.exists():
+                reusable=(cached.get('image_sha256')==hashlib.sha256(image.read_bytes()).hexdigest()
+                          and cached.get('kind') in ('figure1','first_page'))
+            if reusable:result=cached
             else:
-                result=preview(paper_id,image)
-                atomic_json(meta,result)
-            paper['thumbnail']={**result,'url':f'./docs/data/previews/{key}.webp'}
-            paper.pop('thumbnail_error',None)
+                result=extractor(paper_id,image)
+                checkpoint={**result,'paper_id':paper_id,'status':'succeeded',
+                            'image_sha256':hashlib.sha256(image.read_bytes()).hexdigest()}
+                atomic_json(meta,checkpoint)
+            paper['thumbnail']={k:result[k] for k in ('kind','evidence','source_url','figure_fallback_reason') if k in result}
+            paper['thumbnail']['url']=f'./docs/data/previews/{key}.webp'
+            paper.pop('thumbnail_error',None);paper.pop('thumbnail_retry_after',None)
         except Exception as exc:
-            paper['thumbnail']=None;paper['thumbnail_error']=str(exc)
+            error=str(exc);retry_at=timestamp+21600
+            atomic_json(meta,{'paper_id':paper_id,'status':'failed','error':error,'retry_after':retry_at})
+            paper['thumbnail']=None;paper['thumbnail_error']=error;paper['thumbnail_retry_after']=retry_at
         atomic_json(feed_path,data)
     return data
 
@@ -84,4 +108,5 @@ def enrich_previews(feed_path, output_dir):
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--feed',required=True);parser.add_argument('--output-dir',required=True)
-    args=parser.parse_args();enrich_previews(args.feed,args.output_dir)
+    parser.add_argument('--retry-failed',action='store_true',help='Retry failed previews before their six-hour cooldown expires')
+    args=parser.parse_args();enrich_previews(args.feed,args.output_dir,retry_failed=args.retry_failed)
