@@ -32,3 +32,35 @@ class ReaderCatalogTests(unittest.TestCase):
             topic=json.loads((root/'output/topics'/f'{run}.json').read_text())
             self.assertEqual(topic['papers'][0]['paper_key'],'arxiv:1234.56789v2')
             self.assertIsNone(topic['topic']['guide'])
+
+    def test_published_history_recovers_missing_feed_without_recommendation_cache(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);path=root/'docs/20261124';path.mkdir(parents=True)
+            route='20261124/paper-v2'
+            (path/'_daily_state.json').write_text(json.dumps({'papers':[{'paper_id':'1234.56789v2','route':route,'title':'Original','score':8,'tags':[{'kind':'query','label':'robot'}]}]}))
+            (path/'papers.meta.json').write_text(json.dumps({'papers':[{'paper_id':route,'source':'arxiv','title_en':'Original','abstract_en':'Published abstract','date':'2026-11-20','pdf':'https://arxiv.org/pdf/1234.56789v2','tldr':'Existing overview'}]}))
+            destination=root/'output'
+            build_catalog(root,destination)
+            feed=json.loads((destination/'daily/20261124.json').read_text())
+            self.assertEqual(feed['papers'][0]['paper_key'],'arxiv:1234.56789v2')
+            self.assertEqual(feed['papers'][0]['abstract'],'Published abstract')
+            self.assertEqual(feed['papers'][0]['tags'],['query:robot'])
+            self.assertEqual(feed['papers'][0]['legacy_routes'],[route])
+            build_catalog(root,destination)
+            self.assertEqual(len(json.loads((destination/'daily/20261124.json').read_text())['papers']),1)
+
+    def test_source_namespaces_prevent_wrong_fulltext_and_topics_reuse_exact_version(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);path=root/'docs/20261124';path.mkdir(parents=True)
+            route='20261124/paper';pid='1234.56789v2'
+            (path/'_daily_state.json').write_text(json.dumps({'papers':[{'paper_id':pid,'route':route}]}))
+            (path/'papers.meta.json').write_text(json.dumps({'papers':[{'paper_id':route,'source':'arxiv'}]}))
+            (path/'paper.txt').write_text('Full paper body. '*400+'References')
+            dest=root/'output';(dest/'daily').mkdir(parents=True)
+            (dest/'daily/20261124.json').write_text(json.dumps({'schema_version':1,'run_id':'20261124','papers':[{'source':'icml','original_id':pid}]}))
+            run='20261124-abcdef012345';topic=root/'docs/starter-pack'/run;topic.mkdir(parents=True)
+            (topic/'task-state.json').write_text(json.dumps({'selection':{'selection_complete':True,'papers':[{'id':pid,'source':'arxiv','title':'Exact','score':8}]}}))
+            build_catalog(root,dest)
+            self.assertNotIn('fulltext_path',json.loads((dest/'daily/20261124.json').read_text())['papers'][0])
+            result=json.loads((dest/'topics'/f'{run}.json').read_text())['papers'][0]
+            self.assertEqual(result['fulltext_path'],'./docs/'+route+'.txt')
