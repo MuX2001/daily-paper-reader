@@ -179,3 +179,9 @@ Supabase 扩展已找到但尚未安装/连接；需要连接用户项目后才�
 新增 reader_conferences 离线投影：从已发布 conference Markdown 读取明确 ID/来源，旧页可由明确标注的 OpenReview forum 链接恢复 ID；不从截断文件名猜身份。新生成会议页保存 original_id、original_url、authors_list，旧页不改写。缺少身份的旧页留在归档，catalog 列出未解析 route，前端显示数量。会议 feed 纳入目录、全库收藏/归档和日期选择器；无日报只有会议数据也能初始化。日期只保留正式公布字段与其精度。此步骤不重新抓取、评分或调用模型。
 
 17项 Python、15项前端测试及生产构建通过；浏览器使用明确会议 fixture 验证静态产物中的会议单独加载、年精度引用、未解析提示及仅 arXiv 支持精读的限制。当前仓库没有真实会议页面，不能把 fixture 验证称为真实历史数据迁移验收。新增后端测试已加入 reader-check CI。
+
+### 云端账户请求隔离
+
+分页状态读取固定启动时客户端；项目切换后不发下一页。批量归档逐项检查启动时账户/项目，切换后停止未启动写入，已在途的原账户写入可能完成但不更新新账户视图。旧认证初始化不得覆盖后到的认证事件；刷新响应使用请求序号，写入前后淘汰过时读结果。切换连接清空旧会话与可见状态，迁移预览按账户重建，批量迁移遇到项目变化停止后续批次。
+
+18项前端测试通过，含真实 Supabase SDK 配合 mock transport 的500条分页切换测试、延迟批量写入切换测试和中途版本冲突测试；TypeScript、生产构建及静态服务基础浏览器回归通过。未连接真实 Supabase，仍不代替实际 OAuth/多设备验收。实现对照 https://supabase.com/docs/reference/javascript/auth-onauthstatechange 与当前 changelog；未变更 RLS 或服务端权限。

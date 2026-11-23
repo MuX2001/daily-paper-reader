@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { mergeLibrary, type Catalog, type Feed, type PaperState, type StatePatch } from './domain';
+import { mergeLibrary, type Catalog, type Feed, type PaperState, type StatePatch } from './domain.ts';
 export async function readJSON<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, {signal});
   if (!response.ok) throw new Error(`读取数据失败 (${response.status})`);
@@ -29,10 +29,12 @@ export function configureCloud(url: string, key: string) {
   client = createClient(url, key);
 }
 export async function loadStates(userId: string) {
-  if (!client) throw new Error('尚未配置云端状态');
+  const capturedClient=client;
+  if (!capturedClient) throw new Error('尚未配置云端状态');
   const states: Record<string, PaperState> = {};
   for (let offset = 0; ; offset += 500) {
-    const {data,error} = await client.from('paper_states').select('*').eq('user_id',userId).order('paper_key').range(offset,offset+499);
+    if(client!==capturedClient)throw new Error('云端配置已变更，请重新读取状态');
+    const {data,error} = await capturedClient.from('paper_states').select('*').eq('user_id',userId).order('paper_key').range(offset,offset+499);
     if(error) throw error;
     for(const row of data) states[row.paper_key] = row;
     if(data.length < 500) break;
