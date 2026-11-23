@@ -305,3 +305,9 @@ paper_states 新增 note_text（默认空串、最多50000字符），复用 own
 同一提交a75e954的轻量完整回归运行45246489835已全部success（包含真实cloud embedding/reranker smoke）；新版前端运行45246489388已通过Python/JS/构建，核对时仍在安装浏览器，未将其报告为全部成功。修复后的远端状态需以新提交对应运行另行核验。
 
 规则来源：https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#context-availability
+
+### 历史云端备份文件迁移
+
+核对旧 app/read-state-sync.js 确认其表为 user_read_state，字段为 github_username/paper_id/status；旧云端记录不必存在当前浏览器localStorage。新设置入口支持选择最多5MB的JSON文件：既可读取原始ID→状态备份，也可读取旧云表导出的数组。数组必须明确选择用户名，不自动跨用户合并；相同ID的不同状态作为冲突跳过，不根据顺序覆盖。导入继续复用精确版本映射和云端ignoreDuplicates保护，不删除旧库，不自动访问旧匿名表。原始文件备份可下载，已读时间仍明确采用迁移时间。
+
+26项前端测试、生产构建及10组生产子路径浏览器场景通过。新增单元测试覆盖用户名隔离/冲突顺序不变/非法行/特殊对象键；浏览器实际上传备份，检查选人前禁用预览、切换用户清除旧计划、访客禁止写入、本地对象备份和390px布局。未访问用户真实历史云库或导入真实个人数据。使用指南已更新迁移步骤。
