@@ -8,6 +8,7 @@ import {spawn} from 'node:child_process';
 const root=resolve(process.env.DPR_WEB_OUTPUT_DIR||resolve(homedir(),'workspace/runs/daily-paper-reader/web-build'));
 await stat(resolve(root,'index.html'));
 const prefix='/reader-preview/';
+const browserOutput=process.env.DPR_TEST_OUTPUT||resolve(root,'..','reader-browser-results');
 const papers=[1,2].map(n=>({paper_key:`arxiv:1706.03762v${n}`,original_id:`1706.03762v${n}`,canonical_id:'arxiv:1706.03762',version:n,source:'arxiv',title:`Browser fixture paper ${n}`,title_zh:null,authors:['Test Author'],published:'2017-06-12',abstract:'Synthetic browser fixture abstract.',url:`https://arxiv.org/abs/1706.03762v${n}`,pdf_url:`https://arxiv.org/pdf/1706.03762v${n}`,score:9-n,reason:'Fixture only',tldr:'Fixture only',tags:['test'],breakdown:{problem:null,method:null,results:null},thumbnail:null,code_url:null,content_status:'incomplete',fulltext_path:`./docs/20261124/fixture-${n}.txt`}));
 const catalog={schema_version:1,runs:[{run_id:'20261124',path:'daily/20261124.json',count:papers.length}]};
 const fixtures=new Map([
@@ -29,10 +30,10 @@ const server=createServer(async(req,res)=>{
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const address=server.address();
 try{
- for(const suite of ['conferences','notes','management','topics','chat','deep','citation','feedback']){
+ for(const suite of ['conferences','notes','management','topics','chat','deep','citation','feedback','thumbnails']){
   console.log(`Browser suite: ${suite} (production bundle, subpath, synthetic data)`);
   await new Promise((resolve,reject)=>{
-   const child=spawn(process.execPath,[`reader/tests/browser-${suite}.mjs`],{stdio:'inherit',env:{...process.env,DPR_TEST_URL:`http://127.0.0.1:${address.port}${prefix}`}});
+   const child=spawn(process.execPath,[`reader/tests/browser-${suite}.mjs`],{stdio:'inherit',env:{...process.env,DPR_TEST_URL:`http://127.0.0.1:${address.port}${prefix}`,DPR_TEST_OUTPUT:browserOutput}});
    const timer=setTimeout(()=>child.kill('SIGTERM'),90000);
    child.once('error',error=>{clearTimeout(timer);reject(error);});
    child.once('exit',(code,signal)=>{clearTimeout(timer);code===0?resolve():reject(new Error(`${suite} failed: ${signal||code}`));});

@@ -6,7 +6,7 @@ export interface Paper {
   title: string; title_zh: string | null; abstract: string | null; authors: string[]; published: string | null;
   url: string | null; pdf_url: string | null; score: number | null; reason: string | null; tldr: string | null;
   tags: string[]; breakdown: {problem: string | null; method: string | null; results: string | null};
-  thumbnail: {url: string; kind: string} | null; code_url: string | null; content_status: string;
+  thumbnail: {url: string; kind: string; evidence?:string} | null; code_url: string | null; content_status: string;
 }
 export interface PaperState { note_text?: string; legacy_status?: string; legacy_imported_at?: string; paper_key: string; starred: boolean; read_at: string | null; dismissed_at: string | null; feedback: number; revision: number }
 export type StatePatch = Partial<Pick<PaperState, 'starred' | 'read_at' | 'dismissed_at' | 'feedback' | 'note_text'>>;

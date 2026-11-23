@@ -245,3 +245,9 @@ paper_states 新增 note_text（默认空串、最多50000字符），复用 own
 全文缓存增加 validation_version=2：损坏JSON、无效正文、错误hash、不同版本source_url及旧校验缓存均重新获取，不把坏检查点当永久失败。HTML检查论文级citation/canonical元数据中的明确版本，PDF检查第一页arXiv版本水印，明确不匹配时拒绝；没有声明时继续依赖官方指定版本URL及禁止跳转规则，不猜版本。PyMuPDF坏文档错误归一化成可报告的来源失败，全部来源失败不写完成检查点。
 
 10项全文/精读/缩略图相关测试通过，含公式alttext保留、版本冲突、损坏缓存恢复/复用及失败无检查点。实际从官方arXiv获取1706.03762v7 HTML成功，提取39638字符并通过新版验证，产物仅在workspace/runs；没有调用付费模型。新版全文测试已纳入CI。
+
+### 缩略图可见标注与会议日期
+
+卡片缩略图显示独立可见标签 Figure 1 / PDF 首页；未知kind只称论文配图，加载失败显示预览不可用，保留文本卡片浏览。会议卡片日期复用publication_date精度规则，不再直接展示可能是投稿时间的published。新增浏览器验证实际图片naturalWidth、失败回退、两类标签可见、年份精度与手机无横向溢出；已查看移动端截图，图片为明确测试fixture，不作为真实Figure1数据证据。
+
+生产构建及9组子路径浏览器测试通过。CI新增reader-browser-screenshots产物（7天）；截图写runner.temp外部输出目录，不混入部署站点。开发时发现测试编排器输出路径计算被Promise resolve同名变量遮蔽，已移到回调外计算并完整重跑九组通过。
