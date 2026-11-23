@@ -81,3 +81,22 @@ npm run dev
 | Pages 发布 | 构建、子路径验证、发布条件测试 | 默认分支生产切换与线上提交核验 |
 
 这些未验证项不能由单元测试替代。此指南不包含任何真实密钥，也不表示上述外部账户已经配置完成。
+
+## 离线检查反馈效果
+
+`src/reader_feedback_eval.py` 只比较已保存的排序，不调用模型。把输入和报告放在自己的运行目录，不提交个人候选和标注。需要三个JSON文件：
+
+- `snapshot.json`：`candidates` 为固定候选数组，每项保留精确 `paper_key`、实际标题/摘要和 `tags`；`label_source` 必须为 `human`；`labels` 是人工标注的 `{paper_key: 1或0}`（1相关、0不相关）；`feedback_context_ids` 列出评分提示中使用的反馈示例ID。评估标签与这些示例不得重叠，未标注论文不填labels。
+- `baseline.json`：`candidate_sha256` 为下述指纹；`ranking` 按不开启反馈时的排序列出全部候选ID，每个恰好一次。
+- `feedback.json`：同一指纹，`ranking` 为开启反馈后的全部候选排序。不要重新召回导致候选变化。两个文件可各自附加 `usage: {tokens, cost, currency}`；未知字段省略，不能用0冒充未知。
+
+```bash
+python src/reader_feedback_eval.py --snapshot /path/to/run/snapshot.json --fingerprint
+python src/reader_feedback_eval.py \
+  --snapshot /path/to/run/snapshot.json \
+  --baseline /path/to/run/baseline.json \
+  --feedback /path/to/run/feedback.json \
+  --top-k 20 --output /path/to/run/comparison.json
+```
+
+报告给出标注覆盖率、Top K中已标注正/负例数量、遗漏的已标注正例、新增/丢失的正例ID、标签覆盖和用量差异。仅在币种相同时比较金额；未知费用保持null。候选对象内容变化会改变指纹。标签数只表示标签覆盖，不等于语义多样性；少量不完整标注也不能支持统计显著性结论。工具中的human标识是输入者声明，不能替代真实人工评审。
