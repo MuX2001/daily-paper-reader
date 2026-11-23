@@ -4,6 +4,7 @@ import type { Session } from '@supabase/supabase-js';
 import { catalog, feed, library, configureCloud, getClient, loadStates, saveState } from './api';
 import { editableTarget, emptyState, filterPapers, safeURL, thumbnailURL, type Catalog, type Paper, type PaperState, type StatePatch, type View } from './domain';
 import './style.css';
+import {FeedbackForm} from './FeedbackForm';
 import {NoteEditor,type NoteDraft} from './NoteEditor';
 import {noteMarkdown,noteFilename,obsidianURI} from './notes';
 import {scopedBatch} from './scopedBatch';
@@ -21,6 +22,7 @@ function App() {
   const [papers,setPapers] = useState<Paper[]>([]), [storedStates,setStates] = useState<Record<string,PaperState>>({});
   const [view,setView] = useState<View>('inbox'), [query,setQuery] = useState(''), [selected,setSelected] = useState('');
   const [loading,setLoading] = useState(true), [error,setError] = useState(''), [notice,setNotice] = useState('');
+  const [feedbackOpen,setFeedbackOpen]=useState(false);
   const [settings,setSettings] = useState(false), [help,setHelp] = useState(false), [detail,setDetail] = useState(false);
   const [url,setUrl] = useState(localStorage.getItem('dpr.cloud.url') || ''), [key,setKey] = useState(localStorage.getItem('dpr.cloud.key') || '');
   const [session,setSession] = useState<Session|null>(null), [cloudEpoch,setCloudEpoch] = useState(0), [busy,setBusy] = useState(false);
@@ -106,7 +108,7 @@ function App() {
   const download = (p:Paper)=>{const blob=new Blob([noteMarkdown(p,personalNote(p))],{type:'text/markdown;charset=utf-8'});const href=URL.createObjectURL(blob);const a=document.createElement('a');a.href=href;a.download=noteFilename(p)+'.md';a.click();setTimeout(()=>URL.revokeObjectURL(href),1000);};
   useEffect(()=>{
     const handler=(e:KeyboardEvent)=>{
-      if(e.isComposing||e.ctrlKey||e.metaKey||e.altKey||editableTarget(e.target)||view==='manage'||settings||help||archiveConfirm||deepConfirm)return;
+      if(e.isComposing||e.ctrlKey||e.metaKey||e.altKey||editableTarget(e.target)||view==='manage'||settings||help||feedbackOpen||archiveConfirm||deepConfirm)return;
       if(e.key==='?'){setHelp(true);return;}
       if(!current)return;
       if(['j','k','s','x','o','Escape'].includes(e.key))e.preventDefault();
@@ -119,7 +121,7 @@ function App() {
       if(e.key==='Escape')setDetail(false);
     };
     window.addEventListener('keydown',handler);return()=>window.removeEventListener('keydown',handler);
-  },[current,state,visible,change,openOriginal,settings,help,archiveConfirm,deepConfirm,githubToken,dispatching,deepTask,view]);
+  },[current,state,visible,change,openOriginal,settings,help,feedbackOpen,archiveConfirm,deepConfirm,githubToken,dispatching,deepTask,view]);
   useEffect(()=>{document.querySelector(`[data-paper-key="${CSS.escape(current?.paper_key || '')}"]`)?.scrollIntoView({block:'nearest'});},[current?.paper_key]);
   const high = papers.filter(p=>(p.score||0)>=8).length;
   const today = new Date().toLocaleDateString('sv-SE').replaceAll('-','');
@@ -160,11 +162,12 @@ function App() {
   }
   return <div className="workspace">
     <aside className="navigation"><a className="brand" href="#"><span className="brand-icon">P<span>·</span></span><span>Paper Reader<small>把注意力留给好论文</small></span></a>
+      <div className="nav-top-links"><button onClick={()=>setView('inbox')}>首页</button><a href="./legacy.html#/tutorial/README">教程</a><button onClick={()=>setFeedbackOpen(true)}>反馈</button></div>
       <div className="nav-label">工作空间</div><nav>{(Object.keys(labels) as View[]).map(v=><button key={v} className={view===v?'nav-item active':'nav-item'} onClick={()=>{setView(v);setDetail(false);}}><span className="nav-icon">{icons[v]}</span>{labels[v]}{v==='inbox'&&<span className="nav-count">{papers.filter(p=>!states[p.paper_key]?.dismissed_at).length}</span>}</button>)}</nav>
       <div className="nav-divider"/><div className="nav-label">资料与工具</div><a className="nav-item" href="./legacy.html">▧<span>历史阅读库</span></a><a className="nav-item" href="./legacy.html#/tutorial/README">◷<span>使用指南</span></a>
       <div className="nav-bottom"><div className="sync-note"><i className={session?'online':''}/>{session?'云端账户已连接':'访客浏览 · 登录后同步'}</div><button className="profile" onClick={()=>setSettings(true)}><span className="avatar">{session?'U':'G'}</span><span>{session?.user.user_metadata.user_name || '连接你的工作空间'}<small>账户与阅读偏好</small></span><span>⚙</span></button></div>
     </aside>
-    <main className="main"><header className="topbar"><span>你的研究，每天向前一点。</span><div><button className="quiet" onClick={()=>setHelp(true)}>快捷键 <kbd>?</kbd></button><button className="mobile-settings quiet" onClick={()=>setSettings(true)}>设置</button><a href="./legacy.html">旧版入口</a></div></header>
+    <main className="main"><header className="topbar"><span className="topbar-motto">你的研究，每天向前一点。</span><div className="mobile-top-links"><button onClick={()=>setView('inbox')}>首页</button><a href="./legacy.html#/tutorial/README">教程</a><button onClick={()=>setFeedbackOpen(true)}>反馈</button></div><div><button className="quiet" onClick={()=>setHelp(true)}>快捷键 <kbd>?</kbd></button><button className="mobile-settings quiet" onClick={()=>setSettings(true)}>设置</button><a href="./legacy.html">旧版入口</a></div></header>
       <section className="heading"><div><div className="eyebrow">DAILY DISCOVERY</div><h1>{labels[view]}</h1><p>{view==='inbox'?'快速扫过，留下值得深读的想法。':view==='starred'?'你的下一份阅读清单。':view==='archive'?'已处理的论文，随时可以重新找回。':view==='manage'?'管理研究方向，运行可恢复的研究任务。':'按研究方向回看已有成果。'}</p></div><div className="issue-date"><span>{run===today?'TODAY':'HISTORY'}</span><strong>{displayDate || '暂无日报'}</strong></div></section>
       <div className="summary-strip"><span><b>{papers.length}</b> 篇推荐</span><span><b>{high}</b> 篇高相关</span><span><b>{papers.filter(p=>states[p.paper_key]?.starred).length}</b> 篇待精读</span><span className="summary-end">先发现，再深入</span></div>
       {error&&<div className="banner error" role="alert">{error}<button onClick={()=>setRetry(x=>x+1)}>重试读取</button></div>}
@@ -180,6 +183,7 @@ function App() {
       </div></>}
       <footer className="workspace-footer"><span>DAILY PAPER READER</span><span><kbd>j</kbd><kbd>k</kbd> 切换 <kbd>s</kbd> 收藏 <kbd>x</kbd> 归档</span></footer>
     </main>
+    {feedbackOpen&&<Modal title="项目反馈" close={()=>setFeedbackOpen(false)}><FeedbackForm/></Modal>}
     {settings&&<Modal title="连接你的工作空间" close={()=>setSettings(false)}><p>使用 Supabase 账户保存阅读状态；公开浏览无需登录。</p>{error&&<p role="alert" className="banner error">{error}</p>}{notice&&<p role="status">{notice}</p>}<label>Supabase URL<input value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://your-project.supabase.co"/></label><label>Publishable / anon key<input value={key} onChange={e=>setKey(e.target.value)} placeholder="sb_publishable_…"/></label><button className="primary" onClick={()=>{try{configureCloud(url,key);setSession(null);setStates({});setStateScope('');refreshTicket.current++;localStorage.setItem('dpr.cloud.url',url);localStorage.setItem('dpr.cloud.key',key);setCloudEpoch(x=>x+1);setNotice('连接配置已保存');}catch(e){setError(String(e));}}}>保存连接配置</button><button onClick={async()=>{try{const c=getClient();if(!c)throw new Error('请先保存连接配置');const {error}=await c.auth.signInWithOAuth({provider:'github',options:{redirectTo:new URL('./',location.href).href}});if(error)throw error;}catch(e){setError(String(e));}}}>使用 GitHub 登录</button>{session&&<button onClick={async()=>{await getClient()?.auth.signOut();setSession(null);setStates({});}}>退出登录</button>}<hr/><MigrationPanel key={scope} runs={runs} states={states} userId={session?.user.id} refresh={refresh}/><hr/><h3>论文聊天</h3><label>模型端点<input value={chatEndpoint} onChange={e=>setChatEndpoint(e.target.value)} placeholder="https://api.example.com/v1"/></label><label>聊天模型<input value={chatModel} onChange={e=>setChatModel(e.target.value)}/></label><label>聊天 API Key（仅当前页面）<input type="password" autoComplete="off" value={chatKey} onChange={e=>setChatKey(e.target.value)}/></label><button onClick={()=>{localStorage.setItem('dpr.chat.endpoint',chatEndpoint);localStorage.setItem('dpr.chat.model',chatModel);setNotice('聊天设置已保存；API Key 仅保留在当前页面内存。');}}>保存聊天设置</button><hr/><h3>按需精读任务</h3><p className="muted">模型密钥只放在 Actions Secrets：DEEP_READ_API_KEY / MODEL / BASE_URL。Token 仅保留在当前页面内存。</p><label>GitHub 仓库<input value={repository} onChange={e=>setRepository(e.target.value)} placeholder="owner/daily-paper-reader"/></label><label>任务分支<input value={branch} onChange={e=>setBranch(e.target.value)}/></label><label>GitHub Token（Actions 读写）<input type="password" autoComplete="off" value={githubToken} onChange={e=>setGithubToken(e.target.value)}/></label><button onClick={()=>{localStorage.setItem('dpr.github.repository',repository);localStorage.setItem('dpr.github.ref',branch);setNotice('任务设置已保存；Token 在关闭页面后清除。');}}>保存任务设置</button><hr/><label>Obsidian vault 名称<input value={vault} onChange={e=>setVault(e.target.value)} placeholder="My Research"/></label><button onClick={()=>{localStorage.setItem('dpr.obsidian.vault',vault);setNotice('Obsidian 设置已保存');setSettings(false);}}>保存阅读偏好</button><p className="muted">账户公钥和 vault 名称保存在此设备。论文状态由云端保存。</p></Modal>}
     {deepConfirm&&current&&<Modal title="生成这篇论文的深度笔记" close={()=>setDeepConfirm(false)}><p>{current.title}</p><p>指定版本：{current.original_id}。此操作会调用 Actions 中配置的强模型并产生费用；缓存命中时复用结果。全文超出预算或证据校验失败会停止，不会自动改用摘要。</p><button className="primary" disabled={dispatching} onClick={async()=>{setDispatching(true);try{const task=await dispatchDeepRead({repository,ref:branch,token:githubToken},current.original_id);setDeepTask(task);setDeepConfirm(false);setNotice('精读请求已提交。任务完成后可下载 Markdown 笔记。');}catch(e){setError(String(e));setDeepConfirm(false);}finally{setDispatching(false);}}}>确认调用强模型</button></Modal>}
     {help&&<Modal title="让阅读更顺手" close={()=>setHelp(false)}><dl className="shortcuts">{[['j / k','下一篇 / 上一篇'],['s','收藏或取消收藏'],['x','归档或恢复'],['o','打开原文'],['d','按需精读'],['?','查看快捷键']].map(([k,v])=><div key={k}><dt><kbd>{k}</kbd></dt><dd>{v}</dd></div>)}</dl><p>输入文字时不会触发快捷键。</p></Modal>}
@@ -189,7 +193,7 @@ function App() {
 function Modal({title,close,children}:{title:string;close:()=>void;children:React.ReactNode}){
   const ref=useRef<HTMLDialogElement>(null);
   useEffect(()=>{ref.current?.showModal();return()=>ref.current?.close();},[]);
-  return <dialog ref={ref} className="modal" onCancel={close}><div className="modal-heading"><h2>{title}</h2><button onClick={close} aria-label="关闭对话框">×</button></div>{children}</dialog>;
+  return <dialog ref={ref} className="modal" onCancel={close} onClick={event=>{if(event.target!==ref.current)return;const r=ref.current.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)close();}}><div className="modal-heading"><h2>{title}</h2><button onClick={close} aria-label="关闭对话框">×</button></div>{children}</dialog>;
 }
 
 if (location.hash.startsWith('#/')) {
