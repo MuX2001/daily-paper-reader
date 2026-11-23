@@ -16,7 +16,7 @@
 
 - Python 产生不可变论文事实和分诊结果；浏览器消费版本化 JSON。
 - Supabase 保存用户状态、反馈、精读请求。Actions 不覆盖用户状态。
-- 新前端采用 React + TypeScript + Vite，部署 reader/ 子路径；初期使用普通 CSS，待设计稳定再决定是否引入 Tailwind。hash 路由兼容 Pages 和 fork 子路径。
+- 新前端采用 React + TypeScript + Vite，已按用户后续授权替换根入口；使用普通 CSS。GitHub Pages 仓库子路径通过生产构建浏览器测试验证，旧 hash 阅读链接转入 legacy.html。
 - 作者代码放 src/、app/ 或后续 reader/；数据输出放站点 docs/data/（运行态），实验放 workspace/runs，缓存放 workspace/.cache。不提交个性化运行产物上游。
 - schema_version=1，run_id 使用既有日期/区间 token；papers 为标准记录列表。区间不能伪装成单日。
 - paper_key = source + ':' + 原始带版本 ID；canonical_id 单独记录作品身份。未提供版本则 version=null，不猜 v1。会议保留 source/year/original_id，不能把 arXiv 日期当会议公布日。
@@ -76,7 +76,7 @@
 - 反馈限定用户、专题、最近时间窗；负反馈不等同永久主题黑名单。先作为有上限的 few-shot/context，记录影响，提供关闭开关。
 - 离线对照：固定候选集，比较收藏命中、误杀、多样性和费用；不把模型自评分当金标准。
 - 通知通过可选 adapter（先选一个渠道），secret 留 CI。按 run_id 去重，发布成功后发数量和真实链接；通知失败不回滚产物。不配置默认不发。
-- 新站实际稳定一周，确认订阅编辑/会议/专题/全文问答/Zotero/反馈/移动端/历史状态替代齐全，才删除 Docsify 加载链。观察窗口不能用测试代替。
+- 用户后续明确取消一周观察等待，直接重构 dev 前端；新根入口已不加载 Docsify。旧归档仍保留独立 Docsify 壳，生产切换与真实云端联调须单独验收。
 - 旧链接和 docs 文件长期保留；/legacy/ 如需入口仅作兼容壳，不移动原文件。回退以部署切回旧入口实现，数据库新增表保留。
 
 ## 待配置项与执行记录
@@ -88,7 +88,7 @@
 - [ ] 阶段 1 分诊/图像/Auth/RLS/迁移。
 - [ ] 阶段 2 SPA 与浏览器验收。
 - [ ] 阶段 3 精读/Obsidian 真实联调。
-- [ ] 阶段 4 反馈/通知及一周观察后退役。
+- [ ] 阶段 4 反馈/通知与生产切换验收（用户已取消观察等待）。
 
 参考：Supabase RLS https://supabase.com/docs/guides/database/postgres/row-level-security ；变更日志 https://supabase.com/changelog.md ；Obsidian URI https://help.obsidian.md/Extending+Obsidian/Obsidian+URI 。
 
@@ -211,3 +211,9 @@ paper_states 新增 note_text（默认空串、最多50000字符），复用 own
 本地七组全部通过，验证模块资源、数据路径和懒加载在 Pages 子路径下可用。reader-check 新增 Chromium 安装与此浏览器验收步骤；这轮云端运行结果需在推送后单独核对。
 
 真实 CI 45240502125 中前后端测试/构建通过，但 ubuntu-latest 已迁移26.04，Playwright1.57拒绝安装浏览器。reader-check 已固定 ubuntu-24.04，与当前锁定浏览器版本支持矩阵一致；保留全部浏览器验收，不跳过失败步骤。
+
+### 批量归档撤销与 CI 后续
+
+新增当前页面内撤销最近一批归档；逐项使用归档后 revision，后续改动产生冲突时停止，避免覆盖新笔记/状态。已成功恢复项从撤销列表移除，账户或项目切换后不可操作旧批次；刷新页面后仍可在已归档逐篇恢复。浏览器模拟验证收藏不归档、撤销恢复、私人笔记保留及后续变更拒绝覆盖。
+
+真实运行45240684601已通过Ubuntu24.04浏览器安装，会议/笔记场景通过；管理场景因断言早于React effect更新而失败。现改为等待确认区真实移除，仍验证旧确认不可提交，不用固定sleep。用户授权自行选择联调项目；当前无Supabase管理工具/环境服务凭据，仅有论文库公开配置，下一步采用隔离本地Supabase验证真实Auth/Data API，不能冒称托管项目已部署。

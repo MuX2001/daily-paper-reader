@@ -125,21 +125,38 @@ function App() {
   const today = new Date().toLocaleDateString('sv-SE').replaceAll('-','');
   const displayDate = view==='starred'||view==='archive'||run==='all' ? '全部日期' : run.length===8 ? `${run.slice(0,4)}.${run.slice(4,6)}.${run.slice(6,8)}` : run.replace('-',' — ');
   const batchTargets = papers.filter(p=>{const s=states[p.paper_key]||emptyState(p.paper_key);return !s.read_at&&!s.starred&&!s.dismissed_at;});
+  const [archiveUndo,setArchiveUndo]=useState<{scope:string;items:{paper_key:string;revision:number}[]}>({scope:'',items:[]});
+  const undoItems=archiveUndo.scope===scope?archiveUndo.items:[];
   async function bulkArchive(){
     if(!session){setArchiveConfirm(false);setSettings(true);return;}
     if(pending.current)return;
     const captured=activeScope.current,cloud=getClient();
     const active=()=>activeScope.current===captured&&getClient()===cloud;
     refreshTicket.current++;
+    setArchiveUndo({scope:captured,items:[]});
     setArchiveConfirm(false);setBusy(true);pending.current=true;
     let done=0;
     try {
       const result=await scopedBatch(batchTargets,active,
         p=>saveState(session.user.id,p.paper_key,states[p.paper_key]?.revision||0,{dismissed_at:new Date().toISOString()}),
-        next=>{refreshTicket.current++;setStateScope(captured);setStates(s=>({...s,[next.paper_key]:next}));done++;});
+        next=>{refreshTicket.current++;setStateScope(captured);setStates(s=>({...s,[next.paper_key]:next}));setArchiveUndo(s=>s.scope===captured?{...s,items:[...s.items,{paper_key:next.paper_key,revision:next.revision}]}:s);done++;});
       if(!result.stopped)setNotice(`已归档 ${done} 篇，可在已归档中恢复。`);
     }catch(e){if(active()){setError(`已完成 ${done} 篇，其余未变更。${String(e)}`);await refresh();}}
     finally{setBusy(false);pending.current=false;}
+  }
+  async function undoArchive(){
+    if(!session||pending.current||!undoItems.length)return;
+    const captured=activeScope.current,cloud=getClient();
+    const active=()=>activeScope.current===captured&&getClient()===cloud;
+    refreshTicket.current++;pending.current=true;setBusy(true);setError('');
+    let done=0;
+    try{
+      const result=await scopedBatch(undoItems,active,
+        item=>saveState(session.user.id,item.paper_key,item.revision,{dismissed_at:null}),
+        next=>{refreshTicket.current++;setStateScope(captured);setStates(s=>({...s,[next.paper_key]:next}));setArchiveUndo(s=>s.scope===captured?{...s,items:s.items.filter(item=>item.paper_key!==next.paper_key)}:s);done++;});
+      if(!result.stopped)setNotice(`已撤销 ${done} 篇归档。`);
+    }catch(e){if(active()){setError(`已恢复 ${done} 篇；其余可能已在归档后修改，请在已归档中检查。${String(e)}`);await refresh();}}
+    finally{pending.current=false;setBusy(false);}
   }
   return <div className="workspace">
     <aside className="navigation"><a className="brand" href="#"><span className="brand-icon">P<span>·</span></span><span>Paper Reader<small>把注意力留给好论文</small></span></a>
@@ -153,7 +170,7 @@ function App() {
       {error&&<div className="banner error" role="alert">{error}<button onClick={()=>setRetry(x=>x+1)}>重试读取</button></div>}
       {notice&&<div className="banner" role="status">{notice}<button aria-label="关闭提示" onClick={()=>setNotice('')}>×</button></div>}
       {view==='manage'?<Suspense fallback={<p>正在加载研究管理…</p>}><ManagementPanel key={`${repository}:${branch}`} config={{repository,ref:branch,token:githubToken}} configure={()=>setSettings(true)}/></Suspense>:view==='topics'?<TopicsPanel entries={runs.filter(r=>r.kind==='topic')} open={(id,key)=>{setRun(id);setView('inbox');if(key)setSelected(key);}}/>:<>
-      <div className="toolbar"><label className="search"><span>⌕</span><input aria-label="搜索论文" placeholder="搜索标题、摘要或研究方向…" value={query} onChange={e=>setQuery(e.target.value)}/><kbd>/</kbd></label><select aria-label="推荐日期" disabled={view==='starred'||view==='archive'} value={view==='starred'||view==='archive'?'all':run} onChange={e=>setRun(e.target.value)}><option value="all">全部日期</option>{runs.map(r=><option key={r.run_id} value={r.run_id}>{r.title||r.run_id} · {r.count} 篇</option>)}</select><button className="quiet" disabled={busy||!batchTargets.length} onClick={()=>setArchiveConfirm(true)}>批量归档</button></div>
+      <div className="toolbar"><label className="search"><span>⌕</span><input aria-label="搜索论文" placeholder="搜索标题、摘要或研究方向…" value={query} onChange={e=>setQuery(e.target.value)}/><kbd>/</kbd></label><select aria-label="推荐日期" disabled={view==='starred'||view==='archive'} value={view==='starred'||view==='archive'?'all':run} onChange={e=>setRun(e.target.value)}><option value="all">全部日期</option>{runs.map(r=><option key={r.run_id} value={r.run_id}>{r.title||r.run_id} · {r.count} 篇</option>)}</select><button className="quiet" disabled={busy||!batchTargets.length} onClick={()=>setArchiveConfirm(true)}>批量归档</button>{undoItems.length>0&&<button className="quiet" disabled={busy} onClick={()=>void undoArchive()}>撤销上次归档（{undoItems.length}）</button>}</div>
       <div className={'reading-layout'+(detail?' detail-open':'')}><section className="paper-list" aria-label="论文列表"><div className="list-caption"><span>{visible.length} 篇论文</span><span>按匹配得分排序</span></div>
         {loading?<div className="empty">正在读取论文…</div>:!visible.length?<div className="empty"><span className="empty-icon">▤</span><h2>{papers.length?'这里暂时没有论文':'尚无推荐数据'}</h2><p>{papers.length?'试试其他日期或筛选条件。':'运行每日流水线后，论文会出现在这里。'}</p></div>:visible.map(p=>{const s=states[p.paper_key]||emptyState(p.paper_key);return <article key={p.paper_key} data-paper-key={p.paper_key} className={'paper-card'+(current?.paper_key===p.paper_key?' selected':'')}>
           <button className="paper-select" onClick={()=>{setSelected(p.paper_key);setDetail(true);}} aria-label={`阅读 ${p.title}`}><div className="paper-meta"><span className="source">{p.source}</span><span>{p.published?.slice(0,10)||'日期未提供'}</span>{s.read_at&&<span>已读</span>}{s.legacy_status&&['blue','orange'].includes(s.legacy_status)&&<span>{s.legacy_status==='blue'?'旧标记2':'旧标记3'}</span>}<span className="score">{p.score===null?'—':p.score.toFixed(1)}<small> 匹配</small></span></div><div className="card-body"><div><h2>{p.title_zh||p.title}</h2>{p.title_zh&&<p className="english-title">{p.title}</p>}<p className="tldr">{p.tldr||'暂无一句话速览，可查看原始摘要。'}</p></div>{p.thumbnail&&thumbnailURL(p.thumbnail.url)&&<img className="thumbnail" src={thumbnailURL(p.thumbnail.url)} alt={p.thumbnail.kind==='figure1'?'论文 Figure 1':'论文首页预览'} loading="lazy"/>}</div></button>
