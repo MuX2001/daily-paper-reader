@@ -1,0 +1,83 @@
+# 新版阅读工作台：配置与验收
+
+适用于 `dev` 的 React 阅读器。旧资料仍可从 `legacy.html` 访问；现有 `docs/` 路径不移动。开发过程与逐次测试记录见 [开发计划](../../DEVELOPMENT_PLAN.md)。
+
+## 先在本地查看
+
+使用 Node 24，以及项目现有 Python 环境；不要向系统 Python 安装依赖。在仓库根目录执行：
+
+```bash
+python -m pip install -r requirements-reader.txt
+npm ci
+python src/reader_catalog.py --output "$HOME/workspace/runs/daily-paper-reader/reader-data"
+npm run dev
+```
+
+终端会给出本地地址。没有历史推荐数据时显示空列表，不会生成演示论文。`npm run build` 将生产站点写到 `DPR_WEB_OUTPUT_DIR`，默认 `~/workspace/runs/daily-paper-reader/web-build`。CI 的 `reader-site` artifact 是可用静态构建，不等于已部署的 Pages 站点。
+
+## 连接个人阅读状态
+
+建议单独使用一个自己管理的 Supabase 项目保存阅读状态，不把公共论文召回库视为个人账户库。已有项目也可以使用，但应先确认拥有管理权限。
+
+1. 在该项目 SQL Editor 执行仓库的 `sql/create_paper_states_schema.sql`。脚本包含所有者 RLS、更新 revision 和私人笔记字段，不需重建论文库。
+2. 在 Supabase Auth 启用 GitHub provider。创建 GitHub OAuth App 时，回调地址填写 Supabase 提供的 `https://<project-ref>.supabase.co/auth/v1/callback`，将 Client ID/Secret 填入 Supabase provider 设置。[官方 GitHub 登录步骤](https://supabase.com/docs/guides/auth/social-sign-in/auth-github)
+3. Supabase Auth URL Configuration 的 Site URL 设置为阅读器站点根地址，并在允许的 Redirect URLs 中加入实际地址。Pages 项目站需包含仓库子路径和结尾 `/`，例如 `https://OWNER.github.io/REPO/`；本地调试另加实际本地地址。[回跳地址规则](https://supabase.com/docs/guides/auth/redirect-urls)
+4. 打开阅读器设置，填写项目 URL 和 publishable/anon 公钥，保存后选择“使用 GitHub 登录”。这里不能填 service-role key。
+5. 两个独立浏览器会话登录同一账户，分别测试收藏、笔记保存和刷新；另一个账户不应看到这些记录。并发编辑笔记应显示冲突，不能悄悄覆盖。
+
+本项目已经完成隔离本地 Supabase 的真实 Auth/REST/多会话测试；托管项目与 GitHub OAuth 仍需按上述流程验收。没有连接时可公开浏览、下载笔记，不能将未保存状态显示为已同步；当前不提供后台离线写入队列。
+
+## 每日分诊与模型配置
+
+仓库 Settings → Secrets and variables → Actions 中设置：
+
+| 参数 | 保存位置 | 用途 |
+| --- | --- | --- |
+| `TRIAGE_API_KEY` | Secret | 一级轻量模型密钥；未设置回退 `DEEPSEEK_API_KEY` |
+| `TRIAGE_MODEL`、`TRIAGE_BASE_URL` | Variables | 一级模型/端点；回退原有 `DEEPSEEK_MODEL`、`DEEPSEEK_BASE_URL` Secrets |
+| `DEEP_READ_API_KEY`、`DEEP_READ_MODEL`、`DEEP_READ_BASE_URL` | Secrets | 二级强模型，必须显式配置，不回退轻量模型 |
+| `DPR_FEEDBACK_USER_ID` | Secret | 当前 Supabase Auth 用户 UUID；留空关闭反馈评分 |
+| `DPR_STATE_SUPABASE_URL`、`DPR_STATE_SERVICE_KEY` | Secrets | 读取该用户的近期反馈，只供服务器使用 |
+| `DPR_NOTIFY_FEISHU_WEBHOOK` | Secret，可选 | 发布核验成功后发送日报通知 |
+
+本地对应变量见 `.env.example`；复制到私有 `.env` 不会自动配置 GitHub Actions。原有检索、embedding、reranker 配置继续使用。
+
+日常 workflow 默认 `content_mode=triage`，每天最多新增50张分诊卡片，不批量生成精读。未完成内容继续保持不完整状态。`triage-run-report` artifact 包含调用/复用/延后数量、耗时和已返回 token；无用量不代表零费用，金额以供应商记录为准。反馈只作为相关方向的有界偏好示例，不作为永久排除条件；尚无人工标注集证明它提高了推荐质量。
+
+## 单篇精读和 Obsidian
+
+在阅读器设置中填写自己的仓库、任务分支、具有该仓库 Actions 读写权限的 Token。订阅保存还需要 Contents 写权限。Token 只存在当前页面内存，刷新后重新输入。GitHub 手动工作流入口要求工作流已存在于默认分支；只有 `dev` 文件不等于默认分支已支持派发。
+
+选择带明确版本的 arXiv 论文，按 `d` 或点击精读按钮，确认费用后提交。长文最多12段提取加1次合成；输入覆盖率不等于所有事实都被提取。失败时检查对应运行的状态/日志；成功时下载 Markdown。整页刷新后可用“恢复这篇的精读任务”查找最近300次运行，不会重新派发。
+
+只需快速剪藏时，设置实际 Obsidian vault 名称，点击“发送到 Obsidian”；过长笔记自动改为 Markdown 下载。URI 打开请求不证明桌面应用已经保存，需实际打开 vault 检查。[Obsidian URI 说明](https://help.obsidian.md/Extending+Obsidian/Obsidian+URI)
+
+需要自动同步时，先准备独立私有笔记仓库，再配置：
+
+| 参数 | Actions 位置 |
+| --- | --- |
+| `OBSIDIAN_NOTES_REPO`（`owner/repo`） | Variable |
+| `OBSIDIAN_NOTES_BRANCH`（默认 `main`） | Variable |
+| `OBSIDIAN_NOTES_FOLDER`（默认 `Inbox`） | Variable |
+| `OBSIDIAN_NOTES_TOKEN`（目标仓库 Contents 读写） | Secret |
+
+精读成功后才写入此仓库；未配置则仅提供下载。脚本保留用户编辑区，人工改动生成区会停止覆盖。将私有仓库同步到自己的 Obsidian vault，通过自己的 Git 客户端或 Obsidian Git 拉取；必须在桌面确认文件内容与版本，不能把 Actions 推送成功称为 vault 已同步。不要把私人笔记仓库配置成公开论文站仓库。
+
+## 历史记录与生产切换
+
+旧浏览器记录迁移入口在设置中：预览 → 下载原始备份 → 登录后导入。只读取当前设备/同一站点的旧记录；冲突或无法确认版本的记录会跳过，云端已有状态不覆盖。旧版另一套云端状态并不会自动被迁移，应保留原库，另行导出核对。
+
+`reader-publish.yml` 只接受已经配置好的“默认分支根目录”Pages 托管，不会替你改变 Pages 设置。当前 `dev` 开发与通过 CI 不表示生产切换已完成。发布前需审核分支差异，剔除私人运行数据，再按仓库合并规则处理；不能为了让发布脚本通过而擅自把 `dev` 设为默认分支。
+
+## 当前验收范围
+
+| 要求 | 已有证据 | 尚未证明 |
+| --- | --- | --- |
+| JSON 分诊、严格版本、缓存与缩略图 | Python 测试；官方论文全文/图片实取；缓存失败恢复测试 | 真实每日付费分诊质量与账单 |
+| React 工作台、键盘、管理、专题、聊天、导出 | 24项前端测试、9组生产子路径浏览器场景 | 真实 Zotero Connector 与 Obsidian 桌面联动 |
+| 云状态、私人笔记、并发冲突 | 真实本地 Supabase Auth/REST、三个隔离浏览器会话 | 托管 OAuth、真实公网多设备 |
+| 按需精读、分段续跑、私有库同步 | 46项Python链路测试中的对应测试；模拟派发与恢复 | 强模型实际 Actions、笔记质量、私有库到 vault 同步 |
+| 反馈与通知 | 用户/方向隔离、数量限制、通知去重测试 | 人工相关性对照、实际推送触达 |
+| Pages 发布 | 构建、子路径验证、发布条件测试 | 默认分支生产切换与线上提交核验 |
+
+这些未验证项不能由单元测试替代。此指南不包含任何真实密钥，也不表示上述外部账户已经配置完成。
