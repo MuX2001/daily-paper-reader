@@ -1,3 +1,5 @@
+import os
+import subprocess
 import hashlib
 import json
 from pathlib import Path
@@ -47,3 +49,14 @@ class DeepReadTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             with self.assertRaises(ValueError):run('1706.03762v7','request_001',Path(folder)/'cache',Path(folder)/'out',self.client,max_chars=100,fetcher=self.fetcher)
             self.client.chat_structured.assert_not_called()
+
+    def test_missing_model_configuration_produces_downloadable_failure_status(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            env={k:v for k,v in os.environ.items() if not k.startswith('DEEP_READ_')}
+            result=subprocess.run([sys.executable,str(Path(__file__).resolve().parents[1]/'src/deep_read.py'),'--arxiv-id','1706.03762v7','--request-id','request_001','--cache-dir',str(root/'cache'),'--output-dir',str(root/'output')],env=env,capture_output=True,text=True)
+            self.assertNotEqual(result.returncode,0)
+            status=json.loads((root/'output/status.json').read_text())
+            self.assertEqual(status['status'],'failed')
+            self.assertEqual(status['stage'],'configuration')
+            self.assertFalse((root/'cache').exists())

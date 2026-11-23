@@ -10,7 +10,8 @@ import os
 from pathlib import Path
 import re
 
-from reader_fulltext import get_fulltext,validate_id
+from reader_fulltext import get_fulltext
+from reader_identity import validate_id, validate_request_id
 from triage_enrich import atomic_json
 
 SECTIONS={'problem':'问题定义与假设','method':'核心公式与方法拆解','experiments':'Baseline 对比与消融实验','limitations':'局限性与复现风险','reading':'阅读与复现路线'}
@@ -67,7 +68,7 @@ def render_note(paper_id,note,meta,model):
 
 def run(paper_id,request_id,cache_dir,output_dir,client,max_chars=350_000,fetcher=get_fulltext):
     validate_id(paper_id)
-    if not re.fullmatch(r'[A-Za-z0-9_-]{8,80}',request_id): raise ValueError('Invalid request ID')
+    validate_request_id(request_id)
     cache_dir=Path(cache_dir);output=Path(output_dir);output.mkdir(parents=True,exist_ok=True)
     status_path=output/'status.json'
     status={'request_id':request_id,'paper_id':paper_id,'status':'running'}
@@ -108,7 +109,11 @@ def main():
     parser.add_argument('--max-chars',type=int,default=350_000)
     args=parser.parse_args()
     key=os.getenv('DEEP_READ_API_KEY'); model=os.getenv('DEEP_READ_MODEL');endpoint=os.getenv('DEEP_READ_BASE_URL')
-    if not key or not model or not endpoint: raise ValueError('Configure DEEP_READ_API_KEY, DEEP_READ_MODEL and DEEP_READ_BASE_URL')
+    validate_id(args.arxiv_id);validate_request_id(args.request_id)
+    if not key or not model or not endpoint:
+        message='Configure DEEP_READ_API_KEY, DEEP_READ_MODEL and DEEP_READ_BASE_URL'
+        atomic_json(args.output_dir/'status.json',{'request_id':args.request_id,'paper_id':args.arxiv_id,'status':'failed','stage':'configuration','error':message})
+        raise ValueError(message)
     client=LLMClient(key,model,endpoint);client.kwargs.update(max_tokens=16000,temperature=0.2)
     run(args.arxiv_id,args.request_id,args.cache_dir,args.output_dir,client,args.max_chars)
 

@@ -7,13 +7,7 @@ from urllib.parse import urlsplit
 import requests
 from triage_enrich import atomic_json
 
-ARXIV_VERSION = re.compile(r'(?:\d{4}\.\d{4,5}|[A-Za-z.-]+/\d{7})v[1-9]\d*')
-
-
-def validate_id(paper_id):
-    if not isinstance(paper_id,str) or not ARXIV_VERSION.fullmatch(paper_id):
-        raise ValueError('An explicit arXiv version is required (for example 1706.03762v7)')
-    return paper_id
+from reader_identity import ARXIV_VERSION, validate_id
 
 
 def download(url, limit=40_000_000, session=requests):

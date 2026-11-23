@@ -185,3 +185,9 @@ Supabase 扩展已找到但尚未安装/连接；需要连接用户项目后才�
 分页状态读取固定启动时客户端；项目切换后不发下一页。批量归档逐项检查启动时账户/项目，切换后停止未启动写入，已在途的原账户写入可能完成但不更新新账户视图。旧认证初始化不得覆盖后到的认证事件；刷新响应使用请求序号，写入前后淘汰过时读结果。切换连接清空旧会话与可见状态，迁移预览按账户重建，批量迁移遇到项目变化停止后续批次。
 
 18项前端测试通过，含真实 Supabase SDK 配合 mock transport 的500条分页切换测试、延迟批量写入切换测试和中途版本冲突测试；TypeScript、生产构建及静态服务基础浏览器回归通过。未连接真实 Supabase，仍不代替实际 OAuth/多设备验收。实现对照 https://supabase.com/docs/reference/javascript/auth-onauthstatechange 与当前 changelog；未变更 RLS 或服务端权限。
+
+### 精读工作流启动与失败交付
+
+修复 Validate inputs 在安装 requirements-reader 前导入 requests 的隐式依赖；reader_identity 仅依赖标准库，并由下载器/精读入口/Actions 共用。测试直接提取工作流实际校验代码，以 python -S 执行，覆盖正常参数、未指定版本、路径输入与换行请求 ID，失败不写 GITHUB_OUTPUT。模型配置缺失时先生成 stage=configuration 的 failed status.json，再退出，便于 artifact 解释任务未启动原因，不抓取全文也不调用模型。
+
+7项相关测试通过。reader-check 的触发路径扩展至 reader 后端、精读、依赖和测试/工作流变更，避免仅后端变更绕过 CI；新增启动验证已加入 CI。真实付费精读及私有笔记同步仍未执行。
