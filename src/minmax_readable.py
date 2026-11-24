@@ -9,7 +9,7 @@ from reader_fulltext import get_fulltext
 
 PROMPT=Path(__file__).with_name('minmax_readable_prompt.txt').read_text()
 LIMITS={'tldr':45,'problem_delta':70,'evidence':80,'caveats':60,'where_to_look':40}
-BANNED=('本文针对','痛点','提出了一种','创新性','端到端框架','有效解决了','显著提升','取得了优异性能','值得注意的是','综合来看','极具潜力')
+BANNED=('本文针对','痛点','提出了一种','创新性','端到端框架','有效解决了','显著提升','取得了优异性能','值得注意的是','综合来看','极具潜力','不训练不微调','免预训练')
 MISSING='所选片段未说明'
 FIELDS=(*LIMITS,'method_steps','tags')
 CARD_SCHEMA={'type':'object','properties':{**{k:{'type':'string','maxLength':v} for k,v in LIMITS.items()},'method_steps':{'type':'array','maxItems':4,'items':{'type':'string','maxLength':40}},'tags':{'type':'array','minItems':2,'maxItems':4,'items':{'type':'string','maxLength':12}}},'required':list(FIELDS),'additionalProperties':False}
@@ -58,8 +58,15 @@ def context(text):
                     covered.append((offset,offset+len(piece)))
                     cursor=offset+len(piece)
             budget-=end-start
-    add(candidates,12000);add(endings,2000)
-    return out
+    add(candidates,10000);add(endings,2000)
+    # Adjacent source windows must not split a word or quotation into two IDs.
+    merged=[]
+    for part in out:
+        if merged and merged[-1]['end']==part['start']:
+            merged[-1]['text']+=part['text'];merged[-1]['end']=part['end']
+        else:merged.append(dict(part))
+    for i,part in enumerate(merged):part['id']=f'E{i+1}'
+    return merged
 
 
 def validate(value,parts):
@@ -94,7 +101,8 @@ def validate(value,parts):
     return value
 
 
-def enrich(paper,client,root,fetcher=get_fulltext):
+def enrich(paper,client,root,allow_new=True,fetcher=get_fulltext):
+    if paper.get('source')!='arxiv':raise ValueError('Exact-version arXiv source required')
     text,meta=fetcher(paper['original_id'],Path(root)/'sources');parts=context(text)
     payload={'paper_key':paper['paper_key'],'title':paper['title'],'excerpts':parts}
     identity={'input':payload,'prompt':PROMPT,'schema':SCHEMA,'model':client.model,'endpoint':client.base_url,'options':client.kwargs,'version':'readable-v1'}
@@ -102,6 +110,7 @@ def enrich(paper,client,root,fetcher=get_fulltext):
     reused=False
     if path.exists():value=validate(json.loads(path.read_text())['result'],parts);reused=True
     else:
+        if not allow_new:return None,False
         response=client.chat_structured([{'role':'system','content':PROMPT},{'role':'user','content':json.dumps(payload,ensure_ascii=False)}],schema_name='readable_card',schema=SCHEMA,allow_validation_fallback=False)
         if response.get('parse_error') or response.get('refusal') or response.get('finish_reason')=='length':raise ValueError('Incomplete readable response')
         value=validate(response.get('parsed'),parts);atomic_json(path,{'result':value,'identity':identity,'tokens':response.get('tokens')})
