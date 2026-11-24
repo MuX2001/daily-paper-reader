@@ -18,7 +18,15 @@ try{
  await page.locator('.profile').click();await page.getByRole('tab',{name:/云端精读/}).click();
  await expect(page.locator('.settings-variables')).toContainText('deepseek-v4-pro');
  await page.getByLabel('精读服务预设').selectOption('1');await expect(page.locator('.settings-variables')).toContainText('deepseek-flash');
+ await page.getByRole('button',{name:'关闭对话框',exact:true}).click();
+ await page.locator('.profile').click();await page.getByRole('tab',{name:/云端精读/}).click();
+ await expect(page.getByLabel('精读服务预设')).toHaveValue('1');await expect(page.locator('.settings-variables')).toContainText('deepseek-flash');
+ await page.reload();await page.locator('.profile').click();await page.getByRole('tab',{name:/云端精读/}).click();
+ await expect(page.getByLabel('精读服务预设')).toHaveValue('1');await expect(page.locator('.settings-variables')).toContainText('deepseek-flash');
  await page.getByLabel('精读服务预设').selectOption('2');await expect(page.locator('.settings-variables')).toContainText('https://api.siliconflow.cn/v1');await expect(page.getByLabel('参考模型 ID',{exact:true})).toHaveValue('');
+ await page.getByLabel('参考模型 ID',{exact:true}).fill('my-model');await page.getByLabel('参考 Base URL',{exact:true}).fill('https://custom.example/v1');
+ await page.reload();await page.locator('.profile').click();await page.getByRole('tab',{name:/云端精读/}).click();
+ await expect(page.getByLabel('精读服务预设')).toHaveValue('2');await expect(page.getByLabel('参考模型 ID',{exact:true})).toHaveValue('my-model');await expect(page.getByLabel('参考 Base URL',{exact:true})).toHaveValue('https://custom.example/v1');
  await page.getByText('查看当前精读提示词（只读）',{exact:true}).click();
  await expect(page.getByLabel('自动精读提示词',{exact:true})).toHaveValue(/Do not compare incompatible settings/);
  await page.setViewportSize({width:390,height:844});await expect(page.getByLabel('精读服务预设')).toBeVisible();
