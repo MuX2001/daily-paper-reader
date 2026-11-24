@@ -71,7 +71,7 @@ def validate(value,parts):
         if not isinstance(card[k],str) or not card[k].strip() or len(card[k])>limit:raise ValueError(f'Length/type: {k}')
     steps=card['method_steps'];tags=card['tags']
     if not isinstance(steps,list) or len(steps) not in (0,3,4) or any(not isinstance(v,str) or not v.strip() or len(v)>40 for v in steps):raise ValueError('Invalid method steps')
-    if not isinstance(tags,list) or not 2<=len(tags)<=4 or len(set(tags))!=len(tags) or any(not isinstance(v,str) or not v.strip() or len(v)>12 for v in tags):raise ValueError('Invalid tags')
+    if not isinstance(tags,list) or not 2<=len(tags)<=4 or any(not isinstance(v,str) or not v.strip() or len(v)>12 for v in tags) or len(set(tags))!=len(tags):raise ValueError('Invalid tags')
     if sum(len(card[k]) for k in LIMITS if k!='tldr')+sum(map(len,steps))>400:raise ValueError('Card too long')
     prose=' '.join([*(card[k] for k in LIMITS),*steps,*tags])
     if any(w in prose for w in (*BANNED,'原文未提','全文没有','**','##')):raise ValueError('Banned prose')
@@ -86,9 +86,10 @@ def validate(value,parts):
         if not isinstance(c['quote'],str) or not c['quote'].strip() or not isinstance(c['source_id'],str):raise ValueError('Missing evidence: '+k)
         source=sources.get(c['source_id'],'');q=c['quote']
         if q not in source:
-            m=re.search(r'\s+'.join(re.escape(w) for w in q.split()),source)
+            tokens=re.findall(r'[A-Za-z0-9_]+|[^\s]',q)
+            m=re.search(r'\s*'.join(re.escape(w) for w in tokens),source)
             q=m.group() if m else restore_omitted_lines(q,source)
-        if not 8<=len(q)<=800 or q not in source:raise ValueError('Unverifiable citation: '+k)
+        if not 8<=len(q)<=1200 or q not in source:raise ValueError('Unverifiable citation: '+k)
         c['quote']=q
     return value
 
