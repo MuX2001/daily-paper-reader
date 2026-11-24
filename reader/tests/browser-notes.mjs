@@ -34,5 +34,11 @@ try{
  await page.getByRole('button',{name:'批量归档',exact:true}).click();await page.getByRole('button',{name:'归档 1 篇',exact:true}).click();await page.getByRole('button',{name:'撤销上次归档（1）',exact:true}).waitFor();
  cloud={...cloud,revision:cloud.revision+1,note_text:'New note after archive'};
  await page.getByRole('button',{name:'撤销上次归档（1）',exact:true}).click();await page.getByText(/其余可能已在归档后修改/).waitFor();assert.ok(cloud.dismissed_at);assert.equal(cloud.note_text,'New note after archive');
+ await page.route('**/rest/v1/paper_states*',r=>r.fulfill({status:404,json:{code:'PGRST205',message:"Could not find the table 'public.paper_states' in the schema cache",details:null,hint:null}}));
+ await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
+ await page.getByRole('alert').filter({hasText:'读取云端阅读状态失败'}).waitFor();
+ assert.equal(await page.getByText('云端账户已连接',{exact:true}).isVisible(),true);
+ const problem=await page.getByRole('alert').filter({hasText:'读取云端阅读状态失败'}).innerText();
+ assert.ok(problem.includes('sql/create_paper_states_schema.sql'));assert.ok(problem.includes('不是邮箱或密码错误'));assert.ok(!problem.includes('[object Object]'));
  console.log('Notes passed with mocked Supabase: drafts survive navigation, revision save, remote conflict preserves draft, export contains draft, explicit cloud reload');
 }finally{await browser.close();}

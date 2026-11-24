@@ -1,3 +1,4 @@
+import {errorMessage} from './errors';
 import React, { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Session } from '@supabase/supabase-js';
@@ -48,12 +49,12 @@ function App() {
     const config=gitConfigRef.current;setDispatching(true);setError('');
     const active=()=>{const current=gitConfigRef.current;return current.repository===config.repository&&current.ref===config.ref&&current.token===config.token;};
     try{const task=await recoverDeepRead(config,paper.original_id);if(!active())return;if(task){setDeepTask(task);setNotice('已恢复现有精读任务，未触发新模型调用。');}else setNotice('最近300次工作流运行中未找到此版本任务；更早记录请到 GitHub Actions 查看。');}
-    catch(e){if(active())setError(String(e));}finally{setDispatching(false);}
+    catch(e){if(active())setError(errorMessage(e));}finally{setDispatching(false);}
   }
   useEffect(()=>{
     if(!deepTask || ['succeeded','failed'].includes(deepTask.status) || !githubToken)return;
     let stopped=false, polling=false;
-    const timer=setInterval(()=>{if(polling)return;polling=true;pollDeepRead({repository,ref:branch,token:githubToken},deepTask).then(value=>{if(!stopped)setDeepTask(value);}).catch(e=>{if(!stopped)setError(String(e));}).finally(()=>{polling=false;});},10000);
+    const timer=setInterval(()=>{if(polling)return;polling=true;pollDeepRead({repository,ref:branch,token:githubToken},deepTask).then(value=>{if(!stopped)setDeepTask(value);}).catch(e=>{if(!stopped)setError(errorMessage(e));}).finally(()=>{polling=false;});},10000);
     return ()=>{stopped=true;clearInterval(timer);};
   },[deepTask,githubToken,repository,branch]);
   const pending = useRef(false);
@@ -64,7 +65,7 @@ function App() {
     return ()=>{document.body.style.overflow=previous;};
   },[detail]);
   const [retry,setRetry] = useState(0);
-  useEffect(()=>{ try { configureCloud(url,key); setCloudEpoch(v=>v+1); } catch(e) { setError(String(e)); } },[]);
+  useEffect(()=>{ try { configureCloud(url,key); setCloudEpoch(v=>v+1); } catch(e) { setError(errorMessage(e)); } },[]);
   useEffect(()=>{
     const client = getClient(); if(!client) return;
     let stopped=false,authEvent=false;
@@ -75,12 +76,12 @@ function App() {
   const refresh = useCallback(async()=>{
     if(!session) {setStates({}); return;}
     const captured=activeScope.current, ticket=++refreshTicket.current, cloud=getClient();
-    try {const loaded=await loadStates(session.user.id);if(activeScope.current===captured&&ticket===refreshTicket.current&&getClient()===cloud){setStates(loaded);setStateScope(captured);}} catch(e){if(activeScope.current===captured&&ticket===refreshTicket.current&&getClient()===cloud)setError(String(e));}
+    try {const loaded=await loadStates(session.user.id);if(activeScope.current===captured&&ticket===refreshTicket.current&&getClient()===cloud){setStates(loaded);setStateScope(captured);}} catch(e){if(activeScope.current===captured&&ticket===refreshTicket.current&&getClient()===cloud)setError(errorMessage(e));}
   },[session,cloudEpoch]);
   useEffect(()=>{void refresh(); const handler=()=>void refresh(); window.addEventListener('focus',handler); return ()=>window.removeEventListener('focus',handler);},[refresh]);
   useEffect(()=>{
     const controller = new AbortController(); setLoading(true); setError('');
-    catalog(controller.signal).then(data=>{setRuns([...data.runs,...(data.conferences||[]),...(data.topics||[])]);setRun(current=>current || data.runs[0]?.run_id || data.conferences?.[0]?.run_id || data.topics?.[0]?.run_id || ''); if(!data.runs.length)setLoading(false);if(data.migration?.unresolved_conference_routes?.length)setNotice(`${data.migration.unresolved_conference_routes.length} 篇历史会议论文缺少可核验身份，仍保留在旧版归档。`);}).catch(e=>{if(!controller.signal.aborted){setError(String(e));setLoading(false);}});
+    catalog(controller.signal).then(data=>{setRuns([...data.runs,...(data.conferences||[]),...(data.topics||[])]);setRun(current=>current || data.runs[0]?.run_id || data.conferences?.[0]?.run_id || data.topics?.[0]?.run_id || ''); if(!data.runs.length)setLoading(false);if(data.migration?.unresolved_conference_routes?.length)setNotice(`${data.migration.unresolved_conference_routes.length} 篇历史会议论文缺少可核验身份，仍保留在旧版归档。`);}).catch(e=>{if(!controller.signal.aborted){setError(errorMessage(e));setLoading(false);}});
     return ()=>controller.abort();
   },[retry]);
   useEffect(()=>{
@@ -89,7 +90,7 @@ function App() {
     const all=view==='starred'||view==='archive'||run==='all';
     const item=runs.find(r=>r.run_id===run);
     const load=all?library(runs,controller.signal):item?feed(item.path,controller.signal).then(f=>f.papers):Promise.resolve([]);
-    load.then(data=>{setPapers(data);setSelected(current=>data.some(p=>p.paper_key===current)?current:data[0]?.paper_key||'');setLoading(false);}).catch(e=>{if(!controller.signal.aborted){setPapers([]);setError(String(e));setLoading(false);}});
+    load.then(data=>{setPapers(data);setSelected(current=>data.some(p=>p.paper_key===current)?current:data[0]?.paper_key||'');setLoading(false);}).catch(e=>{if(!controller.signal.aborted){setPapers([]);setError(errorMessage(e));setLoading(false);}});
     return ()=>controller.abort();
   },[run,runs,view]);
   const visible = useMemo(()=>filterPapers(papers,states,view,query),[papers,states,view,query]);
@@ -111,7 +112,7 @@ function App() {
     const cloud=getClient();refreshTicket.current++;
     pending.current=true;setBusy(true);setError('');
     try {const next=await saveState(session.user.id,p.paper_key,states[p.paper_key]?.revision || 0,patch);if(activeScope.current!==captured||getClient()!==cloud)return;refreshTicket.current++;setStateScope(captured);setStates(s=>({...s,[p.paper_key]:next}));if(patch.note_text!==undefined)setNoteDrafts(d=>{const key=`${captured}:${p.paper_key}`,draft=d[key];if(!draft)return d;const updated={...d};if(draft.text===(next.note_text??''))delete updated[key];else updated[key]={...draft,base:next.note_text??''};return updated;});setNotice('已同步到云端');}
-    catch(e){if(activeScope.current===captured&&getClient()===cloud){setError(String(e));await refresh();}}
+    catch(e){if(activeScope.current===captured&&getClient()===cloud){setError(errorMessage(e));await refresh();}}
     finally{pending.current=false;setBusy(false);}
   },[session,states,refresh]);
   const openOriginal = useCallback((p:Paper)=>{const link=safeURL(p.pdf_url)||safeURL(p.url);if(link)window.open(link,'_blank','noopener,noreferrer');else setNotice('该论文尚无可核验原文链接');},[]);
@@ -153,7 +154,7 @@ function App() {
         p=>saveState(session.user.id,p.paper_key,states[p.paper_key]?.revision||0,{dismissed_at:new Date().toISOString()}),
         next=>{refreshTicket.current++;setStateScope(captured);setStates(s=>({...s,[next.paper_key]:next}));setArchiveUndo(s=>s.scope===captured?{...s,items:[...s.items,{paper_key:next.paper_key,revision:next.revision}]}:s);done++;});
       if(!result.stopped)setNotice(`已归档 ${done} 篇，可在已归档中恢复。`);
-    }catch(e){if(active()){setError(`已完成 ${done} 篇，其余未变更。${String(e)}`);await refresh();}}
+    }catch(e){if(active()){setError(`已完成 ${done} 篇，其余未变更。${errorMessage(e)}`);await refresh();}}
     finally{setBusy(false);pending.current=false;}
   }
   async function undoArchive(){
@@ -167,7 +168,7 @@ function App() {
         item=>saveState(session.user.id,item.paper_key,item.revision,{dismissed_at:null}),
         next=>{refreshTicket.current++;setStateScope(captured);setStates(s=>({...s,[next.paper_key]:next}));setArchiveUndo(s=>s.scope===captured?{...s,items:s.items.filter(item=>item.paper_key!==next.paper_key)}:s);done++;});
       if(!result.stopped)setNotice(`已撤销 ${done} 篇归档。`);
-    }catch(e){if(active()){setError(`已恢复 ${done} 篇；其余可能已在归档后修改，请在已归档中检查。${String(e)}`);await refresh();}}
+    }catch(e){if(active()){setError(`已恢复 ${done} 篇；其余可能已在归档后修改，请在已归档中检查。${errorMessage(e)}`);await refresh();}}
     finally{pending.current=false;setBusy(false);}
   }
   return <div className="workspace">
@@ -194,8 +195,8 @@ function App() {
       <footer className="workspace-footer"><span>DAILY PAPER READER</span><span><kbd>j</kbd><kbd>k</kbd> 切换 <kbd>s</kbd> 收藏 <kbd>x</kbd> 归档</span></footer>
     </main>
     {feedbackOpen&&<Modal title="项目反馈" close={()=>setFeedbackOpen(false)}><FeedbackForm/></Modal>}
-    {settings&&<Modal title="连接你的工作空间" close={()=>setSettings(false)}><p>使用 Supabase 账户保存阅读状态；公开浏览无需登录。</p>{error&&<p role="alert" className="banner error">{error}</p>}{notice&&<p role="status">{notice}</p>}<label>Supabase URL<input value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://your-project.supabase.co"/></label><label>Publishable / anon key<input value={key} onChange={e=>setKey(e.target.value)} placeholder="sb_publishable_…"/></label><button className="primary" onClick={()=>{try{configureCloud(url,key);setSession(null);setStates({});setStateScope('');refreshTicket.current++;localStorage.setItem('dpr.cloud.url',url);localStorage.setItem('dpr.cloud.key',key);setCloudEpoch(x=>x+1);setNotice('连接配置已保存');}catch(e){setError(String(e));}}}>保存连接配置</button><AccountLogin key={cloudEpoch} draftURL={url} draftKey={key} connectLocal={(nextURL,nextKey)=>{configureCloud(nextURL,nextKey);setUrl(nextURL);setKey(nextKey);setSession(null);setStates({});setStateScope('');refreshTicket.current++;localStorage.setItem('dpr.cloud.url',nextURL);localStorage.setItem('dpr.cloud.key',nextKey);setCloudEpoch(x=>x+1);setNotice('已连接独立本地测试库，请使用邮箱注册或登录。');}}/>{session&&<button onClick={async()=>{await getClient()?.auth.signOut();setSession(null);setStates({});}}>退出登录</button>}<hr/><MigrationPanel key={scope} runs={runs} states={states} userId={session?.user.id} refresh={refresh}/><hr/><h3>论文聊天</h3><label>模型端点<input value={chatEndpoint} onChange={e=>setChatEndpoint(e.target.value)} placeholder="https://api.example.com/v1"/></label><label>聊天模型<input value={chatModel} onChange={e=>setChatModel(e.target.value)}/></label><label>聊天 API Key（仅当前页面）<input type="password" autoComplete="off" value={chatKey} onChange={e=>setChatKey(e.target.value)}/></label><button onClick={()=>{localStorage.setItem('dpr.chat.endpoint',chatEndpoint);localStorage.setItem('dpr.chat.model',chatModel);setNotice('聊天设置已保存；API Key 仅保留在当前页面内存。');}}>保存聊天设置</button><hr/><h3>按需精读任务</h3><p className="muted">模型密钥只放在 Actions Secrets：DEEP_READ_API_KEY / MODEL / BASE_URL。Token 仅保留在当前页面内存。</p><label>GitHub 仓库<input value={repository} onChange={e=>setRepository(e.target.value)} placeholder="owner/daily-paper-reader"/></label><label>任务分支<input value={branch} onChange={e=>setBranch(e.target.value)}/></label><label>GitHub Token（Actions 读写）<input type="password" autoComplete="off" value={githubToken} onChange={e=>setGithubToken(e.target.value)}/></label><button onClick={()=>{localStorage.setItem('dpr.github.repository',repository);localStorage.setItem('dpr.github.ref',branch);setNotice('任务设置已保存；Token 在关闭页面后清除。');}}>保存任务设置</button><hr/><label>Obsidian vault 名称<input value={vault} onChange={e=>setVault(e.target.value)} placeholder="My Research"/></label><button onClick={()=>{localStorage.setItem('dpr.obsidian.vault',vault);setNotice('Obsidian 设置已保存');setSettings(false);}}>保存阅读偏好</button><p className="muted">账户公钥和 vault 名称保存在此设备。论文状态由云端保存。</p></Modal>}
-    {deepConfirm&&current&&<Modal title="生成这篇论文的深度笔记" close={()=>setDeepConfirm(false)}><p>{current.title}</p><p>指定版本：{current.original_id}。此操作会调用 Actions 中配置的强模型并产生费用；缓存命中时复用结果。长文会分段提取证据后合成，最多12段加1次合成调用；费用取决于模型定价和实际用量。缓存命中不重复调用，超出总预算或证据校验失败会停止，不会自动改用摘要。</p><button className="primary" disabled={dispatching} onClick={async()=>{setDispatching(true);try{const task=await dispatchDeepRead({repository,ref:branch,token:githubToken},current.original_id);setDeepTask(task);setDeepConfirm(false);setNotice('精读请求已提交。任务完成后可下载 Markdown 笔记。');}catch(e){setError(String(e));setDeepConfirm(false);}finally{setDispatching(false);}}}>确认调用强模型</button></Modal>}
+    {settings&&<Modal title="连接你的工作空间" close={()=>setSettings(false)}><p>使用 Supabase 账户保存阅读状态；公开浏览无需登录。</p>{error&&<p role="alert" className="banner error">{error}</p>}{notice&&<p role="status">{notice}</p>}<label>Supabase URL<input value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://your-project.supabase.co"/></label><label>Publishable / anon key<input value={key} onChange={e=>setKey(e.target.value)} placeholder="sb_publishable_…"/></label><button className="primary" onClick={()=>{try{configureCloud(url,key);setError('');setSession(null);setStates({});setStateScope('');refreshTicket.current++;localStorage.setItem('dpr.cloud.url',url);localStorage.setItem('dpr.cloud.key',key);setCloudEpoch(x=>x+1);setNotice('连接配置已保存');}catch(e){setError(errorMessage(e));}}}>保存连接配置</button><AccountLogin key={cloudEpoch} draftURL={url} draftKey={key} connectLocal={(nextURL,nextKey)=>{configureCloud(nextURL,nextKey);setUrl(nextURL);setKey(nextKey);setSession(null);setStates({});setStateScope('');refreshTicket.current++;localStorage.setItem('dpr.cloud.url',nextURL);localStorage.setItem('dpr.cloud.key',nextKey);setCloudEpoch(x=>x+1);setNotice('已连接独立本地测试库，请使用邮箱注册或登录。');}}/>{session&&<button onClick={async()=>{await getClient()?.auth.signOut();setSession(null);setStates({});}}>退出登录</button>}<hr/><MigrationPanel key={scope} runs={runs} states={states} userId={session?.user.id} refresh={refresh}/><hr/><h3>论文聊天</h3><label>模型端点<input value={chatEndpoint} onChange={e=>setChatEndpoint(e.target.value)} placeholder="https://api.example.com/v1"/></label><label>聊天模型<input value={chatModel} onChange={e=>setChatModel(e.target.value)}/></label><label>聊天 API Key（仅当前页面）<input type="password" autoComplete="off" value={chatKey} onChange={e=>setChatKey(e.target.value)}/></label><button onClick={()=>{localStorage.setItem('dpr.chat.endpoint',chatEndpoint);localStorage.setItem('dpr.chat.model',chatModel);setNotice('聊天设置已保存；API Key 仅保留在当前页面内存。');}}>保存聊天设置</button><hr/><h3>按需精读任务</h3><p className="muted">模型密钥只放在 Actions Secrets：DEEP_READ_API_KEY / MODEL / BASE_URL。Token 仅保留在当前页面内存。</p><label>GitHub 仓库<input value={repository} onChange={e=>setRepository(e.target.value)} placeholder="owner/daily-paper-reader"/></label><label>任务分支<input value={branch} onChange={e=>setBranch(e.target.value)}/></label><label>GitHub Token（Actions 读写）<input type="password" autoComplete="off" value={githubToken} onChange={e=>setGithubToken(e.target.value)}/></label><button onClick={()=>{localStorage.setItem('dpr.github.repository',repository);localStorage.setItem('dpr.github.ref',branch);setNotice('任务设置已保存；Token 在关闭页面后清除。');}}>保存任务设置</button><hr/><label>Obsidian vault 名称<input value={vault} onChange={e=>setVault(e.target.value)} placeholder="My Research"/></label><button onClick={()=>{localStorage.setItem('dpr.obsidian.vault',vault);setNotice('Obsidian 设置已保存');setSettings(false);}}>保存阅读偏好</button><p className="muted">账户公钥和 vault 名称保存在此设备。论文状态由云端保存。</p></Modal>}
+    {deepConfirm&&current&&<Modal title="生成这篇论文的深度笔记" close={()=>setDeepConfirm(false)}><p>{current.title}</p><p>指定版本：{current.original_id}。此操作会调用 Actions 中配置的强模型并产生费用；缓存命中时复用结果。长文会分段提取证据后合成，最多12段加1次合成调用；费用取决于模型定价和实际用量。缓存命中不重复调用，超出总预算或证据校验失败会停止，不会自动改用摘要。</p><button className="primary" disabled={dispatching} onClick={async()=>{setDispatching(true);try{const task=await dispatchDeepRead({repository,ref:branch,token:githubToken},current.original_id);setDeepTask(task);setDeepConfirm(false);setNotice('精读请求已提交。任务完成后可下载 Markdown 笔记。');}catch(e){setError(errorMessage(e));setDeepConfirm(false);}finally{setDispatching(false);}}}>确认调用强模型</button></Modal>}
     {help&&<Modal title="让阅读更顺手" close={()=>setHelp(false)}><dl className="shortcuts">{[['j / k','下一篇 / 上一篇'],['s','收藏或取消收藏'],['x','归档或恢复'],['o','打开原文'],['d','按需精读'],['?','查看快捷键']].map(([k,v])=><div key={k}><dt><kbd>{k}</kbd></dt><dd>{v}</dd></div>)}</dl><p>输入文字时不会触发快捷键。</p></Modal>}
     {archiveConfirm&&<Modal title="归档当前日期的未读论文" close={()=>setArchiveConfirm(false)}><p>将归档 {displayDate} 的 {batchTargets.length} 篇未读论文。已收藏的论文会保留，之后可从“已归档”逐篇恢复。</p><button className="primary" onClick={()=>void bulkArchive()}>归档 {batchTargets.length} 篇</button></Modal>}
   </div>;
