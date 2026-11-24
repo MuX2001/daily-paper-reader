@@ -37,3 +37,11 @@ class MinMaxTests(unittest.TestCase):
         with self.assertRaises(ValueError):validate(v,p,[{'id':'E1','text':'long enough quote'}])
         v['delta']={'text':'unknown','quote':None,'source_id':None}
         with self.assertRaises(ValueError):validate(v,p,[])
+
+    def test_numbered_inline_steps_normalize_without_inventing_steps(self):
+        p={'paper_key':'p'};v={'paper_key':'p','title_zh':'标题',**{k:dict(text=None,quote=None,source_id=None) for k in FIELDS}}
+        v['steps']={'text':'1) 输入；2) 编码；3) 输出','quote':'An exact method quotation.','source_id':'E1'}
+        parts=[{'id':'E1','text':'An exact method quotation.'}]
+        self.assertEqual(len(validate(v,p,parts)['steps']['text'].splitlines()),3)
+        v['steps']['text']='This is just prose.'
+        with self.assertRaises(ValueError):validate(v,p,parts)

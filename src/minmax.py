@@ -47,7 +47,13 @@ def validate(value,paper,parts):
         if all(v is None for v in c.values()):continue
         if not all(isinstance(v,str) and v.strip() for v in c.values()):raise ValueError('Incomplete evidence')
         if c['source_id'] not in sources or not 8<=len(c['quote'])<=600 or c['quote'] not in sources[c['source_id']]:raise ValueError('Unsupported evidence')
-        if field=='steps' and not 3<=len(c['text'].splitlines())<=4:raise ValueError('Method needs 3–4 steps')
+        if field=='steps':
+            # Accept numbered steps on one line without weakening step count.
+            normalized=re.sub(r'[；;]\s*(?=[1-4][).、])','\n',c['text'])
+            lines=normalized.splitlines()
+            if not 3<=len(lines)<=4 or any(not re.match(rf'^\s*{i}[).、]',line) for i,line in enumerate(lines,1)):
+                raise ValueError('Method needs 3–4 numbered steps')
+            c['text']=normalized
         size+=len(c['text'])
     if size>400:raise ValueError('Card exceeds 400 characters')
     return value
