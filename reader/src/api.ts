@@ -25,17 +25,29 @@ export function getCloudOrigin(){return connection?.url||'';}
 export function matchesCloudConfiguration(url:string,key:string){
  return connection!==null&&url.trim().replace(/\/$/,'')===connection.url&&key.trim()===connection.key;
 }
-export function configureCloud(url: string, key: string) {
+export function validateCloud(url: string, key: string) {
   url=url.trim();key=key.trim();
-  if (!url && !key) { client = null; connection=null; return; }
   url=cloudURL(url,typeof location==='undefined'?'https://reader.invalid':location.href);
   if (key.startsWith('sb_secret_')) throw new Error('浏览器禁止使用 secret key');
   if (key.startsWith('ey')) {
     try { const payload = JSON.parse(atob(key.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))); if (payload.role !== 'anon') throw new Error('仅支持 anon 公钥'); }
     catch { throw new Error('请使用 publishable key 或 anon 公钥，不能使用 service role'); }
   } else if (!key.startsWith('sb_publishable_')) throw new Error('公钥格式无效');
-  client = createClient(url, key);
-  connection={url,key};
+  return {url,key};
+}
+export async function probeCloud(url:string,key:string){
+ const config=validateCloud(url,key);
+ const response=await fetch(`${config.url}/auth/v1/settings`,{headers:{apikey:config.key},signal:AbortSignal.timeout(15000)});
+ if(!response.ok)throw new Error(`云端连接验证失败 (${response.status})，请检查项目地址与公钥`);
+ const settings=await response.json();
+ if(!settings||typeof settings.external!=='object')throw new Error('此地址未返回有效的 Supabase Auth 配置');
+ return config;
+}
+export function configureCloud(url:string,key:string){
+ if(!url.trim()&&!key.trim()){client=null;connection=null;return;}
+ const validated=validateCloud(url,key);
+ client=createClient(validated.url,validated.key);
+ connection=validated;
 }
 export async function githubLogin(){
  const captured=client,saved=connection;

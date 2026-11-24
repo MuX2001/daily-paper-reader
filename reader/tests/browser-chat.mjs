@@ -4,9 +4,9 @@ const browser=await chromium.launch({headless:true});const page=await browser.ne
 let sent;
 await page.route('https://model.example/**',async route=>{sent=route.request().postDataJSON();await route.fulfill({status:200,contentType:'text/event-stream',body:'data: {"choices":[{"delta":{"content":"根据已提供全文，核心假设如下。"}}]}\n\ndata: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'});});
 await page.goto(process.env.DPR_TEST_URL||'http://127.0.0.1:5173/');await page.locator('.paper-card').first().waitFor();
-await page.getByRole('button',{name:'连接你的工作空间 账户与阅读偏好'}).click();
-await page.getByLabel('模型端点',{exact:true}).fill('https://model.example/v1');
-await page.getByLabel('聊天模型',{exact:true}).fill('test');await page.getByLabel('聊天 API Key（仅当前页面）',{exact:true}).fill('mock-api-key');
+await page.locator('.profile').click();await page.getByRole('tab',{name:/网页 AI 聊天/}).click();
+await page.getByLabel('模型端点（Base URL）',{exact:true}).fill('https://model.example/v1');
+await page.getByLabel('聊天模型 ID',{exact:true}).fill('test');await page.getByLabel('聊天 API Key',{exact:true}).fill('mock-api-key');
 await page.getByRole('button',{name:'保存聊天设置',exact:true}).click();await page.getByRole('button',{name:'关闭对话框',exact:true}).click();
 await page.getByLabel('向论文提问',{exact:true}).fill('解释核心假设');await page.getByRole('button',{name:'发送问题',exact:true}).click();
 await page.getByText('根据已提供全文，核心假设如下。',{exact:true}).waitFor();

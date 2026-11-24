@@ -25,10 +25,17 @@ export function obsidianFolder(value:string):string {
   if(parts.some(p=>p==='.'||p==='..'))throw new Error('收件箱目录不能包含 . 或 .. 路径段');
   return parts.join('/');
 }
-export function obsidianURI(p:Paper,vault:string,personalNote='',folder='Inbox'):string|null {
+export function exportFilename(p:Paper,naming='stable-id'):string {
+  if(naming==='stable-id')return noteFilename(p);
+  const title=p.title.normalize('NFKC').replace(/[<>:"/\\|?*\u0000-\u001f]/g,'-').replace(/\s+/g,' ').trim().replace(/[. ]+$/,'').slice(0,80)||'Paper';
+  const date=citationDate(p);
+  const prefix=naming==='date-title'?(date&&/^\d{4}-\d{2}-\d{2}$/.test(date)?date:'日期未知'):(p.source==='arxiv'?p.original_id.replaceAll('/','-'):p.source);
+  return `${prefix}-${title}-${noteFilename(p)}`;
+}
+export function obsidianURI(p:Paper,vault:string,personalNote='',folder='Inbox',naming='stable-id'):string|null {
   if(!vault.trim())throw new Error('请先设置 Obsidian vault 名称');
   const directory=obsidianFolder(folder);
-  const uri=`obsidian://new?vault=${encodeURIComponent(vault.trim())}&file=${encodeURIComponent((directory?directory+'/':'')+noteFilename(p))}&content=${encodeURIComponent(noteMarkdown(p,personalNote))}`;
+  const uri=`obsidian://new?vault=${encodeURIComponent(vault.trim())}&file=${encodeURIComponent((directory?directory+'/':'')+exportFilename(p,naming))}&content=${encodeURIComponent(noteMarkdown(p,personalNote))}`;
   // Conservative delivery limit, measured after URI encoding. No overwrite flag.
   return uri.length<=8000?uri:null;
 }

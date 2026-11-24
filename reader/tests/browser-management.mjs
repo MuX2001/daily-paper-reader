@@ -11,7 +11,7 @@ await page.route('https://api.github.com/**',async route=>{
  else await route.fulfill({json:{encoding:'base64',content:btoa(yaml),sha:'original-sha'}});
 });
 await page.goto(process.env.DPR_TEST_URL||'http://127.0.0.1:5173/');await page.locator('.paper-card').first().waitFor();
-await page.locator('.profile').click();await page.getByLabel('GitHub 仓库',{exact:true}).fill('test/reader');await page.getByLabel('GitHub Token（Actions 读写）',{exact:true}).fill('mock-token');await page.getByRole('button',{name:'关闭对话框',exact:true}).click();
+await page.locator('.profile').click();await page.getByRole('tab',{name:/云端精读/}).click();await page.getByLabel('GitHub 仓库',{exact:true}).fill('test/reader');await page.getByLabel('GitHub Token',{exact:true}).fill('mock-token');await page.getByRole('button',{name:'保存任务设置',exact:true}).click();await page.getByRole('button',{name:'关闭对话框',exact:true}).click();
 await page.locator('nav').getByRole('button',{name:'研究管理'}).click();await page.getByRole('button',{name:'读取仓库配置',exact:true}).click();await page.getByText('Robotics',{exact:true}).waitFor();
 await page.getByLabel('任务研究方向',{exact:true}).selectOption('robots');
 await page.getByRole('button',{name:'编辑方向',exact:true}).click();

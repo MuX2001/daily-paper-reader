@@ -5,7 +5,7 @@ const page=await browser.newPage({viewport:{width:390,height:844}});
 let writes=0;
 await page.route('**/rest/v1/**',async route=>{writes++;await route.abort();});
 await page.goto(process.env.DPR_TEST_URL||'http://127.0.0.1:5173/');
-await page.locator('.paper-card').first().waitFor();await page.getByRole('button',{name:'设置',exact:true}).click();
+await page.locator('.paper-card').first().waitFor();await page.getByRole('button',{name:'设置',exact:true}).click();await page.getByRole('tab',{name:/数据与维护/}).click();await page.getByRole('button',{name:'选择 JSON 备份文件',exact:true}).click();
 const upload=async data=>page.getByLabel('旧记录备份文件',{exact:true}).setInputFiles({name:'old-cloud.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(data))});
 await upload([
  {github_username:'alice',paper_id:'1706.03762v1',status:'good'},

@@ -14,7 +14,7 @@ await page.goto(process.env.DPR_TEST_URL||'http://127.0.0.1:5173/');
 await page.locator('.paper-card').first().waitFor();
 await page.keyboard.press('d');
 await page.getByLabel('GitHub 仓库',{exact:true}).fill('test/reader');
-await page.getByLabel('GitHub Token（Actions 读写）',{exact:true}).fill('mock-browser-token');
+await page.getByLabel('GitHub Token',{exact:true}).fill('mock-browser-token');
 await page.getByRole('button',{name:'保存任务设置',exact:true}).click();
 await page.getByRole('button',{name:'关闭对话框',exact:true}).click();
 await page.keyboard.press('d');
@@ -28,7 +28,7 @@ assert.equal(await page.evaluate(()=>Object.values(localStorage).some(value=>Str
 assert.equal(await page.getByRole('link',{name:'查看运行与下载笔记'}).getAttribute('href'),'https://github.com/test/reader/actions/runs/42');
 await page.reload();await page.locator('.paper-card').first().waitFor();
 await page.getByRole('button',{name:'恢复这篇的精读任务',exact:true}).click();
-await page.getByLabel('GitHub Token（Actions 读写）',{exact:true}).fill('mock-browser-token');await page.getByRole('button',{name:'关闭对话框',exact:true}).click();
+await page.getByLabel('GitHub Token',{exact:true}).fill('mock-browser-token');await page.getByRole('button',{name:'保存任务设置',exact:true}).click();await page.getByRole('button',{name:'关闭对话框',exact:true}).click();
 await page.getByRole('button',{name:'恢复这篇的精读任务',exact:true}).click();await page.getByText('精读任务完成，可下载笔记',{exact:true}).waitFor();assert.equal(posts,1);
 await browser.close();
 console.log('Deep-read UI passed with mocked GitHub transport: explicit confirmation, exact version, correlated polling, memory-only token');
