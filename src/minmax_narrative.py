@@ -51,14 +51,14 @@ def enrich(paper,client,root,allow_new=True,fetcher=get_fulltext):
     if paper.get('source')!='arxiv':raise ValueError('Exact-version arXiv source required')
     text,meta=fetcher(paper['original_id'],Path(root)/'sources');parts=narrative_context(text)
     payload={'paper_key':paper['paper_key'],'title':paper['title'],'abstract':paper.get('abstract'),'excerpts':parts}
-    identity={'input':payload,'prompt':PROMPT,'schema':SCHEMA,'model':client.model,'endpoint':client.base_url,'options':client.kwargs,'version':'narrative-v2-template'}
+    template={'card_hook':'一句完整简介','context_and_problem':'背景与问题','core_approach':['第一段完整方法说明','第二段完整方法说明','第三段完整方法说明'],'results_and_reality_check':'实验结果、前提、局限与图表路标','tags':['标签1','标签2']}
+    request=json.dumps(payload,ensure_ascii=False)+'\n请依据上面的资料填写下面完整JSON。所有键必须保留，数组中不能有空字符串；不复制占位文字，不添加其他字段。\n'+json.dumps(template,ensure_ascii=False)
+    identity={'input':request,'prompt':PROMPT,'schema':SCHEMA,'model':client.model,'endpoint':client.base_url,'options':client.kwargs,'version':'narrative-v2-template'}
     key=hashlib.sha256(json.dumps(identity,ensure_ascii=False,sort_keys=True).encode()).hexdigest();path=Path(root)/'narrative'/f'{key}.json'
     reused=path.exists()
     if reused:value=validate(json.loads(path.read_text())['result'])
     else:
         if not allow_new:return None,False
-        template={'card_hook':'一句完整简介','context_and_problem':'背景与问题','core_approach':['第一段完整方法说明','第二段完整方法说明','第三段完整方法说明'],'results_and_reality_check':'实验结果、前提、局限与图表路标','tags':['标签1','标签2']}
-        request=json.dumps(payload,ensure_ascii=False)+'\n请依据上面的资料填写下面完整JSON。所有键必须保留，数组中不能有空字符串；不复制占位文字，不添加其他字段。\n'+json.dumps(template,ensure_ascii=False)
         response=client.chat_structured([{'role':'system','content':PROMPT},{'role':'user','content':request}],schema_name='narrative_card',schema=SCHEMA,allow_validation_fallback=False)
         if response.get('parse_error') or response.get('refusal') or response.get('finish_reason')=='length':raise ValueError('Incomplete narrative response')
         value=validate(response.get('parsed'));atomic_json(path,{'result':value,'identity':identity,'tokens':response.get('tokens')})

@@ -1,4 +1,4 @@
-import {chromium} from '@playwright/test';
+import {chromium,expect} from '@playwright/test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 const browser=await chromium.launch({headless:true});
@@ -21,6 +21,20 @@ try{
  await page.goto(process.env.DPR_TEST_URL||'http://127.0.0.1:5173/');
  const editor=page.getByRole('textbox',{name:'个人阅读笔记',exact:true});await editor.waitFor();
  await page.waitForFunction(()=>document.querySelector('.note-editor textarea')?.value==='Cloud original');
+ // Both entry points use the same persisted state and the same star component.
+ const previewStar=()=>page.locator('.preview-buttons .star-button');
+ const listStar=()=>page.locator('.paper-card').first().locator('.star-button');
+ await expect(listStar()).toHaveAttribute('aria-pressed','false');await expect(previewStar()).toHaveAttribute('aria-pressed','false');
+ await previewStar().click();await expect(listStar()).toHaveAttribute('aria-pressed','true');await expect(previewStar()).toHaveAttribute('aria-pressed','true');
+ await expect(listStar().locator('svg')).toHaveAttribute('fill','currentColor');await expect(page.locator('.summary-strip')).toContainText('2 篇待精读');assert.equal(cloud.starred,true);
+ await listStar().click();await expect(previewStar()).toHaveAttribute('aria-pressed','false');await expect(listStar().locator('svg')).toHaveAttribute('fill','none');assert.equal(cloud.starred,false);
+ await page.locator('.paper-select').nth(1).click();await expect(previewStar()).toHaveAttribute('aria-pressed','true');
+ await page.locator('.paper-select').first().click();await expect(previewStar()).toHaveAttribute('aria-pressed','false');
+ await page.reload();await editor.waitFor();await page.waitForFunction(()=>document.querySelector('.note-editor textarea')?.value==='Cloud original');await expect(previewStar()).toHaveAttribute('aria-pressed','false');await expect(listStar()).toHaveAttribute('aria-pressed','false');
+ await page.locator('.preview-buttons').getByRole('button',{name:'归档 x',exact:true}).click();await expect(page.locator('.paper-card')).toHaveCount(1);assert.ok(cloud.dismissed_at);
+ await page.locator('.navigation').getByRole('button',{name:'已归档',exact:true}).click();await expect(page.locator('.paper-card')).toHaveCount(1);
+ await page.locator('.preview-buttons').getByRole('button',{name:'恢复 x',exact:true}).click();await expect(page.locator('.paper-card')).toHaveCount(0);assert.equal(cloud.dismissed_at,null);
+ await page.locator('.navigation').getByRole('button',{name:/论文收件箱/}).click();await expect(editor).toHaveValue('Cloud original');
  await editor.fill('My unsaved research note');await page.locator('.paper-select').nth(1).click();assert.equal(await editor.inputValue(),'');
  await page.locator('.paper-select').first().click();assert.equal(await editor.inputValue(),'My unsaved research note');
  await page.getByRole('button',{name:'保存笔记',exact:true}).click();await page.waitForFunction(()=>document.querySelector('.note-controls [role=status]')?.textContent.includes('与云端一致'));assert.equal(saved.note_text,'My unsaved research note');

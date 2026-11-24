@@ -10,14 +10,14 @@ export function noteMarkdown(p:Paper,personalNote=''):string {
   const fields={paper_key:p.paper_key,title:p.title,authors:p.authors||[],source:p.source,
     arxiv_id:p.source==='arxiv'?p.original_id:null,version:p.version??null,venue:p.venue??null,
     publication_date:citationDate(p)||null,publication_date_precision:p.source==='arxiv'?'day':p.publication_date_precision||null,
-    tags:p.tags,status:'triage-card',url:url||null,pdf:pdf||null,code:code||null,note_type:'triage'};
+    tags:p.narrative?.tags||p.tags,status:'triage-card',url:url||null,pdf:pdf||null,code:code||null,note_type:'triage'};
   const links=[['原文',url],['PDF',pdf],['代码',code]].filter(([,value])=>value).map(([label,value])=>`- ${label}：<${value!.replaceAll('<','%3C').replaceAll('>','%3E')}>`).join('\n');
   const breakdown=([['problem','研究问题'],['method','核心方法'],['results','实验结果']] as const).map(([key,label])=>`### ${label}\n\n${p.breakdown?.[key]||'尚无可核验内容'}`).join('\n\n');
-  const skeleton=p.minmax?.status==='ready'?Object.entries({delta:'解决什么问题',steps:'具体怎么做',evidence:'实验结果',constraints:'局限和成本',landmarks:'相关图表'}).map(([key,label])=>`### ${label}\n\n${p.minmax?.[key as 'delta']?.text||'未说明'}`).join('\n\n'):'暂无总结。';
+  const skeleton=p.narrative?`### 背景与问题\n\n${p.narrative.context_and_problem}\n\n### 核心做法与直觉\n\n${p.narrative.core_approach.map((part,i)=>`${i+1}. ${part}`).join('\n\n')}\n\n### 实验结果与局限\n\n${p.narrative.results_and_reality_check}`:p.minmax?.status==='ready'?Object.entries({delta:'解决什么问题',steps:'具体怎么做',evidence:'实验结果',constraints:'局限和成本',landmarks:'相关图表'}).map(([key,label])=>`### ${label}\n\n${p.minmax?.[key as 'delta']?.text||'未说明'}`).join('\n\n'):'暂无总结。';
   const citation=bibtex(p);
   // A title may itself contain backticks; use a fence longer than any content run.
   const fence='`'.repeat(Math.max(3,...[...citation.matchAll(/`+/g)].map(m=>m[0].length+1)));
-  return `---\n${Object.entries(fields).map(([key,value])=>`${key}: ${JSON.stringify(value)}`).join('\n')}\n---\n\n# ${p.title}\n\n> 待读卡片，未执行全文精读。\n\n## 原文与资源\n\n${links||'尚无可核验原文链接'}\n\n## 论文速览\n\n${skeleton}\n\n## 核心亮点\n\n${p.tldr||'尚未生成速览'}\n\n${p.minmax?.status==='ready'?'':breakdown}\n\n## 推荐理由\n\n${p.reason||'尚无推荐理由'}\n\n## 原始摘要\n\n${p.abstract||'摘要缺失'}\n\n## BibTeX\n\n${fence}bibtex\n${citation}${fence}\n\n## 阅读笔记\n\n${personalNote}\n`;
+  return `---\n${Object.entries(fields).map(([key,value])=>`${key}: ${JSON.stringify(value)}`).join('\n')}\n---\n\n# ${p.title}\n\n> 待读卡片，未执行全文精读。\n\n## 原文与资源\n\n${links||'尚无可核验原文链接'}\n\n## 论文速览\n\n${skeleton}\n\n## 核心亮点\n\n${p.narrative?.card_hook||p.tldr||'尚未生成速览'}\n\n${p.narrative||p.minmax?.status==='ready'?'':breakdown}\n\n## 推荐理由\n\n${p.reason||'尚无推荐理由'}\n\n## 原始摘要\n\n${p.abstract||'摘要缺失'}\n\n## BibTeX\n\n${fence}bibtex\n${citation}${fence}\n\n## 阅读笔记\n\n${personalNote}\n`;
 }
 export function obsidianFolder(value:string):string {
   const folder=value.trim().replaceAll('\\','/');

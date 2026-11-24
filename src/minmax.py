@@ -132,7 +132,7 @@ def enrich_feed(path,root,client,max_new=50,enricher=enrich):
 
 def main():
     from llm import LLMClient
-    p=argparse.ArgumentParser();p.add_argument('--feed',required=True);p.add_argument('--cache-dir',required=True);p.add_argument('--max-new',type=int,default=50);p.add_argument('--style',choices=['classic','readable'],default='classic');a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--feed',required=True);p.add_argument('--cache-dir',required=True);p.add_argument('--max-new',type=int,default=50);p.add_argument('--style',choices=['classic','readable','narrative'],default='classic');a=p.parse_args()
     if a.max_new<0:raise ValueError('Negative budget')
     key=os.getenv('TRIAGE_API_KEY') or os.getenv('DEEPSEEK_API_KEY');model=os.getenv('TRIAGE_MODEL') or os.getenv('DEEPSEEK_MODEL')
     endpoint=os.getenv('TRIAGE_BASE_URL') or os.getenv('DEEPSEEK_BASE_URL') or 'https://api.deepseek.com'
@@ -143,7 +143,9 @@ def main():
     if urlsplit(endpoint).hostname=='api.deepseek.com':
         client.kwargs.pop('temperature',None)
         client.kwargs.update(max_tokens=65536,thinking={'type':'enabled'},reasoning_effort='high')
-    if a.style=='readable':
+    if a.style=='narrative':
+        from minmax_narrative import enrich as selected_enricher
+    elif a.style=='readable':
         from minmax_readable import enrich as selected_enricher
     else:selected_enricher=enrich
     enrich_feed(a.feed,a.cache_dir,client,a.max_new,enricher=selected_enricher)
