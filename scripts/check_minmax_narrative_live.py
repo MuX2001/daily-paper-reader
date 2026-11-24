@@ -15,7 +15,7 @@ from triage_enrich import atomic_json
 def main():
     p=argparse.ArgumentParser();p.add_argument('--output',type=Path,required=True);a=p.parse_args()
     key=os.environ['DEEPSEEK_API_KEY']
-    client=LLMClient(key,'deepseek-flash','https://api.deepseek.com');client.max_attempts=1
+    client=LLMClient(key,os.getenv('NARRATIVE_SAMPLE_MODEL','deepseek-flash'),'https://api.deepseek.com');client.max_attempts=1
     client.kwargs.update(max_tokens=65536,thinking={'type':'enabled'},reasoning_effort='high')
     original=client.chat_structured;responses=[]
     def record(*args,**kwargs):
