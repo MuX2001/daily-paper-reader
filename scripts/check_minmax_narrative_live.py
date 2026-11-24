@@ -24,6 +24,10 @@ def main():
         atomic_json(a.output/'responses.json',responses);return result
     client.chat_structured=record
     samples=[('1706.03762v7','Attention Is All You Need'),('2610.28457v1','GPT-6-Astra Understands Touch and Outperform Vision--Tactile--Language--Action Models'),('2610.31472v1','VecTile: A Low-Cost Flexible Tactile Array for 3-DoF Force Sensing')]
+    requested=set(filter(None,os.getenv('NARRATIVE_SAMPLE_IDS','').split(',')))
+    if requested:
+        if not requested.issubset({id for id,_ in samples}):raise ValueError('Unknown sample ID')
+        samples=[s for s in samples if s[0] in requested]
     existing=json.loads(Path('docs/data/daily/20261124.json').read_text())['papers'];report=[]
     for id,title in samples:
         paper=next((p for p in existing if p['original_id']==id),dict(paper_key='arxiv:'+id,original_id=id,source='arxiv',title=title,score=None,tags=[]))
