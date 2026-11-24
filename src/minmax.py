@@ -46,7 +46,7 @@ def validate(value,paper,parts):
         if not isinstance(c,dict) or set(c)!= {'text','quote','source_id'}:raise ValueError('Invalid claim')
         if all(v is None for v in c.values()):continue
         if not all(isinstance(v,str) and v.strip() for v in c.values()):raise ValueError('Incomplete evidence')
-        if c['source_id'] not in sources or not 8<=len(c['quote'])<=600 or c['quote'] not in sources[c['source_id']]:raise ValueError('Unsupported evidence')
+        if c['source_id'] not in sources or not 8<=len(c['quote'])<=800 or c['quote'] not in sources[c['source_id']]:raise ValueError(f'Unsupported evidence: {field}')
         if field=='steps':
             # Accept numbered steps on one line without weakening step count.
             normalized=re.sub(r'[；;]\s*(?=[1-4][).、])','\n',c['text'])
