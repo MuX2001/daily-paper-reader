@@ -69,7 +69,12 @@ def validate(value,paper,parts):
         if all(v is None for v in c.values()):continue
         if not all(isinstance(v,str) and v.strip() for v in c.values()):raise ValueError('Incomplete evidence')
         source=sources.get(c['source_id'],'')
-        if c['quote'] not in source:c['quote']=restore_omitted_lines(c['quote'],source)
+        if c['quote'] not in source:
+            # HTML/PDF line wrapping is not a factual difference. Restore the
+            # exact source spelling; never normalize words, numbers or case.
+            pattern=r'\s+'.join(re.escape(word) for word in c['quote'].split())
+            match=re.search(pattern,source) if pattern else None
+            c['quote']=match.group() if match else restore_omitted_lines(c['quote'],source)
         if not 8<=len(c['quote'])<=800 or c['quote'] not in source:raise ValueError(f'Unsupported evidence: {field}')
         if field=='steps':
             # Accept numbered steps on one line without weakening step count.

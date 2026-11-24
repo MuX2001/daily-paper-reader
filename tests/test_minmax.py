@@ -61,3 +61,11 @@ class MinMaxTests(unittest.TestCase):
         self.assertEqual(restore_omitted_lines(quote,source),source)
         changed=quote.replace('93.8','99.8')
         self.assertEqual(restore_omitted_lines(changed,source),changed)
+
+    def test_line_wrapping_preserves_words_and_numbers(self):
+        p={'paper_key':'p'};v={'paper_key':'p','title_zh':'标题',**{k:dict(text=None,quote=None,source_id=None) for k in FIELDS}}
+        v['constraints']={'text':'50条示范','quote':'We use 50 demonstrations for each task.','source_id':'E1'}
+        source='We use 50 demonstrations\nfor each task.'
+        self.assertEqual(validate(v,p,[{'id':'E1','text':source}])['constraints']['quote'],source)
+        v['constraints']['quote']='We use 60 demonstrations for each task.'
+        with self.assertRaises(ValueError):validate(v,p,[{'id':'E1','text':source}])
