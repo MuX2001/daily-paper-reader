@@ -92,10 +92,11 @@ class CloudModelTests(unittest.TestCase):
                 rank.LocalQwenReranker()
 
     def test_workflows_set_cloud_policy_and_smoke_check(self):
-        for name in ["daily-paper-reader", "conference-paper-retrieval"]:
+        for name, job_id in [("daily-paper-reader", "run"), ("conference-paper-retrieval", "retrieve")]:
             path = ROOT / ".github/workflows" / f"{name}.yml"
             workflow = yaml.safe_load(path.read_text())
-            job = next(iter(workflow["jobs"].values()))
+            # Reusable deep-reading/publishing jobs need not be retrieval jobs.
+            job = workflow["jobs"][job_id]
             self.assertEqual(job["env"]["DPR_MODELS_REMOTE_ONLY"], "1")
             self.assertEqual(job["env"]["DPR_EMBED_ALLOW_LOCAL_FALLBACK"], "0")
             self.assertNotIn("torch==", path.read_text())

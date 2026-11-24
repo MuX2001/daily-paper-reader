@@ -345,3 +345,7 @@ paper_states 新增 note_text（默认空串、最多50000字符），复用 own
 修正dev精读入口：复用默认分支已有daily-paper-reader.yml注册入口，显式pipeline_action=deep-read调用同提交可复用workflow，跳过日报；独立concurrency避免阻塞日常任务。轮询/恢复按仓库运行请求ID与精确版本关联，兼容旧独立workflow记录。未改默认分支/Pages配置。
 
 验证：29项前端单测、14项Python测试与7项subtests、生产构建、actionlint通过；12组生产子路径浏览器场景通过，新增真实剪贴板/下载内容/预设切换/共用模板可见性/移动布局检查。GitHub派发与模型仍是mock测试，未使用真实密钥或声称真实生成质量通过。5174服务返回200。下一步用户配置DeepSeek Secrets后实际生成一篇并人工对照原文。
+
+### 云端全量回归的任务定位修正
+
+0ee1f21的全量回归45302674374在test_cloud_models失败：旧测试用jobs第一个任务作为检索任务，新增可复用精读任务后读取不到env。现在分别明确检查日报run、会议retrieve任务，保留远程模型策略与轻量smoke断言。修复后本地完整pytest为616 passed、107 subtests passed；原新版阅读器CI 45302674351已经通过工作流校验、29项JS、50项Python及构建，浏览器步骤核对时仍在运行，不冒称完成。此次无产品运行逻辑变更。
