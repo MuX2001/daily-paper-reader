@@ -140,14 +140,22 @@ def build_catalog(root: Path, destination: Path):
             previous['papers'].extend(missing)
             atomic_json(output,previous)
     routes=reading_index(root)
+    # Reuse verified exact-version analysis across dates without touching states.
+    analysis={}
+    for output in sorted((destination/'daily').glob('*.json')):
+        for paper in json.loads(output.read_text()).get('papers',[]):
+            if paper.get('paper_key') and paper.get('minmax',{}).get('status')=='ready':analysis[paper['paper_key']]=paper['minmax']
     # Include published feeds even if their retrieval cache/archive was evicted.
     for output in sorted((destination/'daily').glob('*.json')):
         feed=json.loads(output.read_text());run_id=feed['run_id']
         if feed.get('schema_version')!=1:raise ValueError('Unsupported reader feed')
         for paper in feed['papers']:
             attach_reading(paper,routes)
+            if paper.get('paper_key') in analysis:
+                paper['minmax']=analysis[paper['paper_key']]
+                paper['content_status']='minmax'
         atomic_json(output,feed)
-        if feed['papers']:entries[run_id]={'run_id':run_id,'count':len(feed['papers']),'path':f'daily/{run_id}.json'}
+        if feed['papers']:entries[run_id]={'run_id':run_id,'count':len(feed['papers']),'path':f'daily/{run_id}.json',**({'title':feed['title']} if feed.get('title') else {})}
     records=sorted(entries.values(),key=lambda e:e['run_id'],reverse=True)
     conferences,skipped=conference_catalog(root,destination)
     atomic_json(destination/'catalog.json',{'schema_version':1,'runs':records,'conferences':conferences,'migration':{'unresolved_conference_routes':skipped},'topics':topic_catalog(root,destination,routes)})

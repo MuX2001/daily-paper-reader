@@ -7,6 +7,19 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src'))
 from reader_catalog import build_catalog,local_route
 
 class ReaderCatalogTests(unittest.TestCase):
+    def test_analysis_reused_across_dates_only_for_exact_version(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);dest=root/'output';(dest/'daily').mkdir(parents=True)
+            base={'paper_key':'arxiv:1706.03762v7','source':'arxiv','original_id':'1706.03762v7','title_zh':None}
+            older={'schema_version':1,'run_id':'20261123','papers':[dict(base),dict(base,paper_key='arxiv:1706.03762v6',original_id='1706.03762v6')]}
+            newer={'schema_version':1,'run_id':'20261124','title':'已验证样本','papers':[dict(base,minmax={'status':'ready','delta':{'text':'verified'}})]}
+            for feed in (older,newer):(dest/'daily'/f"{feed['run_id']}.json").write_text(json.dumps(feed))
+            entries=build_catalog(root,dest)
+            self.assertEqual(entries[0]['title'],'已验证样本')
+            records=json.loads((dest/'daily/20261123.json').read_text())['papers']
+            self.assertEqual(records[0]['minmax']['delta']['text'],'verified')
+            self.assertNotIn('minmax',records[1])
+
     def test_existing_feed_survives_archive_eviction_and_matches_exact_text_version(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder);dest=root/'output';(dest/'daily').mkdir(parents=True)
