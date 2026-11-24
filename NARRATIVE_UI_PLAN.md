@@ -25,3 +25,13 @@
 界面验证：636项Python测试/107子测试、33项TS单测、14组生产构建浏览器检查通过。浏览器覆盖收藏两端互相更新/刷新、预览归档/恢复、复制使用已保存提示词、下载包含摘要与草稿、三段字段映射、标题排版、移动端无横向溢出。收藏云端接口使用mock，未据此宣称真实Supabase项目重新联调。实际5174页面首卡y约159px，旧布局约370px；已保存桌面与移动端截图。
 
 当前是dev验收，没有修改main、Pages配置或发布首页/News公告。
+
+## 最终样本
+
+Flash直接草稿仍有篇幅偏长/格式不完整的问题，故验收流程明确拆为原文生成草稿，再对已通过的草稿做一次Flash编辑。编辑不再抓原文、不加新数字，正文在450–650字符内；失败即停止，保留草稿/报告，不无界重试、不替换用户阅读数据。脚本check_minmax_narrative_live.py与edit_narrative_samples.py分别负责两步；每日默认尚未采用此流程。
+
+最终三篇都来自Flash，编辑后正文长度为564/575/546字符。最终编辑工作流45348802454成功，三次调用分别41.79/28.70/34.33秒，合计25415 tokens（含思考）。此前Flash与误选Pro实验另有消耗，该数不是全部实验账单。缓存与原始结果位于workspace/runs/daily-paper-reader/narrative-edited-flash。
+
+本地独立验收页：http://127.0.0.1:5174/summary-review/ ，包含完整新旧文案、原始JSON与下载。浏览器逐篇验证JSON未被页面改写，移动端无横向溢出。该页是独立生成产物，生产构建清空输出目录后可用scripts/render_narrative_review.py按--input/--output重新生成。
+
+一次性引用旧Actions artifact的步骤已清理；固定Flash的通用测试工作流保存drafts与review，未保留过期run-id依赖。
