@@ -27,6 +27,22 @@ npm run dev
 
 本项目已经完成隔离本地 Supabase 的真实 Auth/REST/多会话测试；托管项目与 GitHub OAuth 仍需按上述流程验收。没有连接时可公开浏览、下载笔记，不能将未保存状态显示为已同步；当前不提供后台离线写入队列。
 
+### 登录返回400：provider is not enabled
+
+`Unsupported provider: provider is not enabled` 表示当前Supabase未启用GitHub provider，与是否部署到GitHub Pages无关。现在点击GitHub登录会先检查provider设置，并在页面内提示，不直接跳到错误页。可以按上文配置GitHub OAuth，或使用设置中的“邮箱登录/注册邮箱账户”；托管项目若开启邮箱确认，须按邮件完成验证。
+
+本机已启动Supabase测试库时，可以为外部构建目录准备公开连接文件：
+
+```bash
+python scripts/prepare_reader_local.py \
+  --connection /path/to/private/local-supabase-status.json \
+  --build "$HOME/workspace/runs/daily-paper-reader/web-build"
+```
+
+输入是本地Supabase CLI的status JSON，保持私有；脚本仅输出回环API地址和anon公钥，不输出service key。只有本地页面才显示“连接本地测试库”。点击后用邮箱注册自己的测试账户，即可测试收藏、归档和笔记；本地测试数据与托管项目相互独立。重新构建后需重新执行此命令。若浏览器通过SSH转发访问远端机器，还需转发Supabase API端口54321。不要将本地连接文件上传至生产站点。
+
+`reader/tests/browser-auth-live.mjs` 使用 `DPR_LOCAL_SUPABASE_CONNECTION` 和 `DPR_TEST_URL` 显式运行真实本地UI注册/登录/笔记保存测试，测试完成只删除自身创建的临时账户，不访问托管项目。
+
 ## 每日分诊与模型配置
 
 仓库 Settings → Secrets and variables → Actions 中设置：

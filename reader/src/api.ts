@@ -18,9 +18,10 @@ export async function feed(path: string, signal?: AbortSignal) {
   return data;
 }
 let client: SupabaseClient | null = null;
+let connection:{url:string;key:string}|null=null;
 export function getClient(): SupabaseClient | null { return client; }
 export function configureCloud(url: string, key: string) {
-  if (!url && !key) { client = null; return; }
+  if (!url && !key) { client = null; connection=null; return; }
   url=cloudURL(url,typeof location==='undefined'?'https://reader.invalid':location.href);
   if (key.startsWith('sb_secret_')) throw new Error('浏览器禁止使用 secret key');
   if (key.startsWith('ey')) {
@@ -28,6 +29,18 @@ export function configureCloud(url: string, key: string) {
     catch { throw new Error('请使用 publishable key 或 anon 公钥，不能使用 service role'); }
   } else if (!key.startsWith('sb_publishable_')) throw new Error('公钥格式无效');
   client = createClient(url, key);
+  connection={url,key};
+}
+export async function githubLogin(){
+ const captured=client,saved=connection;
+ if(!captured||!saved)throw new Error('请先保存 Supabase 连接配置');
+ const response=await fetch(`${saved.url}/auth/v1/settings`,{headers:{apikey:saved.key},signal:AbortSignal.timeout(15000)});
+ if(!response.ok)throw new Error(`无法检查登录配置 (${response.status})`);
+ const settings=await response.json();
+ if(client!==captured)throw new Error('连接已变更，请重新登录');
+ if(settings.external?.github!==true)throw new Error('此 Supabase 项目尚未启用 GitHub 登录。请在 Supabase Auth 中配置 GitHub OAuth，或使用下方邮箱登录。');
+ const {error}=await captured.auth.signInWithOAuth({provider:'github',options:{redirectTo:new URL('./',location.href).href}});
+ if(error)throw error;
 }
 export async function loadStates(userId: string) {
   const capturedClient=client;
