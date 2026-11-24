@@ -1,7 +1,8 @@
-import {chromium} from '@playwright/test';
+import {chromium,expect} from '@playwright/test';
 import assert from 'node:assert/strict';
 const browser=await chromium.launch({headless:true});const page=await browser.newPage({viewport:{width:1440,height:1000}});
 let sent;
+await page.route('**/docs/20261124/fixture-2.txt',route=>route.fulfill({contentType:'text/plain',body:'SECOND_PAPER_CONTEXT_ONLY\n'+('Second paper full text. '.repeat(250))+'\nReferences\nSecond reference.'}));
 await page.route('https://model.example/**',async route=>{sent=route.request().postDataJSON();await route.fulfill({status:200,contentType:'text/event-stream',body:'data: {"choices":[{"delta":{"content":"根据已提供全文，核心假设如下。"}}]}\n\ndata: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'});});
 await page.goto(process.env.DPR_TEST_URL||'http://127.0.0.1:5173/');await page.locator('.paper-card').first().waitFor();
 await page.locator('.profile').click();await page.getByRole('tab',{name:/网页 AI 聊天/}).click();
@@ -12,4 +13,16 @@ await page.getByLabel('向论文提问',{exact:true}).fill('解释核心假设')
 await page.getByText('根据已提供全文，核心假设如下。',{exact:true}).waitFor();
 assert.ok(sent.messages[1].content.length>4000);assert.match(sent.messages[1].content,/References|references/);assert.match(sent.messages[1].content,/Paper full text/);
 assert.equal(await page.evaluate(()=>Object.values(localStorage).some(v=>String(v).includes('mock-api-key'))),false);
-await browser.close();console.log('Chat UI passed with mocked model: full text included, streaming response shown, API key memory-only');
+for(const index of [1,0,1,0,1,1]){
+ await page.locator('.paper-select').nth(index).click();
+ await expect(page.getByRole('heading',{name:'与论文对话',exact:true})).toHaveCount(1);
+ await expect(page.getByLabel('向论文提问',{exact:true})).toHaveCount(1);
+ await expect(page.getByRole('region',{name:'聊天客户端精读',exact:true})).toHaveCount(1);
+ await expect(page.locator('.chat-history .chat-message')).toHaveCount(0);
+ await expect(page.getByRole('region',{name:'原始摘要',exact:true})).toContainText('Synthetic browser fixture abstract.');
+}
+await page.getByLabel('向论文提问',{exact:true}).fill('解释第二篇');await page.getByRole('button',{name:'发送问题',exact:true}).click();
+await page.getByText('根据已提供全文，核心假设如下。',{exact:true}).waitFor();
+assert.match(sent.messages[1].content,/SECOND_PAPER_CONTEXT_ONLY/);
+assert.equal(sent.messages.length,3);assert.equal(sent.messages[2].content,'解释第二篇');
+await browser.close();console.log('Chat UI passed: one panel after repeated selection, history reset, current-paper context, streaming, API key memory-only');
