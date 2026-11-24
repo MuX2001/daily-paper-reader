@@ -45,3 +45,19 @@ class MinMaxTests(unittest.TestCase):
         self.assertEqual(len(validate(v,p,parts)['steps']['text'].splitlines()),3)
         v['steps']['text']='This is just prose.'
         with self.assertRaises(ValueError):validate(v,p,parts)
+
+    def test_complete_evidence_paragraph_has_separate_budget(self):
+        p={'paper_key':'p'};v={'paper_key':'p','title_zh':'标题',**{k:dict(text=None,quote=None,source_id=None) for k in FIELDS}}
+        quote='A measured result. '*35
+        v['evidence']={'text':'报告了一项测量结果','quote':quote,'source_id':'E1'}
+        validate(v,p,[{'id':'E1','text':quote}])
+        v['evidence']['quote']='x'*801
+        with self.assertRaises(ValueError):validate(v,p,[{'id':'E1','text':'x'*801}])
+
+    def test_restore_only_exact_omitted_table_lines(self):
+        from minmax import restore_omitted_lines
+        source='Table 2:\nMeasured values.\nMeans across tasks.\nMethod\nOurs\n93.8'
+        quote='Table 2:\nMeasured values.\nMethod\nOurs\n93.8'
+        self.assertEqual(restore_omitted_lines(quote,source),source)
+        changed=quote.replace('93.8','99.8')
+        self.assertEqual(restore_omitted_lines(changed,source),changed)

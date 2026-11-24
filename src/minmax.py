@@ -36,6 +36,28 @@ def excerpts(text):
     return result
 
 
+def restore_omitted_lines(quote,source):
+    """Restore up to three omitted whole lines; never fuzzy-match changed words.
+
+    Models sometimes omit table-caption boilerplate. Return the unique exact
+    contiguous source span, including missing lines, or leave it unverified.
+    """
+    wanted=quote.splitlines();lines=source.splitlines();matches=set()
+    if len(wanted)<2:return quote
+    for start,line in enumerate(lines):
+        if line!=wanted[0]:continue
+        pos=start;skipped=0
+        for target in wanted[1:]:
+            found=next((j for j in range(pos+1,min(len(lines),pos+5)) if lines[j]==target),None)
+            if found is None:break
+            skipped+=found-pos-1;pos=found
+            if skipped>3:break
+        else:
+            span='\n'.join(lines[start:pos+1])
+            if len(span)<=800 and span in source:matches.add(span)
+    return next(iter(matches)) if len(matches)==1 else quote
+
+
 def validate(value,paper,parts):
     if not isinstance(value,dict) or set(value)!=set(SCHEMA['required']) or value['paper_key']!=paper['paper_key']:
         raise ValueError('Min-Max identity/schema mismatch')
@@ -46,7 +68,9 @@ def validate(value,paper,parts):
         if not isinstance(c,dict) or set(c)!= {'text','quote','source_id'}:raise ValueError('Invalid claim')
         if all(v is None for v in c.values()):continue
         if not all(isinstance(v,str) and v.strip() for v in c.values()):raise ValueError('Incomplete evidence')
-        if c['source_id'] not in sources or not 8<=len(c['quote'])<=800 or c['quote'] not in sources[c['source_id']]:raise ValueError(f'Unsupported evidence: {field}')
+        source=sources.get(c['source_id'],'')
+        if c['quote'] not in source:c['quote']=restore_omitted_lines(c['quote'],source)
+        if not 8<=len(c['quote'])<=800 or c['quote'] not in source:raise ValueError(f'Unsupported evidence: {field}')
         if field=='steps':
             # Accept numbered steps on one line without weakening step count.
             normalized=re.sub(r'[；;]\s*(?=[1-4][).、])','\n',c['text'])
