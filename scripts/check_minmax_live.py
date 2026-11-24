@@ -17,7 +17,7 @@ def main():
     if not key:raise ValueError('Missing repository DEEPSEEK_API_KEY')
     # Only the official account endpoint; never forward this key to other services.
     client=LLMClient(key,'deepseek-flash','https://api.deepseek.com');client.max_attempts=1
-    client.kwargs.update(max_tokens=4096,temperature=0,thinking={'type':'disabled'})
+    client.kwargs.update(max_tokens=65536,thinking={'type':'enabled'},reasoning_effort='high')
     original=client.chat_structured;responses=[]
     def record(*args,**kwargs):
         result=original(*args,**kwargs)

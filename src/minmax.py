@@ -108,9 +108,11 @@ def main():
     endpoint=os.getenv('TRIAGE_BASE_URL') or os.getenv('DEEPSEEK_BASE_URL') or 'https://api.deepseek.com'
     if not key or not model:raise ValueError('Configure TRIAGE/DEEPSEEK API key and model')
     client=LLMClient(key,model,endpoint);client.max_attempts=1;client.kwargs.update(max_tokens=4096,temperature=0)
-    # Extraction is distinct from deep reasoning. Do not change deep-read settings.
+    # Short output still benefits from reasoning for evidence alignment.
     from urllib.parse import urlsplit
-    if urlsplit(endpoint).hostname=='api.deepseek.com':client.kwargs['thinking']={'type':'disabled'}
+    if urlsplit(endpoint).hostname=='api.deepseek.com':
+        client.kwargs.pop('temperature',None)
+        client.kwargs.update(max_tokens=65536,thinking={'type':'enabled'},reasoning_effort='high')
     enrich_feed(a.feed,a.cache_dir,client,a.max_new)
 
 if __name__=='__main__':main()
