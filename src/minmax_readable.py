@@ -9,7 +9,7 @@ from reader_fulltext import get_fulltext
 
 PROMPT=Path(__file__).with_name('minmax_readable_prompt.txt').read_text()
 LIMITS={'tldr':45,'problem_delta':70,'evidence':80,'caveats':60,'where_to_look':40}
-BANNED=('本文针对','痛点','提出了一种','创新性','端到端框架','有效解决了','显著提升','取得了优异性能','值得注意的是','综合来看','极具潜力','不训练不微调','免预训练','均成功率')
+BANNED=('本文针对','痛点','提出了一种','创新性','端到端框架','有效解决了','显著提升','取得了优异性能','值得注意的是','综合来看','极具潜力','不训练不微调','免预训练')
 MISSING='所选片段未说明'
 FIELDS=(*LIMITS,'method_steps','tags')
 CARD_SCHEMA={'type':'object','properties':{**{k:{'type':'string','maxLength':v} for k,v in LIMITS.items()},'method_steps':{'type':'array','maxItems':4,'items':{'type':'string','maxLength':40}},'tags':{'type':'array','minItems':2,'maxItems':4,'items':{'type':'string','maxLength':12}}},'required':list(FIELDS),'additionalProperties':False}
@@ -82,6 +82,7 @@ def validate(value,parts):
     if sum(len(card[k]) for k in LIMITS if k!='tldr')+sum(map(len,steps))>400:raise ValueError('Card too long')
     prose=' '.join([*(card[k] for k in LIMITS),*steps,*tags])
     if any(w in prose for w in (*BANNED,'原文未提','全文没有','**','##')):raise ValueError('Banned prose')
+    if re.search(r'(?<!平)均成功率',prose):raise ValueError('Ambiguous success-rate wording')
     if len(re.findall(r'[。！？!?]',card['tldr'].rstrip('。')))>0:raise ValueError('TLDR must be one sentence')
     sources={p['id']:p['text'] for p in parts}
     for k,c in quotes.items():

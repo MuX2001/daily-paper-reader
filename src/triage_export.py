@@ -78,7 +78,7 @@ def merge_records(records):
             record['tags'] = combined_tags
             # Rebuilding the offline catalog must not erase verified enrichment.
             if old.get('content_status') in ('triage','minmax') and all(old.get(k) == record.get(k) for k in ('paper_key','title','abstract')):
-                for field in ('title_zh','tldr','breakdown','evidence','code_url','thumbnail','content_status','triage_cache_key','input_scope','minmax'):
+                for field in ('title_zh','tldr','breakdown','evidence','code_url','thumbnail','content_status','triage_cache_key','input_scope','minmax','minmax_candidate'):
                     if field in old: record[field] = old[field]
         else:
             record = dict(record, tags=sorted(set(record['tags'])))

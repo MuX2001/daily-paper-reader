@@ -141,10 +141,11 @@ def build_catalog(root: Path, destination: Path):
             atomic_json(output,previous)
     routes=reading_index(root)
     # Reuse verified exact-version analysis across dates without touching states.
-    analysis={}
+    analysis={};candidates={}
     for output in sorted((destination/'daily').glob('*.json')):
         for paper in json.loads(output.read_text()).get('papers',[]):
             if paper.get('paper_key') and paper.get('minmax',{}).get('status')=='ready':analysis[paper['paper_key']]=paper['minmax']
+            if paper.get('paper_key') and paper.get('minmax_candidate',{}).get('status')=='ready':candidates[paper['paper_key']]=paper['minmax_candidate']
     # Include published feeds even if their retrieval cache/archive was evicted.
     for output in sorted((destination/'daily').glob('*.json')):
         feed=json.loads(output.read_text());run_id=feed['run_id']
@@ -154,6 +155,7 @@ def build_catalog(root: Path, destination: Path):
             if paper.get('paper_key') in analysis:
                 paper['minmax']=analysis[paper['paper_key']]
                 paper['content_status']='minmax'
+            if paper.get('paper_key') in candidates:paper['minmax_candidate']=candidates[paper['paper_key']]
         atomic_json(output,feed)
         if feed['papers']:entries[run_id]={'run_id':run_id,'count':len(feed['papers']),'path':f'daily/{run_id}.json',**({'title':feed['title']} if feed.get('title') else {})}
     records=sorted(entries.values(),key=lambda e:e['run_id'],reverse=True)

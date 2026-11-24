@@ -110,14 +110,15 @@ def enrich(paper,client,root,allow_new=True,fetcher=get_fulltext):
     return {**paper,'title_zh':result['title_zh'],'minmax':card,'tldr':result['delta']['text'] or paper.get('tldr'),'content_status':'minmax'},reused
 
 
-def enrich_feed(path,root,client,max_new=50):
+def enrich_feed(path,root,client,max_new=50,enricher=enrich):
     feed=json.loads(Path(path).read_text());calls=0;failures=0
     # Never expand the final list; process highest-ranked cards first.
     for i in sorted(range(len(feed['papers'])),key=lambda i:-(feed['papers'][i].get('score') or 0)):
         p=feed['papers'][i]
         try:
-            result,reused=enrich(p,client,root,allow_new=calls<max_new)
-            if result is None:p['minmax']={'status':'deferred','reason':'本轮生成预算已用完'}
+            result,reused=enricher(p,client,root,allow_new=calls<max_new)
+            if result is None:
+                if p.get('minmax',{}).get('status')!='ready':p['minmax']={'status':'deferred','reason':'本轮生成预算已用完'}
             else:feed['papers'][i]=result;calls+=not reused
         except Exception as exc:
             # Count failed attempts conservatively toward the budget too.
@@ -131,7 +132,7 @@ def enrich_feed(path,root,client,max_new=50):
 
 def main():
     from llm import LLMClient
-    p=argparse.ArgumentParser();p.add_argument('--feed',required=True);p.add_argument('--cache-dir',required=True);p.add_argument('--max-new',type=int,default=50);a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--feed',required=True);p.add_argument('--cache-dir',required=True);p.add_argument('--max-new',type=int,default=50);p.add_argument('--style',choices=['classic','readable'],default='classic');a=p.parse_args()
     if a.max_new<0:raise ValueError('Negative budget')
     key=os.getenv('TRIAGE_API_KEY') or os.getenv('DEEPSEEK_API_KEY');model=os.getenv('TRIAGE_MODEL') or os.getenv('DEEPSEEK_MODEL')
     endpoint=os.getenv('TRIAGE_BASE_URL') or os.getenv('DEEPSEEK_BASE_URL') or 'https://api.deepseek.com'
@@ -142,6 +143,9 @@ def main():
     if urlsplit(endpoint).hostname=='api.deepseek.com':
         client.kwargs.pop('temperature',None)
         client.kwargs.update(max_tokens=65536,thinking={'type':'enabled'},reasoning_effort='high')
-    enrich_feed(a.feed,a.cache_dir,client,a.max_new)
+    if a.style=='readable':
+        from minmax_readable import enrich as selected_enricher
+    else:selected_enricher=enrich
+    enrich_feed(a.feed,a.cache_dir,client,a.max_new,enricher=selected_enricher)
 
 if __name__=='__main__':main()
