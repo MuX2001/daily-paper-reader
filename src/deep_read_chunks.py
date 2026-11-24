@@ -78,6 +78,8 @@ def plan_segments(text,max_chars):
     return segments
 
 
+from deep_read_config import generation_options
+
 def extraction_identity():
     return {'prompt':PROMPT,'schema':SCHEMA,'synthesis_instructions':SYNTHESIS_INSTRUCTIONS,
             'max_chunks':MAX_CHUNKS,'strategy':'consecutive-paragraph-v1'}
@@ -88,7 +90,7 @@ def extract_evidence(text,segments,client,cache_dir,paper_id,progress=None):
     for index,(start,end) in enumerate(segments):
         segment=text[start:end]
         identity={'paper_id':paper_id,'start':start,'end':end,'text_hash':hashlib.sha256(segment.encode()).hexdigest(),
-                  'model':client.model,'endpoint':client.base_url,**extraction_identity()}
+                  'model':client.model,'endpoint':client.base_url,'generation':generation_options(client.model,client.base_url),**extraction_identity()}
         key=hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest()
         path=Path(cache_dir)/'segments'/f'{key}.json'
         if path.exists():

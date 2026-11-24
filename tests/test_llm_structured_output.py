@@ -14,6 +14,18 @@ from llm import LLMClient
 
 class LlmStructuredOutputTest(unittest.TestCase):
     @patch("llm.requests.post")
+    def test_truncated_output_does_not_repeat_paid_generation(self, mock_post):
+        response = self._mock_success_response({"content": '{"answer":"unfinished'})
+        response.json.return_value['choices'][0]['finish_reason'] = 'length'
+        mock_post.return_value = response
+        client = LLMClient(api_key='test', model='deepseek-flash', base_url='https://api.deepseek.com')
+        result = client.chat_structured([{'role':'user','content':'read'}], 'note', {'type':'object'})
+        self.assertEqual(mock_post.call_count, 1)
+        self.assertEqual(result['finish_reason'], 'length')
+        self.assertIsNone(result['parsed'])
+        self.assertIsNotNone(result['parse_error'])
+
+    @patch("llm.requests.post")
     def test_explicit_thinking_toggle_is_forwarded(self, mock_post):
         mock_post.return_value = self._mock_success_response({"content": "ok"})
         client = LLMClient(api_key="test-key", model="deepseek-v4-flash", base_url="https://api.deepseek.com")

@@ -13,6 +13,15 @@ from reader_fulltext import validate_id,validate_fulltext
 
 
 class DeepReadTests(unittest.TestCase):
+    def test_generation_budget_matches_mode(self):
+        from deep_read_config import generation_options
+        flash=generation_options('deepseek-flash','https://api.deepseek.com/v1')
+        pro=generation_options('deepseek-v4-pro','https://api.deepseek.com')
+        self.assertEqual(flash['thinking'],{'type':'disabled'})
+        self.assertEqual(pro['thinking'],{'type':'enabled'})
+        self.assertGreater(pro['max_tokens'],flash['max_tokens'])
+        self.assertNotIn('thinking',generation_options('custom','https://example.org'))
+
     def setUp(self):
         self.text='Title: quoted\nAuthor\n'+('We compare to baseline using a fixed evaluation protocol. '*100)+'\nReferences\nA citation.'
         self.meta={'sha256':hashlib.sha256(self.text.encode()).hexdigest(),'source_url':'https://arxiv.org/html/1706.03762v7'}

@@ -12,7 +12,7 @@ import re
 import unicodedata
 
 from reader_fulltext import get_fulltext
-from deep_read_config import resolve_config
+from deep_read_config import resolve_config, generation_options
 from reader_identity import validate_id, validate_request_id
 from triage_enrich import atomic_json
 from deep_read_chunks import (plan_segments,extract_evidence,extraction_identity,
@@ -93,9 +93,11 @@ def run(paper_id,request_id,cache_dir,output_dir,client,max_chars=350_000,fetche
     atomic_json(status_path,status)
     try:
         with request_lock(cache_dir/(hashlib.sha256(paper_id.encode()).hexdigest()+'.lock')):
+            print('正在获取指定版本全文…',flush=True)
             text,meta=fetcher(paper_id,cache_dir/'sources')
+            print(f'全文已就绪：{len(text)} 字符',flush=True)
             segments=plan_segments(text,max_chars) if len(text)>max_chars else None
-            identity={'paper_id':paper_id,'source_hash':meta['sha256'],'prompt':PROMPT,'schema':SCHEMA,'model':client.model,'endpoint':client.base_url}
+            identity={'paper_id':paper_id,'source_hash':meta['sha256'],'prompt':PROMPT,'schema':SCHEMA,'model':client.model,'endpoint':client.base_url,'generation':generation_options(client.model,client.base_url)}
             if segments:identity.update(extraction=extraction_identity(),segments=segments,max_chars=max_chars,synthesis_prompt=SYNTHESIS_PROMPT)
             key=hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest()
             cache=cache_dir/'notes'/f'{key}.json'
@@ -121,7 +123,10 @@ def run(paper_id,request_id,cache_dir,output_dir,client,max_chars=350_000,fetche
                     content=synthesis_input(paper_id,text,records,max_chars)
                     prompt=SYNTHESIS_PROMPT
                     status.update(stage='synthesizing');atomic_json(status_path,status)
+                print(f'正在生成精读笔记：{client.model}',flush=True)
                 result=client.chat_structured([{'role':'system','content':prompt},{'role':'user','content':content}],schema_name='deep_read_note',schema=SCHEMA)
+                if result.get('finish_reason')=='length':
+                    raise ValueError('模型输出达到上限，笔记未完成；已停止，不会自动重复付费生成。Flash 可使用非思考模式，思考模型需要更大的输出预算。')
                 if result.get('parse_error') or result.get('refusal') or result.get('finish_reason')=='length': raise ValueError('Model did not return a complete deep reading note')
                 note=validate_note(result.get('parsed'),text)
                 if records:
@@ -156,7 +161,7 @@ def main():
     except ValueError as exc:
         atomic_json(args.output_dir/'status.json',{'request_id':args.request_id,'paper_id':args.arxiv_id,'status':'failed','stage':'configuration','error':str(exc)})
         raise
-    client=LLMClient(key,model,endpoint);client.kwargs.update(max_tokens=16000,temperature=0.2)
+    client=LLMClient(key,model,endpoint);client.kwargs.update(generation_options(model,endpoint))
     run(args.arxiv_id,args.request_id,args.cache_dir,args.output_dir,client,args.max_chars)
 
 

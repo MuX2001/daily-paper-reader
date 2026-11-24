@@ -33,6 +33,16 @@ def resolve_config(env):
         raise ValueError('精读模型端点必须是无凭据和查询参数的 HTTPS 地址')
     return key,model,endpoint
 
+def generation_options(model, endpoint):
+    options = {'max_tokens': 16000, 'temperature': 0.2}
+    if urlsplit(endpoint).hostname == 'api.deepseek.com':
+        if model == 'deepseek-flash':
+            options['thinking'] = {'type': 'disabled'}
+        elif model == 'deepseek-v4-pro':
+            options.update(max_tokens=64000, thinking={'type': 'enabled'})
+    return options
+
+
 def preflight(env):
     try:
         _,model,endpoint=resolve_config(env)

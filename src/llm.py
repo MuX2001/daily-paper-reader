@@ -732,6 +732,13 @@ class LLMClient:
                     continue
                 raise
 
+            # A truncated completion is not a format compatibility failure.
+            # Retrying the same budget in another format repeats paid generation.
+            if response.get("finish_reason") == "length":
+                return {**response, "parsed": None,
+                        "parse_error": ValueError("Model output reached its token limit"),
+                        "response_format_used": format_name}
+
             parsed = None
             parse_error: Exception | None = None
             if not response.get("refusal"):
