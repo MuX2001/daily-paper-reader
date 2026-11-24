@@ -29,9 +29,11 @@ class LlmStructuredOutputTest(unittest.TestCase):
     def test_explicit_thinking_toggle_is_forwarded(self, mock_post):
         mock_post.return_value = self._mock_success_response({"content": "ok"})
         client = LLMClient(api_key="test-key", model="deepseek-v4-flash", base_url="https://api.deepseek.com")
-        client.kwargs["thinking"] = {"type": "disabled"}
+        client.kwargs["thinking"] = {"type": "enabled"}
+        client.kwargs["reasoning_effort"] = "high"
         client.chat(messages=[{"role": "user", "content": "hello"}])
-        self.assertEqual(mock_post.call_args.kwargs["json"].get("thinking"), {"type": "disabled"})
+        self.assertEqual(mock_post.call_args.kwargs["json"].get("thinking"), {"type": "enabled"})
+        self.assertEqual(mock_post.call_args.kwargs["json"].get("reasoning_effort"), "high")
 
     def _mock_success_response(self, message: dict):
         resp = MagicMock()

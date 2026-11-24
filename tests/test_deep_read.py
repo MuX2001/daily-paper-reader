@@ -17,9 +17,11 @@ class DeepReadTests(unittest.TestCase):
         from deep_read_config import generation_options
         flash=generation_options('deepseek-flash','https://api.deepseek.com/v1')
         pro=generation_options('deepseek-v4-pro','https://api.deepseek.com')
-        self.assertEqual(flash['thinking'],{'type':'disabled'})
+        self.assertEqual(flash['thinking'],{'type':'enabled'})
+        self.assertEqual(flash['reasoning_effort'],'high')
         self.assertEqual(pro['thinking'],{'type':'enabled'})
-        self.assertGreater(pro['max_tokens'],flash['max_tokens'])
+        self.assertEqual(pro['max_tokens'],65536)
+        self.assertEqual(flash['max_tokens'],65536)
         self.assertNotIn('thinking',generation_options('custom','https://example.org'))
 
     def setUp(self):

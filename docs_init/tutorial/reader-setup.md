@@ -140,4 +140,6 @@ python src/reader_feedback_eval.py \
 
 报告给出标注覆盖率、Top K中已标注正/负例数量、遗漏的已标注正例、新增/丢失的正例ID、标签覆盖和用量差异。仅在币种相同时比较金额；未知费用保持null。候选对象内容变化会改变指纹。标签数只表示标签覆盖，不等于语义多样性；少量不完整标注也不能支持统计显著性结论。工具中的human标识是输入者声明，不能替代真实人工评审。
 
-精读模式：官方 DeepSeek Flash 显式关闭思考，优先快速生成；Pro 保留思考，输出预算为64000（包含思考），通常更慢。两种模式都使用全文与证据校验。达到输出上限时停止，不以相同预算自动重复生成。切换模式不会沿用不同生成参数的笔记缓存。
+精读模式：官方 DeepSeek Flash 与 Pro 都显式开启 high 思考，输出预算65536（思考与正文共享），不再通过关闭思考降低等待时间。达到输出上限时停止，不以相同预算自动重复生成。参数变化会隔离旧笔记缓存。此链路的实际内容质量尚未完成验收；可以直接使用论文页「打开论文 PDF」与「复制精读提示词」，把 PDF 附给自己选择的聊天客户端。
+
+依据：[DeepSeek 思考模式](https://api-docs.deepseek.com/guides/thinking_mode/)、[输出预算](https://api-docs.deepseek.com/api/create-chat-completion/)、[DeepSeek 官方维护的 Cherry Studio 接入说明](https://github.com/deepseek-ai/awesome-deepseek-agent/blob/main/docs/cherry_studio.md)。这些参考支持思考与预算配置，不代表本站精读质量已经验证。

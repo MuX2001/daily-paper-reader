@@ -126,7 +126,7 @@ def run(paper_id,request_id,cache_dir,output_dir,client,max_chars=350_000,fetche
                 print(f'正在生成精读笔记：{client.model}',flush=True)
                 result=client.chat_structured([{'role':'system','content':prompt},{'role':'user','content':content}],schema_name='deep_read_note',schema=SCHEMA)
                 if result.get('finish_reason')=='length':
-                    raise ValueError('模型输出达到上限，笔记未完成；已停止，不会自动重复付费生成。Flash 可使用非思考模式，思考模型需要更大的输出预算。')
+                    raise ValueError('模型输出达到上限，笔记未完成；已停止，不会自动重复付费生成。需要检查输出预算；不会自动关闭思考。')
                 if result.get('parse_error') or result.get('refusal') or result.get('finish_reason')=='length': raise ValueError('Model did not return a complete deep reading note')
                 note=validate_note(result.get('parsed'),text)
                 if records:

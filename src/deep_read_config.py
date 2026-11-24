@@ -34,13 +34,11 @@ def resolve_config(env):
     return key,model,endpoint
 
 def generation_options(model, endpoint):
-    options = {'max_tokens': 16000, 'temperature': 0.2}
-    if urlsplit(endpoint).hostname == 'api.deepseek.com':
-        if model == 'deepseek-flash':
-            options['thinking'] = {'type': 'disabled'}
-        elif model == 'deepseek-v4-pro':
-            options.update(max_tokens=64000, thinking={'type': 'enabled'})
-    return options
+    # DeepSeek's thinking budget includes reasoning and the final answer.
+    # Keep high reasoning for deep reading; do not trade it away for latency.
+    if urlsplit(endpoint).hostname == 'api.deepseek.com' and model in ('deepseek-flash','deepseek-v4-pro'):
+        return {'max_tokens': 65536, 'thinking': {'type': 'enabled'}, 'reasoning_effort': 'high'}
+    return {'max_tokens': 16000, 'temperature': 0.2}
 
 
 def preflight(env):
