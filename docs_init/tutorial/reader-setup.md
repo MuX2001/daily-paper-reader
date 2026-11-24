@@ -15,6 +15,8 @@ npm run dev
 
 终端会给出本地地址。没有历史推荐数据时显示空列表，不会生成演示论文。`npm run build` 将生产站点写到 `DPR_WEB_OUTPUT_DIR`，默认 `~/workspace/runs/daily-paper-reader/web-build`。CI 的 `reader-site` artifact 是可用静态构建，不等于已部署的 Pages 站点。
 
+构建后运行 `npm run preview`，地址固定为 `http://127.0.0.1:5174/`，保持此终端运行。端口已占用时会明确报错，不悄悄换端口。远程服务器需在VS Code中转发5174端口。页面无法连接时先检查预览进程和转发是否仍在运行；换浏览器不会自动共享之前的项目连接偏好或登录会话。
+
 ## 连接个人阅读状态
 
 建议单独使用一个自己管理的 Supabase 项目保存阅读状态，不把公共论文召回库视为个人账户库。已有项目也可以使用，但应先确认拥有管理权限。
@@ -66,7 +68,7 @@ python scripts/prepare_reader_local.py \
 
 选择带明确版本的 arXiv 论文，按 `d` 或点击精读按钮，确认费用后提交。长文最多12段提取加1次合成；输入覆盖率不等于所有事实都被提取。失败时检查对应运行的状态/日志；成功时下载 Markdown。整页刷新后可用“恢复这篇的精读任务”查找最近300次运行，不会重新派发。
 
-只需快速剪藏时，设置实际 Obsidian vault 名称，点击“发送到 Obsidian”；过长笔记自动改为 Markdown 下载。URI 打开请求不证明桌面应用已经保存，需实际打开 vault 检查。[Obsidian URI 说明](https://help.obsidian.md/Extending+Obsidian/Obsidian+URI)
+只需快速剪藏时，在设置中填写实际 Obsidian vault 名称和“Obsidian 收件箱目录”（默认Inbox，可填Papers/Inbox等多级目录，留空放在vault根目录），点击“发送到 Obsidian”；过长笔记自动改为 Markdown 下载。URI 打开请求不证明桌面应用已经保存，需实际打开 vault 检查。[Obsidian URI 说明](https://help.obsidian.md/Extending+Obsidian/Obsidian+URI)
 
 需要自动同步时，先准备独立私有笔记仓库，再配置：
 
