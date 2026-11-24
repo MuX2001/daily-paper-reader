@@ -738,7 +738,7 @@ def main() -> None:
         )
     if args.content_mode != "legacy":
         run_step("Step 5.2 - Enrich triage cards", [
-            python, os.path.join(SRC_DIR, "triage_enrich.py"),
+            python, os.path.join(SRC_DIR, "minmax.py"),
             "--feed", os.path.join(ROOT_DIR, "docs", "data", "daily", f"{run_date_token}.json"),
             "--cache-dir", os.getenv("DPR_TRIAGE_CACHE_DIR", os.path.join(ROOT_DIR, ".local-runs", "triage-cache")),
         ])

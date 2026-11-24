@@ -10,8 +10,8 @@ try{
  await page.locator('.paper-card').first().waitFor({timeout:5000}).catch(async e=>{console.log(await page.locator('body').innerText());throw e;});
  assert.equal(await page.locator('.paper-card').count(),1);
  assert.equal(await page.locator('meta[name="citation_date"]').getAttribute('content'),'2025');
- assert.equal(await page.getByRole('button',{name:'精读 d',exact:true}).isDisabled(),true);
+ assert.equal(await page.getByRole('button',{name:'精读 d',exact:true}).count(),0);
  assert.ok(await page.getByText(/1 篇历史会议论文缺少可核验身份/).isVisible());
  assert.equal(await page.getByRole('combobox',{name:'推荐日期'}).inputValue(),run);
- console.log('Conference-only catalog loads with exact source, year-only citation, migration notice and arXiv deep-read guard');
+ console.log('Conference-only catalog loads with exact source, year-only citation, migration notice and no cloud deep-read entry');
 }finally{await browser.close();}

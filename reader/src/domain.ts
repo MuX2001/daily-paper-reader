@@ -1,4 +1,7 @@
+export interface MinMaxClaim {text:string|null;quote:string|null;source_id:string|null}
+export interface MinMax {status:string;reason?:string;input_scope?:string;source?:{source_url:string;format:string};excerpts?:{id:string;start:number;end:number;text:string}[];delta?:MinMaxClaim;steps?:MinMaxClaim;evidence?:MinMaxClaim;constraints?:MinMaxClaim;landmarks?:MinMaxClaim}
 export interface Paper {
+  minmax?:MinMax;
   venue?: string | null;
   publication_date?: string | null; publication_date_precision?: string | null;
   work_id?: string; fulltext_path?: string; reading_path?: string; legacy_routes?: string[];
@@ -42,7 +45,7 @@ export function mergeLibrary(feeds: Feed[]): Paper[] {
     if(!old){records.set(p.paper_key,p);continue;}
     const preferred=(p.score??-1)>(old.score??-1)?p:old;
     records.set(p.paper_key,{...preferred,tags:[...new Set([...old.tags,...p.tags])],
-      fulltext_path:old.fulltext_path||p.fulltext_path,legacy_routes:[...new Set([...(old.legacy_routes||[]),...(p.legacy_routes||[])])]});
+      minmax:p.minmax?.status==='ready'?p.minmax:old.minmax||p.minmax,fulltext_path:old.fulltext_path||p.fulltext_path,legacy_routes:[...new Set([...(old.legacy_routes||[]),...(p.legacy_routes||[])])]});
   }
   return [...records.values()].sort((a,b)=>(b.score??-1)-(a.score??-1)||a.paper_key.localeCompare(b.paper_key));
 }

@@ -537,7 +537,7 @@ class LLMClient:
             pass
 
         start_time = time.time()
-        request_bases = self._iter_retry_bases(total_attempts=6)
+        request_bases = self._iter_retry_bases(total_attempts=getattr(self, "max_attempts", 6))
         last_error: Exception | None = None
         for attempt_idx, req_base in enumerate(request_bases, start=1):
             request_url = self._build_chat_completions_url(req_base)
@@ -699,6 +699,7 @@ class LLMClient:
         *,
         strict: bool = True,
         allow_json_object_fallback: bool = True,
+        allow_validation_fallback: bool = True,
     ) -> Dict[str, Any]:
         attempts: List[Tuple[str, Dict[str, Any] | None]] = [
             (
@@ -754,7 +755,7 @@ class LLMClient:
                         if schema_error:
                             parse_error = ValueError(f"JSON schema validation failed: {schema_error}")
 
-            if parse_error is not None and idx + 1 < len(attempts):
+            if allow_validation_fallback and parse_error is not None and idx + 1 < len(attempts):
                 print(
                     f"[INFO] {format_name} 返回内容未通过 JSON 校验，"
                     f"回退到 {attempts[idx + 1][0]}。"

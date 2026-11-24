@@ -10,13 +10,14 @@ export function noteMarkdown(p:Paper,personalNote=''):string {
   const fields={paper_key:p.paper_key,title:p.title,authors:p.authors||[],source:p.source,
     arxiv_id:p.source==='arxiv'?p.original_id:null,version:p.version??null,venue:p.venue??null,
     publication_date:citationDate(p)||null,publication_date_precision:p.source==='arxiv'?'day':p.publication_date_precision||null,
-    tags:p.tags,status:'to-read',url:url||null,pdf:pdf||null,code:code||null,note_type:'triage'};
+    tags:p.tags,status:'triage-card',url:url||null,pdf:pdf||null,code:code||null,note_type:'triage'};
   const links=[['原文',url],['PDF',pdf],['代码',code]].filter(([,value])=>value).map(([label,value])=>`- ${label}：<${value!.replaceAll('<','%3C').replaceAll('>','%3E')}>`).join('\n');
   const breakdown=([['problem','研究问题'],['method','核心方法'],['results','实验结果']] as const).map(([key,label])=>`### ${label}\n\n${p.breakdown?.[key]||'尚无可核验内容'}`).join('\n\n');
+  const skeleton=p.minmax?.status==='ready'?Object.entries({delta:'问题与精确增量',steps:'方法骨架',evidence:'实证硬证据',constraints:'边界与代价',landmarks:'原文路标'}).map(([key,label])=>{const c=p.minmax?.[key as 'delta'];return `### ${label}\n\n${c?.text||'未说明'}${c?.quote?'\n\n原文依据（'+c.source_id+'）：'+c.quote:''}`;}).join('\n\n'):'尚无原文片段分析缓存；以下旧速览仅供参考。';
   const citation=bibtex(p);
   // A title may itself contain backticks; use a fence longer than any content run.
   const fence='`'.repeat(Math.max(3,...[...citation.matchAll(/`+/g)].map(m=>m[0].length+1)));
-  return `---\n${Object.entries(fields).map(([key,value])=>`${key}: ${JSON.stringify(value)}`).join('\n')}\n---\n\n# ${p.title}\n\n> 待读卡片，未执行全文精读。\n\n## 原文与资源\n\n${links||'尚无可核验原文链接'}\n\n## 核心亮点\n\n${p.tldr||'尚未生成速览'}\n\n${breakdown}\n\n## 推荐理由\n\n${p.reason||'尚无推荐理由'}\n\n## 原始摘要\n\n${p.abstract||'摘要缺失'}\n\n## BibTeX\n\n${fence}bibtex\n${citation}${fence}\n\n## 阅读笔记\n\n${personalNote}\n`;
+  return `---\n${Object.entries(fields).map(([key,value])=>`${key}: ${JSON.stringify(value)}`).join('\n')}\n---\n\n# ${p.title}\n\n> 待读卡片，未执行全文精读。\n\n## 原文与资源\n\n${links||'尚无可核验原文链接'}\n\n## 最小可重建分析\n\n> 输入为选取的原文片段，不代表全文；未说明不等于原文未报告。\n\n${skeleton}\n\n## 核心亮点\n\n${p.tldr||'尚未生成速览'}\n\n${breakdown}\n\n## 推荐理由\n\n${p.reason||'尚无推荐理由'}\n\n## 原始摘要\n\n${p.abstract||'摘要缺失'}\n\n## BibTeX\n\n${fence}bibtex\n${citation}${fence}\n\n## 阅读笔记\n\n${personalNote}\n`;
 }
 export function obsidianFolder(value:string):string {
   const folder=value.trim().replaceAll('\\','/');

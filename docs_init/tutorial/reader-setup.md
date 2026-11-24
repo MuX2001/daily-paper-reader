@@ -143,3 +143,13 @@ python src/reader_feedback_eval.py \
 精读模式：官方 DeepSeek Flash 与 Pro 都显式开启 high 思考，输出预算65536（思考与正文共享），不再通过关闭思考降低等待时间。达到输出上限时停止，不以相同预算自动重复生成。参数变化会隔离旧笔记缓存。此链路的实际内容质量尚未完成验收；可以直接使用论文页「打开论文 PDF」与「复制精读提示词」，把 PDF 附给自己选择的聊天客户端。
 
 依据：[DeepSeek 思考模式](https://api-docs.deepseek.com/guides/thinking_mode/)、[输出预算](https://api-docs.deepseek.com/api/create-chat-completion/)、[DeepSeek 官方维护的 Cherry Studio 接入说明](https://github.com/deepseek-ai/awesome-deepseek-agent/blob/main/docs/cherry_studio.md)。这些参考支持思考与预算配置，不代表本站精读质量已经验证。
+
+## 当前阅读流程：Min-Max 决策卡
+
+新版论文页已撤下云端精读按钮、任务恢复与模型 Secrets 助手。前文的自动精读配置仅用于旧流程兼容，不是现在阅读论文的前置条件。
+
+日报在最终选片后生成最多400字的五块事实卡：问题增量、方法步骤、实验硬证据、作者声明的边界代价、原文路标。证据来自同版本原文的有限片段，点击“查看原文依据”核对。未说明不等于全文没有，旧论文不会自动重新付费生成。
+
+选中论文后点击“复制强模型精读包”，将元数据、骨架和可编辑提示词粘贴到自己的聊天客户端，并另附“打开论文 PDF”下载的同版本文件。需要留底时选择“下载骨架 Markdown”或“导出骨架到 Obsidian”，导出状态为 triage-card。
+
+设置中的“研究管理连接”只服务于订阅编辑和专题检索；上述阅读和导出操作不需要 GitHub Token。具体缓存、输入范围与验收限制见仓库 MINMAX_PLAN.md。

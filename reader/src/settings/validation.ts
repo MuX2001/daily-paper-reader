@@ -22,5 +22,5 @@ export async function testGithub(c:SettingsConfig){
  await jsonRequest(base,options,[c.token]);await jsonRequest(`${base}/branches/${encodeURIComponent(c.branch)}`,options,[c.token]);
  const workflow=await jsonRequest(`${base}/actions/workflows/daily-paper-reader.yml`,options,[c.token]);
  if(workflow?.state!=='active')throw new Error('工作流尚未启用，请到 GitHub Actions 检查');
- return '身份、仓库、分支和工作流可访问。Actions 写权限及云端 Secrets 需首次精读任务确认；未触发任务。';
+ return '身份、仓库、分支和工作流可访问。Actions 写权限需实际研究任务确认；未触发任务。';
 }

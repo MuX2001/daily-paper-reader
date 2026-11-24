@@ -26,7 +26,7 @@ try{
  await page.getByRole('button',{name:'保存笔记',exact:true}).click();await page.waitForFunction(()=>document.querySelector('.note-controls [role=status]')?.textContent.includes('与云端一致'));assert.equal(saved.note_text,'My unsaved research note');
  await editor.fill('Local newer draft');cloud={...cloud,note_text:'Other device edit',revision:3};await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
  await page.getByText('云端笔记已变更。草稿仍保留，请比较后选择；不会自动覆盖。',{exact:true}).waitFor();assert.equal(await editor.inputValue(),'Local newer draft');assert.equal(await page.getByRole('button',{name:'保存笔记',exact:true}).isDisabled(),true);
- const promise=page.waitForEvent('download');await page.getByRole('button',{name:'下载 Markdown',exact:true}).click();const file=await promise;assert.ok((await readFile(await file.path(),'utf8')).includes('Local newer draft'));
+ const promise=page.waitForEvent('download');await page.getByRole('button',{name:'下载骨架 Markdown',exact:true}).click();const file=await promise;assert.ok((await readFile(await file.path(),'utf8')).includes('Local newer draft'));
  await page.getByRole('button',{name:'采用云端内容',exact:true}).click();assert.equal(await editor.inputValue(),'Other device edit');
  await page.getByRole('button',{name:'批量归档',exact:true}).click();await page.getByRole('button',{name:'归档 1 篇',exact:true}).click();
  await page.getByRole('button',{name:'撤销上次归档（1）',exact:true}).waitFor();

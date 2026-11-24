@@ -14,12 +14,12 @@ try{
  await page.getByLabel('收件箱目录',{exact:true}).fill('研究/Papers & Inbox');
  await page.getByRole('button',{name:'保存导出偏好',exact:true}).click();await page.getByRole('button',{name:'关闭对话框',exact:true}).click();
  await page.reload();await page.locator('.paper-card').first().waitFor();
- await page.getByRole('button',{name:'发送到 Obsidian',exact:true}).click();
+ await page.getByRole('button',{name:'导出骨架到 Obsidian',exact:true}).click();
  await expect.poll(()=>requested).toContain('obsidian://new');
  assert.equal(new URL(requested).searchParams.get('file'),'研究/Papers & Inbox/arxiv~3a~1706.03762v7');
  await page.locator('.profile').click();await page.getByRole('tab',{name:/导出与 Obsidian/}).click();await expect(page.getByLabel('收件箱目录',{exact:true})).toHaveValue('研究/Papers & Inbox');
  await page.getByLabel('收件箱目录',{exact:true}).fill('');await page.getByRole('button',{name:'保存导出偏好',exact:true}).click();await page.getByRole('button',{name:'关闭对话框',exact:true}).click();
- requested='';await page.getByRole('button',{name:'发送到 Obsidian',exact:true}).click();
+ requested='';await page.getByRole('button',{name:'导出骨架到 Obsidian',exact:true}).click();
  await expect.poll(()=>requested).toContain('obsidian://new');assert.equal(new URL(requested).searchParams.get('file'),'arxiv~3a~1706.03762v7');
  await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'设置',exact:true}).click();await page.getByRole('tab',{name:/导出与 Obsidian/}).click();
  await expect(page.getByLabel('收件箱目录',{exact:true})).toHaveValue('');
