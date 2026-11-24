@@ -1,6 +1,7 @@
 """Opt-in narrative summaries; sample review never replaces published classic cards."""
 import hashlib
 import json
+import re
 from pathlib import Path
 import warnings
 from minmax_readable import context
@@ -11,6 +12,24 @@ PROMPT=Path(__file__).with_name('minmax_narrative_prompt.txt').read_text()
 FIELDS=('card_hook','context_and_problem','core_approach','results_and_reality_check','tags')
 SCHEMA={'type':'object','properties':{k:({'type':'array','items':{'type':'string'},'minItems':2,'maxItems':4} if k in ('core_approach','tags') else {'type':'string'}) for k in FIELDS},'required':list(FIELDS),'additionalProperties':False}
 BANNED=('提出了一种创新性框架','有效解决了','显著提升了','取得了优异性能','值得注意的是','本文针对','痛点')
+
+
+def narrative_context(text):
+    # Keep the methods in sequence, including qualifications at paragraph ends.
+    # Supplement with the existing caption/conclusion selection; do not alter
+    # the exact-version downloader or classic daily input.
+    abstract=re.search(r'(?im)^\s*abstract\s*$',text)
+    start=abstract.start() if abstract else 0
+    end=min(len(text),start+18000)
+    if end<len(text):
+        boundary=re.search(r'\n\s*\n|\n',text[end:end+600])
+        if boundary:end+=boundary.end()
+    spans=[(start,end),*((p['start'],p['end']) for p in context(text))]
+    merged=[]
+    for a,b in sorted(spans):
+        if merged and a<=merged[-1][1]:merged[-1]=(merged[-1][0],max(b,merged[-1][1]))
+        else:merged.append((a,b))
+    return [{'id':f'E{i+1}','start':a,'end':b,'text':text[a:b]} for i,(a,b) in enumerate(merged)]
 
 
 def validate(value):
@@ -30,7 +49,7 @@ def validate(value):
 
 def enrich(paper,client,root,allow_new=True,fetcher=get_fulltext):
     if paper.get('source')!='arxiv':raise ValueError('Exact-version arXiv source required')
-    text,meta=fetcher(paper['original_id'],Path(root)/'sources');parts=context(text)
+    text,meta=fetcher(paper['original_id'],Path(root)/'sources');parts=narrative_context(text)
     payload={'paper_key':paper['paper_key'],'title':paper['title'],'abstract':paper.get('abstract'),'excerpts':parts}
     identity={'input':payload,'prompt':PROMPT,'schema':SCHEMA,'model':client.model,'endpoint':client.base_url,'options':client.kwargs,'version':'narrative-v1'}
     key=hashlib.sha256(json.dumps(identity,ensure_ascii=False,sort_keys=True).encode()).hexdigest();path=Path(root)/'narrative'/f'{key}.json'
