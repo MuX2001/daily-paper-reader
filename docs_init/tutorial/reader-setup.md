@@ -39,7 +39,7 @@ python scripts/prepare_reader_local.py \
   --build "$HOME/workspace/runs/daily-paper-reader/web-build"
 ```
 
-输入是本地Supabase CLI的status JSON，保持私有；脚本仅输出回环API地址和anon公钥，不输出service key。只有本地页面才显示“连接本地测试库”。点击后用邮箱注册自己的测试账户，即可测试收藏、归档和笔记；本地测试数据与托管项目相互独立。重新构建后需重新执行此命令。若浏览器通过SSH转发访问远端机器，还需转发Supabase API端口54321。不要将本地连接文件上传至生产站点。
+输入是本地Supabase CLI的status JSON，保持私有；脚本仅输出回环API地址和anon公钥，不输出service key。只有本地页面才显示折叠的“本地测试（不与线上同步）”入口。展开并点击“连接本地测试库”后，用邮箱注册自己的测试账户，即可测试收藏、归档和笔记；本地测试数据与托管项目相互独立。重新构建后需重新执行此命令。若浏览器通过SSH转发访问远端机器，还需转发Supabase API端口54321。不要将本地连接文件上传至生产站点。
 
 `reader/tests/browser-auth-live.mjs` 使用 `DPR_LOCAL_SUPABASE_CONNECTION` 和 `DPR_TEST_URL` 显式运行真实本地UI注册/登录/笔记保存测试，测试完成只删除自身创建的临时账户，不访问托管项目。
 

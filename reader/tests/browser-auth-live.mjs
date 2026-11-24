@@ -10,7 +10,14 @@ const browser=await chromium.launch();let id;
 try{
  const page=await browser.newPage({viewport:{width:1440,height:1000}});
  await page.goto(site);await page.locator('.profile').click();
+ await page.getByText('本地测试（不与线上同步）',{exact:true}).click();
  await page.getByRole('button',{name:'连接本地测试库',exact:true}).click();
+ await expect(page.locator('.auth-target')).toContainText(connection.API_URL);
+ await page.getByLabel('Supabase URL',{exact:true}).fill('https://unsaved-project.supabase.co');
+ await expect(page.getByRole('button',{name:'邮箱登录',exact:true})).toBeDisabled();
+ await expect(page.getByRole('button',{name:'使用 GitHub 登录',exact:true})).toBeDisabled();
+ await expect(page.locator('.auth-target')).toContainText(connection.API_URL);
+ await page.getByLabel('Supabase URL',{exact:true}).fill(connection.API_URL);
  await page.getByRole('button',{name:'使用 GitHub 登录',exact:true}).click();
  await expect(page.locator('.account-login [role=alert]')).toContainText('尚未启用 GitHub');
  await expect(page).toHaveURL(site);

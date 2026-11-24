@@ -20,7 +20,12 @@ export async function feed(path: string, signal?: AbortSignal) {
 let client: SupabaseClient | null = null;
 let connection:{url:string;key:string}|null=null;
 export function getClient(): SupabaseClient | null { return client; }
+export function getCloudOrigin(){return connection?.url||'';}
+export function matchesCloudConfiguration(url:string,key:string){
+ return connection!==null&&url.trim().replace(/\/$/,'')===connection.url&&key.trim()===connection.key;
+}
 export function configureCloud(url: string, key: string) {
+  url=url.trim();key=key.trim();
   if (!url && !key) { client = null; connection=null; return; }
   url=cloudURL(url,typeof location==='undefined'?'https://reader.invalid':location.href);
   if (key.startsWith('sb_secret_')) throw new Error('浏览器禁止使用 secret key');
