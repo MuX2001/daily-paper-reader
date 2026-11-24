@@ -30,7 +30,7 @@ const server=createServer(async(req,res)=>{
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const address=server.address();
 try{
- for(const suite of ['obsidian','migration','conferences','notes','management','topics','chat','deep','citation','feedback','thumbnails']){
+ for(const suite of ['reading-material','obsidian','migration','conferences','notes','management','topics','chat','deep','citation','feedback','thumbnails']){
   console.log(`Browser suite: ${suite} (production bundle, subpath, synthetic data)`);
   await new Promise((resolve,reject)=>{
    const child=spawn(process.execPath,[`reader/tests/browser-${suite}.mjs`],{stdio:'inherit',env:{...process.env,DPR_TEST_URL:`http://127.0.0.1:${address.port}${prefix}`,DPR_TEST_OUTPUT:browserOutput}});

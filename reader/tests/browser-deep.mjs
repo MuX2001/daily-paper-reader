@@ -5,7 +5,7 @@ const page=await browser.newPage({viewport:{width:1440,height:1000}});
 let dispatched,posts=0;
 await page.route('https://api.github.com/**',async route=>{
  if(route.request().method()==='POST'){
-  posts++;dispatched=route.request().postDataJSON();
+  assert.ok(route.request().url().endsWith('/actions/workflows/daily-paper-reader.yml/dispatches'));posts++;dispatched=route.request().postDataJSON();
   await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({workflow_run_id:42,html_url:'https://github.com/test/reader/actions/runs/42'})});
  }else if(route.request().url().includes('/runs?'))await route.fulfill({json:{workflow_runs:[{id:42,display_title:`Deep read ${dispatched.inputs.request_id} · ${dispatched.inputs.arxiv_id}`,head_branch:'dev',status:'completed',conclusion:'success',html_url:'https://github.com/test/reader/actions/runs/42'}]}});
  else await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id:42,status:'completed',conclusion:'success',html_url:'https://github.com/test/reader/actions/runs/42'})});
@@ -23,7 +23,7 @@ assert.equal(await page.getByText(/最多12段加1次合成调用/).isVisible(),
 await page.getByRole('button',{name:'确认调用强模型',exact:true}).click();
 await page.getByText('精读任务完成，可下载笔记',{exact:true}).waitFor({timeout:20000});
 assert.match(dispatched.inputs.arxiv_id,/v\d+$/);
-assert.equal(dispatched.ref,'dev');
+assert.equal(dispatched.ref,'dev');assert.equal(dispatched.inputs.pipeline_action,'deep-read');
 assert.equal(await page.evaluate(()=>Object.values(localStorage).some(value=>String(value).includes('mock-browser-token'))),false);
 assert.equal(await page.getByRole('link',{name:'查看运行与下载笔记'}).getAttribute('href'),'https://github.com/test/reader/actions/runs/42');
 await page.reload();await page.locator('.paper-card').first().waitFor();

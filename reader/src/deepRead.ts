@@ -16,7 +16,7 @@ function validatePaperId(paperId:string){
 export async function dispatchDeepRead(config:GitHubConfig,paperId:string):Promise<DeepTask>{
   validatePaperId(paperId);
   const requestId=crypto.randomUUID();
-  const data=await request(config,'/actions/workflows/deep-read.yml/dispatches',{ref:config.ref,inputs:{arxiv_id:paperId,request_id:requestId}});
+  const data=await request(config,'/actions/workflows/daily-paper-reader.yml/dispatches',{ref:config.ref,inputs:{pipeline_action:'deep-read',arxiv_id:paperId,request_id:requestId}});
   return {requestId,repository:config.repository,ref:config.ref,paperId,status:'queued',...(data?.workflow_run_id?{runId:data.workflow_run_id,url:data.html_url}:{})};
 }
 export async function pollDeepRead(config:GitHubConfig,task:DeepTask):Promise<DeepTask>{
@@ -24,7 +24,7 @@ export async function pollDeepRead(config:GitHubConfig,task:DeepTask):Promise<De
   let run;
   if(task.runId)run=await request(config,`/actions/runs/${task.runId}`);
   else {
-    const data=await request(config,`/actions/workflows/deep-read.yml/runs?event=workflow_dispatch&branch=${encodeURIComponent(config.ref)}&per_page=100`);
+    const data=await request(config,`/actions/runs?event=workflow_dispatch&branch=${encodeURIComponent(config.ref)}&per_page=100`);
     run=data.workflow_runs.find((r:{display_title:string})=>r.display_title.includes(task.requestId));
   }
   if(!run)return task;
@@ -36,7 +36,7 @@ export async function pollDeepRead(config:GitHubConfig,task:DeepTask):Promise<De
 export async function recoverDeepRead(config:GitHubConfig,paperId:string):Promise<DeepTask|null>{
   validatePaperId(paperId);
   for(let page=1;page<=3;page++){
-    const data=await request(config,`/actions/workflows/deep-read.yml/runs?event=workflow_dispatch&branch=${encodeURIComponent(config.ref)}&per_page=100&page=${page}`);
+    const data=await request(config,`/actions/runs?event=workflow_dispatch&branch=${encodeURIComponent(config.ref)}&per_page=100&page=${page}`);
     if(!Array.isArray(data.workflow_runs))throw new Error('GitHub 返回的任务列表无效');
     for(const run of data.workflow_runs){
       const title=/^Deep read ([A-Za-z0-9_-]{8,80}) · (.+)$/.exec(run.display_title||'');

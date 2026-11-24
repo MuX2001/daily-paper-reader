@@ -64,7 +64,15 @@ python scripts/prepare_reader_local.py \
 
 ## 单篇精读和 Obsidian
 
-在阅读器设置中填写自己的仓库、任务分支、具有该仓库 Actions 读写权限的 Token。订阅保存还需要 Contents 写权限。Token 只存在当前页面内存，刷新后重新输入。GitHub 手动工作流入口要求工作流已存在于默认分支；只有 `dev` 文件不等于默认分支已支持派发。
+设置 → 按需精读任务提供 DeepSeek Pro/Flash、硅基流动、OpenAI 和自定义服务的配置参考。选择预设不会自动保存 GitHub Secrets：点击仓库 Secrets 链接，逐项 New repository secret，保存 `DEEP_READ_MODEL`、`DEEP_READ_BASE_URL` 和服务密钥 `DEEP_READ_API_KEY`。先测 DeepSeek 官方可使用 `deepseek-v4-pro`、`https://api.deepseek.com`；以服务账号实际可用模型为准。其他服务需填写支持 Chat Completions/JSON 的模型 ID。预设不是已联调保证。
+
+设置中可展开查看后端共用的精读提示词，文件为 `src/deep_read_prompt.txt`；模板要求具体计算步骤、公式解释、实验数值与出处、消融分析和复现风险。更改模板后对应笔记缓存失效；长文仍通过证据提取后合成，最终内容需人工复核。
+
+不使用 API 时，在论文预览的“交给聊天客户端精读”中打开 PDF、复制提示词，或下载 Markdown 精读材料。材料含当前笔记、元数据和提示词，不包含 PDF 全文，不冒充已完成的精读。请在聊天客户端另附对应版本 PDF。
+
+官方接口参考：https://api-docs.deepseek.com/api/create-chat-completion/ 、https://api-docs.siliconflow.cn/docs/userguide/quickstart 。
+
+在阅读器设置中填写自己的仓库、任务分支、具有该仓库 Actions 读写权限的 Token。订阅保存还需要 Contents 写权限。Token 只存在当前页面内存，刷新后重新输入。前端通过已有的 daily-paper-reader.yml 入口传入 pipeline_action=deep-read，在指定任务分支调用独立精读流水线，不执行每日推荐。仓库默认分支须已有 daily-paper-reader.yml；不需要把新精读文件先合入默认分支。恢复任务按仓库最近300次手动运行查找精确版本。
 
 选择带明确版本的 arXiv 论文，按 `d` 或点击精读按钮，确认费用后提交。长文最多12段提取加1次合成；输入覆盖率不等于所有事实都被提取。失败时检查对应运行的状态/日志；成功时下载 Markdown。整页刷新后可用“恢复这篇的精读任务”查找最近300次运行，不会重新派发。
 
