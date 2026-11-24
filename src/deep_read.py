@@ -12,6 +12,7 @@ import re
 import unicodedata
 
 from reader_fulltext import get_fulltext
+from deep_read_config import resolve_config
 from reader_identity import validate_id, validate_request_id
 from triage_enrich import atomic_json
 from deep_read_chunks import (plan_segments,extract_evidence,extraction_identity,
@@ -149,12 +150,12 @@ def main():
     parser.add_argument('--output-dir',type=Path,required=True)
     parser.add_argument('--max-chars',type=int,default=350_000)
     args=parser.parse_args()
-    key=os.getenv('DEEP_READ_API_KEY'); model=os.getenv('DEEP_READ_MODEL');endpoint=os.getenv('DEEP_READ_BASE_URL')
     validate_id(args.arxiv_id);validate_request_id(args.request_id)
-    if not key or not model or not endpoint:
-        message='Configure DEEP_READ_API_KEY, DEEP_READ_MODEL and DEEP_READ_BASE_URL'
-        atomic_json(args.output_dir/'status.json',{'request_id':args.request_id,'paper_id':args.arxiv_id,'status':'failed','stage':'configuration','error':message})
-        raise ValueError(message)
+    try:
+        key,model,endpoint=resolve_config(os.environ)
+    except ValueError as exc:
+        atomic_json(args.output_dir/'status.json',{'request_id':args.request_id,'paper_id':args.arxiv_id,'status':'failed','stage':'configuration','error':str(exc)})
+        raise
     client=LLMClient(key,model,endpoint);client.kwargs.update(max_tokens=16000,temperature=0.2)
     run(args.arxiv_id,args.request_id,args.cache_dir,args.output_dir,client,args.max_chars)
 

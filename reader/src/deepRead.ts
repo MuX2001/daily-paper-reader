@@ -13,10 +13,11 @@ async function request(config:GitHubConfig,path:string,body?:unknown) {
 function validatePaperId(paperId:string){
   if(!/^(?:\d{4}\.\d{4,5}|[A-Za-z.-]+\/\d{7})v[1-9]\d*$/.test(paperId))throw new Error('精读需要明确 arXiv 版本；不会自动替换为最新版本');
 }
-export async function dispatchDeepRead(config:GitHubConfig,paperId:string):Promise<DeepTask>{
+export async function dispatchDeepRead(config:GitHubConfig,paperId:string,modelChoice='configured'):Promise<DeepTask>{
   validatePaperId(paperId);
+  if(!['configured','deepseek-flash','deepseek-v4-pro'].includes(modelChoice))throw new Error('不支持的精读模型');
   const requestId=crypto.randomUUID();
-  const data=await request(config,'/actions/workflows/daily-paper-reader.yml/dispatches',{ref:config.ref,inputs:{pipeline_action:'deep-read',arxiv_id:paperId,request_id:requestId}});
+  const data=await request(config,'/actions/workflows/daily-paper-reader.yml/dispatches',{ref:config.ref,inputs:{pipeline_action:'deep-read',deep_read_model:modelChoice,arxiv_id:paperId,request_id:requestId}});
   return {requestId,repository:config.repository,ref:config.ref,paperId,status:'queued',...(data?.workflow_run_id?{runId:data.workflow_run_id,url:data.html_url}:{})};
 }
 export async function pollDeepRead(config:GitHubConfig,task:DeepTask):Promise<DeepTask>{

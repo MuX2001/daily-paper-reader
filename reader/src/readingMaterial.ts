@@ -22,6 +22,6 @@ export function readingPrompt(p:Paper):string {
 开头附 YAML frontmatter（title、source、arxiv_id〔仅适用时〕、version、tags、status: to-read、pdf、code、note_type: deep-read），属性值使用合法 YAML；缺失元数据填 null，不猜测。保留指定版本。正文可使用 LaTeX 公式。最终只输出笔记，不把这份提示词写进笔记。`;
 }
 
-export function readingMaterial(p:Paper,personalNote=''):string {
-  return noteMarkdown(p,personalNote)+`\n## 交给聊天客户端精读\n\n本文件是精读准备材料，不含论文全文，也不是已生成的精读笔记。请另行下载并附上对应版本的 PDF，再复制下面的提示词；已有速览与个人笔记仅供参考。\n\n### 精读提示词\n\n${readingPrompt(p)}\n`;
+export function readingMaterial(p:Paper,personalNote='',prompt=readingPrompt(p)):string {
+  return noteMarkdown(p,personalNote)+`\n## 交给聊天客户端精读\n\n本文件是精读准备材料，不含论文全文，也不是已生成的精读笔记。请另行下载并附上对应版本的 PDF，再复制下面的提示词；已有速览与个人笔记仅供参考。\n\n### 精读提示词\n\n${prompt}\n`;
 }

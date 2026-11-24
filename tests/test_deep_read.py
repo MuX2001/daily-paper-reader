@@ -77,7 +77,7 @@ class DeepReadTests(unittest.TestCase):
     def test_missing_model_configuration_produces_downloadable_failure_status(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)
-            env={k:v for k,v in os.environ.items() if not k.startswith('DEEP_READ_')}
+            env={k:v for k,v in os.environ.items() if not k.startswith(('DEEP_READ_','DEEPSEEK_'))}
             result=subprocess.run([sys.executable,str(Path(__file__).resolve().parents[1]/'src/deep_read.py'),'--arxiv-id','1706.03762v7','--request-id','request_001','--cache-dir',str(root/'cache'),'--output-dir',str(root/'output')],env=env,capture_output=True,text=True)
             self.assertNotEqual(result.returncode,0)
             status=json.loads((root/'output/status.json').read_text())

@@ -62,7 +62,7 @@ python scripts/prepare_reader_local.py \
 | --- | --- | --- |
 | `TRIAGE_API_KEY` | Secret | 一级轻量模型密钥；未设置回退 `DEEPSEEK_API_KEY` |
 | `TRIAGE_MODEL`、`TRIAGE_BASE_URL` | Variables | 一级模型/端点；回退原有 `DEEPSEEK_MODEL`、`DEEPSEEK_BASE_URL` Secrets |
-| `DEEP_READ_API_KEY`、`DEEP_READ_MODEL`、`DEEP_READ_BASE_URL` | Secrets | 二级强模型，必须显式配置，不回退轻量模型 |
+| `DEEP_READ_API_KEY`、`DEEP_READ_MODEL`、`DEEP_READ_BASE_URL` | Secrets | 可选专用精读配置；未设置专用 Key 时复用 DEEPSEEK_API_KEY |
 | `DPR_FEEDBACK_USER_ID` | Secret | 当前 Supabase Auth 用户 UUID；留空关闭反馈评分 |
 | `DPR_STATE_SUPABASE_URL`、`DPR_STATE_SERVICE_KEY` | Secrets | 读取该用户的近期反馈，只供服务器使用 |
 | `DPR_NOTIFY_FEISHU_WEBHOOK` | Secret，可选 | 发布核验成功后发送日报通知 |
@@ -73,7 +73,11 @@ python scripts/prepare_reader_local.py \
 
 ## 单篇精读和 Obsidian
 
-工作台设置 → 云端精读提供 DeepSeek Pro/Flash、硅基流动、OpenAI 和自定义服务的配置参考。选择预设不会自动保存 GitHub Secrets：点击仓库 Secrets 链接，逐项 New repository secret，保存 `DEEP_READ_MODEL`、`DEEP_READ_BASE_URL` 和服务密钥 `DEEP_READ_API_KEY`。先测 DeepSeek 官方可使用 `deepseek-v4-pro`、`https://api.deepseek.com`；以服务账号实际可用模型为准。其他服务需填写支持 Chat Completions/JSON 的模型 ID。预设不是已联调保证。
+论文页「精读」旁可选择 DeepSeek Flash、Pro 或「云端已配置模型」，选择会记住并实际传给 Actions。已有 GitHub 仓库 Secret `DEEPSEEK_API_KEY` 可以直接复用，无需再创建三项变量。没有任何云端密钥时，打开仓库 Settings → Secrets and variables → Actions → New repository secret，Name 填 `DEEPSEEK_API_KEY`，Secret 粘贴 DeepSeek 密钥，点击 Add secret。网页聊天中保存的密钥不会自动上传到 GitHub。
+
+其他服务或独立精读账号使用 `DEEP_READ_API_KEY`、`DEEP_READ_MODEL`、`DEEP_READ_BASE_URL`，论文页选择「云端已配置模型」。工作台设置中的服务预设只是 Secrets 配置参考，会记住选择，但不会修改 GitHub Secrets。缺少密钥时后台会在下载和调用模型之前停止，给出具体配置步骤。修复工作流后请从网页新建任务，旧任务的 Re-run 仍使用旧提交。
+
+「编辑精读提示词」打开弹窗，修改后按论文保存在当前浏览器，复制提示词和下载精读材料均使用修改内容。这个提示词用于手动交给聊天客户端；云端精读使用仓库模板。
 
 设置中可展开查看后端共用的精读提示词，文件为 `src/deep_read_prompt.txt`；模板要求具体计算步骤、公式解释、实验数值与出处、消融分析和复现风险。更改模板后对应笔记缓存失效；长文仍通过证据提取后合成，最终内容需人工复核。
 
