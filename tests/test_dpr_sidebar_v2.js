@@ -915,12 +915,12 @@ function testQuickLinksCenterTextAndDetachIcon() {
   assert.ok(/transform:\s*translateY\(-50%\)/i.test(iconRule));
 
   const feedbackRule = cssRule(css, '.dpr-sidebar-feedback-btn');
-  assert.ok(/background:\s*#f0fdf4/i.test(feedbackRule));
-  assert.ok(/border-color:\s*#86efac/i.test(feedbackRule));
-  assert.ok(/color:\s*#166534/i.test(feedbackRule));
-  assert.ok(/box-shadow:\s*inset 0 0 0 1px rgba\(34,\s*197,\s*94,\s*0\.1\)/i.test(feedbackRule));
+  assert.ok(/background:\s*#eff5fc/i.test(feedbackRule));
+  assert.ok(/border-color:\s*#c9ddf5/i.test(feedbackRule));
+  assert.ok(/color:\s*#2c588c/i.test(feedbackRule));
+  assert.ok(/box-shadow:\s*inset 0 0 0 1px rgba\(76,\s*125,\s*181,\s*0\.08\)/i.test(feedbackRule));
   assert.ok(/@media \(max-width:\s*420px\)[\s\S]*\.dpr-sidebar-header\s*{[^}]*gap:\s*6px/i.test(css));
-  assert.ok(/body\.dpr-dark \.dpr-sidebar-feedback-btn\s*{[^}]*background:\s*#123522/i.test(css));
+  assert.ok(/body\.dpr-dark \.dpr-sidebar-feedback-btn\s*{[^}]*background:\s*#15263d/i.test(css));
 }
 
 function testFeedbackEntryClickContractAndFallbacks() {
@@ -1368,34 +1368,29 @@ function testSidebarStickyHierarchyCssContract() {
   assert.ok(!/margin-top:\s*-/i.test(axisTabsRule));
 
   const calendarRule = cssRule(css, '.dpr-sidebar-calendar');
-  assert.ok(/background:\s*var\(--dpr-sidebar-surface\)/i.test(calendarRule));
-  assert.ok(/border-radius:\s*8px/i.test(calendarRule));
-  assert.ok(/--dpr-sidebar-calendar-notch:\s*10px/i.test(calendarRule));
-  assert.ok(/clip-path:\s*polygon\(/i.test(calendarRule));
+  assert.ok(/background:\s*#f7f9fc/i.test(calendarRule));
+  assert.ok(/border-radius:\s*12px/i.test(calendarRule));
+  assert.ok(!/clip-path:\s*polygon\(/i.test(calendarRule));
   const calendarHeaderRule = cssRule(css, '.dpr-sidebar-calendar-header');
-  assert.ok(/padding:\s*0 8px/i.test(calendarHeaderRule));
+  assert.ok(/padding:\s*0 4px/i.test(calendarHeaderRule));
   const calendarGridRule = cssRule(css, '.dpr-sidebar-calendar-grid');
   assert.ok(/display:\s*grid/i.test(calendarGridRule));
   assert.ok(/grid-template-columns:\s*repeat\(7,\s*minmax\(0,\s*1fr\)\)/i.test(calendarGridRule));
   const calendarDayRule = cssRule(css, '.dpr-sidebar-calendar-day');
-  assert.ok(/min-height:\s*42px/i.test(calendarDayRule));
+  assert.ok(/min-height:\s*34px/i.test(calendarDayRule));
   assert.ok(/position:\s*relative/i.test(calendarDayRule));
   assert.ok(/\.dpr-sidebar-calendar-day\s*{[\s\S]*flex-direction:\s*column/i.test(css));
+  assert.ok(/\.dpr-sidebar-calendar-day\.is-empty \.dpr-sidebar-calendar-day-counts\s*{[^}]*display:\s*none/i.test(css));
   const calendarDayCountsRule = cssRule(css, '.dpr-sidebar-calendar-day-counts');
-  assert.ok(/position:\s*absolute/i.test(calendarDayCountsRule));
-  assert.ok(/left:\s*4px/i.test(calendarDayCountsRule));
-  assert.ok(/right:\s*4px/i.test(calendarDayCountsRule));
-  assert.ok(/bottom:\s*5px/i.test(calendarDayCountsRule));
-  assert.ok(/display:\s*grid/i.test(calendarDayCountsRule));
-  assert.ok(/grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(0,\s*1fr\)/i.test(calendarDayCountsRule));
-  assert.ok(/column-gap:\s*4px/i.test(calendarDayCountsRule));
+  assert.ok(/display:\s*inline-flex/i.test(calendarDayCountsRule));
+  assert.ok(/flex-direction:\s*row-reverse/i.test(calendarDayCountsRule));
+  assert.ok(/justify-content:\s*center/i.test(calendarDayCountsRule));
   const calendarDayTotalRule = cssRule(css, '.dpr-sidebar-calendar-day-total');
   assert.ok(/min-width:\s*0/i.test(calendarDayTotalRule));
-  assert.ok(/text-align:\s*right/i.test(calendarDayTotalRule));
-  assert.ok(/color:\s*#94a3b8/i.test(calendarDayTotalRule));
   const calendarDayUnreadRule = cssRule(css, '.dpr-sidebar-calendar-day-unread');
   assert.ok(/min-width:\s*0/i.test(calendarDayUnreadRule));
-  assert.ok(/text-align:\s*left/i.test(calendarDayUnreadRule));
+  assert.ok(/body\.dpr-dark \.dpr-sidebar-calendar\s*{[^}]*background:\s*#141f33/i.test(css));
+  assert.ok(/body\.dpr-dark \.dpr-sidebar-paper\s*{[^}]*background:\s*#162235/i.test(css));
 
   const sectionHeaderRule = cssRule(css, '.dpr-sidebar-panel.is-expanded .dpr-sidebar-axis-section-header');
   assert.ok(/position:\s*sticky/i.test(sectionHeaderRule));
@@ -2004,6 +1999,84 @@ testStatusClickKeepsPaperRowInPlace();
 testAxisControlClicksKeepSidebarScrollInPlace();
 testAxisToggleCollapsesOnlyItsOwnPanel();
 testExpandedAxisSectionSetSerializesCorrectly();
+function testSingleTrackTopicBacktrackGroup() {
+  const tools = loadSidebarForTest().__test;
+  const topicToken = '20251125-20261124-starter-user-sim';
+  assert.equal(tools.isBacktrackDateKey(topicToken), true, '带专题后缀的长周期 token 归专题回溯');
+  const topicMeta = JSON.stringify({
+    mode: 'starter',
+    tag: 'user-sim',
+    report: '#/' + topicToken + '/README',
+    export: 'docs/' + topicToken + '/papers.md',
+    as_of: '2026-11-25',
+    description: 'LLM user simulation',
+  });
+  const p1 = JSON.stringify({
+    title: 'Simulating Users',
+    score: '9.0',
+    evidence: '核心研究大模型用户模拟',
+    tags: [{ kind: 'query', label: 'user-sim' }],
+    publication_date: '2026-11-10',
+  }).replace(/"/g, '&quot;');
+  const sidebarMd = [
+    '* Daily Papers',
+    `  * user-sim · 大礼包 (2025-11-25 ~ 2026-11-24) <!--dpr-date:${topicToken}--> <!--dpr-topic:${topicMeta}-->`,
+    '    * 精读区',
+    `      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/${topicToken}/2611.10001v1-simulating-users" data-sidebar-item="${p1}">Simulating Users</a>`,
+  ].join('\n');
+  const model = tools.parseSidebar(sidebarMd);
+  assert.equal(model.daily.length, 1);
+  assert.equal(model.daily[0].dateKey, topicToken);
+  assert.equal(model.daily[0].reportHref, '#/' + topicToken + '/README');
+  assert.equal(model.daily[0].topicMeta.mode, 'starter');
+  assert.equal(model.daily[0].topicMeta.export, 'docs/' + topicToken + '/papers.md');
+  const html = tools.renderBodyHtml(model, {
+    expandedGroups: { conference: true, daily: true, backtrack: true },
+    expandedAxisSections: new Set(['backtrack:tag:' + topicToken + ':__all__']),
+    readMap: {},
+  });
+  assert.ok(html.includes('专题回溯'));
+  assert.ok(html.includes('方向导读／导出清单'));
+  assert.ok(html.includes('href="#/' + topicToken + '/README"'));
+  assert.ok(html.includes('href="docs/' + topicToken + '/papers.md"'));
+  assert.ok(html.includes('核心研究大模型用户模拟'));
+  assert.ok(html.includes('data-topic-task-sort'));
+}
+
+function testCaseInsensitiveTagDeduplicationInSidebar() {
+  const tools = loadSidebarForTest().__test;
+  const topicToken = '20251125-20261124-starter-atsp';
+  const p1 = JSON.stringify({
+    title: 'Paper One',
+    score: '9.0',
+    tags: [{ kind: 'query', label: 'atsp' }, { kind: 'query', label: 'ATSP' }],
+  }).replace(/"/g, '&quot;');
+  const p2 = JSON.stringify({
+    title: 'Paper Two',
+    score: '8.5',
+    tags: [{ kind: 'query', label: 'ATSP' }],
+  }).replace(/"/g, '&quot;');
+  const sidebarMd = [
+    '* Daily Papers',
+    `  * ATSP · 大礼包 (2025-11-25 ~ 2026-11-24) <!--dpr-date:${topicToken}-->`,
+    '    * 精读区',
+    `      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/${topicToken}/2603.14334v1" data-sidebar-item="${p1}">Paper One</a>`,
+    `      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/${topicToken}/2603.26564v1" data-sidebar-item="${p2}">Paper Two</a>`,
+  ].join('\n');
+  const model = tools.parseSidebar(sidebarMd);
+  assert.equal(model.daily[0].papers[0].tags.length, 1, '同一篇论文的 atsp/ATSP 标签应去重为 1 个');
+  const view = tools.buildDailyCalendarTagView(model, '', 'ATSP', {}, '', true);
+  assert.deepEqual(
+    view.tabs.map((t) => ({ key: t.key, count: t.count })),
+    [{ key: '__all__', count: 2 }, { key: 'atsp', count: 2 }],
+    '侧边栏标签页不应同时出现 atsp 和 ATSP 两个重复按钮',
+  );
+  assert.equal(view.activeKey, 'atsp');
+  assert.equal(view.groups[0].papers.length, 2);
+}
+
 testReadStatusNormalization();
+testSingleTrackTopicBacktrackGroup();
+testCaseInsensitiveTagDeduplicationInSidebar();
 
 console.log('dpr sidebar v2 tests passed');

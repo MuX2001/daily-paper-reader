@@ -17,8 +17,6 @@ window.SubscriptionsManager = (function () {
   let quickRun30dStandardBtn = null;
   let quickRunOpenWorkflowPanelBtn = null;
   let quickRunConferenceBtn = null;
-  let starterPackBtn = null;
-  let starterPackAsOf = new Date().toISOString().slice(0, 10);
   let quickRunMsgEl = null;
   let quickRunSelectionCountEl = null;
   let conferenceSelectionCountEl = null;
@@ -119,10 +117,22 @@ window.SubscriptionsManager = (function () {
     'NDSS',
   ];
   const CONFERENCE_STATS_SNAPSHOT_URL = 'app/conference-stats.json';
-  // 2026 年已入库并验证检索的会议；正式论文集已开放的 IJCAI 同样可选。
-  const CONFERENCE_2026_AVAILABLE = new Set(['ICLR', 'ICML', 'AAAI', 'ACL', 'CVPR', 'ECCV', 'IJCAI', 'OSDI', 'SOSP', 'IEEE S&P', 'NDSS']);
-  const CONFERENCE_DATA_NOTICES = {};
-  const FEATURED_CONFERENCE_YEAR_PAIRS = new Set(['acl:2026', 'icml:2026']);
+  // 已入库并验证检索的 2026 年会议。
+  const CONFERENCE_2026_AVAILABLE = new Set(['ICLR', 'ICML', 'NEURIPS', 'NIPS', 'AAAI', 'ACL', 'CVPR', 'ECCV', 'IJCAI', 'OSDI', 'SOSP', 'IEEE S&P', 'NDSS']);
+  const CONFERENCE_DATA_NOTICES = {
+    'NeurIPS:2026': 'NeurIPS 2026 当前支持官方主会论文的标题与摘要检索，PDF 下载可用性尚待确认。',
+  };
+  const FEATURED_CONFERENCE_YEAR_PAIRS = new Set([
+    'acl:2026',
+    'icml:2026',
+    'cvpr:2026',
+    'osdi:2026',
+    'ieee_sp:2026',
+    'eccv:2026',
+    'ijcai:2026',
+    'sosp:2026',
+    'neurips:2026',
+  ]);
   // ECCV 是双年会议（偶数年）
   const BIENNIAL_EVEN_CONFERENCES = new Set(['ECCV']);
   const CONFERENCES_WITH_PENDING_CURRENT_YEAR = new Set([
@@ -697,6 +707,7 @@ window.SubscriptionsManager = (function () {
     if (BIENNIAL_EVEN_CONFERENCES.has(conf) && yearNum % 2 !== 0) {
       return `${conf} 为双年会议，仅偶数年举办（如 2024、2026）`;
     }
+    if (yearNum === 2026 && CONFERENCE_2026_AVAILABLE.has(conf)) return '';
     // 2026 年可用性
     const currentYear = new Date().getFullYear();
     if (yearNum >= currentYear && !CONFERENCE_2026_AVAILABLE.has(conf)) {
@@ -704,8 +715,6 @@ window.SubscriptionsManager = (function () {
         ICML:    '2026 年 7 月会后',
         ACL:     '2026 年 7 月会后',
         EMNLP:   '2026 年 10 月中下旬（以官方论文集开放时间为准）',
-        NEURIPS: '2026 年 12 月会后',
-        NIPS:    '2026 年 12 月会后',
         OSDI:    '2026 年会后论文 PDF 公开后',
         'IEEE S&P': '2026 年 CSDL 论文 PDF 公开后',
       };
@@ -720,8 +729,6 @@ window.SubscriptionsManager = (function () {
     ) {
       const PENDING_DATES = {
         ICML:    '预计 2026 年 7 月会后纳入',
-        NEURIPS: '预计 2026 年 12 月会后纳入',
-        NIPS:    '预计 2026 年 12 月会后纳入',
       };
       return PENDING_DATES[conf] || `${yearNum} 年论文尚未公开`;
     }
@@ -873,13 +880,6 @@ window.SubscriptionsManager = (function () {
   const refreshQuickRunButtons = () => {
     const selectedProfiles = getSelectedProfilesForRun();
     const selectedProfileCount = selectedProfiles.length;
-    if (starterPackBtn) {
-      const runner = window.DPRWorkflowRunner;
-      const supported = runner && typeof runner.isStarterPackSupported === 'function' && runner.isStarterPackSupported();
-      starterPackBtn.disabled = hasUnsavedChanges || selectedProfileCount !== 1 || !supported;
-      starterPackBtn.title = !supported ? '请在 GitHub Pages 站点使用此功能；入门包仅由 GitHub Actions 执行。'
-        : hasUnsavedChanges ? '请先保存修改。' : selectedProfileCount !== 1 ? '请恰好勾选一个词条。' : '生成或按相同截止日期续跑入门包。';
-    }
     const dailySelectedProfileCount = selectedProfileCount;
     const MAX_CONFERENCE_PROFILES = 2;
     const profileOverLimit = selectedProfileCount > MAX_CONFERENCE_PROFILES;
@@ -1190,38 +1190,6 @@ window.SubscriptionsManager = (function () {
     return true;
   };
 
-  const runStarterPack = async () => {
-    const output = document.getElementById('arxiv-admin-starter-pack-msg');
-    const show = (text, color = '#c00') => { if (output) { output.textContent = text; output.style.color = color; } };
-    try {
-      if (hasUnsavedChanges) throw new Error('请先保存修改，再生成入门包。');
-      const profiles = getSelectedProfilesForRun();
-      if (profiles.length !== 1) throw new Error('入门包需要恰好勾选一个词条。');
-      const runner = window.DPRWorkflowRunner;
-      if (!runner || typeof runner.buildStarterPackRequest !== 'function') throw new Error('工作流触发器未加载，请刷新后重试。');
-      if (!runner.isStarterPackSupported()) throw new Error('请在 GitHub Pages 站点操作；入门包仅通过 GitHub Actions 执行，不在本地运行。');
-      const value = id => { const el = document.getElementById(id); return el ? el.value : ''; };
-      const selected = getSelectedConferencePairSpecs();
-      const request = runner.buildStarterPackRequest({
-        profile_tag: profiles[0].tag,
-        as_of: value('arxiv-admin-starter-pack-as-of'),
-        conferences: selected.map(pair => pair.split(':')[0]),
-        max_new_reviews: value('arxiv-admin-starter-pack-budget'),
-        content_limit: value('arxiv-admin-starter-pack-content-limit'),
-      });
-      starterPackAsOf = request.inputs.as_of;
-      const scope = selected.length ? request.inputs.conferences : '全库支持会议';
-      if (!window.confirm(`生成/续跑词条「${request.inputs.profile_tag}」的入门包：\nUTC 截止日期 ${request.inputs.as_of}（不含当天）\n近365天 arXiv + 近24个月会议；范围：${scope}\n会议年份勾选不限制滚动24个月窗口。\n新增评审上限 ${request.inputs.max_new_reviews} 篇；内容生成上限 ${request.inputs.content_limit} 篇。\n模型调用按实际用量计费，新增评审为0仅复用已有评审，内容生成仍可能调用模型。\n进度未完成时，请保持相同截止日期、词条和会议范围续跑。确认开始？`)) return false;
-      const success = await runner.runWorkflowByKey(request.key, request.inputs);
-      if (success === false) throw new Error('入门包工作流未成功触发，请检查权限或工作流配置。');
-      show(`已发起入门包任务；若仅生成进度提示，请保持 ${starterPackAsOf} 和相同词条、会议范围续跑。`, '#080');
-      return true;
-    } catch (error) {
-      show(error.message || String(error));
-      return false;
-    }
-  };
-
   const runResetContent = async (msgEl) => {
     if (resetContentPending) return;
     if (String(window.DPR_ACCESS_MODE || '') !== 'full') {
@@ -1509,7 +1477,14 @@ window.SubscriptionsManager = (function () {
                 <div id="dpr-sq-display" class="dpr-sq-display"></div>
               </div>
               <div class="dpr-admin-add-row">
-                <button id="dpr-sq-open-chat-btn" class="arxiv-tool-btn" type="button">新增研究方向</button>
+                <button id="dpr-sq-open-chat-btn" class="arxiv-tool-btn dpr-admin-add-btn" type="button">
+                  <span class="dpr-admin-add-icon" aria-hidden="true">
+                    <svg viewBox="0 0 12 12" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                      <path d="M6 2v8M2 6h8" />
+                    </svg>
+                  </span>
+                  <span>新增研究方向</span>
+                </button>
               </div>
             </div>
 
@@ -1525,15 +1500,17 @@ window.SubscriptionsManager = (function () {
             aria-labelledby="dpr-admin-tab-daily"
           >
             <div class="dpr-bulk-bar-head">
-              <div>
+              <div class="dpr-title-inline">
                 <div class="chat-quick-run-title">快速抓取</div>
                 <div id="arxiv-admin-quick-run-hint" class="dpr-task-hint">默认全选词条，快速抓取不区分日常状态。</div>
               </div>
-              <button id="arxiv-admin-open-workflow-panel-btn" class="arxiv-tool-btn dpr-task-workflow-btn" type="button">打开工作流</button>
-            </div>
-            <div class="dpr-task-picker-tools">
-              <button id="arxiv-admin-daily-select-all-btn" class="arxiv-tool-btn" type="button">全选</button>
-              <button id="arxiv-admin-daily-clear-all-btn" class="arxiv-tool-btn" type="button">取消全选</button>
+              <div class="dpr-bulk-bar-actions">
+                <div class="dpr-task-picker-tools">
+                  <button id="arxiv-admin-daily-select-all-btn" class="arxiv-tool-btn" type="button">全选</button>
+                  <button id="arxiv-admin-daily-clear-all-btn" class="arxiv-tool-btn" type="button">取消全选</button>
+                </div>
+                <button id="arxiv-admin-open-workflow-panel-btn" class="arxiv-tool-btn dpr-task-workflow-btn" type="button">打开工作流</button>
+              </div>
             </div>
             <div id="arxiv-admin-daily-profile-picker" class="dpr-profile-picker-row"></div>
             <div class="dpr-task-content-row">
@@ -1584,18 +1561,18 @@ window.SubscriptionsManager = (function () {
           >
             <div class="dpr-conference-pane">
               <div class="dpr-bulk-bar-head">
-                <div>
-                  <div class="dpr-title-inline">
-                    <div class="chat-quick-run-title">会议论文检索</div>
-                    <div id="arxiv-admin-conference-hint" class="dpr-conference-note">默认全选词条。</div>
+                <div class="dpr-title-inline">
+                  <div class="chat-quick-run-title">会议论文检索</div>
+                  <div id="arxiv-admin-conference-hint" class="dpr-conference-note">默认全选词条。</div>
+                </div>
+                <div class="dpr-bulk-bar-actions">
+                  <div class="dpr-task-picker-tools">
+                    <button id="arxiv-admin-conference-select-all-btn" class="arxiv-tool-btn" type="button">全选</button>
+                    <button id="arxiv-admin-conference-clear-all-btn" class="arxiv-tool-btn" type="button">取消全选</button>
                   </div>
                 </div>
               </div>
 
-              <div class="dpr-task-picker-tools">
-                <button id="arxiv-admin-conference-select-all-btn" class="arxiv-tool-btn" type="button">全选</button>
-                <button id="arxiv-admin-conference-clear-all-btn" class="arxiv-tool-btn" type="button">取消全选</button>
-              </div>
               <div id="arxiv-admin-conference-profile-picker" class="dpr-profile-picker-row"></div>
 
               <div class="dpr-choice-field">
@@ -1839,16 +1816,6 @@ window.SubscriptionsManager = (function () {
     quickRunConferenceBtn = document.getElementById(
       'arxiv-admin-quick-run-conference-run-btn',
     );
-    starterPackBtn = document.getElementById('arxiv-admin-starter-pack-btn');
-    if (starterPackBtn && !starterPackBtn._bound) {
-      starterPackBtn._bound = true;
-      starterPackBtn.addEventListener('click', runStarterPack);
-    }
-    const starterDateInput = document.getElementById('arxiv-admin-starter-pack-as-of');
-    if (starterDateInput && !starterDateInput._bound) {
-      starterDateInput._bound = true;
-      starterDateInput.addEventListener('change', () => { starterPackAsOf = starterDateInput.value; });
-    }
     quickRunMsgEl = document.getElementById('arxiv-admin-quick-run-msg');
     quickRunSelectionCountEl = null;
     conferenceSelectionCountEl = null;
@@ -2037,7 +2004,6 @@ window.SubscriptionsManager = (function () {
       getTopicResearchProfiles,
       __resetTopicSelection: () => { topicSelectedTag = ''; topicSelectionInitialized = false; },
       __setTopicProfilePickerEl: el => { topicProfilePickerEl = el; },
-      runStarterPack,
       __setQuickRunMode: (value) => { quickRunMode = value; },
       runSelectedQuickFetchByMode,
       normalizeSubscriptions: (config) => normalizeSubscriptions(config),

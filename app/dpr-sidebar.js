@@ -83,15 +83,27 @@
     }
     return '<span class="dpr-sidebar-paper-stars" data-score="' + safeAttr(s.toFixed(1)) + '">' + stars + '</span>';
   }
+  function dedupePaperTags(tags) {
+    if (!Array.isArray(tags) || !tags.length) return [];
+    var out = [];
+    var seenLower = {};
+    tags.forEach(function (t) {
+      if (!t || typeof t !== 'object') return;
+      var label = String(t.label || '').trim();
+      if (!label) return;
+      var lower = label.toLowerCase();
+      if (seenLower[lower]) return;
+      seenLower[lower] = true;
+      out.push({ kind: String(t.kind || 'query'), label: label });
+    });
+    return out;
+  }
   function tagsHtml(tags) {
-    if (!Array.isArray(tags) || !tags.length) return '';
-    return tags
+    var clean = dedupePaperTags(tags);
+    if (!clean.length) return '';
+    return clean
       .map(function (t) {
-        if (!t || typeof t !== 'object') return '';
-        var kind = String(t.kind || 'query');
-        var label = String(t.label || '');
-        if (!label) return '';
-        return '<span class="dpr-sidebar-paper-tag dpr-sidebar-paper-tag-' + safeAttr(kind) + '">' + safeText(label) + '</span>';
+        return '<span class="dpr-sidebar-paper-tag dpr-sidebar-paper-tag-' + safeAttr(t.kind) + '">' + safeText(t.label) + '</span>';
       })
       .join('');
   }
@@ -102,6 +114,8 @@
   function normalizeDailyDateKey(value) {
     var s = String(value || '').trim();
     if (!s) return '';
+    var topicRange = s.match(/^(\d{8})-(\d{8})(-[A-Za-z0-9._-]+)$/);
+    if (topicRange) return topicRange[1] + '-' + topicRange[2] + topicRange[3];
     var compactRange = s.match(/^(\d{8})\s*-\s*(\d{8})$/);
     if (compactRange) return compactRange[1] + '-' + compactRange[2];
     var labelRange = s.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s*(?:~|至|到|—|–|-)\s*(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
@@ -115,13 +129,17 @@
     if (label) return label[1] + pad2(label[2]) + pad2(label[3]);
     return '';
   }
+  function extractDailyRangeParts(dateKey) {
+    var match = String(dateKey || '').match(/^(\d{8})-(\d{8})(?:-[A-Za-z0-9._-]+)?$/);
+    return match ? [match[1], match[2]] : null;
+  }
   function isDailyRangeKey(dateKey) {
-    return /^\d{8}-\d{8}$/.test(String(dateKey || ''));
+    return !!extractDailyRangeParts(dateKey);
   }
   // 只拆展示归属，保留旧区间 route、论文 ID 和阅读状态。
   function isBacktrackDateKey(dateKey) {
-    if (!isDailyRangeKey(dateKey)) return false;
-    var parts = String(dateKey).split('-');
+    var parts = extractDailyRangeParts(dateKey);
+    if (!parts) return false;
     function utcDate(value) {
       return Date.UTC(Number(value.slice(0, 4)), Number(value.slice(4, 6)) - 1, Number(value.slice(6, 8)));
     }
@@ -146,14 +164,14 @@
     var vs = viewState || state;
     return buildDailyCalendarTagView(modelForDailyPanel(model, group),
       vs[dailyPanelField(group, 'Date')], vs[dailyPanelField(group, 'Tag')], readMap,
-      vs[dailyPanelField(group, 'Month')], group === 'backtrack');
+      vs[dailyPanelField(group, 'Month')], group === 'backtrack', vs.taskSort);
   }
   function isDailySingleDateKey(dateKey) {
     return /^\d{8}$/.test(String(dateKey || ''));
   }
   function dailyRangeEndDateKey(dateKey) {
-    var s = String(dateKey || '');
-    return isDailyRangeKey(s) ? s.slice(9, 17) : '';
+    var parts = extractDailyRangeParts(dateKey);
+    return parts ? parts[1] : '';
   }
   function dailyCalendarAnchorDateKey(dateKey) {
     var normalized = normalizeDailyDateKey(dateKey) || String(dateKey || '');
@@ -170,8 +188,9 @@
   }
   function formatDateLabel(value) {
     var normalized = normalizeDailyDateKey(value);
-    if (isDailyRangeKey(normalized)) {
-      return formatCompactDateLabel(normalized.slice(0, 8)) + ' ~ ' + formatCompactDateLabel(normalized.slice(9, 17));
+    var rangeParts = extractDailyRangeParts(normalized);
+    if (rangeParts) {
+      return formatCompactDateLabel(rangeParts[0]) + ' ~ ' + formatCompactDateLabel(rangeParts[1]);
     }
     if (isDailySingleDateKey(normalized)) return formatCompactDateLabel(normalized);
     return String(value || '');
@@ -215,7 +234,7 @@
   }
   function dailyDateKeyFromHref(href) {
     var s = String(href || '');
-    var range = s.match(/#?\/(\d{8}-\d{8})(?:\/|$)/);
+    var range = s.match(/#?\/(\d{8}-\d{8}(?:-[A-Za-z0-9._-]+)?)(?:\/|$)/);
     if (range) return range[1];
     var daily = s.match(/#?\/(\d{6})\/(\d{2})(?:\/|$)/);
     if (daily) return daily[1] + daily[2];
@@ -243,7 +262,7 @@
     if (/^\d{8}$/.test(key)) {
       return '#/' + key.slice(0, 6) + '/' + key.slice(6, 8) + '/README';
     }
-    if (/^\d{8}-\d{8}$/.test(key)) {
+    if (/^\d{8}-\d{8}(?:-[A-Za-z0-9._-]+)?$/.test(key)) {
       return '#/' + key + '/README';
     }
     return '';
@@ -306,7 +325,7 @@
           return { id: route, href: '#/' + route, title: String(record.title || ''),
             selection_rank: index,
             score: Number(record.score) || 0, published: String(record.published || ''),
-            evidence: String(record.summary || (record.reading_status !== 'complete' ? '阅读内容待生成' : record.zh_title) || ''),
+            evidence: String(record.evidence || record.summary || (record.reading_status !== 'complete' ? '阅读内容待生成' : record.zh_title) || ''),
             publication_date: String(record.publication_date || record.published || ''),
             publication_date_precision: String(record.publication_date_precision || 'unknown'),
             publication_date_source: String(record.publication_date_source || ''),
@@ -732,7 +751,7 @@
         publication_date_source: payload && payload.publication_date_source || '',
         publication_date_kind: payload && payload.publication_date_kind || '',
         conference_year: payload && payload.conference_year || '',
-        tags: (payload && Array.isArray(payload.tags) ? payload.tags : []),
+        tags: dedupePaperTags(payload && Array.isArray(payload.tags) ? payload.tags : []),
         selectionSource: payload && payload.selection_source,
         research_run_id: payload && payload.research_run_id || '',
         research_mode: payload && payload.research_mode || '',
@@ -765,16 +784,41 @@
         while (i < lines.length && !/^\*\s/.test(lines[i])) {
           var dayLine = lines[i];
           var markerMatch = dayLine.match(/<!--dpr-date:([^>]+?)-->/);
+          var topicMatch = dayLine.match(/<!--dpr-topic:([\s\S]*?)-->/);
           if (/^\s{2}\*\s/.test(dayLine) && !/^\s{4}/.test(dayLine)) {
             var dayLink = parseTopLink(dayLine);
             var rawLabel = dayLine.replace(/^\s{2}\*\s+/, '').replace(/<!--.*?-->/g, '').trim();
             var dateKey = normalizeDailyDateKey(markerMatch ? markerMatch[1] : rawLabel) ||
               dailyDateKeyFromHref(dayLink && dayLink.href) ||
               rawLabel;
+            var topicMeta = null;
+            if (topicMatch && topicMatch[1]) {
+              try {
+                var parsedTopic = JSON.parse(topicMatch[1].replace(/--&gt;/g, '-->'));
+                if (parsedTopic && typeof parsedTopic === 'object') {
+                  var safeReport = String(parsedTopic.report || '').trim();
+                  if (!/^#\/[A-Za-z0-9._/-]+$/.test(safeReport) || safeReport.indexOf('..') >= 0) safeReport = '';
+                  var safeExport = String(parsedTopic.export || '').trim();
+                  if (!/^docs\/\d{8}-\d{8}(?:-[A-Za-z0-9._-]+)?\/papers\.md$/.test(safeExport)) safeExport = '';
+                  topicMeta = {
+                    mode: String(parsedTopic.mode || '').trim(),
+                    tag: String(parsedTopic.tag || '').trim(),
+                    report: safeReport,
+                    export: safeExport,
+                    as_of: /^\d{4}-\d{2}-\d{2}$/.test(String(parsedTopic.as_of || '')) ? String(parsedTopic.as_of) : '',
+                    description: typeof parsedTopic.description === 'string' ? parsedTopic.description : '',
+                    refinement: typeof parsedTopic.refinement === 'string' ? parsedTopic.refinement : '',
+                  };
+                }
+              } catch (ignoredTopic) {
+                topicMeta = null;
+              }
+            }
             var day = {
               dateKey: dateKey,
               dateLabel: (dayLink && dayLink.label) || rawLabel || formatDateLabel(dateKey),
-              reportHref: dayReportHrefFromKey(dateKey, dayLink && dayLink.href),
+              reportHref: (topicMeta && topicMeta.report) || dayReportHrefFromKey(dateKey, dayLink && dayLink.href),
+              topicMeta: topicMeta,
               papers: [],
             };
             i += 1;
@@ -894,7 +938,14 @@
     }
 
     model.daily.forEach(function (day) {
-      day.papers = sortPapersByTimeDesc(day.papers || [], day.dateKey);
+      if (day && day.topicMeta) {
+        day.papers = (day.papers || []).map(function (paper, idx) {
+          paper.selection_rank = idx;
+          return paper;
+        });
+      } else {
+        day.papers = sortPapersByTimeDesc(day.papers || [], day.dateKey);
+      }
     });
     applyConferencePublicationDates(model, {});
     // 日报按日期倒序；区间日报按结束日期归位，保证最近的区间报告不会从日历里“消失”。
@@ -918,17 +969,47 @@
 
   function paperTagLabels(paper) {
     var out = [];
+    var seenLower = {};
     (paper && paper.tags || []).forEach(function (tag) {
       var label = tag && String(tag.label || '').trim();
-      if (label && out.indexOf(label) === -1) out.push(label);
+      var lower = label.toLowerCase();
+      if (label && !seenLower[lower]) {
+        seenLower[lower] = true;
+        out.push(label);
+      }
     });
     return out.length ? out : ['未标注'];
+  }
+
+  function paperHasTagLabel(paper, targetTag) {
+    var targetLower = String(targetTag || '').trim().toLowerCase();
+    if (!targetLower) return false;
+    return paperTagLabels(paper).some(function (label) {
+      return label.toLowerCase() === targetLower;
+    });
   }
 
   function addTab(tabs, seen, key, label) {
     if (!key || seen[key]) return;
     seen[key] = { key: key, label: label || key, count: 0, unreadCount: 0 };
     tabs.push(seen[key]);
+  }
+
+  function addTagTab(tabs, seen, seenLower, label) {
+    var clean = String(label || '').trim();
+    if (!clean) return null;
+    var lower = clean.toLowerCase();
+    if (seenLower[lower]) return seenLower[lower];
+    addTab(tabs, seen, clean, clean);
+    seenLower[lower] = seen[clean];
+    return seen[clean];
+  }
+
+  function resolveTagTabKey(activeKey, seen, seenLower) {
+    if (!activeKey) return '';
+    if (seen[activeKey]) return activeKey;
+    var matched = seenLower[String(activeKey).trim().toLowerCase()];
+    return matched ? matched.key : '';
   }
 
   function flattenDailyPapers(model) {
@@ -1369,18 +1450,20 @@
     var records = flattenDailyPapers(model);
     var tabs = [];
     var seen = {};
+    var seenLower = {};
     records.forEach(function (record) {
       paperTagLabels(record.paper).forEach(function (tag) {
-        addTab(tabs, seen, tag, tag);
-        seen[tag].count += 1;
-        if (!paperReadStatus(record.paper, map)) seen[tag].unreadCount += 1;
+        var tab = addTagTab(tabs, seen, seenLower, tag);
+        if (!tab) return;
+        tab.count += 1;
+        if (!paperReadStatus(record.paper, map)) tab.unreadCount += 1;
       });
     });
-    var active = activeKey && seen[activeKey] ? activeKey : (tabs[0] && tabs[0].key) || '';
+    var active = resolveTagTabKey(activeKey, seen, seenLower) || (tabs[0] && tabs[0].key) || '';
     var byDate = {};
     var order = [];
     records.forEach(function (record) {
-      if (paperTagLabels(record.paper).indexOf(active) === -1) return;
+      if (!paperHasTagLabel(record.paper, active)) return;
       if (!byDate[record.dateKey]) {
         byDate[record.dateKey] = {
           key: record.dateKey,
@@ -1407,7 +1490,7 @@
     };
     (source.daily || []).forEach(function (day) {
       var papers = (day.papers || []).filter(function (paper) {
-        return paperTagLabels(paper).indexOf(tagKey) !== -1;
+        return paperHasTagLabel(paper, tagKey);
       });
       if (!papers.length) return;
       var nextDay = {};
@@ -1420,7 +1503,31 @@
     return filtered;
   }
 
-  function buildDailyCalendarTagView(model, activeDateKey, activeTagKey, readMap, activeMonthKey, allDates) {
+  function renderTopicDayNavigation(day) {
+    var meta = day && day.topicMeta;
+    if (!meta) return '';
+    var reportHref = meta.report || day.reportHref || '';
+    var primaryLabel = meta.mode === 'starter' ? '方向导读／导出清单' : '结果总览／导出清单';
+    var nav = '';
+    if (reportHref) {
+      nav += '<a class="dpr-sidebar-axis-tab dpr-sidebar-starter-guide" href="' + safeAttr(reportHref) + '">' + primaryLabel + '</a>';
+    }
+    if (meta.export) {
+      nav += ' <a class="dpr-sidebar-axis-tab" href="' + safeAttr(meta.export) + '" download data-no-router>下载 Markdown</a>';
+    }
+    if (meta.description) {
+      nav += '<div class="dpr-sidebar-paper-evidence">研究方向：' + safeText(meta.description) + '</div>';
+    }
+    if (meta.refinement) {
+      nav += '<div class="dpr-sidebar-paper-evidence">本次细化：' + safeText(meta.refinement) + '</div>';
+    }
+    if (meta.as_of) {
+      nav += '<div class="dpr-sidebar-paper-meta">截止日期（不含当天）：' + safeText(meta.as_of) + '</div>';
+    }
+    return nav;
+  }
+
+  function buildDailyCalendarTagView(model, activeDateKey, activeTagKey, readMap, activeMonthKey, allDates, taskSort) {
     var map = readMap || {};
     var allKey = '__all__';
     var dateView = buildDailyDateView(model, activeDateKey, map, activeMonthKey);
@@ -1437,34 +1544,43 @@
     });
     var tabs = [];
     var seen = {};
+    var seenLower = {};
     addTab(tabs, seen, allKey, '全部');
     seen[allKey].count = papers.length;
     seen[allKey].unreadCount = countUnreadPapers(papers, map);
     papers.forEach(function (paper) {
       paperTagLabels(paper).forEach(function (tag) {
-        addTab(tabs, seen, tag, tag);
-        seen[tag].count += 1;
-        if (!paperReadStatus(paper, map)) seen[tag].unreadCount += 1;
+        var tab = addTagTab(tabs, seen, seenLower, tag);
+        if (!tab) return;
+        tab.count += 1;
+        if (!paperReadStatus(paper, map)) tab.unreadCount += 1;
       });
     });
-    var activeTag = activeTagKey && seen[activeTagKey] ? activeTagKey : allKey;
+    var activeTag = resolveTagTabKey(activeTagKey, seen, seenLower) || allKey;
     var groups = [];
     activeRecords.forEach(function (day) {
       var filtered = activeTag
         ? (day.papers || []).filter(function (paper) {
           if (activeTag === allKey) return true;
-          return paperTagLabels(paper).indexOf(activeTag) !== -1;
+          return paperHasTagLabel(paper, activeTag);
         })
         : (day.papers || []);
       if (!filtered.length) return;
+      if (allDates && day && day.topicMeta) {
+        filtered = sortedTaskPapers(filtered, taskSort);
+      }
       var label = day && (day.dateLabel || formatDateLabel(day.dateKey)) || formatDateLabel(activeDate);
       if (activeTag && activeTag !== allKey) label += ' / ' + activeTag;
-      groups.push({
+      var groupItem = {
         key: day.dateKey + ':' + (activeTag || 'all'),
         label: label,
         papers: filtered,
         unreadCount: countUnreadPapers(filtered, map),
-      });
+      };
+      if (allDates && day && day.topicMeta) {
+        groupItem.taskNavigation = renderTopicDayNavigation(day);
+      }
+      groups.push(groupItem);
     });
     var calendarModel = filterDailyModelByTag(model, activeTag);
     return {
@@ -1513,18 +1629,20 @@
     var records = flattenConferencePapers(model);
     var tabs = [];
     var seen = {};
+    var seenLower = {};
     records.forEach(function (record) {
       paperTagLabels(record.paper).forEach(function (tag) {
-        addTab(tabs, seen, tag, tag);
-        seen[tag].count += 1;
-        if (!paperReadStatus(record.paper, map)) seen[tag].unreadCount += 1;
+        var tab = addTagTab(tabs, seen, seenLower, tag);
+        if (!tab) return;
+        tab.count += 1;
+        if (!paperReadStatus(record.paper, map)) tab.unreadCount += 1;
       });
     });
-    var active = activeKey && seen[activeKey] ? activeKey : (tabs[0] && tabs[0].key) || '';
+    var active = resolveTagTabKey(activeKey, seen, seenLower) || (tabs[0] && tabs[0].key) || '';
     var groups = [];
     var byGroup = {};
     records.forEach(function (record) {
-      if (paperTagLabels(record.paper).indexOf(active) === -1) return;
+      if (!paperHasTagLabel(record.paper, active)) return;
       var key = record.confKey + ':' + record.topicLabel;
       if (!byGroup[key]) {
         byGroup[key] = {
@@ -1785,7 +1903,7 @@
       renderSidebarHeader(homeHref, tutorialHref, homeLabel, tutorialLabel) +
       '<div class="dpr-sidebar-toolbar">' +
       '  <div class="dpr-sidebar-search-wrap">' +
-      '    <span class="dpr-sidebar-search-icon" aria-hidden="true">🔍</span>' +
+      '    <span class="dpr-sidebar-search-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" style="display:block"><circle cx="7" cy="7" r="4.8"></circle><path d="M10.8 10.8L14 14"></path></svg></span>' +
       '    <input type="search" class="dpr-sidebar-search" placeholder="搜索标题 / 摘要 / 标签" autocomplete="off" spellcheck="false" />' +
       '  </div>' +
       '  <div class="dpr-sidebar-filter" role="tablist">' +
@@ -1794,14 +1912,82 @@
       '  </div>' +
       '</div>' +
       '<nav class="dpr-sidebar-body" aria-label="论文导航"></nav>' +
+      '<div class="dpr-sidebar-wf-status" data-dpr-wf-status hidden></div>' +
       renderSidebarFooterControls(state.sidebarCollapsed) +
       '<div class="dpr-sidebar-resizer" role="separator" aria-orientation="vertical" title="拖动调整侧栏宽度"></div>';
     state.bodyEl = $('.dpr-sidebar-body', root);
+    state.wfStatusEl = $('[data-dpr-wf-status]', root);
     state.searchInput = $('.dpr-sidebar-search', root);
     state.unreadCountEl = $('.dpr-sidebar-unread-count', root);
     if (state.searchInput) state.searchInput.value = state.search || '';
     // 渲染后立刻剥离 docsify 注入的 .app-nav / .no-badge（防下拉菜单定位）
     stripAppNav(state.bodyEl);
+    renderWorkflowStatusBar();
+  }
+
+  function renderWorkflowStatusHtml(snapshot) {
+    var snap = snapshot || (window.DPRWorkflowStatusSync && window.DPRWorkflowStatusSync.getSnapshot ? window.DPRWorkflowStatusSync.getSnapshot() : null);
+    if (!snap) return { html: '', hasActive: false };
+    var active = Array.isArray(snap.activeRuns) ? snap.activeRuns : [];
+    var done = snap.recentCompleted || null;
+    if (active.length > 0) {
+      var run = active[0];
+      var extraCount = active.length - 1;
+      var statusWord = run.status === 'queued' ? '排队中' : '运行中';
+      var stepText = run.step_label || statusWord;
+      var hasProgress = run.progress_total > 0;
+      var pct = hasProgress ? Math.min(100, Math.round((run.progress_current / run.progress_total) * 100)) : 0;
+      var progressSuffix = hasProgress ? ' · ' + run.progress_current + '/' + run.progress_total : '';
+      var metaText = stepText + progressSuffix;
+      var extraBadge = extraCount > 0 ? '<span class="dpr-wf-pill-extra">+' + extraCount + '</span>' : '';
+      var barHtml = hasProgress
+        ? '<div class="dpr-wf-pill-bar" aria-hidden="true"><span class="dpr-wf-pill-bar-fill" style="width:' + pct + '%"></span></div>'
+        : '<div class="dpr-wf-pill-bar is-indeterminate" aria-hidden="true"><span class="dpr-wf-pill-bar-fill"></span></div>';
+      var html =
+        '<button type="button" class="dpr-wf-pill is-running" data-wf-open-run="' + safeAttr(run.run_id || '') + '" data-wf-run-url="' + safeAttr(run.run_url || '') + '" data-wf-repo="' + safeAttr(run.repo_full_name || '') + '" title="点击查看后台任务实时进度">' +
+        '  <div class="dpr-wf-pill-head">' +
+        '    <span class="dpr-wf-pill-dot" aria-hidden="true"></span>' +
+        '    <span class="dpr-wf-pill-title">' + safeText(run.display_label || '后台任务') + '</span>' +
+        extraBadge +
+        '  </div>' +
+        '  <div class="dpr-wf-pill-sub">' + safeText(metaText) + '</div>' +
+        barHtml +
+        '</button>';
+      return { html: html, hasActive: true };
+    }
+    if (done) {
+      var ok = done.conclusion === 'success';
+      var stateCls = ok ? 'is-success' : 'is-failed';
+      var icon = ok ? '✓' : '✕';
+      var text = ok ? '任务已完成' : (done.conclusion === 'cancelled' ? '任务已取消' : '任务执行失败');
+      var actionHtml = ok
+        ? '<button type="button" class="dpr-wf-pill-action" data-wf-refresh-done="' + safeAttr(done.run_key) + '">刷新列表</button>'
+        : (done.run_url ? '<a class="dpr-wf-pill-action" href="' + safeAttr(done.run_url) + '" target="_blank" rel="noopener">查看日志</a>' : '');
+      var doneHtml =
+        '<div class="dpr-wf-pill ' + stateCls + '">' +
+        '  <div class="dpr-wf-pill-head">' +
+        '    <span class="dpr-wf-pill-icon" aria-hidden="true">' + icon + '</span>' +
+        '    <span class="dpr-wf-pill-title">' + safeText(done.display_label || '后台任务') + '</span>' +
+        '    <button type="button" class="dpr-wf-pill-dismiss" data-wf-dismiss="' + safeAttr(done.run_key) + '" aria-label="关闭提示" title="关闭">×</button>' +
+        '  </div>' +
+        '  <div class="dpr-wf-pill-foot">' +
+        '    <span class="dpr-wf-pill-state">' + safeText(text) + '</span>' +
+        actionHtml +
+        '  </div>' +
+        '</div>';
+      return { html: doneHtml, hasActive: false };
+    }
+    return { html: '', hasActive: false };
+  }
+
+  function renderWorkflowStatusBar(snapshot) {
+    if (!state.wfStatusEl) return;
+    var rendered = renderWorkflowStatusHtml(snapshot);
+    state.wfStatusEl.innerHTML = rendered.html;
+    state.wfStatusEl.hidden = !rendered.html;
+    if (state.rootEl && state.rootEl.classList) {
+      state.rootEl.classList.toggle('has-active-workflow', !!rendered.hasActive);
+    }
   }
 
   function resolveViewState(viewState) {
@@ -2120,8 +2306,14 @@
       html.push('  </button>');
     }
     html.push('  <div class="dpr-sidebar-panel-content">');
-    if (opts.group === 'backtrack' && opts.starterPacks && opts.starterPacks.length) {
+    var hasTopicGroups = opts.group === 'backtrack' && (
+      (opts.starterPacks && opts.starterPacks.length > 0) ||
+      ((opts.view && opts.view.groups) || []).some(function (g) { return !!(g && g.taskNavigation); })
+    );
+    if (hasTopicGroups) {
       html.push('<div class="dpr-sidebar-axis-row"><label>排序 <select data-topic-task-sort><option value="score"' + (opts.taskSort !== 'date' ? ' selected' : '') + '>相关性降序</option><option value="date"' + (opts.taskSort === 'date' ? ' selected' : '') + '>公布日期降序</option></select></label></div>');
+    }
+    if (opts.group === 'backtrack' && opts.starterPacks && opts.starterPacks.length) {
       html.push(renderStarterPackGuides(opts.starterPacks, opts));
     }
     if (isDailyNormal) {
@@ -2577,6 +2769,45 @@
         }
         return;
       }
+      var wfOpenBtn = e.target.closest('[data-wf-open-run]');
+      if (wfOpenBtn) {
+        e.preventDefault();
+        var runId = wfOpenBtn.getAttribute('data-wf-open-run') || '';
+        var runUrl = wfOpenBtn.getAttribute('data-wf-run-url') || '';
+        var wfRepo = wfOpenBtn.getAttribute('data-wf-repo') || '';
+        var isFullMode = window.DPR_ACCESS_MODE === 'full';
+        if (isFullMode && runId && window.DPRWorkflowRunner && typeof window.DPRWorkflowRunner.openRun === 'function') {
+          window.DPRWorkflowRunner.openRun(runId, wfRepo).then(function (opened) {
+            if (!opened && runUrl) window.open(runUrl, '_blank', 'noopener');
+          }).catch(function () {
+            if (runUrl) window.open(runUrl, '_blank', 'noopener');
+          });
+        } else if (isFullMode && window.DPRWorkflowRunner && typeof window.DPRWorkflowRunner.open === 'function') {
+          window.DPRWorkflowRunner.open();
+        } else if (runUrl) {
+          window.open(runUrl, '_blank', 'noopener');
+        }
+        return;
+      }
+      var wfRefreshBtn = e.target.closest('[data-wf-refresh-done]');
+      if (wfRefreshBtn) {
+        e.preventDefault();
+        var doneKey = wfRefreshBtn.getAttribute('data-wf-refresh-done') || '';
+        if (doneKey && window.DPRWorkflowStatusSync && typeof window.DPRWorkflowStatusSync.dismissRun === 'function') {
+          window.DPRWorkflowStatusSync.dismissRun(doneKey);
+        }
+        loadAndRender();
+        return;
+      }
+      var wfDismissBtn = e.target.closest('[data-wf-dismiss]');
+      if (wfDismissBtn) {
+        e.preventDefault();
+        var dismissKey = wfDismissBtn.getAttribute('data-wf-dismiss') || '';
+        if (dismissKey && window.DPRWorkflowStatusSync && typeof window.DPRWorkflowStatusSync.dismissRun === 'function') {
+          window.DPRWorkflowStatusSync.dismissRun(dismissKey);
+        }
+        return;
+      }
       var axisToggle = e.target.closest('.dpr-sidebar-axis-toggle');
       if (axisToggle) {
         var axisGroup = axisToggle.getAttribute('data-axis-toggle');
@@ -2748,6 +2979,9 @@
     document.addEventListener('dpr-paper-read-state-changed', function () {
       rerenderSidebarBody(rerenderOptionsForReadStateEvent());
     });
+    document.addEventListener('dpr-workflow-status-changed', function (e) {
+      renderWorkflowStatusBar(e && e.detail ? e.detail : null);
+    });
 
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState !== 'visible') return;
@@ -2836,6 +3070,9 @@
     applySidebarWidth(loadPersistedSidebarWidth());
     state.rootEl.innerHTML = '<div class="dpr-sidebar-loading">加载中…</div>';
     loadAndRender();
+    if (window.DPRWorkflowStatusSync && typeof window.DPRWorkflowStatusSync.start === 'function') {
+      window.DPRWorkflowStatusSync.start();
+    }
   }
 
   var DPRSidebarApi = {
@@ -2908,6 +3145,7 @@
         renderFeedbackQuickButton: renderFeedbackQuickButton,
         renderSidebarHeader: renderSidebarHeader,
         renderSidebarFooterControls: renderSidebarFooterControls,
+        renderWorkflowStatusHtml: renderWorkflowStatusHtml,
         applySidebarCollapsed: applySidebarCollapsed,
         toggleSidebarCollapsed: toggleSidebarCollapsed,
         syncResponsiveSidebarMode: syncResponsiveSidebarMode,
