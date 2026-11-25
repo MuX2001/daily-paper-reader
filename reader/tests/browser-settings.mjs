@@ -4,7 +4,7 @@ import {mkdir} from 'node:fs/promises';
 import {resolve} from 'node:path';
 const browser=await chromium.launch({headless:true});
 try{
- const page=await browser.newPage({viewport:{width:1440,height:1000}});
+ const page=await browser.newPage({locale:'zh-CN',viewport:{width:1440,height:1000}});
  let modelCalls=0,githubPosts=0;
  await page.route('https://api.deepseek.com/**',async r=>{modelCalls++;assert.equal(r.request().postDataJSON().messages.length,1);if(r.request().headers().authorization==='Bearer rejected-key')await r.fulfill({status:401,json:{error:{message:'Invalid API key rejected-key'}}});else await r.fulfill({json:{choices:[{message:{content:'OK'}}]}});});
  await page.route('https://api.github.com/**',async r=>{if(r.request().method()==='POST')githubPosts++;await r.fulfill({json:{state:'active'}});});

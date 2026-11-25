@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 const browser=await chromium.launch({headless:true});
 try{
- const page=await browser.newPage();
+ const page=await browser.newPage({locale:'zh-CN'});
  await page.goto(process.env.DPR_TEST_URL||'http://127.0.0.1:5173/');
  await page.locator('.paper-card').first().waitFor();
  const title=()=>page.locator('meta[name="citation_title"]').getAttribute('content');

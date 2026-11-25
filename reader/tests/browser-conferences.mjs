@@ -2,7 +2,7 @@ import {chromium} from '@playwright/test';
 import assert from 'node:assert/strict';
 const browser=await chromium.launch({headless:true});
 try{
- const page=await browser.newPage();page.on("pageerror",e=>console.log(e.message));
+ const page=await browser.newPage({locale:'zh-CN'});page.on("pageerror",e=>console.log(e.message));
  const run='conference-0123456789abcdef';
  await page.route('**/docs/data/catalog.json',r=>r.fulfill({json:{schema_version:1,runs:[],conferences:[{run_id:run,title:'ICML 2025',count:1,path:`conferences/${run}.json`,kind:'conference'}],migration:{unresolved_conference_routes:['conference/old/unknown']}}}));
  await page.route(`**/docs/data/conferences/${run}.json`,r=>r.fulfill({json:{schema_version:1,run_id:run,papers:[{paper_key:'ICML-2025-Accepted:ExactID',original_id:'ExactID',source:'ICML-2025-Accepted',title:'Conference fixture',score:8,authors:['Alice'],abstract:'Original abstract',tags:[],breakdown:{},publication_date:'2025',publication_date_precision:'year'}]}}));

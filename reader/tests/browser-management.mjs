@@ -1,7 +1,7 @@
 import {chromium} from '@playwright/test';
 import assert from 'node:assert/strict';
 import {parse} from 'yaml';
-const browser=await chromium.launch({headless:true});const page=await browser.newPage({viewport:{width:1440,height:1000}});
+const browser=await chromium.launch({headless:true});const page=await browser.newPage({locale:'zh-CN',viewport:{width:1440,height:1000}});
 let saved,dispatched;
 const yaml='models:\n  unchanged: yes\nsubscriptions:\n  intent_profiles:\n    - tag: robots\n      description: Robotics\n      enabled: true\n      keywords:\n        - keyword: robot manipulation\n          query: learning robot skills\n      intent_queries: []\n';
 await page.route('https://api.github.com/**',async route=>{

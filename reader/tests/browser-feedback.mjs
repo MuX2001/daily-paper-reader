@@ -2,7 +2,7 @@ import {chromium,expect} from '@playwright/test';
 import assert from 'node:assert/strict';
 const browser=await chromium.launch({headless:true});
 try{
- const page=await browser.newPage({viewport:{width:1440,height:1000}});
+ const page=await browser.newPage({locale:'zh-CN',viewport:{width:1440,height:1000}});
  await page.addInitScript(()=>{window.open=url=>{window.testFeedbackURL=String(url);return null;};});
  await page.goto(process.env.DPR_TEST_URL||'http://127.0.0.1:5173/');
  const openFeedback=async()=>{await page.getByRole('button',{name:/快捷键/}).click();await page.getByRole('button',{name:'反馈问题',exact:true}).click();};await openFeedback();

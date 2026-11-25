@@ -7,7 +7,7 @@ test('full context is preserved and abstract fallback is honest',async()=>{
  const context={content:'Full paper '+('body '.repeat(2000)),fulltext:true};
  assert.ok(chatMessages(context,[{role:'user',content:'Question'}])[1].content.endsWith(context.content));
  const fallback=await paperContext({title:'Title',abstract:'Only abstract'} as Paper);
- assert.equal(fallback.fulltext,false);assert.match(chatMessages(fallback,[])[0].content,/Only title and abstract/);
+ assert.equal(fallback.fulltext,false);assert.match(chatMessages(fallback,[])[0].content,/without the full text/);
  assert.equal(fulltextPath('./docs/../secret.txt'),undefined);
  assert.equal(fulltextPath('./docs/%2e%2e/secret.txt'),undefined);
 });

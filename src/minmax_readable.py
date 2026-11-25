@@ -7,6 +7,8 @@ from minmax import excerpts,restore_omitted_lines
 from triage_enrich import atomic_json
 from reader_fulltext import get_fulltext
 
+from summary_language import prompt_for, summary_language
+
 PROMPT=Path(__file__).with_name('minmax_readable_prompt.txt').read_text()
 LIMITS={'tldr':45,'problem_delta':70,'evidence':80,'caveats':60,'where_to_look':40}
 BANNED=('本文针对','痛点','提出了一种','创新性','端到端框架','有效解决了','显著提升','取得了优异性能','值得注意的是','综合来看','极具潜力','不训练不微调','免预训练')
@@ -15,6 +17,10 @@ FIELDS=(*LIMITS,'method_steps','tags')
 CARD_SCHEMA={'type':'object','properties':{**{k:{'type':'string','maxLength':v} for k,v in LIMITS.items()},'method_steps':{'type':'array','maxItems':4,'items':{'type':'string','maxLength':40}},'tags':{'type':'array','minItems':2,'maxItems':4,'items':{'type':'string','maxLength':12}}},'required':list(FIELDS),'additionalProperties':False}
 QUOTE={'type':'object','properties':{k:{'type':['string','null']} for k in ('source_id','quote')},'required':['source_id','quote'],'additionalProperties':False}
 SCHEMA={'type':'object','properties':{'card':CARD_SCHEMA,'citations':{'type':'object','properties':{k:QUOTE for k in (*LIMITS,'method_steps')},'required':[*LIMITS,'method_steps'],'additionalProperties':False}},'required':['card','citations'],'additionalProperties':False}
+
+
+def active_prompt():
+    return prompt_for(PROMPT, 'Follow the supplied JSON schema for card and citations. Use three or four short method steps. For absent findings use "Not stated" and null citation fields. Quote exact source spans for supported fields and respect the field lengths.')
 
 
 def context(text):
@@ -87,7 +93,7 @@ def validate(value,parts):
     sources={p['id']:p['text'] for p in parts}
     for k,c in quotes.items():
         if not isinstance(c,dict) or set(c)!={'source_id','quote'}:raise ValueError('Invalid citation')
-        missing=card[k]==MISSING or (k=='method_steps' and not steps)
+        missing=card[k]==("Not stated" if summary_language()=="en" else MISSING) or (k=='method_steps' and not steps)
         if missing:
             if any(v is not None for v in c.values()):raise ValueError('Missing claim with citation')
             continue
@@ -106,13 +112,13 @@ def enrich(paper,client,root,allow_new=True,fetcher=get_fulltext):
     if paper.get('source')!='arxiv':raise ValueError('Exact-version arXiv source required')
     text,meta=fetcher(paper['original_id'],Path(root)/'sources');parts=context(text)
     payload={'paper_key':paper['paper_key'],'title':paper['title'],'excerpts':parts}
-    identity={'input':payload,'prompt':PROMPT,'schema':SCHEMA,'model':client.model,'endpoint':client.base_url,'options':client.kwargs,'version':'readable-v1'}
+    identity={'input':payload,'prompt':active_prompt(),'schema':SCHEMA,'model':client.model,'endpoint':client.base_url,'options':client.kwargs,'version':'readable-v1'}
     key=hashlib.sha256(json.dumps(identity,ensure_ascii=False,sort_keys=True).encode()).hexdigest();path=Path(root)/'readable'/f'{key}.json'
     reused=False
     if path.exists():value=validate(json.loads(path.read_text())['result'],parts);reused=True
     else:
         if not allow_new:return None,False
-        response=client.chat_structured([{'role':'system','content':PROMPT},{'role':'user','content':json.dumps(payload,ensure_ascii=False)}],schema_name='readable_card',schema=SCHEMA,allow_validation_fallback=False)
+        response=client.chat_structured([{'role':'system','content':active_prompt()},{'role':'user','content':json.dumps(payload,ensure_ascii=False)}],schema_name='readable_card',schema=SCHEMA,allow_validation_fallback=False)
         if response.get('parse_error') or response.get('refusal') or response.get('finish_reason')=='length':raise ValueError('Incomplete readable response')
         value=validate(response.get('parsed'),parts);atomic_json(path,{'result':value,'identity':identity,'tokens':response.get('tokens')})
     mapping={'delta':'problem_delta','steps':'method_steps','evidence':'evidence','constraints':'caveats','landmarks':'where_to_look'}

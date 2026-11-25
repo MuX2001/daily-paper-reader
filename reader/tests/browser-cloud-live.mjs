@@ -16,7 +16,7 @@ async function request(path,key,body,method='POST'){
 }
 const p={paper_key:'arxiv:1706.03762v7',original_id:'1706.03762v7',source:'arxiv',title:'Live cloud test paper',score:8,authors:[],abstract:'Fixture metadata; real private states',tags:[],breakdown:{}};
 async function open(session){
- const context=await browser.newContext({viewport:{width:1440,height:1000}});
+ const context=await browser.newContext({locale:'zh-CN',viewport:{width:1440,height:1000}});
  await context.addInitScript(({url,key,session})=>{
   localStorage.setItem('dpr.cloud.url',url);localStorage.setItem('dpr.cloud.key',key);
   localStorage.setItem(`sb-${new URL(url).hostname.split('.')[0]}-auth-token`,JSON.stringify(session));

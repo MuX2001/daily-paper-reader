@@ -1,5 +1,6 @@
 """Offline, version-preserving projection of Step 5 recommendations (no LLM calls)."""
 from __future__ import annotations
+from summary_language import summary_language
 
 import argparse
 import json
@@ -46,7 +47,7 @@ def project_paper(paper):
         'paper_key': f'{source}:{pid}', 'original_id': pid,
         'canonical_id': f'{source}:{canonical}', 'source': source,
         'version': int(arxiv.group(1)) if source == 'arxiv' and arxiv and arxiv.group(1) else None,
-        'title': title, 'title_zh': optional_text(paper.get('title_cn')),
+        'title': title, 'title_zh': title if summary_language()=='en' else optional_text(paper.get('title_cn')),
         'abstract': optional_text(paper.get('abstract')),
         'authors': [name for a in (paper.get('authors') or [])
                     if (name := optional_text(a if isinstance(a, str) else a.get('name') if isinstance(a, dict) else None))],
@@ -55,8 +56,8 @@ def project_paper(paper):
         'publication_date_precision': optional_text(paper.get('publication_date_precision')),
         'published': optional_text(paper.get('published')),
         'url': public_url(paper.get('link')), 'pdf_url': public_url(paper.get('pdf_url')),
-        'score': score, 'reason': optional_text(paper.get('llm_evidence_cn')) or optional_text(paper.get('llm_evidence')),
-        'tldr': optional_text(paper.get('llm_tldr_cn')) or optional_text(paper.get('llm_tldr')),
+        'score': score, 'reason': optional_text(paper.get('llm_evidence_en')) if summary_language()=='en' else optional_text(paper.get('llm_evidence_cn')) or optional_text(paper.get('llm_evidence')),
+        'tldr': optional_text(paper.get('llm_tldr_en')) if summary_language()=='en' else optional_text(paper.get('llm_tldr_cn')) or optional_text(paper.get('llm_tldr')),
         'tags': tags(paper.get('tags')) + tags(paper.get('llm_tags')),
         # These fields require a subsequent evidence-validated enrichment stage.
         'breakdown': {'problem': None, 'method': None, 'results': None},

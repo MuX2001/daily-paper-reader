@@ -8,7 +8,7 @@ if(![site,connection.API_URL].every(u=>['localhost','127.0.0.1','[::1]'].include
 const email=`reader-auth-${randomUUID()}@example.test`,password=randomUUID();
 const browser=await chromium.launch();let id;
 try{
- const page=await browser.newPage({viewport:{width:1440,height:1000}});
+ const page=await browser.newPage({locale:'zh-CN',viewport:{width:1440,height:1000}});
  await page.goto(site);await page.locator('.profile').click();
  await page.getByLabel('Supabase URL',{exact:true}).fill(connection.API_URL);
  await page.getByLabel('Publishable / anon key',{exact:true}).fill(connection.ANON_KEY);

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 const browser=await chromium.launch({headless:true});
 try{
- const page=await browser.newPage({viewport:{width:1440,height:1000}});
+ const page=await browser.newPage({locale:'zh-CN',viewport:{width:1440,height:1000}});
  await page.clock.setFixedTime(new Date(2026,10,24,12));
  const user={id:'00000000-0000-0000-0000-000000000001',aud:'authenticated',role:'authenticated',user_metadata:{}};
  await page.addInitScript(user=>{

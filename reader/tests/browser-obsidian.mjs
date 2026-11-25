@@ -2,7 +2,7 @@ import {chromium,expect} from '@playwright/test';
 import assert from 'node:assert/strict';
 const browser=await chromium.launch({headless:true});
 try{
- const page=await browser.newPage({viewport:{width:1440,height:1000}});
+ const page=await browser.newPage({locale:'zh-CN',viewport:{width:1440,height:1000}});
  const paper={paper_key:'arxiv:1706.03762v7',original_id:'1706.03762v7',source:'arxiv',title:'Short export fixture',authors:[],abstract:'Synthetic abstract',tags:[],breakdown:{},score:8};
  await page.route('**/docs/data/catalog.json',r=>r.fulfill({json:{schema_version:1,runs:[{run_id:'20261124',count:1,path:'daily/20261124.json'}]}}));
  await page.route('**/docs/data/daily/20261124.json',r=>r.fulfill({json:{schema_version:1,run_id:'20261124',papers:[paper]}}));

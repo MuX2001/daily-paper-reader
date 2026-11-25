@@ -1,7 +1,7 @@
 import {chromium,expect} from '@playwright/test';
 import assert from 'node:assert/strict';
 const b=await chromium.launch();try{
- const p=await b.newPage({viewport:{width:1440,height:1000},permissions:['clipboard-read','clipboard-write']});
+ const p=await b.newPage({locale:'zh-CN',viewport:{width:1440,height:1000},permissions:['clipboard-read','clipboard-write']});
  const summary={card_hook:'机器人先参考专家示范，再用触觉判断接触状态并修正动作。',context_and_problem:'插入零件时只看图像容易漏掉接触偏差，因此机器人需要触觉反馈。',core_approach:['先从专家示范整理任务指导，给模型提供操作参考。','执行时再读取触觉信号，根据接触状态修正下一步动作。'],caveats_and_pointers:'限定的实验范围。',experimental_results:'结果只适用于给定测试；更多实验条件需查看原文。',tags:['触觉','机器人']};
  await p.addInitScript(()=>localStorage.setItem('dpr.reading.prompt.arxiv:1706.03762v1','USER_SAVED_PROMPT'));
  await p.route('**/daily/20261124.json',async r=>{const response=await r.fetch();const feed=await response.json();feed.papers[0].narrative=summary;feed.papers[0].title_zh='GPT-6-Astra理解触觉';feed.papers[0].title='Vision--Tactile--Language';for(let i=2;i<8;i++)feed.papers.push({...feed.papers[1],paper_key:"sample-"+i});await r.fulfill({json:feed});});

@@ -1,3 +1,4 @@
+import {t as uiText} from '../i18n/messages.ts';
 export type SettingsTab='account'|'chat'|'deep'|'export'|'maintenance';
 export type ExportMode='markdown'|'obsidian'|'both';
 export type Naming='stable-id'|'date-title'|'id-title';
@@ -15,7 +16,7 @@ export function exportPreferences(storage:Storage=localStorage){
 export function storeValues(values:Record<string,string|null>,storage:Storage=localStorage){
  const previous=Object.fromEntries(Object.keys(values).map(key=>[key,storage.getItem(key)]));
  try{for(const [key,value] of Object.entries(values))value===null?storage.removeItem(key):storage.setItem(key,value);}
- catch{for(const [key,value] of Object.entries(previous)){try{value===null?storage.removeItem(key):storage.setItem(key,value);}catch{/* report failed storage below */}}throw new Error('浏览器无法保存设置，请检查站点存储权限或空间。配置尚未生效。');}
+ catch{for(const [key,value] of Object.entries(previous)){try{value===null?storage.removeItem(key):storage.setItem(key,value);}catch{/* report failed storage below */}}throw new Error(uiText("浏览器无法保存设置，请检查站点存储权限或空间。配置尚未生效。"));}
 }
 export function saveSecrets(chat:boolean,github:boolean,apiKey:string,token:string){
  storeValues({'dpr.settings.remember_secrets':JSON.stringify({chat,github}),'dpr.chat.api_key':chat?apiKey:null,'dpr.github.token':github?token:null});

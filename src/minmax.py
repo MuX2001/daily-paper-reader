@@ -8,10 +8,16 @@ import re
 from triage_enrich import atomic_json
 from reader_fulltext import get_fulltext
 
+from summary_language import prompt_for, summary_language
+
 PROMPT=Path(__file__).with_name('minmax_prompt.txt').read_text()
 FIELDS=('delta','steps','evidence','constraints','landmarks')
 CLAIM={'type':'object','properties':{k:{'type':['string','null']} for k in ('text','quote','source_id')},'required':['text','quote','source_id'],'additionalProperties':False}
 SCHEMA={'type':'object','properties':{'paper_key':{'type':'string'},'title_zh':{'type':'string'},**{k:CLAIM for k in FIELDS}},'required':['paper_key','title_zh',*FIELDS],'additionalProperties':False}
+
+
+def active_prompt():
+    return prompt_for(PROMPT, 'Keep paper_key unchanged and copy the original title into title_zh. Every claim including steps is a JSON object containing exactly three strings: text, quote, source_id. Never output an array. Use the required_output_shape in the input. Use null for all three if unsupported. Quote 8–800 characters verbatim. Use 3–4 numbered lines for steps. Use 15 words for delta, 3 short numbered lines of 12 words each for steps, and 20 words each for evidence, constraints and landmarks. Target 110 words overall; copy quotes separately and avoid repeating them in the claims.')
 
 
 def excerpts(text):
@@ -84,7 +90,8 @@ def validate(value,paper,parts):
                 raise ValueError('Method needs 3–4 numbered steps')
             c['text']=normalized
         size+=len(c['text'])
-    if size>400:raise ValueError('Card exceeds 400 characters')
+    limit=1800 if summary_language()=='en' else 400
+    if size>limit:raise ValueError(f'Card exceeds {limit} characters')
     return value
 
 
@@ -93,7 +100,9 @@ def enrich(paper,client,root,allow_new=True,fetcher=get_fulltext):
     text,meta=fetcher(paper['original_id'],Path(root)/'sources')
     parts=excerpts(text)
     payload={'paper_key':paper['paper_key'],'title':paper['title'],'excerpts':parts}
-    identity={'input':payload,'prompt':PROMPT,'schema':SCHEMA,'model':client.model,'endpoint':client.base_url,'options':client.kwargs,'version':1}
+    if summary_language()=='en':
+        payload['required_output_shape']={'paper_key':paper['paper_key'],'title_zh':paper['title'],**{k:{'text':None,'quote':None,'source_id':None} for k in FIELDS}}
+    identity={'input':payload,'prompt':active_prompt(),'schema':SCHEMA,'model':client.model,'endpoint':client.base_url,'options':client.kwargs,'version':1}
     key=hashlib.sha256(json.dumps(identity,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
     path=Path(root)/'minmax'/f'{key}.json';result=None
     if path.exists():
@@ -102,7 +111,7 @@ def enrich(paper,client,root,allow_new=True,fetcher=get_fulltext):
     reused=result is not None
     if not reused:
         if not allow_new:return None,False
-        response=client.chat_structured([{'role':'system','content':PROMPT},{'role':'user','content':json.dumps(payload,ensure_ascii=False)}],schema_name='minmax_card',schema=SCHEMA,allow_validation_fallback=False)
+        response=client.chat_structured([{'role':'system','content':active_prompt()},{'role':'user','content':json.dumps(payload,ensure_ascii=False)}],schema_name='minmax_card',schema=SCHEMA,allow_validation_fallback=False)
         if response.get('parse_error') or response.get('refusal') or response.get('finish_reason')=='length':raise ValueError('Incomplete model output')
         result=validate(response.get('parsed'),paper,parts)
         atomic_json(path,{'result':result,'identity':identity})

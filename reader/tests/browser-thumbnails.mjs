@@ -5,7 +5,7 @@ import {resolve} from 'node:path';
 import {homedir} from 'node:os';
 const browser=await chromium.launch({headless:true});
 try{
- const page=await browser.newPage({viewport:{width:1440,height:1000}});
+ const page=await browser.newPage({locale:'zh-CN',viewport:{width:1440,height:1000}});
  const papers=['first_page','figure1'].map((kind,i)=>({paper_key:`icml:test${i}`,original_id:`test${i}`,source:'icml',title:`Preview fixture ${i}`,score:8,authors:[],abstract:'Abstract',tags:[],breakdown:{},published:'2023-01-01',publication_date:'2025',publication_date_precision:'year',thumbnail:{url:`./docs/data/previews/${String(i).repeat(24)}.webp`,kind}}));
  await page.route('**/docs/data/catalog.json',r=>r.fulfill({json:{schema_version:1,runs:[{run_id:'20261124',count:2,path:'daily/20261124.json'}]}}));
  await page.route('**/docs/data/daily/20261124.json',r=>r.fulfill({json:{schema_version:1,run_id:'20261124',papers}}));

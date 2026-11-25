@@ -1,6 +1,6 @@
 import {chromium} from '@playwright/test';
 import assert from 'node:assert/strict';
-const browser=await chromium.launch({headless:true});const page=await browser.newPage({viewport:{width:1440,height:1000}});
+const browser=await chromium.launch({headless:true});const page=await browser.newPage({locale:'zh-CN',viewport:{width:1440,height:1000}});
 const run='20261124-abcdef012345';
 const papers=[1,2].map(n=>({paper_key:`arxiv:1234.0000${n}v1`,original_id:`1234.0000${n}v1`,work_id:`work${n}`,source:'arxiv',title:`Test topic paper ${n}`,title_zh:null,abstract:'Test abstract',authors:[],published:null,url:`https://arxiv.org/abs/1234.0000${n}v1`,pdf_url:null,score:9-n,reason:null,tldr:null,tags:['test'],breakdown:{problem:null,method:null,results:null},thumbnail:null,code_url:null,content_status:'incomplete'}));
 await page.route('**/docs/data/catalog.json',async route=>{const response=await route.fetch();const data=await response.json();data.topics=[{run_id:run,path:`topics/${run}.json`,title:'Fixture topic',count:2,kind:'topic'}];await route.fulfill({json:data});});

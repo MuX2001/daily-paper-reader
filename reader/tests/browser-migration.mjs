@@ -1,7 +1,7 @@
 import {chromium} from '@playwright/test';
 import assert from 'node:assert/strict';
 const browser=await chromium.launch({headless:true});
-const page=await browser.newPage({viewport:{width:390,height:844}});
+const page=await browser.newPage({locale:'zh-CN',viewport:{width:390,height:844}});
 let writes=0;
 await page.route('**/rest/v1/**',async route=>{writes++;await route.abort();});
 await page.goto(process.env.DPR_TEST_URL||'http://127.0.0.1:5173/');
