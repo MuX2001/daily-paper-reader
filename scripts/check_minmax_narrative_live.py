@@ -20,7 +20,7 @@ def main():
     original=client.chat_structured;responses=[]
     def record(*args,**kwargs):
         result=original(*args,**kwargs)
-        responses.append({k:str(result[k]) if k=='parse_error' else result.get(k) for k in ('content','parsed','tokens','finish_reason','parse_error') if k in result})
+        responses.append({k:str(result[k]) if k=='parse_error' and result[k] is not None else result.get(k) for k in ('content','parsed','tokens','finish_reason','parse_error') if k in result})
         atomic_json(a.output/'responses.json',responses);return result
     client.chat_structured=record
     samples=[('1706.03762v7','Attention Is All You Need'),('2610.28457v1','GPT-6-Astra Understands Touch and Outperform Vision--Tactile--Language--Action Models'),('2610.31472v1','VecTile: A Low-Cost Flexible Tactile Array for 3-DoF Force Sensing')]
@@ -37,9 +37,9 @@ def main():
             # generate it with the old algorithm for a genuine comparison.
             if not paper.get('minmax'):paper,_=old_enrich(paper,client,a.output/'cache')
             atomic_json(a.output/(id+'-old.json'),paper)
-            new,reused=enrich(paper,client,a.output/'cache')
+            new,reused=enrich(paper,client,a.output/'cache',draft=True)
             atomic_json(a.output/(id+'-new.json'),new)
-            before=len(responses);enrich(paper,client,a.output/'cache')
+            before=len(responses);enrich(paper,client,a.output/'cache',draft=True)
             if before!=len(responses):raise AssertionError('Cache replay billed')
             item.update(status='succeeded',cache_verified=True)
             print(id,json.dumps(new['narrative'],ensure_ascii=False),flush=True)
