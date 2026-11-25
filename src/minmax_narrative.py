@@ -15,21 +15,45 @@ BANNED=('提出了一种创新性框架','有效解决了','显著提升了','�
 
 
 def narrative_context(text):
-    # Keep the methods in sequence, including qualifications at paragraph ends.
-    # Supplement with the existing caption/conclusion selection; do not alter
-    # the exact-version downloader or classic daily input.
-    abstract=re.search(r'(?im)^\s*abstract\s*$',text)
+    """Select version-matched source spans; reserve space for captions and limitations."""
+    refs=re.search(r'(?im)^\s*(?:references|bibliography)\s*$',text)
+    body=text[:refs.start()] if refs else text
+    abstract=re.search(r'(?im)^\s*abstract\s*$',body)
+    intro=re.search(r'(?im)^\s*(?:[0-9.IVX]+\s+)?introduction\s*$',body)
     start=abstract.start() if abstract else 0
-    end=min(len(text),start+8500)
-    if end<len(text):
-        boundary=re.search(r'\n\s*\n|\n',text[end:end+600])
-        if boundary:end+=boundary.end()
-    spans=[(start,end),*((p['start'],p['end']) for p in context(text))]
+    intro_start=intro.end() if intro else start
+    words=list(re.finditer(r'\S+',body[intro_start:intro_start+9000]))
+    intro_end=intro_start+words[min(1199,len(words)-1)].end() if words else intro_start
+    spans=[(start,min(intro_end,start+7000))]
+    # Reuse the method heading and subsection extraction. Distribute the
+    # caption budget across all labels, including late figures and tables.
+    captions=list(re.finditer(r'(?im)^\s*(?:figure|fig\.|table)\s+\d+[^\n]*',body))
+    allowance=min(800,4800//len(captions)) if captions else 0
+    for match in captions:
+        spans.append((match.start(),min(len(body),match.end()+allowance)))
+    for part in context(body):
+        spans.append((part['start'],part['end']))
+    endings=list(re.finditer(r'(?im)^\s*(?:[0-9.IVX]+\s+)?(?:conclusions?|limitations?)(?: and future work)?\s*$',body))
+    for match in endings:spans.append((match.start(),min(len(body),match.end()+1300)))
+    # Budget in source characters (roughly 3.5–5.5k English tokens).
+    # Prioritize conclusions and captions ahead of supplementary method text.
+    priority=spans[:1]+spans[-len(endings):] if endings else spans[:1]
     merged=[]
-    for a,b in sorted(spans):
-        if merged and a<=merged[-1][1]:merged[-1]=(merged[-1][0],max(b,merged[-1][1]))
-        else:merged.append((a,b))
-    return [{'id':f'E{i+1}','start':a,'end':b,'text':text[a:b]} for i,(a,b) in enumerate(merged)]
+    remaining=19500
+    for a,b in priority+spans:
+        pending=[(a,b)]
+        for lo,hi in merged:
+            pending=[fragment for x,y in pending for fragment in ((x,min(y,lo)),(max(x,hi),y)) if fragment[1]>fragment[0]]
+        for x,y in pending:
+            y=min(y,x+remaining)
+            if y>x:
+                merged.append((x,y))
+                remaining-=y-x
+    joined=[]
+    for a,b in sorted(merged):
+        if joined and a==joined[-1][1]:joined[-1]=(joined[-1][0],b)
+        else:joined.append((a,b))
+    return [{'id':f'E{i+1}','start':a,'end':b,'text':text[a:b]} for i,(a,b) in enumerate(joined)]
 
 
 def validate(value):

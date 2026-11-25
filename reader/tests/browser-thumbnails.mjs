@@ -12,12 +12,13 @@ try{
  const png=await readFile('app/asserts/icon.png');
  await page.route('**/docs/data/previews/*.webp',route=>route.request().url().endsWith('0'.repeat(24)+'.webp')?route.fulfill({contentType:'image/png',body:png}):route.fulfill({status:404}));
  await page.goto(process.env.DPR_TEST_URL||'http://127.0.0.1:5173/');
- await expect(page.getByText('PDF 首页',{exact:true})).toBeVisible();await expect(page.getByText('Figure 1',{exact:true})).toBeVisible();await expect(page.getByText('预览不可用',{exact:true})).toBeVisible();
- assert.equal(await page.getByRole('img',{name:'PDF 首页',exact:true}).evaluate(img=>img.complete&&img.naturalWidth>0),true);
+ await expect(page.getByText('PDF 首页',{exact:true})).toBeVisible();assert.equal(await page.getByRole('img',{name:'PDF 首页',exact:true}).evaluate(img=>img.complete&&img.naturalWidth>0),true);
  assert.equal(await page.locator('.paper-meta').first().innerText().then(text=>text.includes('2023')),false);
  assert.equal(await page.locator('.paper-meta').first().innerText().then(text=>text.includes('2025')),true);
+ await page.locator('.paper-select').nth(1).click();await expect(page.getByText('Figure 1',{exact:true})).toBeVisible();await expect(page.getByText('预览不可用',{exact:true})).toBeVisible();
+  await page.locator('.paper-select').first().click();
  const output=process.env.DPR_TEST_OUTPUT||resolve(homedir(),'workspace/runs/daily-paper-reader/browser');await mkdir(output,{recursive:true});
- await page.screenshot({path:resolve(output,'thumbnail-labels.png')});await page.setViewportSize({width:390,height:844});
+ await page.screenshot({path:resolve(output,'thumbnail-labels.png')});await page.setViewportSize({width:390,height:844});if(!await page.locator('.preview').isVisible())await page.locator('.paper-select').first().click();
  await expect(page.getByText('PDF 首页',{exact:true})).toBeVisible();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await page.screenshot({path:resolve(output,'thumbnail-labels-mobile.png')});
  console.log('Thumbnail UI passed: actual image rendering, visible first-page/Figure 1 labels, failed-image fallback, precise conference year, mobile layout');
 }finally{await browser.close();}

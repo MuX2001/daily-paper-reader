@@ -1,7 +1,7 @@
 export interface MinMaxClaim {text:string|null;quote:string|null;source_id:string|null}
 export interface ReadableCard {tldr:string;problem_delta:string;method_steps:string[];evidence:string;caveats:string;where_to_look:string;tags:string[]}
 export interface MinMax {readable?:ReadableCard;format?:string;status:string;reason?:string;input_scope?:string;source?:{source_url:string;format:string};excerpts?:{id:string;start:number;end:number;text:string}[];delta?:MinMaxClaim;steps?:MinMaxClaim;evidence?:MinMaxClaim;constraints?:MinMaxClaim;landmarks?:MinMaxClaim}
-export interface Narrative {card_hook:string;context_and_problem:string;core_approach:string[];results_and_reality_check:string;tags:string[]}
+export interface Narrative {card_hook:string;context_and_problem:string;core_approach:string[];experimental_results?:string;caveats_and_pointers?:string;results_and_reality_check?:string;tags:string[]}
 export interface Paper {
   narrative?:Narrative;
   minmax?:MinMax; minmax_candidate?:MinMax;

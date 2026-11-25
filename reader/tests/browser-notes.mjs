@@ -4,6 +4,7 @@ import {readFile} from 'node:fs/promises';
 const browser=await chromium.launch({headless:true});
 try{
  const page=await browser.newPage({viewport:{width:1440,height:1000}});
+ await page.clock.setFixedTime(new Date(2026,10,24,12));
  const user={id:'00000000-0000-0000-0000-000000000001',aud:'authenticated',role:'authenticated',user_metadata:{}};
  await page.addInitScript(user=>{
   localStorage.setItem('dpr.cloud.url','https://notes.supabase.co');localStorage.setItem('dpr.cloud.key','sb_publishable_test');
@@ -25,7 +26,8 @@ try{
  const previewStar=()=>page.locator('.preview-buttons .star-button');
  const listStar=()=>page.locator('.paper-card').first().locator('.star-button');
  await expect(listStar()).toHaveAttribute('aria-pressed','false');await expect(previewStar()).toHaveAttribute('aria-pressed','false');
- await previewStar().click();await expect(listStar()).toHaveAttribute('aria-pressed','true');await expect(previewStar()).toHaveAttribute('aria-pressed','true');
+ await expect(page.locator('.reading-progress')).toContainText('今日进度 1 / 2');
+ await previewStar().click();await expect(page.locator('.reading-progress')).toContainText('今日已清空');await expect(page.locator('.heat-grid span').last()).toHaveAttribute('title',/待精读 2 · 归档 0/);await expect(listStar()).toHaveAttribute('aria-pressed','true');await expect(previewStar()).toHaveAttribute('aria-pressed','true');
  await expect(listStar().locator('svg')).toHaveAttribute('fill','currentColor');await expect(page.locator('.summary-strip')).toContainText('2 篇待精读');assert.equal(cloud.starred,true);
  await listStar().click();await expect(previewStar()).toHaveAttribute('aria-pressed','false');await expect(listStar().locator('svg')).toHaveAttribute('fill','none');assert.equal(cloud.starred,false);
  await page.locator('.paper-select').nth(1).click();await expect(previewStar()).toHaveAttribute('aria-pressed','true');

@@ -9,17 +9,19 @@ await page.locator('.profile').click();await page.getByRole('tab',{name:/网页 
 await page.getByLabel('模型端点（Base URL）',{exact:true}).fill('https://model.example/v1');
 await page.getByLabel('聊天模型 ID',{exact:true}).fill('test');await page.getByLabel('聊天 API Key',{exact:true}).fill('mock-api-key');
 await page.getByRole('button',{name:'保存聊天设置',exact:true}).click();await page.getByRole('button',{name:'关闭对话框',exact:true}).click();
+await page.getByRole('button',{name:'AI 问答',exact:true}).click();
 await page.getByLabel('向论文提问',{exact:true}).fill('解释核心假设');await page.getByRole('button',{name:'发送问题',exact:true}).click();
 await page.getByText('根据已提供全文，核心假设如下。',{exact:true}).waitFor();
 assert.ok(sent.messages[1].content.length>4000);assert.match(sent.messages[1].content,/References|references/);assert.match(sent.messages[1].content,/Paper full text/);
 assert.equal(await page.evaluate(()=>Object.values(localStorage).some(v=>String(v).includes('mock-api-key'))),false);
 for(const index of [1,0,1,0,1,1]){
  await page.locator('.paper-select').nth(index).click();
+ if(await page.getByRole('button',{name:'AI 问答'}).getAttribute('aria-expanded')==='false')await page.getByRole('button',{name:'AI 问答'}).click();
  await expect(page.getByRole('heading',{name:'与论文对话',exact:true})).toHaveCount(1);
  await expect(page.getByLabel('向论文提问',{exact:true})).toHaveCount(1);
  await expect(page.getByRole('region',{name:'聊天客户端精读',exact:true})).toHaveCount(1);
  await expect(page.locator('.chat-history .chat-message')).toHaveCount(0);
- await expect(page.getByRole('region',{name:'原始摘要',exact:true})).toContainText('Synthetic browser fixture abstract.');
+ await expect(page.locator('details.original-abstract')).toContainText('Synthetic browser fixture abstract.');
 }
 await page.getByLabel('向论文提问',{exact:true}).fill('解释第二篇');await page.getByRole('button',{name:'发送问题',exact:true}).click();
 await page.getByText('根据已提供全文，核心假设如下。',{exact:true}).waitFor();

@@ -1,8 +1,11 @@
 import type {Paper} from './domain';
-import {cardHook,sameText} from './presentation';
-const labels={delta:'解决什么问题',steps:'具体怎么做',evidence:'实验结果',constraints:'局限和成本',landmarks:'相关图表'} as const;
 export function MinMaxCard({paper}:{paper:Paper}){
- const card=paper.minmax,narrative=paper.narrative;
- if(narrative)return <section aria-label="论文速览" className="narrative-summary"><h3>背景与问题</h3><p>{narrative.context_and_problem}</p><h3>核心做法与直觉</h3><ol>{narrative.core_approach.map((part,i)=><li key={i}>{part}</li>)}</ol><h3>实验结果与局限</h3><p>{narrative.results_and_reality_check}</p></section>;
- return <section aria-label="论文速览"><h3>论文速览</h3>{card?.status==='ready'?Object.entries(labels).filter(([key])=>key!=='delta'||!sameText(card.delta?.text,cardHook(paper))).map(([key,label])=><div className="minmax-block" key={key}><h4>{label}</h4><p style={{whiteSpace:'pre-line'}}>{card[key as keyof typeof labels]?.text||'未说明'}</p></div>):<p>{card?.reason||'暂无总结，可先查看摘要或打开原文。'}</p>}</section>;
+ const n=paper.narrative,c=paper.minmax,r=c?.readable,b=paper.breakdown;
+ const blocks=[
+   ['背景与卡点',n?.context_and_problem||r?.problem_delta||c?.delta?.text||b?.problem],
+   ['核心做法与直觉',n?.core_approach||r?.method_steps||c?.steps?.text||b?.method],
+   [n?.results_and_reality_check&&!n.experimental_results?'实验结果与局限':'实验与硬证据',n?.experimental_results||n?.results_and_reality_check||r?.evidence||c?.evidence?.text||b?.results],
+   ['局限、代价与图表路标',n?.caveats_and_pointers||[r?.caveats||c?.constraints?.text,r?.where_to_look||c?.landmarks?.text].filter(Boolean).join('\n')]
+ ] as const;
+ return <section aria-label="论文速览" className="bento-grid narrative-summary">{blocks.map(([label,value])=>value&&<section className="bento-card" key={label}><h3>{label}</h3>{Array.isArray(value)?<ol>{value.map((part,i)=><li key={i}>{part}</li>)}</ol>:<p>{value}</p>}</section>)}</section>;
 }

@@ -15,7 +15,9 @@ def main():
         body=n['context_and_problem']+''.join(n['core_approach'])+(n.get('experimental_results','')+n.get('caveats_and_pointers','') or n.get('results_and_reality_check',''));bundle.append({'arxiv_id':new['original_id'],'title':new['title'],'body_characters':len(body),'old':{'card_hook':old.get('tldr'),'minmax':{k:old.get('minmax',{}).get(k,{}).get('text') for k in fields}},'new':n})
         name=path.name.replace('-new.json','.json');(args.output/name).write_text(json.dumps(n,ensure_ascii=False,indent=2)+'\n')
         before='<h3>列表简介</h3><p>'+esc(old.get('tldr'))+'</p>'+''.join('<h3>'+label+'</h3><p>'+esc(old.get('minmax',{}).get(k,{}).get('text'))+'</p>' for k,label in fields.items())
-        after='<h3>列表简介</h3><p>'+esc(n['card_hook'])+'</p><h3>背景与问题</h3><p>'+esc(n['context_and_problem'])+'</p><h3>核心做法与直觉</h3><ol>'+''.join('<li>'+esc(x)+'</li>' for x in n['core_approach'])+'</ol><h3>实验结果与局限</h3><p>'+esc(n.get('experimental_results') or n.get('results_and_reality_check',''))+'</p><h3>局限与图表</h3><p>'+esc(n.get('caveats_and_pointers',''))+'</p>'
+        after='<h3>列表简介</h3><p>'+esc(n['card_hook'])+'</p><h3>背景与问题</h3><p>'+esc(n['context_and_problem'])+'</p><h3>核心做法与直觉</h3><ol>'+''.join('<li>'+esc(x)+'</li>' for x in n['core_approach'])+'</ol>'
+        for label,field in [('实验与硬证据','experimental_results'),('局限、代价与图表路标','caveats_and_pointers'),('实验结果与局限','results_and_reality_check')]:
+            if n.get(field):after+='<h3>'+label+'</h3><p>'+esc(n[field])+'</p>'
         cards.append('<article><h2>'+esc(new['title'])+'</h2><p class="meta">'+esc(new['original_id'])+' · 正文 '+str(len(body))+' 字符 · '+esc(new.get('narrative_provenance',{}).get('model'))+'</p><div class="columns"><section><h2>旧版</h2>'+before+'</section><section><h2>新版候选</h2>'+after+'</section></div><details><summary>查看原始 JSON</summary><pre>'+esc(json.dumps(n,ensure_ascii=False,indent=2))+'</pre><a href="'+esc(name)+'" download>下载这篇 JSON</a></details></article>')
     if len(cards)!=3:raise ValueError('Three successful sample files are required for this review')
     (args.output/'comparison.json').write_text(json.dumps(bundle,ensure_ascii=False,indent=2)+'\n')
