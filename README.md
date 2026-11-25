@@ -1,301 +1,107 @@
-> **dev 分支新版阅读工作台**：主入口已切换为 React 分诊台；旧阅读库保留在 `legacy.html`。配置步骤见 [新版使用指南](docs_init/tutorial/reader-setup.md)。开发规格与当前验收记录见 [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md)。本地运行 `npm ci && npm run dev`，首次先用项目 Python 环境执行 `python src/reader_catalog.py --output "$HOME/workspace/runs/daily-paper-reader/reader-data"`。生产构建使用 `npm run build`，输出由 `DPR_WEB_OUTPUT_DIR` 指定，默认位于 workspace/runs。下方原版部署说明仅适用于旧入口；新版发布使用 `reader-publish.yml`，不会自动改变 Pages 配置。
+# Daily Paper Reader
 
-<p align="center">
-  <img src="others/LOGO.png" alt="Daily Paper Reader Logo" width="720" />
-</p>
+[English](README.md) · [简体中文](README.zh-CN.md) · [Open the reader](https://mux2001.github.io/daily-paper-reader/)
 
-<h2 align="center">Your Daily Companion for Discovering and Reading AI Papers</h2>
+An inbox triage workspace for daily papers. Spend three minutes scanning a batch, queue papers worth reading, and archive the rest.
 
-<p align="center">
-  <a href="https://github.com/MuX2001/daily-paper-reader/stargazers">
-    <img src="https://img.shields.io/github/stars/MuX2001/daily-paper-reader?style=flat-square" alt="Stars" />
-  </a>
-  <a href="https://github.com/MuX2001/daily-paper-reader/network/members">
-    <img src="https://img.shields.io/github/forks/MuX2001/daily-paper-reader?style=flat-square" alt="Forks" />
-  </a>
-  <a href="https://github.com/MuX2001/daily-paper-reader/blob/dev/LICENSE">
-    <img src="https://img.shields.io/github/license/MuX2001/daily-paper-reader?style=flat-square" alt="License" />
-  </a>
-  <a href="https://MuX2001.github.io/daily-paper-reader">
-    <img src="https://img.shields.io/badge/Demo-GitHub%20Pages-2ea44f?style=flat-square" alt="Demo" />
-  </a>
-  <a href="https://MuX2001.github.io/daily-paper-reader/#guide">
-    <img src="https://img.shields.io/badge/Docs-Quick%20Start-blue?style=flat-square" alt="Docs" />
-  </a>
-</p>
+![Widescreen inbox with the paper queue, original abstract and structured reading cards](docs/Screenshot.png)
 
+## Why this fork
 
+Thanks to `ziwenhahaha/daily-paper-reader` for the retrieval pipeline and original reader. This fork builds a daily workflow around four changes.
 
-## 🖼️ 界面预览
-<p align="center">
-  <img src="others/demo1.png" alt="Daily Paper Reader 界面预览 1" width="80%" />
-</p>
-<p align="center">
-  <img src="others/demo2.png" alt="Daily Paper Reader 界面预览 2" width="40%" />
-  <img src="others/demo3.png" alt="Daily Paper Reader 界面预览 3" width="40%" />
-</p>
+- **A keyboard-first inbox.** Navigate a compact queue beside a 2×2 reading grid. A progress ring tracks the current batch and a 12-week heatmap shows reading activity.
+- **Cached Min-Max previews.** See where earlier methods get stuck, how the new method works, what the authors measured and which figures to inspect. The daily job extracts these facts in advance, so opening a paper makes no model request. The original abstract stays available.
+- **Two ways to go deeper.** Press `c` to ask a question beside the paper. Copy a Deep-Read Pack into an external model for a longer discussion, or export a Markdown note to disk or Obsidian.
+- **Two language controls.** Switch the interface and default prompts with **中 / EN**. Set `SUMMARY_LANG` for newly generated summaries. Existing papers keep their cached text.
 
-## 📰 News
+## How it works
 
-- **2026-09-16** 🛡️ 修复日报跨日期重复推荐（`8750d59`）：暂停词条不再进入 composite 评分需求，`query:<tag>:composite` 会正确归一化到所属词条；历史推荐同时参考原始召回标签与 canonical arXiv ID，同一专题次日不会重新生成相同论文，不同专题仍保持独立。已有历史重复页面保留，不自动删除。
-- **2026-09-09** 🚀 新增 **90天/365天 arXiv 专题回溯**（`f7e89b1`）：支持分片召回、证据核验、评分缓存与分页报告，区分核心、补充和待复核结果；保留原十天、三十天流程。同步修复长窗口匿名 RPC 超时（`09cc0f5`）。DeepSeek 费用按实际用量计算，不下载全量 PDF，不承诺找全所有相关论文。
-- **2026-09-09** 🛠️ 修复配置读取与论文重置反馈（`778f6b8`）：DeepSeek 连接测试超时改为明确提示“DeepSeek 连接测试超时，请稍后重试”；密钥文件读取遇到网络异常时自动重试，并提供重新读取入口，避免误入初始化向导；论文重置在任务派发确认后才显示“已提交”，提交期间防止重复点击并提醒不要关闭页面，进度读取失败也不会再误报为提交失败。
-- **2026-09-05** 📚 更新会议论文库与摘要（`67daf2c` / `bff3506`）：CVPR 2026 已入库 4,042 篇官方 Open Access 论文，OSDI 2026 补至 136 篇，IEEE S&P 2026 补至 254 篇（其中 88 篇提供公开 PDF）；同步更新向量索引与会议年份统计。另从官方 PDF 补齐 EMNLP 2024/2025 共 61 篇缺失摘要，并增加 PDF 摘要提取兜底。CVPR 入库数与官方录用数 4,089 篇仍有差异，EMNLP 2026 尚未导入。
-- **2026-08-28** 🗓️ 修复区间日报无法从侧边栏日历点开（`2ea10ee5`）：长时间窗日报（如 `2026-07-29 ~ 2026-08-27`）在日历上挂到结束日格子，但选中逻辑仍按原始日期 key 查索引，导致格子显示有论文却点不动、列表不切换也不高亮；改为按锚定日反查还原原始 key，并连带修复重渲染后跳回最新单日、分组展开状态错位与翻月时列表错配。
-- **2026-07-19** 🧾 统一首页公告与社区面板（`7457ab10`）：移除波浪、渐变和紫色宣传卡，改为一致的简洁信息面板，并完善桌面与移动端布局。
-- **2026-07-07** 🎛️ 微调会议与侧边栏显示（`f202c703` / `a12d6d2b`）：ACL 2026 与 ICML 2026 年份按钮右上角增加星标提示，并将新版 sidebar 默认宽度从 373px 收窄到 298px，旧默认宽度会自动迁移到新宽度。
-- **2026-07-07** 🏛️ 接入 ICML 2026 会议论文（`69a55296`）：从 OpenReview 同步 accepted 与公开 reject 共 6,555 篇论文，其中官方录取 6,341 篇，并补齐 PDF 链接、向量索引、统一会议检索与前端年份统计。
-- **2026-07-07** 🏛️ 接入 ACL 2026 会议论文（`89351061`）：从 ACL Anthology 同步 Long / Short / Findings 共 4,459 篇公开论文，补齐 PDF 直链、向量索引与会议年份统计，并开放前端 ACL 2026 年份按钮。
-- **2026-07-01** 🧭 修复侧边栏 v2 收起与冻结层细节（`adaa0dab` / `9384abb4` / `5b9c807a`）：大屏收起后侧边栏真正归零，正文重新居中；论文页 AI 输入框、模型选择、底部工具区与问题面板随正文一起居中，并修复冻结标题遮罩压住首篇论文的问题。
-- **2026-07-01** 🔄 支持 Sync Fork 后再更新自有静态资源（`19ceb63a`）：项目自有 `app/*.js` / `app/*.css` 默认从当前站点本地加载，只有显式配置版本时才走不可变 CDN 路径，避免 CDN 自动部署后用户立即拿到未同步资源。
-- **2026-07-01** 🏛️ 打通统一会议年份检索（`801c1c1b` / `4de71724` / `13154da5`）：新增统一会议论文入口与 RPC 过滤能力，前端可把多个会议年份组合成一次检索，并按所选论文总数限制在 3 万篇以内，同时按论文数量线性估算费用与耗时。
-- **2026-07-01** 🎛️ 微调会议年份按钮展示（`8dcc05c0` / `91e02269`）：设置页会议面板改为双列滚动布局，并统一年份统计数字颜色。
-- **2026-06-30** 📊 展示会议年份统计（`7ea7204b`）：会议年份按钮直接展示库内数量 / 官方录取数量，并将统计快照写入前端静态数据。
-- **2026-06-29** 🏛️ 接入系统与安全会议数据源（`e00d82aa` / `9412598a` / `92c9705f`）：新增 OSDI / SOSP / IEEE S&P / NDSS 的本地 SQL、抓取维护入口、Supabase 同步与公开 PDF 回退抓取。
-- **2026-06-24** 🛡️ 修复侧边栏跨运行覆盖问题：日报 Step 6 的 `update_sidebar` 改为在同一日期 marker 下按 `paper_id` 去重合并而非整块替换；会议侧边栏写入加文件锁、`conference-paper-retrieval` workflow 改为按"会议+年份"独立 concurrency group 并用重试式 push（rebase 冲突时重跑 `conference_sidebar.py` 合并），避免多次时间窗 / 多会议并行触发互相覆盖。
-- **2026-06-23** 🔑 支持自定义域名部署：CI 自动写入 `.repo-owner.json`，前端优先读取该文件检测仓库归属，Token 验证阶段即校验用户与站点所有者是否一致；未同步此改动的用户（非自定义域名）仍走原有检测逻辑，完全灰度兼容。
-- **2026-06-23** 🎛️ 会议检索面板改为双列布局，减少纵向滚动。
-- **2026-06-22** 🏷️ 新增侧边栏未读 badge 与拖拽消除：论文分组显示未读计数红点，拖拽红点即可批量标记已读；阅读状态支持跨设备同步到 Supabase。
-- **2026-06-21** 🏛️ 前端接入 9 大会议检索：支持 NeurIPS / ICLR / ICML / AAAI / CVPR / ECCV / IJCAI / ACL / EMNLP，按年份筛选并提供费用与时间预估。
-- **2026-06-20** 📎 所有 SQL RPC 新增 `pdf_url` 字段返回，会议论文支持 CVF / ECVA / ACL Anthology 等多来源 PDF 直链跳转。
-- **2026-06-19** 🧮 修复论文页 LaTeX 公式渲染：保护 `\\[...\\]` 和 `\\(...\\)` 块不被 Markdown 解析器破坏。
-- **2026-05-31** 💬 优化论文页 AI 对话输入体验：输入框支持随内容自动增高，超过上限后在输入区内部滚动；同时调整按钮布局与点击层级，避免底部工具条遮挡发送和最近提问按钮。
-- **2026-05-30** ⚙️ 提升 Step 6 文档生成稳定性：结构化输出 `max_tokens` 提升到 16k，并让每个并发论文处理线程使用独立 LLM Client，避免共享客户端参数互相覆盖。
-- **2026-05-30** 🧹 精简图表提取依赖链路：移除 Java / `pdffigures2` 依赖，修复 GitHub Actions 中 `setup-java` 相关失败，并统一 PaperCropper 图表提取降级日志。
-- **2026-05-25** 🎛️ 重构后台管理体验：日常与会议面板统一词条卡片、批量选择、底部操作区与危险操作分区；新增仅会议临时词条，优化候选生成、关键词编辑、最近提问与模型选择弹窗样式。
-- **2026-05-25** 🖼️ 优化论文阅读页媒体展示：为 Attention 示例补充图片轮播，并固定轮播展示高度，避免切图时按钮位置跳动。
-- **2026-05-24** ⚡ 优化 GitHub Pages 首屏加载：本地化/延迟加载非首屏脚本，移除 Google Fonts 阻塞，并支持 CDN 静态资源加速与失败回退。
-- **2026-05-24** 🔐 修复静态密钥解锁链路：Pages 环境优先读取项目根目录 `secret.private`，避免已有密钥时误进入初始化向导。
-- **2026-05-24** 🧾 收紧会议论文展示规则：会议检索结果只保留并展示 4 分及以上论文，统一进入精读页生成与图片提取流程。
-- **2026-05-23** 🏛️ 打通会议论文阅读闭环：会议检索结果写入侧边栏，点击后进入本地介绍页；会议正文页对齐日常论文页的标题、元数据、标签、摘要与排版。
-- **2026-05-23** 🧠 强化远端模型链路：默认使用 `zwwen` 远端 embedding 与 rerank，补齐 DeepSeek V4 长输出、JSON 截断恢复和前端探活兼容处理。
-- **2026-05-23** 🔧 完善本地调试与密钥保存：本地后端支持触发 GitHub Actions 对应工作流，配置保存会同步写入本地 dotenv / `secret.private`，并修复密钥入口、弹窗与日志刷新问题。
-- **2026-05-22** 🚀 新增本地一键部署与调试入口：支持局域网本地页面触发后端任务，默认 CPU 依赖与远端 embedding，降低本机运行门槛。
-- **2026-05-22** 🌐 接入公益向量与重排服务：新增 `zwwen.online` embedding / rerank 链路，并让前端 reranker 测试在公益模式下免 API Key。
-- **2026-05-21** 🧩 重整本地初始化与模型配置：支持本地 dotenv 调试配置，更新 DeepSeek 默认模型到 V4，并移除旧的柏拉图 / BLT 配置链路。
+1. **GitHub Actions** retrieves papers for the subscriptions in `config.yaml`, reranks and scores candidates, then writes the selected papers and cached previews to `docs/data/daily/`.
+2. **GitHub Pages** serves the compiled reader and those JSON files. The daily schedule is 18:37 UTC. A successful daily run with a reader batch calls the publication workflow.
+3. **The browser** reads the static feed, syncs personal state and notes to Supabase under the signed-in account, and contacts the configured model directly when you use Ask AI.
 
-<details>
-<summary>Earlier 2026 updates</summary>
+## Five-minute quick start
 
-- **2026-05-19** 🧪 补充 rerank 预算实验工具，便于对不同模型、候选池规模与调用预算做离线评估。
-- **2026-05-03** 🎚️ 支持前端选择 reranker，并补充硅基流动 rerank 的限速重试与实验随机种子固定。
-- **2026-05-02** 🧩 收敛模型配置入口：工作流只保留 DeepSeek API，重排改为本地 `Qwen/Qwen3-Reranker-0.6B`。
-- **2026-04-08** 🏷️ 推荐状态改为按 tag 独立维护：`carryover` 时间与历史 `seen_ids` 不再跨词条互相污染，单词条 `10 天` / `30 天` 抓取、回补与复跑更稳定。
-- **2026-03-28** 🧬 补齐多源论文维护链路：新增并打通 `bioRxiv`、`medRxiv`、`ChemRxiv` 以及多类会议论文的抓取、向量编码、Supabase 同步与检索 SQL，支持将多源论文纳入统一推荐与阅读流。
-- **2026-03-28** 🎯 后台管理支持按词条单独触发抓取：可对指定 tag 直接运行 `10 天`、`30 天速览`、`30 天标准` 等任务，便于灰度验证、单主题回补与问题排查。
-- **2026-03-28** 🛡️ 提升 embedding 与多源检索稳定性：修复多源 embedding 查询分组时机问题，并在远程 embedding 首次失败后对整轮任务熔断回退到本地模型，避免分片阶段反复超时。
-- **2026-03-28** 🖼️ 优化论文详情页阅读体验：支持 `bioRxiv` 论文插图提取与展示，并改进元信息区域中长 PDF 链接的换行与布局表现。
-- **2026-03-17** ⚙️ 修复 GitHub Actions 对 Python patch 版本路径的硬编码依赖，并将 `actions/checkout`、`actions/setup-python`、`actions/cache` 升级到 Node 24 对应版本，消除 runner 升级与 Node 20 弃用带来的工作流告警。
-- **2026-03-13** 🔌 接入固定远程 embedding 服务入口：query embedding 缓存下沉到每条 `keyword` / `intent_query` 并按 hash 复用；同时收紧 Upstream Sync 工作流与触发面板的非 Fork 场景提示，对齐相关测试断言并恢复全量 `pytest` 通过。
-- **2026-03-12** 🧠 调整统一候选池进入重排的策略：支持各 lane 保底候选进入统一池，并将统一池预算改为按论文规模与 `intent_query` 数量动态计算。
-- **2026-03-11** 🛡️ 完善 Supabase 召回与推荐链路：BM25 / exact 增加时间分片与递归细分兜底，Supabase-only 召回改为动态 Top K；前端收紧关键词与意图 Query 选择数量并补充已选数量展示。
-- **2026-03-10** 📝 更新 README 快速启动指引与 Fork 按钮样式，优化新手进入项目时的操作路径与展示细节。
-- **2026-03-09** 📚 对齐 Zotero 一键保存链路到当前摘要结构，补齐聊天区写入，并清理 Attention 样本里的旧版摘要结构。
-- **2026-03-09** 🖼️ 更新 README 多图界面预览与新手引导文案，并修复 gist 分享时摘要前的格式异常。
-- **2026-03-08** 🛡️ 优化 `daily pipeline` 提交与推送逻辑，提交后先同步远端再 push，降低用户更新配置时的冲突概率。
-- **2026-03-07** 🎨 更新首页与 README 展示文案，补充界面预览图，完善项目对外说明。
-- **2026-03-06** 🛠️ 修复 LLM refine 补分与组合 query 打分逻辑，并补上回归测试；新增首页使用教程入口并修复移动端导航与教程路由。
-- **2026-03-05** 🚀 后台面板新增 30 天标准快速抓取入口，加入指定 arXiv 论文逐阶段命中追踪；向量召回改为 exact 优先并增加 ANN 低密度回退。
-- **2026-03-04** 🧹 新增内容重置工作流入口，后台支持更安全地重建初始内容与站点数据。
-- **2026-02-20** ✨ 日报输出新增 AI 简报与评分展示；Zotero Action 改进为支持批量处理与 Better Notes 公式来源。
-- **2026-02-08** 🔗 支持 Supabase 向量同步，并优先复用用户侧预置 embedding，补齐公开数据同步链路。
-- **2026-02-07** 🎛️ 优化后台管理面板交互与布局，订阅面板向单路多关键词召回演进。
-- **2026-02-06** 🧠 重构推荐链路，引入 smart query、布尔检索与订阅规划模块，并补上对应测试。
-- **2026-01-24** 👀 新增 workflow 监视面板，便于直接查看后台任务运行状态。
-- **2026-01-11** 📝 补齐第 6 步论文总结模块，打通每日推荐结果到文档生成的闭环。
-- **2026-01-10** 🧱 推荐系统大改版，alias 统一为 tag，召回、排序与 LLM refine 链路拆分成独立步骤。
+1. Fork **MuX2001/daily-paper-reader** with `dev` as the default branch. Edit `subscriptions.intent_profiles` in [config.yaml](config.yaml) to match your research interests.
+2. Create a Supabase project for **reader state**. In its SQL Editor, run [create_paper_states_schema.sql](sql/create_paper_states_schema.sql) in full. It creates the notes and feedback fields, grants signed-in access, and installs owner-only row-level security (RLS). Enable email/password sign-in. The existing retrieval catalog is configured separately in YAML. The other [SQL scripts](sql/) are for catalog or statistics administration.
+3. In your fork, open **Settings → Secrets and variables → Actions**. For the standard daily setup add two **repository secrets**: `DEEPSEEK_API_KEY` with your API key, and `DEEPSEEK_MODEL` with an available model ID (for example `deepseek-v4-flash`). The daily job reads this model from **Secrets**. No repository variable or personal GitHub token is required for this setup.
+4. Enable workflows in **Actions**. In **Settings → Actions → General → Workflow permissions**, allow read and write. In **Settings → Pages**, choose **Deploy from a branch → dev → /(root)**.
+5. Open **Actions → daily-paper-reader → Run workflow** on `dev`. Leave the action on `daily` and the content mode on `triage`. When publication finishes, open your fork’s Pages homepage. In **Workspace settings → Account & sync**, enter and verify your project URL and publishable/anon key. Register or sign in with an email account for that project, confirm the email if prompted, then star a paper and refresh to check sync.
 
-</details>
+**Optional integrations.** Configure Ask AI for in-page chat, or copy a Deep-Read Pack without a model key. For Obsidian, choose an export mode and vault. To recover older reading records, open **Data & maintenance**, preview the browser records or JSON backup, then import into the signed-in account.
 
-<details>
-<summary>Earlier project milestones</summary>
-
-- **2025-12-31** 🧭 新增统一引导面板，把主要设置集中到同一个入口。
-- **2025-12-29** 🌐 项目切换到纯前端架构，订阅、配置与 GitHub Token 管理前置到浏览器端。
-- **2025-12-23** 🧩 首页与侧边栏完成模块化拆分，同时将大模型接口迁到前端，界面交互开始成型。
-- **2025-12-22** 🍴 调整为 Fork 即用版本，进一步降低自部署门槛。
-- **2025-12-17** 🌱 最小可运行版本落地，并完成早期 Zotero Connector 集成。
-
-</details>
-
-## ✨ Why Daily Paper Reader?
-
-- **🔎 Daily Paper Radar**：每日自动抓取 arXiv / OpenReview 新论文，持续追踪研究前沿。
-- **🎯 Personalized Feed**：基于关键词、研究方向与兴趣生成个性化推荐流。
-- **📖 Read in Context**：支持摘要、原文、速览、长总结在同一页面串联阅读。
-- **💬 Ask While Reading**：支持 AI 论文问答，边读边问，沉淀私人讨论记录。
-- **🚀 Zero-Server Deployment**：依托 GitHub Actions 自动更新、GitHub Pages 部署，无需额外服务器。
-- **🛠️ Fork-and-Run**：Fork 后完成少量配置，即可上线自己的论文主页。
-
-## 🧭 适用场景
-
-- **🎓 个人论文雷达**：持续追踪自己研究方向的新论文。
-- **🧪 实验室论文主页**：沉淀团队关注的论文脉络与阅读结果。
-- **📚 日常阅读工作台**：把发现、阅读、问答、总结集中到一个入口。
-
-
-
-## ⚙️ Workflow Architecture
-
-![Daily Paper Reader 双链路工作流图](others/structure.png)
-
-## 🚀 5 分钟快速启动
-
-> [!TIP]
-> 先准备一个大模型 API Key 和一个 GitHub PAT，然后依次完成 Fork、开启 Actions、开启 Pages，即可跑通完整流程。
-
-### 1) 🔑 准备大模型 API Key
-
-当前 README 默认以 **DeepSeek 官方 API** 为示例，建议先按默认配置跑通。
-
-- 🌐 打开 [DeepSeek 平台](https://platform.deepseek.com/)
-- 📝 完成注册 / 登录
-- 🔐 充值并创建密钥
-
-### 2) 🪪 准备 GitHub PAT
-
-打开 [GitHub 新建 PAT 页面](https://github.com/settings/tokens/new?type=beta&scopes=repo,workflow,gist)，勾选以下权限（默认已勾选）：
-
-- ✅ `repo`
-- ✅ `workflow`
-- ✅ `gist`
-
-### 3) 🍴 Fork 本仓库
-- Fork 到自己的 GitHub 账号下 <a href="https://github.com/MuX2001/daily-paper-reader/fork"><img src="https://img.shields.io/badge/Fork%20on-GitHub-24292f?style=flat&logo=github" alt="Fork on GitHub" height="20" align="absmiddle" /></a>
-- 建议仓库名保持 `daily-paper-reader` 不变
-
-### 4) ▶️ 开启 GitHub Actions
-
-在 `Settings → General → Default branch` 选择 `dev`。进入你 Fork 的仓库，点击顶部 [`Actions`](../../actions)，启用 `daily-paper-reader` 工作流。
-
-### 5) 🌍 开启 GitHub Pages
-
-进入你 Fork 的仓库，进入 `Settings → Pages`：
-
-- ⚙️ Source 选择 `Deploy from a branch`
-- 🌿 Branch 选择 `dev`
-- 📁 Folder 选择 `/(root)`
-
-保存后，在 Actions 中选择 `Publish compiled reader to existing Pages`，从 `dev` 运行一次以发布编译后的阅读器。之后日报任务会调用同一发布流程。
-
-### 6) ✅ 打开站点验收
-
-访问：
-
-```text
-https://<你的用户名>.github.io/daily-paper-reader
-```
-
-完成以上步骤后，后续大多数日常使用和配置都可以直接在网页端完成。后续教程参考：[daily-paper-reader 指引](https://MuX2001.github.io/daily-paper-reader/#guide)
-
-## 🧪 本地调试模式
-
-如果你在本机开发，不想点击按钮后触发 GitHub Actions，可以启动本地调试后端：
+**Local run.** From the repository root, use Python 3.11 with the project dependencies from [requirements.txt](requirements.txt) and [requirements-reader.txt](requirements-reader.txt) in an activated environment. Copy [.env.example](.env.example) to `.env`, fill in the daily model key and ID, then run:
 
 ```bash
-scripts/bootstrap_local.sh
+PYTHONPATH=src python src/main.py --content-mode triage --export-triage
 ```
 
-这个脚本会自动创建 `.venv`、安装远程服务模式依赖、按需从 `.env.example` 生成 `.env`，然后启动本地后端。默认不会下载 `torch` 等重依赖。启动完成后访问：
+## Secrets and keys reference
 
-```text
-http://127.0.0.1:8567
-```
+### 1. GitHub Actions Secrets & Variables
 
-如果你已经准备好了 Python 环境，也可以只启动后端：
+The two entries in step 3 cover the standard daily path. Other entries below apply to the named feature. GitHub supplies the workflow token used to commit and publish.
 
-```bash
-scripts/local_debug.sh
-```
+| Name | Store | Requirement and default |
+|---|---|---|
+| `DEEPSEEK_API_KEY` | Secret | Key for daily scoring and default triage. |
+| `DEEPSEEK_MODEL` | Variable / Secret | Daily model ID. Triage requires this secret or the TRIAGE_MODEL variable. Only the deep-read job also checks Variables first. |
+| `DEEPSEEK_BASE_URL` | Variable / Secret | Daily endpoint override via Secret. Deep read checks the Variable first. Default: `https://api.deepseek.com`. |
+| `SUMMARY_LANG` | Variable | Language of generated previews. Default `zh`. Use `en` for English. |
+| `TRIAGE_API_KEY`, `TRIAGE_MODEL`, `TRIAGE_BASE_URL` | Secret / Variable / Variable | Separate triage key, model and endpoint. Each inherits its DEEPSEEK counterpart, then the official endpoint if no URL is set. |
+| `SUMMARY_API_KEY`, `SUMMARY_BASE_URL`, `SUMMARY_MODEL` | Secret | Overrides for the legacy summary path. Each falls back to the corresponding daily setting. |
+| `LLM_PRIMARY_BASE_URL` | Secret | Legacy environment binding, unset by default. The summary step sets it from its resolved endpoint. |
+| `DPR_EMBED_API_URL`, `DPR_EMBED_API_KEY` | Secret | Embedding endpoint and credential. Hosted endpoint defaults to https://zwwen.online/embed with its built-in client fallback. |
+| `RERANK_PROFILE` | Secret | Reranker preset. A workflow input takes precedence over this secret. Default: `public-zwwen-rerank`. |
+| `RERANK_PROVIDER`, `RERANK_MODEL`, `RERANK_API_BASE_URL`, `RERANK_API_KEY` | Secret | Provider, model, endpoint and key overrides. Defaults depend on the selected preset and client. |
+| `PUBLIC_RERANK_API_BASE_URL`, `PUBLIC_RERANK_API_KEY` | Secret | Public reranker endpoint and key. Defaults to https://zwwen.online/rerank and the public client fallback. |
+| `SILICONFLOW_RERANK_URL`, `SILICONFLOW_API_KEY` | Secret | SiliconFlow preset only. Default endpoint is https://api.siliconflow.cn/v1/rerank. Provide a provider key when using this service. |
+| `SILICONFLOW_RERANK_MIN_INTERVAL_SECONDS` | Secret | Minimum interval between SiliconFlow requests, 8 seconds in Actions. |
+| `DPR_STATE_SUPABASE_URL`, `DPR_STATE_SERVICE_KEY`, `DPR_FEEDBACK_USER_ID` | Secret | For feedback-based ranking, set all three: state project URL, server credential and Auth user UUID. Unset disables personalization from feedback. |
+| `DPR_NOTIFY_FEISHU_WEBHOOK` | Secret | Feishu digest webhook. Unset skips notifications. |
+| `SUPABASE_URL`, `SUPABASE_ANON_KEY` | Secret | Read-only retrieval catalog overrides for starter packs and topic research. Defaults come from the configured catalog. |
+| `SUPABASE_SERVICE_KEY` | Secret | Catalog maintenance only. Supply the target catalog’s server key. Maintenance jobs have fixed targets and repository allowlists. |
+| `OPENREVIEW_USERNAME`, `OPENREVIEW_PASSWORD` | Secret | Optional OpenReview login for conference ingestion. Leave both unset for public access. |
+| `DEEP_READ_API_KEY` | Secret | Dedicated deep-read key. Falls back to the daily key on the same endpoint. A different provider needs its own key. |
+| `DEEP_READ_MODEL`, `DEEP_READ_BASE_URL` | Variable / Secret | Dedicated model and endpoint. Variable precedes Secret. Inherit daily settings if unset. With no model, the official endpoint defaults to deepseek-flash; a custom endpoint requires a model ID. |
+| `OBSIDIAN_NOTES_REPO` | Variable | Private vault repository (owner/repo). Unset skips server-side note sync. |
+| `OBSIDIAN_NOTES_BRANCH` | Variable | Branch in the separate vault repository. Default: `main`. |
+| `OBSIDIAN_NOTES_FOLDER` | Variable | Folder in the vault repository. Default: `Inbox`. |
+| `OBSIDIAN_NOTES_TOKEN` | Secret | Vault repository token with Contents write permission, required only for server-side note sync. |
 
-也可以手动指定监听地址和端口：
+### 2. Supabase frontend configuration
 
-```bash
-python src/local_debug_server.py --host 127.0.0.1 --port 8567
-```
+| Account & sync field | What to enter |
+|---|---|
+| Supabase URL | The URL of the project where you installed `paper_states`. Save and verify the connection. |
+| Publishable / anon key | The public client key from that same project. RLS checks the signed-in user’s ID on reads and writes. |
+| Email and password | Register or sign in to the reader’s Supabase Auth project. Use the same account on each device to sync stars, archive state, feedback and saved notes. |
 
-如果需要跳过依赖安装，可以使用：
+> **Security:** Never paste a Supabase service-role key into the website or commit it to Git. The credential sometimes called `SUPABASE_SERVICE_ROLE_KEY` is privileged. This repository reads `SUPABASE_SERVICE_KEY` for catalog maintenance and `DPR_STATE_SERVICE_KEY` for optional server-side feedback. Only a publishable/anon key belongs in the browser.
 
-```bash
-DPR_SKIP_INSTALL=1 scripts/bootstrap_local.sh
-```
+### 3. Browser workspace settings
 
-如果只想启动并明确跳过依赖安装，也可以使用旧的快速部署模式：
+| Section | Inputs and scope |
+|---|---|
+| Web AI chat | Select DeepSeek, OpenAI, OpenRouter or Custom. Enter the base URL, model ID and API key, test the connection and save. |
+| Research tasks | Enter your fork as `owner/repo`, branch `dev` and a GitHub token to dispatch workflows or edit subscriptions. |
+| Export & Obsidian | Choose Markdown, Obsidian or both. Set the vault, inbox folder (blank for vault root) and filename format. Browser export needs no vault repository token. |
+| Data & maintenance | Preview legacy records from this browser or a JSON file, select the old user if needed, then import. This tab also clears saved keys and offers a separate local test connection. |
 
-```bash
-DPR_INSTALL_MODE=minimal scripts/bootstrap_local.sh
-```
+> **Token scope:** Use a **fine-grained PAT** restricted to your fork, with **Actions: Read and write** for dispatch. Grant **Contents: Read and write** only if you also save subscription edits. Avoid a classic PAT with broad `repo` scope. The chat key and GitHub token stay in memory by default. “Remember” saves the selected credential to this browser’s localStorage. Use it only on a personal device.
 
-如果要一次性安装完整运行依赖，可以使用：
+## Keyboard shortcuts and branch policy
 
-```bash
-DPR_INSTALL_MODE=full scripts/bootstrap_local.sh
-```
+| Key | In the inbox |
+|---|---|
+| `j` / `k` | Next / previous paper |
+| `s` | Add to or remove from the reading queue |
+| `x` | Archive or restore the paper |
+| `o` | Open the original paper |
+| `c` | Toggle the side-by-side AI chat |
+| `/` | Focus search |
+| `Esc` | Close the active panel or dialog |
+| `?` | Show keyboard help |
 
-完整依赖模式默认先安装 **CPU 版 PyTorch**，避免普通本机部署时误下载 CUDA 大包。如果你确实需要自定义 PyTorch 源，可以设置：
-
-```bash
-DPR_INSTALL_MODE=full DPR_TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu scripts/bootstrap_local.sh
-```
-
-在 `localhost / 127.0.0.1` 页面里点击“触发工作流”时，前端会自动调用本地后端 `/api/local/workflows/dispatch`，把 `daily-paper-reader.yml`、`conference-paper-retrieval.yml` 等映射为本地 Python 子进程执行，不会上 GitHub，也不会要求启用 Actions。运行日志会显示在工作流面板里，并保存在 `.local-runs/`。
-
-如果前端和本地后端不是同一个地址，可以在页面加载前设置：
-
-```html
-<script>
-  window.DPR_LOCAL_API_BASE = 'http://127.0.0.1:8567';
-</script>
-```
-
-如果要部署到自己的服务器上调试，请同时启动这个后端，并对内网或受信任网络开放端口：
-
-```bash
-DPR_LOCAL_HOST=0.0.0.0 DPR_LOCAL_PORT=8567 scripts/local_debug.sh
-```
-
-然后访问 `http://<服务器地址>:8567`。这样页面和后端同源，点击触发按钮会在服务器本机执行工作流命令，而不是调用 GitHub Actions。
-
-## 🙏 致谢
-
-Daily Paper Reader 的论文发现、重排与阅读增强链路受益于以下开源项目、模型与服务：
-
-- **[PaperCropper](https://github.com/fake-learn/PaperCropper)**：为论文 PDF 中的图表检测与裁剪提供了重要参考和能力基础，让论文详情页可以更自然地展示图表内容。
-- **[BAAI/bge-small-en-v1.5](https://huggingface.co/BAAI/bge-small-en-v1.5)**：作为默认 embedding 模型之一，支撑语义召回、会议论文检索与查询向量复用。
-- **[Qwen/Qwen3-Reranker](https://huggingface.co/Qwen)**：作为重排链路的重要开源模型基础，用于提升候选论文排序质量。
-- **zwwen.online 公益服务**：提供默认远端 embedding / rerank 接入，降低普通用户本地部署时的模型下载、显存和算力门槛。
-- **硅基流动（SiliconFlow）**：提供可选的 rerank API 接入方式，便于在不同模型尺寸和调用预算之间做实验与切换。
-- **DeepSeek**：为候选过滤、论文精读摘要与问答等 LLM 环节提供模型能力支持。
-
-## ❓ FAQ
-
-### 💻 需要服务器吗？
-
-不需要。项目基于 **GitHub Actions + GitHub Pages** 运行和部署。
-
-### 🎛️ 可以做哪些个性化配置？
-
-你可以调整订阅关键词、研究方向、查询意图与日常阅读偏好，构建自己的论文推荐流。
-
-### 👨‍🔬 适合实验室或团队一起用吗？
-
-可以。它很适合做实验室公共论文面板，或者作为团队内部的论文发现与阅读入口。
-
-## 💬 欢迎交流
-
-QQ 群：583867967（欢迎交流，已有：1151 人）
-
-
-## ⭐ Star History
-
-<a href="https://www.star-history.com/?type=date&repos=MuX2001%2Fdaily-paper-reader">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=MuX2001/daily-paper-reader&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=MuX2001/daily-paper-reader&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=MuX2001/daily-paper-reader&type=date&legend=top-left" />
- </picture>
-</a>
-
-### 分支维护
-
-日常开发、定时日报和 Pages 使用 `dev`。上游镜像 `main` 只接受维护者核对过的快进更新。请在 GitHub 仓库 Rulesets 中对 `main` 限制更新，仅授权镜像维护者，以阻止从旧版工作流手动写入。同步和挑选上游提交的命令见 [维护说明](AGENTS.md#分支维护)。
+Target **dev** for pull requests, development, scheduled jobs and Pages releases. **main** is reserved for fast-forward mirroring of upstream `ziwenhahaha/daily-paper-reader`. Maintainers can cherry-pick selected upstream fixes onto `dev`. See the [branch maintenance rules](AGENTS.md#分支维护).
