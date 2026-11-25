@@ -11,7 +11,7 @@ try{
  await page.getByLabel('标题',{exact:true}).fill('Improve keyboard navigation');await page.getByLabel('反馈内容',{exact:true}).fill('My own feedback, no automatic metadata.');
  await page.getByRole('button',{name:'前往 GitHub 检查反馈',exact:true}).click();assert.equal(await page.evaluate(()=>window.testFeedbackURL),undefined);
  await page.getByLabel('我已知晓：提交后，内容将以我的 GitHub 身份公开发布。',{exact:true}).check();await page.getByRole('button',{name:'前往 GitHub 检查反馈',exact:true}).click();
- const url=new URL(await page.evaluate(()=>window.testFeedbackURL));assert.equal(url.searchParams.get('title'),'[功能新增|体验问题] Improve keyboard navigation');assert.equal(url.searchParams.get('body'),'My own feedback, no automatic metadata.');
+ const url=new URL(await page.evaluate(()=>window.testFeedbackURL));assert.equal(url.pathname,'/MuX2001/daily-paper-reader/issues/new');assert.equal(url.searchParams.get('title'),'[功能新增|体验问题] Improve keyboard navigation');assert.equal(url.searchParams.get('body'),'My own feedback, no automatic metadata.');
  await page.getByRole('button',{name:'关闭对话框'}).click();await page.setViewportSize({width:390,height:844});await openFeedback();await expect(page.getByRole('dialog')).toBeVisible();
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
  await expect(page.locator('.nav-top-links,.mobile-top-links')).toHaveCount(0);

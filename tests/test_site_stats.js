@@ -152,7 +152,7 @@ async function testForkRequestUsesGithubTokenWhenAvailable() {
       reply: async () => jsonResponse(true, makeHistoryRows([['2026-07-19', 1]])),
     },
     {
-      match: (url) => url.includes('api.github.com/repos/ziwenhahaha/daily-paper-reader'),
+      match: (url) => url.includes('api.github.com/repos/MuX2001/daily-paper-reader'),
       reply: async (_url, options) => {
         assert.equal(options.headers.Authorization, 'Bearer github-test-token');
         return jsonResponse(true, { forks_count: 2 });
@@ -186,7 +186,7 @@ async function testBeijingCrossDayUsesLocalDateBoundary() {
       },
     },
     {
-      match: (url) => url.includes('api.github.com/repos/ziwenhahaha/daily-paper-reader'),
+      match: (url) => url.includes('api.github.com/repos/MuX2001/daily-paper-reader'),
       reply: async () => jsonResponse(true, { forks_count: 9 }),
     },
   ]);
@@ -258,7 +258,7 @@ async function testSameDayPostIsIdempotentAfterFirstSuccess() {
         ),
     },
     {
-      match: (url) => url.includes('api.github.com/repos/ziwenhahaha/daily-paper-reader'),
+      match: (url) => url.includes('api.github.com/repos/MuX2001/daily-paper-reader'),
       reply: async () => jsonResponse(true, { forks_count: 1491 }),
     },
   ]);
@@ -272,7 +272,7 @@ async function testSameDayPostIsIdempotentAfterFirstSuccess() {
 
   const postCalls = fetch.calls.filter((call) => call.url.includes('/site_daily_reader_events'));
   const countCalls = fetch.calls.filter((call) => call.url.includes('/site_daily_reader_counts'));
-  const githubCalls = fetch.calls.filter((call) => call.url.includes('api.github.com/repos/ziwenhahaha/daily-paper-reader'));
+  const githubCalls = fetch.calls.filter((call) => call.url.includes('api.github.com/repos/MuX2001/daily-paper-reader'));
 
   assert.equal(postCalls.length, 1, 'same-day re-init should not POST again after the first success');
   assert.equal(countCalls.length, 2, 'each init should refresh the 14-day history once');
@@ -351,7 +351,7 @@ async function testDuplicateConflictCountsAsRecorded() {
       reply: async () => jsonResponse(true, makeHistoryRows([['2026-07-19', 6]])),
     },
     {
-      match: (url) => url.includes('api.github.com/repos/ziwenhahaha/daily-paper-reader'),
+      match: (url) => url.includes('api.github.com/repos/MuX2001/daily-paper-reader'),
       reply: async () => jsonResponse(true, { forks_count: 7 }),
     },
   ]);
@@ -413,7 +413,7 @@ async function testPostFailureDoesNotPersistSuccessDate() {
       reply: async () => jsonResponse(true, makeHistoryRows([['2026-07-19', 99]])),
     },
     {
-      match: (url) => url.includes('api.github.com/repos/ziwenhahaha/daily-paper-reader'),
+      match: (url) => url.includes('api.github.com/repos/MuX2001/daily-paper-reader'),
       reply: async () => jsonResponse(true, { forks_count: 88 }),
     },
   ]);
@@ -446,7 +446,7 @@ async function testForkCacheExpiresAfterSixHours() {
       },
     },
     {
-      match: (url) => url.includes('api.github.com/repos/ziwenhahaha/daily-paper-reader'),
+      match: (url) => url.includes('api.github.com/repos/MuX2001/daily-paper-reader'),
       reply: async () => jsonResponse(true, { forks_count: githubForkCount }),
     },
   ]);
@@ -476,7 +476,7 @@ async function testForkCacheExpiresAfterSixHours() {
   });
   await third.stats.init();
 
-  const githubCalls = fetch.calls.filter((call) => call.url.includes('api.github.com/repos/ziwenhahaha/daily-paper-reader'));
+  const githubCalls = fetch.calls.filter((call) => call.url.includes('api.github.com/repos/MuX2001/daily-paper-reader'));
   assert.equal(githubCalls.length, 2, 'fork cache should be reused inside 6 hours and refreshed after expiry');
   assert.equal(third.dom.elements['[data-dpr-fork-count]'].textContent, '15');
 }
@@ -492,7 +492,7 @@ async function testFailureKeepsStatsHidden() {
       reply: async () => jsonResponse(true, makeHistoryRows([['2026-07-19', 21]])),
     },
     {
-      match: (url) => url.includes('api.github.com/repos/ziwenhahaha/daily-paper-reader'),
+      match: (url) => url.includes('api.github.com/repos/MuX2001/daily-paper-reader'),
       reply: async () => emptyResponse(false, 503),
     },
   ]);
@@ -533,7 +533,7 @@ function testBrowserGlobalExposureAndAutoInitHook() {
         if (url.includes('/site_daily_reader_counts')) {
           return jsonResponse(true, makeHistoryRows([['2026-07-19', 2]]));
         }
-        if (url.includes('api.github.com/repos/ziwenhahaha/daily-paper-reader')) return jsonResponse(true, { forks_count: 3 });
+        if (url.includes('api.github.com/repos/MuX2001/daily-paper-reader')) return jsonResponse(true, { forks_count: 3 });
         throw new Error(`unexpected fetch: ${url}`);
       },
     },
@@ -542,6 +542,7 @@ function testBrowserGlobalExposureAndAutoInitHook() {
   sandbox.document = sandbox.window.document;
   sandbox.crypto = webcrypto;
 
+  vm.runInNewContext(fs.readFileSync(require.resolve('../app/repository.js'),'utf8'), sandbox);
   vm.runInNewContext(source, sandbox, { filename: 'app/site-stats.js' });
 
   assert.ok(sandbox.window.DPRSiteStats, 'browser global build should expose window.DPRSiteStats');

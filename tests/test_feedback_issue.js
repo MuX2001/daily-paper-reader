@@ -139,7 +139,7 @@ async function testSubmitIssueUsesApiWhenTokenAvailable() {
           ok: true,
           json: async () => ({
             number: 12,
-            html_url: 'https://github.com/ziwenhahaha/daily-paper-reader/issues/12',
+            html_url: 'https://github.com/MuX2001/daily-paper-reader/issues/12',
           }),
         };
       },
@@ -150,7 +150,7 @@ async function testSubmitIssueUsesApiWhenTokenAvailable() {
   assert.equal(result.mode, 'api');
   assert.equal(result.issueNumber, 12);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, 'https://api.github.com/repos/ziwenhahaha/daily-paper-reader/issues');
+  assert.equal(calls[0].url, 'https://api.github.com/repos/MuX2001/daily-paper-reader/issues');
   assert.equal(calls[0].init.headers.Authorization, 'token secret-token');
 
   const payload = JSON.parse(calls[0].init.body);

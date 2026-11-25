@@ -14,8 +14,8 @@
     '论文 / 会议数据',
     '其他',
   ]);
-  const TARGET_OWNER = 'ziwenhahaha';
-  const TARGET_REPO = 'daily-paper-reader';
+  const repository = root.DPRRepository || require('./repository.js');
+  const [TARGET_OWNER, TARGET_REPO] = repository.links().repository.split('/');
   const FEEDBACK_ANIMATION_MS = 180;
 
   const getFeedbackMotionStyles = (isVisible) => ({

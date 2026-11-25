@@ -1,10 +1,10 @@
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory();
+    module.exports = factory(require('./repository.js'));
     return;
   }
 
-  var api = factory();
+  var api = factory(root.DPRRepository);
   var hostWindow = root && root.window ? root.window : root;
   if (hostWindow) {
     hostWindow.DPRSiteStats = api;
@@ -18,7 +18,7 @@
     : typeof self !== 'undefined'
       ? self
       : this,
-  function () {
+  function (repository) {
     'use strict';
 
     var DEFAULTS = {
@@ -26,7 +26,7 @@
       supabaseKey: 'sb_publishable_lX-oi64Uxyd7SIVv3_w2Uw_MTOojeKq',
       countsDateColumn: 'visit_date',
       historyDays: 14,
-      githubRepoApi: 'https://api.github.com/repos/ziwenhahaha/daily-paper-reader',
+      githubRepoApi: 'https://api.github.com/repos/' + repository.links().repository,
       forkCacheMs: 6 * 60 * 60 * 1000,
       timezone: 'Asia/Shanghai',
       selectors: {
@@ -41,7 +41,7 @@
       storageKeys: {
         visitorId: 'dpr-site-stats-visitor-id',
         successDate: 'dpr-site-stats-last-success-date',
-        forkCache: 'dpr-site-stats-fork-cache',
+        forkCache: 'dpr-site-stats-fork-cache:' + repository.links().repository,
       },
     };
 

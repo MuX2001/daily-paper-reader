@@ -7,19 +7,19 @@
 <h2 align="center">Your Daily Companion for Discovering and Reading AI Papers</h2>
 
 <p align="center">
-  <a href="https://github.com/ziwenhahaha/daily-paper-reader/stargazers">
-    <img src="https://img.shields.io/github/stars/ziwenhahaha/daily-paper-reader?style=flat-square" alt="Stars" />
+  <a href="https://github.com/MuX2001/daily-paper-reader/stargazers">
+    <img src="https://img.shields.io/github/stars/MuX2001/daily-paper-reader?style=flat-square" alt="Stars" />
   </a>
-  <a href="https://github.com/ziwenhahaha/daily-paper-reader/network/members">
-    <img src="https://img.shields.io/github/forks/ziwenhahaha/daily-paper-reader?style=flat-square" alt="Forks" />
+  <a href="https://github.com/MuX2001/daily-paper-reader/network/members">
+    <img src="https://img.shields.io/github/forks/MuX2001/daily-paper-reader?style=flat-square" alt="Forks" />
   </a>
-  <a href="https://github.com/ziwenhahaha/daily-paper-reader/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/ziwenhahaha/daily-paper-reader?style=flat-square" alt="License" />
+  <a href="https://github.com/MuX2001/daily-paper-reader/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/MuX2001/daily-paper-reader?style=flat-square" alt="License" />
   </a>
-  <a href="https://ziwenhahaha.github.io/daily-paper-reader">
+  <a href="https://MuX2001.github.io/daily-paper-reader">
     <img src="https://img.shields.io/badge/Demo-GitHub%20Pages-2ea44f?style=flat-square" alt="Demo" />
   </a>
-  <a href="https://ziwenhahaha.github.io/daily-paper-reader/#/tutorial/README">
+  <a href="https://MuX2001.github.io/daily-paper-reader/#guide">
     <img src="https://img.shields.io/badge/Docs-Quick%20Start-blue?style=flat-square" alt="Docs" />
   </a>
 </p>
@@ -161,7 +161,7 @@
 - ✅ `gist`
 
 ### 3) 🍴 Fork 本仓库
-- Fork 到自己的 GitHub 账号下 <a href="https://github.com/ziwenhahaha/daily-paper-reader/fork"><img src="https://img.shields.io/badge/Fork%20on-GitHub-24292f?style=flat&logo=github" alt="Fork on GitHub" height="20" align="absmiddle" /></a>
+- Fork 到自己的 GitHub 账号下 <a href="https://github.com/MuX2001/daily-paper-reader/fork"><img src="https://img.shields.io/badge/Fork%20on-GitHub-24292f?style=flat&logo=github" alt="Fork on GitHub" height="20" align="absmiddle" /></a>
 - 建议仓库名保持 `daily-paper-reader` 不变
 
 ### 4) ▶️ 开启 GitHub Actions
@@ -186,7 +186,7 @@
 https://<你的用户名>.github.io/daily-paper-reader
 ```
 
-完成以上步骤后，后续大多数日常使用和配置都可以直接在网页端完成。后续教程参考：[daily-paper-reader 指引](https://ziwenhahaha.github.io/daily-paper-reader/#/tutorial/README)
+完成以上步骤后，后续大多数日常使用和配置都可以直接在网页端完成。后续教程参考：[daily-paper-reader 指引](https://MuX2001.github.io/daily-paper-reader/#guide)
 
 ## 🧪 本地调试模式
 
@@ -288,10 +288,10 @@ QQ 群：583867967（欢迎交流，已有：1151 人）
 
 ## ⭐ Star History
 
-<a href="https://www.star-history.com/?type=date&repos=ziwenhahaha%2Fdaily-paper-reader">
+<a href="https://www.star-history.com/?type=date&repos=MuX2001%2Fdaily-paper-reader">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ziwenhahaha/daily-paper-reader&type=date&theme=dark&legend=top-left&sealed_token=HZNlFXt8xbwRv5OoiqbjkjDPJoOuXlfSMxuVmHWAdDqfd9IVMab3xcK4VxF3DlJAvaO71PL3smUpfEw-NjNT83w8NqNJ0UPIhoNcxbiPhTMQkoMhkawF1w" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ziwenhahaha/daily-paper-reader&type=date&legend=top-left&sealed_token=HZNlFXt8xbwRv5OoiqbjkjDPJoOuXlfSMxuVmHWAdDqfd9IVMab3xcK4VxF3DlJAvaO71PL3smUpfEw-NjNT83w8NqNJ0UPIhoNcxbiPhTMQkoMhkawF1w" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=ziwenhahaha/daily-paper-reader&type=date&legend=top-left&sealed_token=HZNlFXt8xbwRv5OoiqbjkjDPJoOuXlfSMxuVmHWAdDqfd9IVMab3xcK4VxF3DlJAvaO71PL3smUpfEw-NjNT83w8NqNJ0UPIhoNcxbiPhTMQkoMhkawF1w" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=MuX2001/daily-paper-reader&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=MuX2001/daily-paper-reader&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=MuX2001/daily-paper-reader&type=date&legend=top-left" />
  </picture>
 </a>
