@@ -10,7 +10,7 @@ from minmax_narrative import validate,enrich
 
 class NarrativeTests(unittest.TestCase):
     def setUp(self):
-        self.value={'card_hook':'模型参考示范，再用触觉纠正动作。','context_and_problem':'接触操作需要触觉反馈。','core_approach':['作者先整理专家示范，提供操作参考。','执行时再观察接触状态，以便纠正动作。'],'results_and_reality_check':'所给片段未说明实验数字。','tags':['触觉','机器人']}
+        self.value={'card_hook':'模型参考示范，再用触觉纠正动作。','context_and_problem':'接触操作需要触觉反馈。','core_approach':['作者先整理专家示范，提供操作参考。','执行时再观察接触状态，以便纠正动作。'],'caveats_and_pointers':'原文未说明。','experimental_results':'所给片段未说明实验数字。','tags':['触觉','机器人']}
     def test_short_grounded_output_is_warning_not_padding_or_rejection(self):
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter('always');self.assertEqual(validate(copy.deepcopy(self.value)),self.value)

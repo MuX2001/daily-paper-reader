@@ -13,12 +13,12 @@ from minmax_narrative import SCHEMA,validate
 from triage_enrich import atomic_json
 
 PROMPT='''你是论文导读的中文编辑。下面是已抽取的草稿，不是让你重新解释论文。只能改写和删减已有事实，不能新增任何数字、动机、结论、局限或开源声明。
-请把它编辑成读者一分钟能读完的版本。保留原JSON五个字段，card_hook写一句自然完整中文约60字，专用于列表。
-预览正文总计450–650字符（包含字母数字和标点），不要超过650。分配：context_and_problem约120字符；core_approach恰好3段、每段约80字符；results_and_reality_check约180字符。总共约540字符。删掉枝节来控制篇幅，不能删光连接词、主语或压成电报体。
+请把它编辑成读者一分钟能读完的版本。保留原JSON六个字段，card_hook写一句自然完整中文约60字，专用于列表。
+预览正文总计550–750字符（包含字母数字和标点），不要超过750。分配：context_and_problem约120字符；core_approach恰好3段、每段约80字符；experimental_results约150字符、caveats_and_pointers约120字符。总共约650字符。删掉枝节来控制篇幅，不能删光连接词、主语或压成电报体。
 背景交代具体任务和原有困难。方法只保留主流程，每段用完整句子讲动作和已有的设计原因；删掉层数/投影次数等非必要参数、型号材料名、引脚电路、有限元的中间数字。把taxel等自造/小众词写成“传感单元”等具体含义，通用技术术语可保留。
 结果保留一两组最有判断价值的对照，保留实验条件和平均/RMSE等口径，不能把训练并行推广成推理并行，不能把某任务收益推广到所有任务。不要把“这些方法需要专门训练”泛化成所有方法相同；不要用“只有”“唯一”“全都”等无充分范围限定的绝对断言。把不必要的推断删掉。
 原稿若没有明确局限，可保留“所给片段未说明”，不要补造。保留1–2个原稿已有图表路标，删掉其余编号。
-只输出完整合法JSON：card_hook字符串、context_and_problem字符串、core_approach三个非空字符串的数组、results_and_reality_check字符串、tags数组。不要任何其他说明，也不要照抄以上占位文字。'''
+只输出完整合法JSON：card_hook字符串、context_and_problem字符串、core_approach三个非空字符串的数组、experimental_results字符串、caveats_and_pointers字符串、tags数组。不要任何其他说明，也不要照抄以上占位文字。'''
 
 
 def edit(value,client):
@@ -28,8 +28,8 @@ def edit(value,client):
     before=set(re.findall(r'\d+(?:\.\d+)?',json.dumps(value,ensure_ascii=False)))
     after=set(re.findall(r'\d+(?:\.\d+)?',json.dumps(result,ensure_ascii=False)))
     if not after.issubset(before):raise ValueError('Editor introduced numbers')
-    count=len(result['context_and_problem']+''.join(result['core_approach'])+result['results_and_reality_check'])
-    if not 450<=count<=650:raise ValueError(f'Edited length outside target: {count}')
+    count=len(result['context_and_problem']+''.join(result['core_approach'])+result['experimental_results']+result['caveats_and_pointers'])
+    if not 550<=count<=750:raise ValueError(f'Edited length outside target: {count}')
     return result,response.get('tokens'),count
 
 
