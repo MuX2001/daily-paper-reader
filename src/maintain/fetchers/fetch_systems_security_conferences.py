@@ -20,7 +20,7 @@ import requests
 from bs4 import BeautifulSoup
 
 
-USER_AGENT = "daily-paper-reader/1.0 (+https://github.com/ziwenhahaha/daily-paper-reader)"
+USER_AGENT = "daily-paper-reader/1.0 (+https://github.com/MuX2001/daily-paper-reader)"
 DEFAULT_TIMEOUT = 30
 
 OSDI_LIST_URL = "https://www.usenix.org/conference/osdi{short_year}/technical-sessions"

@@ -13,7 +13,7 @@
   <a href="https://github.com/MuX2001/daily-paper-reader/network/members">
     <img src="https://img.shields.io/github/forks/MuX2001/daily-paper-reader?style=flat-square" alt="Forks" />
   </a>
-  <a href="https://github.com/MuX2001/daily-paper-reader/blob/main/LICENSE">
+  <a href="https://github.com/MuX2001/daily-paper-reader/blob/dev/LICENSE">
     <img src="https://img.shields.io/github/license/MuX2001/daily-paper-reader?style=flat-square" alt="License" />
   </a>
   <a href="https://MuX2001.github.io/daily-paper-reader">
@@ -166,17 +166,17 @@
 
 ### 4) ▶️ 开启 GitHub Actions
 
-进入你 Fork 的仓库，点击顶部 [`Actions`](../../actions)，启用 `daily-paper-reader` 工作流。
+在 `Settings → General → Default branch` 选择 `dev`。进入你 Fork 的仓库，点击顶部 [`Actions`](../../actions)，启用 `daily-paper-reader` 工作流。
 
 ### 5) 🌍 开启 GitHub Pages
 
 进入你 Fork 的仓库，进入 `Settings → Pages`：
 
 - ⚙️ Source 选择 `Deploy from a branch`
-- 🌿 Branch 选择 `main`
+- 🌿 Branch 选择 `dev`
 - 📁 Folder 选择 `/(root)`
 
-保存后等待约 1 分钟，站点地址会显示在页面顶部。
+保存后，在 Actions 中选择 `Publish compiled reader to existing Pages`，从 `dev` 运行一次以发布编译后的阅读器。之后日报任务会调用同一发布流程。
 
 ### 6) ✅ 打开站点验收
 
@@ -295,3 +295,7 @@ QQ 群：583867967（欢迎交流，已有：1151 人）
    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=MuX2001/daily-paper-reader&type=date&legend=top-left" />
  </picture>
 </a>
+
+### 分支维护
+
+日常开发、定时日报和 Pages 使用 `dev`。上游镜像 `main` 只接受维护者核对过的快进更新。请在 GitHub 仓库 Rulesets 中对 `main` 限制更新，仅授权镜像维护者，以阻止从旧版工作流手动写入。同步和挑选上游提交的命令见 [维护说明](AGENTS.md#分支维护)。

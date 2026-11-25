@@ -205,7 +205,7 @@
 | `maintain-biorxiv.yml` | cron | bioRxiv 入库 |
 | `maintain-medrxiv.yml` | cron | medRxiv 入库 |
 | `maintain-chemrxiv.yml` | cron | ChemRxiv 入库 |
-| `sync.yml` | cron 每日 | Fork 同步上游 |
+| `sync.yml` | 手动，从 dev 运行 | 只读比较 origin/main 与 upstream/main |
 | `reset-content.yml` | dispatch | 内容重置 |
 
 **本地调试**：
@@ -292,34 +292,19 @@ Co-Authored-By: xixi <3495302215@qq.com>
 
 以上规则仅用于 Git commit message，不代表需要修改 `CITATION.cff`、`README.md` 或其它项目作者元数据。
 
-### 合并主分支规则
+### 分支维护
 
-将工作分支合并到 `main` / `origin/main` 前，必须先确认本次提交只包含可上游同步的代码、模板与测试改动，避免破坏用户通过 GitHub 网页 `Sync fork` 的既有使用习惯。
+默认分支为 `dev`。日常开发、日报、CI 和 Pages 发布使用 `dev`。维护页面模板时编辑 `docs_init/`，运行数据由流水线生成。
 
-合并前必须执行并检查：
-
-```bash
-git diff --name-only origin/main..HEAD
-git status --short
-```
-
-**允许合并到主分支的路径**：
-- `.github/workflows/`、`app/`、`scripts/`、`src/`、`sql/`、`tests/`
-- `requirements*.txt`、`.env.example`、`.gitignore`
-- `README.md`、`AGENTS.md`、`CLAUDE.md`
-
-**默认不得合并的运行态/产物路径**（除非用户明确要求且已说明对 fork 用户 `Sync fork` 的风险）：
-- `config.yaml`、`docs/config.yaml`、`docs/README.md`、`docs/_sidebar.md`
-- `docs/<日期>/`、`docs/assets/`、`archive/`、`secret.private`
-
-若工作分支中混入了上述运行态产物，必须先从提交中剥离这些文件，只保留代码改动后再合并主分支。
-
-**推荐的主分支合并方式**——快进合并：
+`main` 是上游镜像。禁止直接提交、变基、合入开发分支或由 Actions 写入。维护者同步前先确认工作区干净，核对远端镜像可快进到上游：
 
 ```bash
-git switch main
-git merge --ff-only <work-branch>
-git push origin main
+git fetch origin && git fetch upstream
+git merge-base --is-ancestor origin/main upstream/main &&
+  git checkout main && git merge --ff-only upstream/main &&
+  test "$(git rev-parse HEAD)" = "$(git rev-parse upstream/main)" &&
+  git push origin HEAD:refs/heads/main
+git switch dev
 ```
 
-若无法 `--ff-only`，必须先说明原因和冲突范围，不得直接创建包含用户运行态产物的 merge commit。
+任一步检查失败即停止同步，保留已有历史。选定上游修复后在 `dev` 执行 `git cherry-pick -x <commit>`。

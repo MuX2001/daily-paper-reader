@@ -16,10 +16,10 @@ class PagesBuildTests(unittest.TestCase):
         values = [
             {
                 "build_type": "legacy",
-                "source": {"branch": "main", "path": "/"},
+                "source": {"branch": "dev", "path": "/"},
                 "html_url": "https://example.github.io/repo/",
             },
-            {"default_branch": "main"},
+            {"default_branch": "dev"},
             {"status": "queued"},
             *builds,
         ]
@@ -34,7 +34,7 @@ class PagesBuildTests(unittest.TestCase):
             ]
         )
         result = pages.request_build(
-            api, "owner/repo", "main", "a" * 40, sleep=lambda _: None
+            api, "owner/repo", "dev", "a" * 40, sleep=lambda _: None
         )
         self.assertEqual(result["commit"], "a" * 40)
         self.assertEqual(
@@ -44,13 +44,13 @@ class PagesBuildTests(unittest.TestCase):
 
     def test_unsupported_mode_and_wrong_branch_never_mutate(self):
         for site in [
-            {"build_type": "workflow", "source": {"branch": "main", "path": "/"}},
+            {"build_type": "workflow", "source": {"branch": "dev", "path": "/"}},
             {"build_type": "legacy", "source": {"branch": "gh-pages", "path": "/"}},
-            {"source": {"branch": "main", "path": "/"}},
+            {"source": {"branch": "dev", "path": "/"}},
         ]:
             api = Mock(return_value=site)
             with self.assertRaises(RuntimeError):
-                pages.request_build(api, "owner/repo", "main", "a" * 40)
+                pages.request_build(api, "owner/repo", "dev", "a" * 40)
             self.assertTrue(all(c.args[0] == "GET" for c in api.call_args_list))
 
     def test_failed_and_timed_out_builds_fail_workflow(self):
@@ -58,11 +58,11 @@ class PagesBuildTests(unittest.TestCase):
             pages.request_build(
                 self.api([{"commit": "a" * 40, "status": "errored"}]),
                 "owner/repo",
-                "main",
+                "dev",
                 "a" * 40,
             )
         with self.assertRaises(TimeoutError):
-            pages.request_build(self.api([]), "owner/repo", "main", "a" * 40, timeout=0)
+            pages.request_build(self.api([]), "owner/repo", "dev", "a" * 40, timeout=0)
 
     def test_workflow_explicit_pages_and_narrow_hidden_artifact(self):
         text = (ROOT / ".github/workflows/starter-pack.yml").read_text()

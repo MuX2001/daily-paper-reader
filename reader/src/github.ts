@@ -1,3 +1,4 @@
+import {requireWritableBranch} from './repository.ts';
 import {t as uiText} from './i18n/messages.ts';
 import {parseDocument,type Document} from 'yaml';
 export interface GitHubConfig {repository:string;ref:string;token:string}
@@ -5,6 +6,7 @@ export interface Profile {tag:string;description?:string;enabled?:boolean;keywor
 export interface ConfigSnapshot {document:Document;sha:string;profiles:Profile[];raw:Record<string,any>}
 export async function github(config:GitHubConfig,path:string,method='GET',body?:unknown){
  if(!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(config.repository)||!config.ref.trim()||!config.token)throw new Error(uiText("先在设置中填写仓库、分支和 GitHub Token"));
+ if(method !== 'GET') requireWritableBranch(config.repository, config.ref);
  const response=await fetch(`https://api.github.com/repos/${config.repository}${path}`,{method,headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${config.token}`,'X-GitHub-Api-Version':'2022-11-28',...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});
  if(response.status===409)throw new Error(uiText("仓库配置已被其他任务修改，请重新读取后合并你的编辑"));
  if(!response.ok)throw new Error(uiText("GitHub 请求失败 ({0})，请检查权限和分支", response.status));

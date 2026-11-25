@@ -22,8 +22,8 @@ window.DPRWorkflowRunner = (function () {
     {
       key: 'sync',
       id: 'sync.yml',
-      name: '同步上游代码',
-      desc: '触发 Upstream Sync 工作流（合并上游 main 到当前仓库）。',
+      name: '检查上游镜像',
+      desc: '比较镜像与上游 main 的提交，结果见任务日志。',
     },
     {
       key: 'reset-content',
@@ -165,7 +165,7 @@ window.DPRWorkflowRunner = (function () {
     const { forceRefresh = false } = options || {};
     const { owner, repo } = await resolveRepoFromUrl(token);
     if (!owner || !repo) {
-      return { owner: '', repo: '', isFork: null, defaultBranch: 'main' };
+      return { owner: '', repo: '', isFork: null, defaultBranch: 'dev' };
     }
 
     const cacheKey = `${owner}/${repo}`;
@@ -181,17 +181,17 @@ window.DPRWorkflowRunner = (function () {
         const repoUrl = `https://api.github.com/repos/${owner}/${repo}`;
         const res = await ghFetch(token, repoUrl);
         if (!res.ok) {
-          return { owner, repo, isFork: null, defaultBranch: 'main' };
+          return { owner, repo, isFork: null, defaultBranch: 'dev' };
         }
         const data = await res.json().catch(() => null);
         return {
           owner,
           repo,
           isFork: !!(data && data.fork),
-          defaultBranch: String((data && data.default_branch) || 'main'),
+          defaultBranch: 'dev',
         };
       } catch {
-        return { owner, repo, isFork: null, defaultBranch: 'main' };
+        return { owner, repo, isFork: null, defaultBranch: 'dev' };
       }
     })();
 
@@ -798,7 +798,7 @@ window.DPRWorkflowRunner = (function () {
         workflowFile,
       )}/dispatches`;
       const dispatchBody = {
-        ref: String(repoContext.defaultBranch || 'main'),
+        ref: String(repoContext.defaultBranch || 'dev'),
       };
       if (Object.keys(dispatchInputs).length > 0) {
         dispatchBody.inputs = dispatchInputs;

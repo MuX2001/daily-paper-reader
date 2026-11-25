@@ -20,3 +20,20 @@ def test_sync_workflow_does_not_request_pages_rebuild():
     assert "pages: write" not in text
     assert "Request GitHub Pages rebuild" not in text
     assert "/pages/builds" not in text
+
+
+def test_mirror_check_has_no_write_access_and_all_jobs_are_dev_scoped():
+    import yaml
+
+    for path in SYNC_WORKFLOW.parent.glob("*.yml"):
+        workflow = yaml.safe_load(path.read_text())
+        for name, job in workflow["jobs"].items():
+            assert "github.ref == 'refs/heads/dev'" in job["if"], (path, name)
+        # PyYAML's safe loader treats the Actions key "on" as boolean True.
+        triggers = workflow[True]
+        for event in ("push", "pull_request"):
+            if event in triggers:
+                assert triggers[event]["branches"] == ["dev"], path
+
+    mirror = yaml.safe_load(SYNC_WORKFLOW.read_text())
+    assert mirror["permissions"] == {"contents": "read"}

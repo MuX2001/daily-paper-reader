@@ -28,3 +28,10 @@ test('profile validation rejects malformed edits before writing but preserves le
  }
  assert.throws(()=>validateProfiles([{tag:'robot'},{tag:'robot'}]));
 });
+
+test('a saved main branch cannot dispatch work or write subscriptions in the reader repository',async()=>{
+ const target={...config,repository:'MuX2001/daily-paper-reader',ref:'main'};
+ const {github,dispatchWorkflow}=await import('../src/github.ts');
+ await assert.rejects(github(target,'/contents/config.yaml','PUT',{}),/dev/);
+ await assert.rejects(dispatchWorkflow(target,'daily-paper-reader.yml',{}),/dev/);
+});

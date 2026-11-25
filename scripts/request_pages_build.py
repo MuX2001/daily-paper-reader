@@ -12,6 +12,8 @@ import requests
 
 
 def request_build(api, repository, branch, commit, *, timeout=600, sleep=time.sleep):
+    if branch != "dev":
+        raise RuntimeError("Pages 仅允许从 dev 发布")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
         raise ValueError("非法 GitHub 仓库名")
     if not re.fullmatch(r"[a-f0-9]{40}", commit):

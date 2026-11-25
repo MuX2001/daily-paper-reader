@@ -1,4 +1,5 @@
 export const english:Record<string,string> = {
+  "请在工作台设置中将任务分支设为 dev": "Set the workflow branch to dev in workspace settings.",
   " · 归档 ": " · Archived ",
   " 当前项目尚未初始化阅读状态表，请在这个 Supabase 项目的 SQL Editor 执行 sql/create_paper_states_schema.sql。这不是邮箱或密码错误。": " The reading state table has not been initialized for this project. Run sql/create_paper_states_schema.sql in the SQL Editor of this Supabase project. This is not an email or password error.",
   " 篇待扫": " papers to scan",

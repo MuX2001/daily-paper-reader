@@ -337,7 +337,7 @@ window.SubscriptionsGithubToken = (function () {
     }
     const info = await resolveRepoInfoFromToken(token, false);
     const res = await fetch(
-      `https://api.github.com/repos/${info.owner}/${info.repo}/contents/config.yaml`,
+      `https://api.github.com/repos/${info.owner}/${info.repo}/contents/config.yaml?ref=dev`,
       {
         headers: {
           Authorization: `token ${info.token}`,
@@ -452,6 +452,7 @@ window.SubscriptionsGithubToken = (function () {
     }
     const newContent = yaml.dump(next, { lineWidth: 120 });
     const body = {
+      branch: 'dev',
       message: commitMessage,
       content: btoa(unescape(encodeURIComponent(newContent))),
       sha,
@@ -497,6 +498,7 @@ window.SubscriptionsGithubToken = (function () {
     const safeConfig = configObject || {};
     const newContent = yaml.dump(safeConfig, { lineWidth: 120 });
     const body = {
+      branch: 'dev',
       message: commitMessage,
       content: btoa(unescape(encodeURIComponent(newContent))),
       sha,

@@ -9,10 +9,10 @@ release=importlib.util.module_from_spec(spec);spec.loader.exec_module(release)
 
 class ReaderReleaseTests(unittest.TestCase):
     def test_existing_default_branch_root_required(self):
-        session=Mock();meta=Mock();meta.json.return_value={'default_branch':'main'};pages=Mock();pages.json.return_value={'build_type':'legacy','source':{'branch':'main','path':'/'},'html_url':'https://example.org/'};session.get.side_effect=[meta,pages]
-        with self.assertRaises(ValueError):release.validate_pages('owner/repo','dev','token',session)
+        session=Mock();meta=Mock();meta.json.return_value={'default_branch':'dev'};pages=Mock();pages.json.return_value={'build_type':'legacy','source':{'branch':'dev','path':'/'},'html_url':'https://example.org/'};session.get.side_effect=[meta,pages]
+        with self.assertRaises(ValueError):release.validate_pages('owner/repo','main','token',session)
         session.get.side_effect=[meta,pages]
-        self.assertEqual(release.validate_pages('owner/repo','main','token',session),'https://example.org/')
+        self.assertEqual(release.validate_pages('owner/repo','dev','token',session),'https://example.org/')
         session.put.assert_not_called();session.post.assert_not_called()
     def test_stage_preserves_source_and_legacy(self):
         with tempfile.TemporaryDirectory() as folder:

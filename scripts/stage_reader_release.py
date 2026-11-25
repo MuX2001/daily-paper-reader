@@ -11,6 +11,8 @@ import requests
 
 
 def validate_pages(repository,branch,token,session=requests):
+    if branch != 'dev':
+        raise ValueError('Reader release requires the dev branch')
     headers={'Authorization':f'Bearer {token}','Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}
     base=f'https://api.github.com/repos/{repository}'
     metadata=session.get(base,headers=headers,timeout=30);metadata.raise_for_status()

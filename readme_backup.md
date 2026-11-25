@@ -50,12 +50,12 @@ Fork 后 Actions 默认暂停，需要手动激活：
 3. 左侧选择 **daily-paper-reader**
 4. 点击 **Run workflow** → 再点绿色 **Run workflow** 确认
 
-> 这一步会生成 `docs/` 与 `archive/*/recommend` 并自动提交回 `main` 分支。首次一般需要 3–8 分钟。
+> 这一步会生成 `docs/` 与 `archive/*/recommend` 并自动提交回 `dev` 分支。首次一般需要 3–8 分钟。
 
 ### 3) 开启 GitHub Pages
 1. 仓库顶部 **Settings** → 左侧 **Pages**
 2. **Source** 选择 `Deploy from a branch`
-3. **Branch** 选择 `main`，目录选择 `/docs`
+3. **Branch** 选择 `dev`，目录选择 `/(root)`
 4. 点击 **Save**
 
 等待约 30 秒后，你会看到站点地址，例如：`https://你的ID.github.io/项目名/`。
@@ -129,4 +129,4 @@ Fork 后 Actions 默认暂停，需要手动激活：
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=ziwenhahaha/daily-paper-reader&type=date&legend=top-left)](https://www.star-history.com/#ziwenhahaha/daily-paper-reader&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/svg?repos=MuX2001/daily-paper-reader&type=date&legend=top-left)](https://www.star-history.com/#MuX2001/daily-paper-reader&type=date&legend=top-left)

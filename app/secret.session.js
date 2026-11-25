@@ -830,7 +830,7 @@
         const getRes = await fetch(
           `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(
             filePath,
-          )}`,
+          )}?ref=dev`,
           {
             headers: {
               Authorization: `token ${token}`,
@@ -860,6 +860,7 @@
           : JSON.stringify(payload, null, 2);
       const contentB64 = btoa(unescape(encodeURIComponent(contentJson)));
       const body = {
+        branch: 'dev',
         message: existingSha
           ? 'chore: update secret.private via web setup'
           : 'chore: init secret.private via web setup',

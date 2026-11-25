@@ -1,3 +1,4 @@
+import {requireWritableBranch} from './repository.ts';
 import {t as uiText} from './i18n/messages.ts';
 export interface GitHubConfig { repository: string; ref: string; token: string }
 export interface DeepTask { requestId: string; repository: string; ref: string; paperId: string; status: 'queued'|'running'|'succeeded'|'failed'; runId?: number; url?: string; error?: string }
@@ -15,6 +16,7 @@ function validatePaperId(paperId:string){
   if(!/^(?:\d{4}\.\d{4,5}|[A-Za-z.-]+\/\d{7})v[1-9]\d*$/.test(paperId))throw new Error(uiText("精读需要明确 arXiv 版本；不会自动替换为最新版本"));
 }
 export async function dispatchDeepRead(config:GitHubConfig,paperId:string,modelChoice='configured'):Promise<DeepTask>{
+  requireWritableBranch(config.repository, config.ref);
   validatePaperId(paperId);
   if(!['configured','deepseek-flash','deepseek-v4-pro'].includes(modelChoice))throw new Error(uiText("不支持的精读模型"));
   const requestId=crypto.randomUUID();
