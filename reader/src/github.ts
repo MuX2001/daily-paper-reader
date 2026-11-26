@@ -46,7 +46,7 @@ export async function saveProfiles(config:GitHubConfig,snapshot:ConfigSnapshot,p
 }
 export async function commitConfig(config:GitHubConfig,sha:string,document:Document,message:string){
  const bytes=new TextEncoder().encode(document.toString());let binary='';for(const byte of bytes)binary+=String.fromCharCode(byte);
- const result=await github(config,'/contents/config.yaml','PUT',{message:message+'\n\nCo-Authored-By: xixi <3495302215@qq.com>',sha,branch:config.ref,content:btoa(binary)});
+ const result=await github(config,'/contents/config.yaml','PUT',{message,sha,branch:config.ref,content:btoa(binary)});
  return result.content.sha as string;
 }
 export async function dispatchWorkflow(config:GitHubConfig,workflow:string,inputs:Record<string,string>){

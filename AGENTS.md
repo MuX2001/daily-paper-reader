@@ -362,16 +362,6 @@ Zotero       ←── 浏览器 Connector 抓取 citation meta
 
 未读筛选只能在数据层筛掉非未读论文，渲染层必须复用“全部”视图的会议/日报轴、日历、三级标签和切换按钮；不得把未读筛选渲染成单独的 `未读` 结果标签或禁用原有切换按钮。
 
-### 提交共同作者规则
-
-本仓库内由 Agent/Codex 创建、提交或推送的 commit，提交信息末尾必须追加以下共同作者 trailer：
-
-```text
-Co-Authored-By: xixi <3495302215@qq.com>
-```
-
-以上规则仅用于 Git commit message，不代表需要修改 `CITATION.cff`、`README.md` 或其它项目作者元数据。
-
 ### 分支维护
 
 默认分支为 `dev`。日常开发、日报、CI 和 Pages 发布使用 `dev`。维护页面模板时编辑 `docs_init/`，运行数据由流水线生成。

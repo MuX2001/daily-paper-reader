@@ -45,7 +45,7 @@ def sync_note(note_path,repository,branch,folder,token,session=requests):
         existing=base64.b64decode(data['content']).decode()
         note=merge_note(existing,note)
         if note==existing:return {'status':'unchanged','path':dest}
-    payload={'message':f'Update generated paper note {note_path.stem}\n\nCo-Authored-By: xixi <3495302215@qq.com>', 'content':base64.b64encode(note.encode()).decode(),'branch':branch}
+    payload={'message':f'Update generated paper note {note_path.stem}', 'content':base64.b64encode(note.encode()).decode(),'branch':branch}
     if sha:payload['sha']=sha
     response=session.put(url,headers=headers,json=payload,timeout=30);response.raise_for_status()
     return {'status':'synced','path':dest,'commit':response.json().get('commit',{}).get('sha')}
