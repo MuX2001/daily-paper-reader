@@ -1,6 +1,6 @@
 # 新版阅读工作台：配置与验收
 
-适用于 `dev` 的 React 阅读器。旧资料仍可从 `legacy.html` 访问；现有 `docs/` 路径不移动。开发过程与逐次测试记录见 [开发计划](../../DEVELOPMENT_PLAN.md)。
+适用于 `dev` 的 React 阅读器。旧资料仍可从 `legacy.html` 访问；现有 `docs/` 路径不移动。开发过程与逐次测试记录见 [开发计划](../../others/plans/DEVELOPMENT_PLAN.md)。
 
 ## 先在本地查看
 
@@ -152,4 +152,4 @@ python src/reader_feedback_eval.py \
 
 选中论文后点击“复制强模型精读包”，将元数据、骨架和可编辑提示词粘贴到自己的聊天客户端，并另附“打开论文 PDF”下载的同版本文件。需要留底时选择“下载骨架 Markdown”或“导出骨架到 Obsidian”，导出状态为 triage-card。
 
-设置中的“研究管理连接”只服务于订阅编辑和专题检索；上述阅读和导出操作不需要 GitHub Token。具体缓存、输入范围与验收限制见仓库 MINMAX_PLAN.md。
+设置中的“研究管理连接”只服务于订阅编辑和专题检索；上述阅读和导出操作不需要 GitHub Token。具体缓存、输入范围与验收限制见[Min-Max 改造记录](../../others/plans/MINMAX_PLAN.md)。
