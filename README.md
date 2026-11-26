@@ -1,148 +1,147 @@
 # Daily Paper Reader
 
-**English** · [简体中文](README.zh-CN.md) · [Open the reader](https://mux2001.github.io/daily-paper-reader/)
+**English** · [简体中文](README.zh-CN.md) · [Live Demo](https://mux2001.github.io/daily-paper-reader/)
 
-An inbox triage workspace for daily papers. Spend three minutes scanning a batch, queue papers worth reading, and archive the rest.
+An inbox-style workspace for triaging daily papers in three minutes—scan today's batch, queue what's worth a deep read, and archive the rest.
 
 ![Widescreen paper inbox with a TL;DR and a structured 2×2 reading grid](docs/Screenshot.png)
 
-## Why this fork
+## Why This Fork
 
-Thanks to `ziwenhahaha/daily-paper-reader` for the retrieval pipeline and original reader. This fork builds a daily workflow around four changes.
+Built on top of [`ziwenhahaha/daily-paper-reader`](https://github.com/ziwenhahaha/daily-paper-reader)'s retrieval pipeline, this fork rethinks the daily reading experience around four changes:
 
-- **A keyboard-first inbox.** Navigate a compact queue beside a 2×2 reading grid. A progress ring tracks the current batch and a 12-week heatmap shows reading activity.
-- **Cached Min-Max previews.** See where earlier methods get stuck, how the new method works, what the authors measured and which figures to inspect. The daily job extracts these facts in advance, so opening a paper makes no model request. The original abstract stays available.
-- **Two ways to go deeper.** Press `c` to ask a question beside the paper. Copy a Deep-Read Pack into an external model for a longer discussion, or export a Markdown note to disk or Obsidian.
-- **Two language controls.** Switch the interface and default prompts with **中 / EN**. Set `SUMMARY_LANG` for newly generated summaries. Existing papers keep their cached text.
+- **Keyboard-first inbox.** Triage happens in a single widescreen view: a compact queue on the left, a 2×2 structured summary grid on the right, and `j` / `k` / `s` / `x` shortcuts under your fingers. A progress ring tracks the current batch alongside a 12-week activity heatmap.
+- **Precomputed Min-Max previews.** Each candidate arrives with a clear breakdown—where prior methods hit a wall, how the new approach works, key experimental numbers, and which figures or tables to check first. Everything is extracted ahead of time during the daily batch job, so clicking a paper opens instantly with zero LLM wait (with the original abstract tucked right below).
+- **Flexible deep-read exits.** Press `c` to ask follow-up questions in a side-by-side panel without covering the paper, copy a self-contained **Deep-Read Pack** into your favorite frontier model (no API key needed), or export clean Markdown straight to disk or Obsidian.
+- **Decoupled UI and summary languages.** Toggle **中 / EN** in the header to switch the interface and prompt templates on the fly. On the backend, `SUMMARY_LANG` sets the language for newly generated batches while keeping previously cached summaries intact.
 
-## How it works
+## How It Works
 
-1. **GitHub Actions** retrieves papers for the subscriptions in `config.yaml`, reranks and scores candidates, then writes the selected papers and cached previews to `docs/data/daily/`.
-2. **GitHub Pages** serves the compiled reader and those JSON files. The daily schedule is 18:37 UTC. A successful daily run with a reader batch calls the publication workflow.
-3. **The browser** reads the static feed, syncs personal state and notes to Supabase under the signed-in account, and contacts the configured model directly when you use Ask AI.
+1. **GitHub Actions** fetches candidate papers matching your topics in `config.yaml`, reranks and scores them, and writes the selected batch with precomputed previews to `docs/data/daily/`.
+2. **GitHub Pages** hosts the compiled web reader and static JSON feeds. The scheduled workflow runs daily at `18:37 UTC` (`02:37` UTC+8) and automatically triggers a Pages release whenever a new batch is produced.
+3. **Your browser** reads the static feed, syncs reading state and personal notes to your own Supabase project, and talks directly to your configured LLM endpoint only when you open **Ask AI**.
 
-## Five-minute quick start
+## 5-Minute Quick Start
 
-1. Fork **MuX2001/daily-paper-reader** with **Copy the dev branch only** checked, then confirm your fork’s default branch is `dev`. Edit `subscriptions.intent_profiles` in [config.yaml](config.yaml) to match your research interests.
-2. Create a Supabase project for **reader state**. In its SQL Editor, run [create_paper_states_schema.sql](sql/create_paper_states_schema.sql) in full. It creates the notes and feedback fields, grants signed-in access, and installs owner-only row-level security (RLS). Enable email/password sign-in. The public paper sources in `config.yaml` are ready to query. You can skip building a paper catalog. The other [SQL scripts](sql/) are for catalog or statistics administration.
-3. In your fork, open **Settings → Secrets and variables → Actions**. For the standard daily setup add two **repository secrets**: `DEEPSEEK_API_KEY` with your API key, and `DEEPSEEK_MODEL` with an available model ID (for example `deepseek-flash`). The daily job reads this model from **Secrets**. No repository variable or personal GitHub token is required for this setup.
-4. Enable workflows in **Actions**. In **Settings → Actions → General → Workflow permissions**, allow read and write. In **Settings → Pages**, choose **Deploy from a branch → dev → /(root)**. Click **Save**. The release workflow commits the compiled homepage, assets and feed to `dev`, requests a Pages build and verifies the published commit.
-5. Open **Actions → daily-paper-reader → Run workflow** on `dev`. Leave the action on `daily` and the content mode on `triage`. When publication finishes, open your fork’s Pages homepage. In **Workspace settings → Account & sync**, enter and verify your project URL and publishable/anon key. Register or sign in with an email account for that project, confirm the email if prompted, then star a paper and refresh to check sync.
+1. **Fork the repo.** Fork **MuX2001/daily-paper-reader** with **Copy the `dev` branch only** checked (so `dev` is your default branch), then edit `subscriptions.intent_profiles` in [config.yaml](config.yaml) to match your research topics.
+2. **Set up state sync (Supabase).** Create a Supabase project for your personal reading state, open its SQL Editor, and run [create_paper_states_schema.sql](sql/create_paper_states_schema.sql) in full—this sets up the state/notes/feedback schema, auth grants, and per-user row-level security (RLS). Enable **Email/Password** sign-in under Authentication. *(Note: `config.yaml` already points to public paper retrieval sources out of the box, so you don't need to build your own paper catalog; the remaining [SQL scripts](sql/) are only for catalog maintenance or analytics.)*
+3. **Add daily model secrets.** In your fork, go to **Settings → Secrets and variables → Actions** and add two **Repository secrets**: `DEEPSEEK_API_KEY` (your provider key) and `DEEPSEEK_MODEL` (e.g., `deepseek-flash`). That's all you need for daily runs—no repository variables or personal GitHub token required.
+4. **Enable Actions & Pages.** Enable workflows in the **Actions** tab. Set **Settings → Actions → General → Workflow permissions** to **Read and write**, then set **Settings → Pages** to **Deploy from a branch → `dev` → `/(root)`** and click **Save**. The release workflow commits the built reader and daily feeds back to `dev` and triggers Pages deployment.
+5. **Run your first batch.** Trigger **Actions → daily-paper-reader → Run workflow** on `dev` (keep action as `daily` and content mode as `triage`). Once published, open your Pages URL, go to **Settings → Account & sync**, enter and verify your Supabase URL and publishable/`anon` key, and sign up with an email account. Star a paper and refresh to confirm cloud sync is working.
 
-**Optional integrations.** Configure Ask AI for in-page chat, or copy a Deep-Read Pack without a model key. For Obsidian, choose an export mode and vault. To recover older reading records, open **Data & maintenance**, preview the browser records or JSON backup, then import into the signed-in account.
+**Optional integrations.** Set up **Ask AI** only if you want in-browser paper chat—**Copy Deep-Read Pack** works without any API key. For **Obsidian**, pick your preferred export mode and vault name in Settings. Coming from an older version? Use **Data & maintenance** to preview and import legacy browser records or JSON backups into your account.
 
-**Local run.** From the repository root, use Python 3.11 with the project dependencies from [requirements.txt](requirements.txt) and [requirements-reader.txt](requirements-reader.txt) in an activated environment. Copy [.env.example](.env.example) to `.env`, fill in the daily model key and ID, then run:
+**Local development.** To run the Python pipeline locally, activate a Python 3.11 environment with [requirements.txt](requirements.txt) and [requirements-reader.txt](requirements-reader.txt), copy [.env.example](.env.example) to `.env` with your daily API key and model ID, and run:
 
 ```bash
 PYTHONPATH=src python src/main.py --content-mode triage --export-triage
 ```
 
-To run the reader against the published feed, use Node.js 24 in the repository root:
+To launch the web reader locally against existing feed data in `docs/data` (Node.js 24, no Python run needed):
 
 ```bash
 npm ci
 DPR_READER_DATA_DIR="$PWD/docs/data" npm run dev -- --port 5173 --strictPort
 ```
 
-Open the [local reader](http://127.0.0.1:5173/). Existing batches are available without running Python.
+Then open [http://127.0.0.1:5173/](http://127.0.0.1:5173/).
 
-## Secrets and keys reference
+## Secrets & Configuration Reference
 
 ### 1. GitHub Actions Secrets & Variables
 
-The two entries in step 3 cover the standard daily path. Other entries below apply to the named feature. GitHub supplies the workflow token used to commit and publish.
+The two secrets from Step 3 are all you need for standard daily digests. Everything else below is optional—GitHub automatically provides the `GITHUB_TOKEN` used to commit feeds and publish Pages.
 
-| Name | Store | Requirement and default |
+| Name | Type | Description & default |
 |---|---|---|
-| `DEEPSEEK_API_KEY` | Secret | Key for daily scoring and default triage. |
-| `DEEPSEEK_MODEL` | Secret | Set to `deepseek-flash` for daily runs. Triage requires this secret or the `TRIAGE_MODEL` variable. |
-| `DEEPSEEK_BASE_URL` | Variable / Secret | Daily endpoint override via Secret. Deep read checks the Variable first. Default: `https://api.deepseek.com`. |
-| `SUMMARY_LANG` | Variable | Language of generated previews. Default `zh`. Use `en` for English. |
+| `DEEPSEEK_API_KEY` | Secret | Required for daily scoring and default triage summaries. |
+| `DEEPSEEK_MODEL` | Secret | Model ID for daily runs (e.g., `deepseek-flash`). Triage requires either this secret or the `TRIAGE_MODEL` variable. |
+| `DEEPSEEK_BASE_URL` | Variable / Secret | Custom OpenAI-compatible endpoint. Deep-read jobs check the Variable first. Default: `https://api.deepseek.com`. |
+| `SUMMARY_LANG` | Variable | Output language for newly generated previews (`zh` by default, or `en` for English). |
 
-Some scoring code still uses the legacy alias `deepseek-v4-flash`. Use `deepseek-flash` for new configurations. [DeepSeek model reference](https://api-docs.deepseek.com/quick_start/pricing/)
+> **Model note:** Older scoring scripts still accept the legacy alias `deepseek-v4-flash`, but new setups should use `deepseek-flash`. See the [DeepSeek pricing & model docs](https://api-docs.deepseek.com/quick_start/pricing/).
 
-<details><summary>Feedback and notifications</summary>
+<details><summary>Feedback personalization & notifications</summary>
 
-| Name | Store | Requirement and default |
+| Name | Type | Description & default |
 |---|---|---|
-| `DPR_STATE_SUPABASE_URL`, `DPR_STATE_SERVICE_KEY`, `DPR_FEEDBACK_USER_ID` | Secret | For feedback-based ranking, set all three: state project URL, server credential and Auth user UUID. Unset disables personalization from feedback. |
-| `DPR_NOTIFY_FEISHU_WEBHOOK` | Secret | Feishu digest webhook. Unset skips notifications. |
+| `DPR_STATE_SUPABASE_URL`, `DPR_STATE_SERVICE_KEY`, `DPR_FEEDBACK_USER_ID` | Secret | Provide all three (state project URL, server service key, and your Auth user UUID) to re-weight daily rankings from your `+` / `-` feedback. Leave unset to disable. |
+| `DPR_NOTIFY_FEISHU_WEBHOOK` | Secret | Feishu bot webhook URL for daily digest pushes. Leave unset to skip notifications. |
 
 </details>
 
-<details><summary>Retrieval, reranking and triage</summary>
+<details><summary>Retrieval, reranking & triage overrides</summary>
 
-| Name | Store | Requirement and default |
+| Name | Type | Description & default |
 |---|---|---|
-| `DPR_EMBED_API_URL`, `DPR_EMBED_API_KEY` | Secret | Embedding endpoint and credential. Hosted endpoint defaults to https://zwwen.online/embed with its built-in client fallback. |
-| `RERANK_PROFILE` | Secret | Reranker preset. A workflow input takes precedence over this secret. Default: `public-zwwen-rerank`. |
-| `RERANK_PROVIDER`, `RERANK_MODEL`, `RERANK_API_BASE_URL`, `RERANK_API_KEY` | Secret | Provider, model, endpoint and key overrides. Defaults depend on the selected preset and client. |
-| `PUBLIC_RERANK_API_BASE_URL`, `PUBLIC_RERANK_API_KEY` | Secret | Public reranker endpoint and key. Defaults to https://zwwen.online/rerank and the public client fallback. |
-| `SILICONFLOW_RERANK_URL`, `SILICONFLOW_API_KEY` | Secret | SiliconFlow preset only. Default endpoint is https://api.siliconflow.cn/v1/rerank. Provide a provider key when using this service. |
-| `SILICONFLOW_RERANK_MIN_INTERVAL_SECONDS` | Secret | Minimum interval between SiliconFlow requests, 8 seconds in Actions. |
-| `TRIAGE_API_KEY`, `TRIAGE_MODEL`, `TRIAGE_BASE_URL` | Secret / Variable / Variable | Separate triage key, model and endpoint. Each inherits its DEEPSEEK counterpart, then the official endpoint if no URL is set. |
+| `DPR_EMBED_API_URL`, `DPR_EMBED_API_KEY` | Secret | Custom embedding endpoint and key. Defaults to `https://zwwen.online/embed` with built-in public fallback. |
+| `RERANK_PROFILE` | Secret | Reranker preset (manual workflow inputs override this value). Default: `public-zwwen-rerank`. |
+| `RERANK_PROVIDER`, `RERANK_MODEL`, `RERANK_API_BASE_URL`, `RERANK_API_KEY` | Secret | Granular reranker overrides; defaults follow the selected preset. |
+| `PUBLIC_RERANK_API_BASE_URL`, `PUBLIC_RERANK_API_KEY` | Secret | Public reranker overrides. Defaults to `https://zwwen.online/rerank` with built-in fallback. |
+| `SILICONFLOW_RERANK_URL`, `SILICONFLOW_API_KEY` | Secret | Used only with the SiliconFlow preset (`https://api.siliconflow.cn/v1/rerank`); requires your SiliconFlow API key. |
+| `SILICONFLOW_RERANK_MIN_INTERVAL_SECONDS` | Secret | Minimum delay between SiliconFlow requests (`8` seconds by default in Actions). |
+| `TRIAGE_API_KEY`, `TRIAGE_MODEL`, `TRIAGE_BASE_URL` | Secret / Variable / Variable | Dedicated credentials for the triage summary step; falls back to the corresponding `DEEPSEEK_*` settings if unset. |
 
 </details>
 
-<details><summary>Optional cloud deep reads</summary>
+<details><summary>Optional cloud deep-read workflow</summary>
 
-These settings apply to the optional GitHub Actions deep-read job. Copy Deep-Read Pack copies the prompt and paper context without credentials. The cloud job also accepts `DEEPSEEK_MODEL` and `DEEPSEEK_BASE_URL` as repository variables.
+These apply only if you trigger server-side deep-read jobs via GitHub Actions (**Copy Deep-Read Pack** in the UI needs none of these). The cloud job also accepts `DEEPSEEK_MODEL` and `DEEPSEEK_BASE_URL` as repository variables.
 
-| Name | Store | Requirement and default |
+| Name | Type | Description & default |
 |---|---|---|
-| `DEEP_READ_API_KEY` | Secret | Dedicated deep-read key. Falls back to the daily key on the same endpoint. A different provider needs its own key. |
-| `DEEP_READ_MODEL`, `DEEP_READ_BASE_URL` | Variable / Secret | Dedicated model and endpoint. Variable precedes Secret. Inherit daily settings if unset. With no model, the official endpoint defaults to deepseek-flash; a custom endpoint requires a model ID. |
-| `OBSIDIAN_NOTES_REPO` | Variable | Private vault repository (owner/repo). Unset skips server-side note sync. |
-| `OBSIDIAN_NOTES_BRANCH`, `OBSIDIAN_NOTES_FOLDER` | Variable | Branch and folder in the vault repository. Defaults are `main` and `Inbox`, respectively. |
-| `OBSIDIAN_NOTES_TOKEN` | Secret | Vault repository token with Contents write permission, required only for server-side note sync. |
+| `DEEP_READ_API_KEY` | Secret | Dedicated API key for cloud deep reads. Falls back to `DEEPSEEK_API_KEY` when using the same endpoint. |
+| `DEEP_READ_MODEL`, `DEEP_READ_BASE_URL` | Variable / Secret | Dedicated model and endpoint (Variables override Secrets; inherits daily settings if unset). Official endpoint defaults to `deepseek-flash`; custom endpoints require an explicit model ID. |
+| `OBSIDIAN_NOTES_REPO` | Variable | Target private vault repo (`owner/repo`) for pushing generated notes. Leave unset to skip repo sync. |
+| `OBSIDIAN_NOTES_BRANCH`, `OBSIDIAN_NOTES_FOLDER` | Variable | Target branch and folder inside the vault repo. Defaults: `main` and `Inbox`. |
+| `OBSIDIAN_NOTES_TOKEN` | Secret | Fine-grained PAT with `Contents: Read and write` on the vault repo (required only when `OBSIDIAN_NOTES_REPO` is set). |
 
 </details>
 
-<details><summary>Catalog maintenance and legacy settings</summary>
+<details><summary>Catalog maintenance & legacy compatibility</summary>
 
-| Name | Store | Requirement and default |
+| Name | Type | Description & default |
 |---|---|---|
-| `SUPABASE_URL`, `SUPABASE_ANON_KEY` | Secret | Read-only retrieval catalog overrides for starter packs and topic research. Defaults come from the configured catalog. |
-| `SUPABASE_SERVICE_KEY` | Secret | Catalog maintenance only. Supply the target catalog’s server key. Maintenance jobs have fixed targets and repository allowlists. |
-| `OPENREVIEW_USERNAME`, `OPENREVIEW_PASSWORD` | Secret | Optional OpenReview login for conference ingestion. Leave both unset for public access. |
-| `SUMMARY_API_KEY`, `SUMMARY_BASE_URL`, `SUMMARY_MODEL` | Secret | Overrides for the legacy summary path. Each falls back to the corresponding daily setting. |
-| `LLM_PRIMARY_BASE_URL` | Secret | Legacy environment binding, unset by default. The summary step sets it from its resolved endpoint. |
+| `SUPABASE_URL`, `SUPABASE_ANON_KEY` | Secret | Read-only paper catalog overrides for topic research and starter packs (uses `config.yaml` defaults if unset). |
+| `SUPABASE_SERVICE_KEY` | Secret | Required only for paper catalog ingestion/maintenance workflows (restricted to allowlisted repos). |
+| `OPENREVIEW_USERNAME`, `OPENREVIEW_PASSWORD` | Secret | Optional credentials for conference paper scraping; defaults to public anonymous access. |
+| `SUMMARY_API_KEY`, `SUMMARY_BASE_URL`, `SUMMARY_MODEL` | Secret | Legacy summary pipeline overrides; falls back to daily settings. |
+| `LLM_PRIMARY_BASE_URL` | Secret | Legacy internal binding; leave unset. |
 
 </details>
 
-
-### 2. Supabase frontend configuration
+### 2. Supabase Frontend Configuration
 
 | Account & sync field | What to enter |
 |---|---|
-| Supabase URL | The URL of the project where you installed `paper_states`. Save and verify the connection. |
-| Publishable / anon key | The public client key from that same project. RLS checks the signed-in user’s ID on reads and writes. |
-| Email and password | Register or sign in to the reader’s Supabase Auth project. Use the same account on each device to sync stars, archive state, feedback and saved notes. |
+| Supabase URL | Project URL where you ran `create_paper_states_schema.sql`. Click **Save & verify** after entering. |
+| Publishable / anon key | The public client `anon` key for that same project. Data access is isolated per user via Postgres RLS. |
+| Email & password | Sign up or sign in to sync your reading queue, archived items, feedback, and personal notes across devices. |
 
-> **Security:** Never paste a Supabase service-role key into the website or commit it to Git. The credential sometimes called `SUPABASE_SERVICE_ROLE_KEY` is privileged. This repository reads `SUPABASE_SERVICE_KEY` for catalog maintenance and `DPR_STATE_SERVICE_KEY` for optional server-side feedback. Only a publishable/anon key belongs in the browser.
+> **Security:** Never paste a Supabase `service_role` key into the web UI or commit it to Git. Server-only keys (`SUPABASE_SERVICE_KEY` for catalog maintenance and `DPR_STATE_SERVICE_KEY` for optional feedback ranking) belong strictly in GitHub Secrets—only the public `anon` / publishable key should touch the browser.
 
-### 3. Browser workspace settings
+### 3. Browser Workspace Settings
 
-| Section | Inputs and scope |
+| Tab | Purpose & inputs |
 |---|---|
-| Web AI chat | Select DeepSeek, OpenAI, OpenRouter or Custom. Enter the base URL, model ID and API key, test the connection and save. |
-| Research tasks | Enter your fork as `owner/repo`, branch `dev` and a GitHub token to dispatch workflows or edit subscriptions. |
-| Export & Obsidian | Choose Markdown, Obsidian or both. Set the vault, inbox folder (blank for vault root) and filename format. Browser export needs no vault repository token. |
-| Data & maintenance | Preview legacy records from this browser or a JSON file, select the old user if needed, then import. This tab also clears saved keys and offers a separate local test connection. |
+| Web AI chat | Pick a preset (DeepSeek, OpenAI, OpenRouter, or Custom), enter Base URL, Model ID, and API Key, then test and save. |
+| Research tasks | Point to your fork (`owner/repo`), branch `dev`, and a GitHub PAT to trigger workflows or update subscriptions from the UI. |
+| Export & Obsidian | Choose Markdown download, Obsidian URI, or both, and customize your vault name, inbox folder, and filename template. No GitHub token needed. |
+| Data & maintenance | Preview and import legacy reading history from `localStorage` or JSON backups, clear locally stored keys, or toggle local-only test mode. |
 
-> **Token scope:** Use a **fine-grained PAT** restricted to your fork, with **Actions: Read and write** for dispatch. Grant **Contents: Read and write** only if you also save subscription edits. Avoid a classic PAT with broad `repo` scope. The chat key and GitHub token stay in memory by default. “Remember” saves the selected credential to this browser’s localStorage. Use it only on a personal device.
+> **Token scope:** When configuring a GitHub token in the browser, always create a **fine-grained PAT** scoped strictly to your single fork with **Actions: Read and write** (add **Contents: Read and write** only if you edit `config.yaml` from the UI). Avoid classic PATs with broad `repo` access. API keys and tokens live only in page memory by default—check **Remember on this browser** (`localStorage`) only on trusted personal devices.
 
-## Keyboard shortcuts and branch policy
+## Keyboard Shortcuts & Branch Policy
 
-| Key | In the inbox |
+| Key | Action |
 |---|---|
 | `j` / `k` | Next / previous paper |
-| `s` | Add to or remove from the reading queue |
-| `x` | Archive or restore the paper |
-| `o` | Open the original paper |
-| `c` | Toggle the side-by-side AI chat |
-| `/` | Focus search |
-| `Esc` | Close the active panel or dialog |
-| `?` | Show keyboard help |
+| `s` | Add to or remove from Reading Queue |
+| `x` | Archive or restore current paper |
+| `o` | Open original PDF |
+| `c` | Toggle side-by-side Ask AI panel |
+| `/` | Focus search input |
+| `Esc` | Close active panel or modal |
+| `?` | Show shortcut cheat sheet |
 
-Target **dev** for pull requests, development, scheduled jobs and Pages releases. **main** is reserved for fast-forward mirroring of upstream `ziwenhahaha/daily-paper-reader`. Maintainers can cherry-pick selected upstream fixes onto `dev`. See the [branch maintenance rules](AGENTS.md#分支维护).
+All active development, scheduled runs, Pages deployments, and pull requests target **`dev`**. The **`main`** branch is kept strictly as a clean fast-forward mirror of upstream [`ziwenhahaha/daily-paper-reader`](https://github.com/ziwenhahaha/daily-paper-reader) so useful upstream fixes can be cherry-picked onto `dev` without merge noise. See [AGENTS.md](AGENTS.md) for maintenance details.
