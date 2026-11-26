@@ -25,9 +25,9 @@ Built on top of [`ziwenhahaha/daily-paper-reader`](https://github.com/ziwenhahah
 
 1. **Fork the repo.** Fork **MuX2001/daily-paper-reader** with **Copy the `dev` branch only** checked (so `dev` is your default branch), then edit `subscriptions.intent_profiles` in [config.yaml](config.yaml) to match your research topics.
 2. **Set up state sync (Supabase).** Create a Supabase project for your personal reading state, open its SQL Editor, and run [create_paper_states_schema.sql](sql/create_paper_states_schema.sql) in full—this sets up the state/notes/feedback schema, auth grants, and per-user row-level security (RLS). Enable **Email/Password** sign-in under Authentication. *(Note: `config.yaml` already points to public paper retrieval sources out of the box, so you don't need to build your own paper catalog; the remaining [SQL scripts](sql/) are only for catalog maintenance or analytics.)*
-3. **Add daily model secrets.** In your fork, go to **Settings → Secrets and variables → Actions** and add two **Repository secrets**: `DEEPSEEK_API_KEY` (your provider key) and `DEEPSEEK_MODEL` (e.g., `deepseek-flash`). That's all you need for daily runs—no repository variables or personal GitHub token required.
+3. **Prepare repository access.** Create a fine-grained PAT for your fork with **Actions, Contents and Secrets: Read and write**. Use it in the reader after publishing.
 4. **Enable Actions & Pages.** Enable workflows in the **Actions** tab. Set **Settings → Actions → General → Workflow permissions** to **Read and write**, then set **Settings → Pages** to **Deploy from a branch → `dev` → `/(root)`** and click **Save**. The release workflow commits the built reader and daily feeds back to `dev` and triggers Pages deployment.
-5. **Run your first batch.** Trigger **Actions → daily-paper-reader → Run workflow** on `dev` (keep action as `daily` and content mode as `triage`). Once published, open your Pages URL, go to **Settings → Account & sync**, enter and verify your Supabase URL and publishable/`anon` key, and sign up with an email account. Star a paper and refresh to confirm cloud sync is working.
+5. Publish once with **Actions → Publish compiled reader to existing Pages → Run workflow** on dev. Open your site → **Workspace settings → Daily Model & Research Connection**. Save the repo, dev branch and PAT. Select a model, enter the daily API key and save the pipeline. Choose **Run daily recommendations now**. For cloud sync, enter your Supabase URL and publishable key under **Account & sync** and sign in.
 
 **Optional integrations.** Set up **Ask AI** only if you want in-browser paper chat—**Copy Deep-Read Pack** works without any API key. For **Obsidian**, pick your preferred export mode and vault name in Settings. Coming from an older version? Use **Data & maintenance** to preview and import legacy browser records or JSON backups into your account.
 
@@ -50,12 +50,12 @@ Then open [http://127.0.0.1:5173/](http://127.0.0.1:5173/).
 
 ### 1. GitHub Actions Secrets & Variables
 
-The two secrets from Step 3 are all you need for standard daily digests. Everything else below is optional—GitHub automatically provides the `GITHUB_TOKEN` used to commit feeds and publish Pages.
+Workspace settings writes model, endpoint, language and reranking preferences to dev/config.yaml. New keys are sealed locally with the repository public key and sent directly to Actions Secrets. Blank keys keep existing secrets. The public reranker needs no key.
 
 | Name | Type | Description & default |
 |---|---|---|
 | `DEEPSEEK_API_KEY` | Secret | Required for daily scoring and default triage summaries. |
-| `DEEPSEEK_MODEL` | Secret | Model ID for daily runs (e.g., `deepseek-flash`). Triage requires either this secret or the `TRIAGE_MODEL` variable. |
+| `DEEPSEEK_MODEL` | Secret | Legacy fallback when YAML leaves the model unset. |
 | `DEEPSEEK_BASE_URL` | Variable / Secret | Custom OpenAI-compatible endpoint. Deep-read jobs check the Variable first. Default: `https://api.deepseek.com`. |
 | `SUMMARY_LANG` | Variable | Output language for newly generated previews (`zh` by default, or `en` for English). |
 
@@ -80,7 +80,7 @@ The two secrets from Step 3 are all you need for standard daily digests. Everyth
 | `PUBLIC_RERANK_API_BASE_URL`, `PUBLIC_RERANK_API_KEY` | Secret | Public reranker overrides. Defaults to `https://zwwen.online/rerank` with built-in fallback. |
 | `SILICONFLOW_RERANK_URL`, `SILICONFLOW_API_KEY` | Secret | Used only with the SiliconFlow preset (`https://api.siliconflow.cn/v1/rerank`); requires your SiliconFlow API key. |
 | `SILICONFLOW_RERANK_MIN_INTERVAL_SECONDS` | Secret | Minimum delay between SiliconFlow requests (`8` seconds by default in Actions). |
-| `DAILY_READER_MODEL` | Variable | Optional override for both daily scoring and triage. Select Flash or Pro in Workspace settings → Daily Model & Research Connection. Inherit to restore the existing settings. |
+| `DAILY_READER_MODEL` | Variable | Legacy fallback when YAML leaves the model unset. |
 | `TRIAGE_API_KEY`, `TRIAGE_MODEL`, `TRIAGE_BASE_URL` | Secret / Variable / Variable | Dedicated credentials for the triage summary step; falls back to the corresponding `DEEPSEEK_*` settings if unset. |
 
 </details>
@@ -130,7 +130,7 @@ These apply only if you trigger server-side deep-read jobs via GitHub Actions (*
 | Export & Obsidian | Choose Markdown download, Obsidian URI, or both, and customize your vault name, inbox folder, and filename template. No GitHub token needed. |
 | Data & maintenance | Preview and import legacy reading history from `localStorage` or JSON backups, clear locally stored keys, or toggle local-only test mode. |
 
-> **Token scope:** When configuring a GitHub token in the browser, always create a **fine-grained PAT** scoped strictly to your single fork with **Actions: Read and write** (add **Contents: Read and write** only if you edit `config.yaml` from the UI). Avoid classic PATs with broad `repo` access. API keys and tokens live only in page memory by default—check **Remember on this browser** (`localStorage`) only on trusted personal devices.
+> For pipeline setup, grant a single-repository fine-grained PAT **Contents, Secrets and Actions: Read and write**. The reader saves YAML, writes encrypted keys and dispatches the workflow. No manual repository secret entry is required.
 
 ## Keyboard Shortcuts & Branch Policy
 

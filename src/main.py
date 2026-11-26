@@ -577,10 +577,13 @@ def main() -> None:
                         help="triage 只生成轻量结构化卡片；dual 同时生成旧阅读页")
     parser.add_argument("--export-triage", action="store_true",
                         help="同时导出版本化分诊 JSON；保留旧阅读材料生成")
+    parser.add_argument("--rerank-profile", help="Override the configured reranker for this run")
     args = parser.parse_args()
     if args.fetch_days is not None and not 1 <= args.fetch_days <= 365:
         parser.error('--fetch-days 必须在 1–365 天之间')
 
+    from pipeline_config import apply_pipeline_config
+    apply_pipeline_config(CONFIG_FILE, rerank_override=args.rerank_profile)
     python = sys.executable
 
     sidebar_date_label = resolve_sidebar_date_label(args.fetch_days)

@@ -23,6 +23,8 @@ def main():
         ]
         if unexpected:
             raise RuntimeError("云端工作流不应依赖本地模型库：" + ",".join(unexpected))
+    from pipeline_config import apply_pipeline_config
+    apply_pipeline_config(os.getenv("DPR_CONFIG_FILE") or ROOT / "config.yaml")
     from model_loader import load_sentence_transformer
     from reranker_api import SiliconFlowReranker
     import numpy as np
@@ -48,7 +50,11 @@ def main():
     provider = rank._normalize_rerank_provider(
         cfg.get("provider") or os.getenv("RERANK_PROVIDER") or "public_zwwen"
     )
-    if provider not in ("public_zwwen", "siliconflow"):
+    if os.getenv("RERANK_PROFILE") == "custom":
+        provider = "custom"
+        if not os.getenv("RERANK_API_KEY"):
+            raise ValueError("Custom reranking requires RERANK_API_KEY")
+    if provider not in ("public_zwwen", "siliconflow", "custom"):
         raise RuntimeError("必须使用云端 reranker")
     client = SiliconFlowReranker(
         api_key=rank._resolve_remote_api_key(provider),
@@ -61,7 +67,7 @@ def main():
             "Measurements of galaxy colors using a telescope.",
         ],
         top_n=2,
-        model=cfg.get("model") or "Qwen/Qwen3-Reranker-0.6B",
+        model=os.getenv("RERANK_MODEL") or cfg.get("model") or "Qwen/Qwen3-Reranker-0.6B",
     )
     results = response.get("results") or response.get("data") or []
     if (

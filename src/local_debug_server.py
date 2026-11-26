@@ -69,6 +69,7 @@ def build_secret_env(secret: dict[str, Any] | None) -> dict[str, str]:
     rerank_base = norm_text(reranker.get("baseUrl"))
     if reranker:
         env["RERANK_PROFILE"] = rerank_profile
+        env["DPR_DISPATCH_RERANK_PROFILE"] = rerank_profile
         env["RERANK_PROVIDER"] = rerank_provider
         env["RERANK_MODEL"] = rerank_model
         env["RERANK_API_KEY"] = rerank_key

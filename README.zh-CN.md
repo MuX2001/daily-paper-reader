@@ -25,9 +25,9 @@
 
 1. Fork **MuX2001/daily-paper-reader**，保留勾选 **Copy the dev branch only**，并确认 Fork 的默认分支为 `dev`。在 [config.yaml](config.yaml) 的 `subscriptions.intent_profiles` 中填写自己的研究方向。
 2. 新建用于**阅读状态**的 Supabase 项目，在 SQL Editor 完整执行 [create_paper_states_schema.sql](sql/create_paper_states_schema.sql)。这一个脚本包含笔记、反馈字段、登录用户授权和按用户隔离的 RLS 策略。启用邮箱密码登录。公共论文检索源已在 `config.yaml` 中配好，无需自建论文库；[其余 SQL](sql/) 用于维护论文库或站点统计。
-3. 在 Fork 的 **Settings → Secrets and variables → Actions** 中添加两个 **Repository secrets**：`DEEPSEEK_API_KEY` 填服务商密钥，`DEEPSEEK_MODEL` 填账户可用的模型 ID，例如 `deepseek-flash`。日报从 **Secrets** 读取这个模型名。按此配置无需添加 Variables，也无需个人 GitHub Token。
+3. 创建限当前 Fork 的 Fine-grained PAT，将 **Actions、Contents、Secrets** 三项设为 **Read and write**。发布后在阅读器里用它连接仓库。
 4. 在 **Actions** 页启用工作流。在 **Settings → Actions → General → Workflow permissions** 开启读写权限；在 **Settings → Pages** 选择 **Deploy from a branch → dev → /(root)**，点 **Save**。发布工作流会把编译后的首页、资源和日报数据提交到 `dev`，再请求 Pages 构建并核对发布的提交。
-5. 打开 **Actions → daily-paper-reader → Run workflow**，分支选 `dev`，任务保持 `daily`，内容模式保持 `triage`。发布完成后打开自己 Fork 的 Pages 首页。在左下角 **工作台设置 → 账户与同步** 填入项目 URL 和 publishable/anon key，保存并验证。用该项目的邮箱账户注册或登录，按提示确认邮件。收藏一篇论文并刷新，即可验证同步。
+5. 从 dev 手动运行一次 **Publish compiled reader to existing Pages**。打开站点 → **工作台设置 → 日报模型与研究管理连接**，保存仓库、dev 和 PAT，选模型、填日报密钥，点「保存流水线配置到 GitHub」，再点「立即运行一次今日推荐」。需要云同步时，在「账户与同步」验证 Supabase URL 和公开密钥并登录。
 
 **可选集成。** 需要边读边问时再配置网页 AI；复制精读包无需模型密钥。使用 Obsidian 时选择导出方式和 Vault。迁移旧记录可在「数据与维护」读取当前浏览器记录或 JSON 备份，预览后导入已登录账户。
 
@@ -50,12 +50,12 @@ DPR_READER_DATA_DIR="$PWD/docs/data" npm run dev -- --port 5173 --strictPort
 
 ### 1. GitHub Actions Secrets 与 Variables
 
-标准日报只需快速部署第 3 步的两项。其余配置按表中功能选填。自动提交和发布使用 GitHub 自带的工作流令牌。
+工作台将模型、端点、语言和重排选项写入 dev/config.yaml，新填的密钥用仓库公钥在浏览器加密后直传 Actions Secrets。留空沿用已有密钥；公共重排免填 Key。
 
 | 配置名 | 存放位置 | 用途与默认行为 |
 |---|---|---|
 | `DEEPSEEK_API_KEY` | Secret | 标准日报必填，供评分和分诊共用。 |
-| `DEEPSEEK_MODEL` | Secret | 日报填 `deepseek-flash`。分诊读取此 Secret 或 `TRIAGE_MODEL` Variable。 |
+| `DEEPSEEK_MODEL` | Secret | YAML 未指定模型时使用的历史兼容项。 |
 | `DEEPSEEK_BASE_URL` | Variable / Secret | 日报可用 Secret 改端点；精读优先读取同名 Variable。默认值：`https://api.deepseek.com`。 |
 | `SUMMARY_LANG` | Variable | 新速览语言默认 `zh`，英文填 `en`。 |
 
@@ -80,7 +80,7 @@ DPR_READER_DATA_DIR="$PWD/docs/data" npm run dev -- --port 5173 --strictPort
 | `PUBLIC_RERANK_API_BASE_URL`, `PUBLIC_RERANK_API_KEY` | Secret | 公共重排端点和密钥，默认使用 https://zwwen.online/rerank 和公共客户端的回退配置。 |
 | `SILICONFLOW_RERANK_URL`, `SILICONFLOW_API_KEY` | Secret | 仅 SiliconFlow 重排需要，默认端点 https://api.siliconflow.cn/v1/rerank，使用时提供服务商密钥。 |
 | `SILICONFLOW_RERANK_MIN_INTERVAL_SECONDS` | Secret | SiliconFlow 请求最小间隔，Actions 默认 8 秒。 |
-| `DAILY_READER_MODEL` | Variable | 可选，同时覆盖日报评分和分诊模型。在工作台设置 → 日报模型与研究管理连接中选 Flash 或 Pro；选「沿用仓库原配置」恢复。 |
+| `DAILY_READER_MODEL` | Variable | YAML 未指定模型时使用的历史兼容项。 |
 | `TRIAGE_API_KEY`, `TRIAGE_MODEL`, `TRIAGE_BASE_URL` | Secret / Variable / Variable | 分别覆盖分诊密钥、模型和端点。未填则沿用对应的 DEEPSEEK 配置，端点最终回退到官方地址。 |
 
 </details>
@@ -131,7 +131,7 @@ DPR_READER_DATA_DIR="$PWD/docs/data" npm run dev -- --port 5173 --strictPort
 | 导出与 Obsidian | 选择下载 Markdown、发送到 Obsidian 或同时显示两个入口。可设置 Vault、收件箱目录（留空为根目录）和文件命名格式。网页导出无需笔记仓库 Token。 |
 | 数据与维护 | 从本浏览器或 JSON 备份读取旧记录，按需选择旧用户名，预览后导入。这里也可以清除已保存的密钥，或连接独立的本地测试库。 |
 
-> **Token 权限：** 使用 **Fine-grained PAT**，只授权当前 Fork。触发工作流需要 **Actions: Read and write**；只有保存订阅改动时才额外授予 **Contents: Read and write**。切勿使用具有全库 `repo` 权限的 Classic Token。聊天密钥和 GitHub Token 默认只存在内存中；单独勾选「记住」后才写入当前浏览器的 localStorage，仅建议在个人设备上开启。
+> 配置流水线时，给单仓库 Fine-grained PAT 授予 **Contents、Secrets、Actions 读写权限**。阅读器即可提交 YAML、写入加密密钥和触发任务，无需去仓库后台逐个添加 Secrets。
 
 ## 快捷键与分支约定
 

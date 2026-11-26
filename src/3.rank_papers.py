@@ -771,6 +771,8 @@ def main() -> None:
     f"guaranteed_per_lane={args.rerank_guaranteed_per_lane if args.rerank_guaranteed_per_lane is not None else 'auto'}"
   )
 
+  if args.rerank_profile == "custom":
+    provider = "custom"
   if provider == "local":
     log(
       f"[INFO] 加载本地 reranker：device={args.rerank_device or 'auto'}，"
@@ -781,7 +783,7 @@ def main() -> None:
       device=args.rerank_device,
       batch_size=args.rerank_batch_size,
     )
-  elif provider in {"siliconflow", "public_zwwen"}:
+  elif provider in {"siliconflow", "public_zwwen", "custom"}:
     try:
       from reranker_api import SiliconFlowReranker  # type: ignore
     except Exception as exc:

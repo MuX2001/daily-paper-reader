@@ -185,6 +185,8 @@ def main():
     )
     parser.add_argument("--publish", action="store_true")
     args = parser.parse_args()
+    from pipeline_config import apply_pipeline_config
+    apply_pipeline_config(args.config)
     if not 0 <= args.max_new_reviews <= 300:
         parser.error("单次新增评审预算范围为0–300")
     if not 0 <= args.content_limit <= 100:

@@ -41,9 +41,13 @@ export function validateProfiles(profiles:Profile[]){
 }
 export async function saveProfiles(config:GitHubConfig,snapshot:ConfigSnapshot,profiles:Profile[]){
  validateProfiles(profiles);const document=snapshot.document.clone();document.setIn(['subscriptions','intent_profiles'],profiles);
+ const sha=await commitConfig(config,snapshot.sha,document,'Update research subscriptions');
+ return {...snapshot,document,profiles,sha,raw:document.toJS()};
+}
+export async function commitConfig(config:GitHubConfig,sha:string,document:Document,message:string){
  const bytes=new TextEncoder().encode(document.toString());let binary='';for(const byte of bytes)binary+=String.fromCharCode(byte);
- const result=await github(config,'/contents/config.yaml','PUT',{message:'Update research subscriptions\n\nCo-Authored-By: xixi <3495302215@qq.com>',sha:snapshot.sha,branch:config.ref,content:btoa(binary)});
- return {...snapshot,document,profiles,sha:result.content.sha,raw:document.toJS()};
+ const result=await github(config,'/contents/config.yaml','PUT',{message:message+'\n\nCo-Authored-By: xixi <3495302215@qq.com>',sha,branch:config.ref,content:btoa(binary)});
+ return result.content.sha as string;
 }
 export async function dispatchWorkflow(config:GitHubConfig,workflow:string,inputs:Record<string,string>){
  if(!['daily-paper-reader.yml','conference-paper-retrieval.yml','topic-research.yml'].includes(workflow))throw new Error(uiText("不支持的任务"));

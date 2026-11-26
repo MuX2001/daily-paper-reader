@@ -76,7 +76,9 @@ def _remote_config():
         config = dict(module.RERANK_PROFILE_CONFIGS["public-zwwen-rerank"])
     if provider in ("sf", "remote"):
         provider = "siliconflow"
-    if provider not in ("public_zwwen", "siliconflow"):
+    if os.getenv("RERANK_PROFILE") == "custom":
+        provider = "custom"
+    if provider not in ("public_zwwen", "siliconflow", "custom"):
         raise RuntimeError("专题研究只支持云端 reranker")
     return {
         "api_key": module._resolve_remote_api_key(provider),
@@ -138,6 +140,8 @@ def _rerank(papers, topic, root, client_factory):
             pending.append((paper, document, path))
     if not pending:
         return hits, 0
+    if os.getenv("RERANK_PROFILE") == "custom" and not config["api_key"]:
+        raise ValueError("Custom reranking requires RERANK_API_KEY")
     client = (client_factory or SiliconFlowReranker)(
         api_key=config["api_key"], base_url=config["base_url"]
     )

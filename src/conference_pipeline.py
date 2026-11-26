@@ -149,6 +149,8 @@ def main() -> None:
     parser.add_argument("--llm-filter-concurrency", type=int, default=2)
     parser.add_argument("--display-min-score", type=float, default=4.0, help="会议论文进入最终展示与本地落盘结果的最低 LLM 分数。")
     args = parser.parse_args()
+    from pipeline_config import apply_pipeline_config
+    apply_pipeline_config(args.config)
 
     pair_specs = parse_conference_pairs(args.conference_pairs) if str(args.conference_pairs or "").strip() else []
     if pair_specs:

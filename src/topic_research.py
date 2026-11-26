@@ -391,6 +391,8 @@ def main(argv=None):
     parser.add_argument("--publish", action="store_true")
     parser.add_argument("--retrieve-only", action="store_true")
     args = parser.parse_args(argv)
+    from pipeline_config import apply_pipeline_config
+    apply_pipeline_config(args.config)
     if len(args.profile_snapshot) > 32768:
         parser.error("需求快照过大")
     config = yaml.safe_load(Path(args.config).read_text(encoding="utf-8")) or {}
