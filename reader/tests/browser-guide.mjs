@@ -16,10 +16,16 @@ try{
  await nav.getByRole('link',{name:/Guide/}).click();
  const guide=page.locator('.guide-canvas');
  await expect(guide.locator(':scope > section')).toHaveCount(4);
- await expect(guide.getByRole('heading',{name:'3-Minute Daily Triage'})).toBeVisible();
+ await expect(guide.getByRole('heading',{name:'Screen Today’s Papers in 3 Minutes'})).toBeVisible();
  await expect(guide.getByRole('link',{name:/Submit Issue/})).toHaveAttribute('href','https://github.com/MuX2001/daily-paper-reader/issues/new');
  await expect(guide.getByRole('link',{name:/GitHub Repository/})).toHaveAttribute('href','https://github.com/MuX2001/daily-paper-reader');
- await guide.getByRole('button',{name:'Open Settings'}).click();await expect(page.getByRole('dialog')).toBeVisible();await page.keyboard.press('Escape');
+ await page.setViewportSize({width:900,height:450});
+ const settings=guide.getByRole('button',{name:'Open Settings'});
+ await expect(settings).not.toBeInViewport();
+ await page.mouse.move(720,260);
+ await page.mouse.wheel(0,10000);
+ await expect(settings).toBeInViewport({ratio:1});
+ await settings.click();await expect(page.getByRole('dialog')).toBeVisible();await page.keyboard.press('Escape');
  await page.getByRole('button',{name:'中',exact:true}).click();
  await expect(guide.getByRole('heading',{name:'键盘快捷键速查'})).toBeVisible();
  await page.setViewportSize({width:390,height:844});

@@ -54,7 +54,7 @@ python scripts/prepare_reader_local.py \
 
 `reader/tests/browser-auth-live.mjs` 使用 `DPR_LOCAL_SUPABASE_CONNECTION` 和 `DPR_TEST_URL` 显式运行真实本地UI注册/登录/笔记保存测试，测试完成只删除自身创建的临时账户，不访问托管项目。
 
-## 每日分诊与模型配置
+## 每日推荐与模型配置
 
 仓库 Settings → Secrets and variables → Actions 中设置：
 
@@ -69,7 +69,7 @@ python scripts/prepare_reader_local.py \
 
 本地对应变量见 `.env.example`；复制到私有 `.env` 不会自动配置 GitHub Actions。原有检索、embedding、reranker 配置继续使用。
 
-日常 workflow 默认 `content_mode=triage`，每天最多新增50张分诊卡片，不批量生成精读。未完成内容继续保持不完整状态。`triage-run-report` artifact 包含调用/复用/延后数量、耗时和已返回 token；无用量不代表零费用，金额以供应商记录为准。反馈只作为相关方向的有界偏好示例，不作为永久排除条件；尚无人工标注集证明它提高了推荐质量。
+日常 workflow 默认 `content_mode=triage`，每天最多新增50张速览卡片，不批量生成精读。未完成内容继续保持不完整状态。`triage-run-report` artifact 包含调用/复用/延后数量、耗时和已返回 token；无用量不代表零费用，金额以供应商记录为准。反馈只作为相关方向的有界偏好示例，不作为永久排除条件；尚无人工标注集证明它提高了推荐质量。
 
 ## 单篇精读和 Obsidian
 
@@ -112,7 +112,7 @@ python scripts/prepare_reader_local.py \
 
 | 要求 | 已有证据 | 尚未证明 |
 | --- | --- | --- |
-| JSON 分诊、严格版本、缓存与缩略图 | Python 测试；官方论文全文/图片实取；缓存失败恢复测试 | 真实每日付费分诊质量与账单 |
+| 结构化速览、严格版本、缓存与缩略图 | Python 测试；官方论文全文/图片实取；缓存失败恢复测试 | 实际生成的每日速览质量与费用 |
 | React 工作台、键盘、管理、专题、聊天、导出 | 33项前端测试、13组生产子路径浏览器场景 | 真实 Zotero Connector 与 Obsidian 桌面联动 |
 | 云状态、私人笔记、并发冲突 | 真实本地 Supabase Auth/REST、三个隔离浏览器会话 | 托管 OAuth、真实公网多设备 |
 | 按需精读、分段续跑、私有库同步 | 46项Python链路测试中的对应测试；模拟派发与恢复 | 强模型实际 Actions、笔记质量、私有库到 vault 同步 |

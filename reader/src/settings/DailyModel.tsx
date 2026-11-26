@@ -108,7 +108,7 @@ export function DailyModel({repository,token,branch,connectionEdited,children,sa
       <label>{t('新生成速览语言')}<select value={form.summary_lang} onChange={e=>setForm({...form,summary_lang:e.target.value})}><option value="zh">中文</option><option value="en">English</option></select></label>
       {secret('DEEPSEEK_API_KEY')}<button disabled={!keys.DEEPSEEK_API_KEY?.trim()} onClick={()=>void act('test',()=>test(d.model,d.base_url,keys.DEEPSEEK_API_KEY))}>{t('测试模型连接')}</button>
       <label className="settings-check"><input type="checkbox" checked={tr.use_separate_model} onChange={e=>{triage({use_separate_model:e.target.checked});if(!e.target.checked)setKeys(k=>({...k,TRIAGE_API_KEY:''}));}}/>{t('为速览单独指定模型或密钥')}</label>
-      {tr.use_separate_model&&<>{field('Triage Base URL',tr.base_url,base_url=>triage({base_url}))}{field('Triage Model ID',tr.model,model=>triage({model}))}{secret('TRIAGE_API_KEY')}
+      {tr.use_separate_model&&<>{field('速览服务地址',tr.base_url,base_url=>triage({base_url}))}{field('速览模型 ID',tr.model,model=>triage({model}))}{secret('TRIAGE_API_KEY')}
       <button disabled={!keys.TRIAGE_API_KEY?.trim()} onClick={()=>void act('test',()=>test(tr.model||d.model,tr.base_url||d.base_url,keys.TRIAGE_API_KEY))}>{t('测试速览连接')}</button></>}
     </fieldset></section>
     <section className="settings-card"><h3>{t('候选论文重排')}</h3><fieldset disabled={!connected||!!busy||!snapshot}>

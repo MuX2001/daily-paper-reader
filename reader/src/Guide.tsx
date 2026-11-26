@@ -20,7 +20,7 @@ const notes = [
 export function Guide({openSettings}:{openSettings:()=>void}){
  const repo=repositoryLinks();
  return <section className="guide-canvas" aria-label={t('使用指南')}>
-   <section><h2>{t('3 分钟每日分诊')}</h2><ol>{steps.map(([name,body])=><li key={name}><strong>{t(name)}</strong><p>{t(body)}</p></li>)}</ol></section>
+   <section><h2>{t('3 分钟筛选今日论文')}</h2><ol>{steps.map(([name,body])=><li key={name}><strong>{t(name)}</strong><p>{t(body)}</p></li>)}</ol></section>
    <section><h2>{t('键盘快捷键速查')}</h2><dl className="guide-keys">{shortcuts.map(([keys,label])=><div key={keys}><dt>{keys.split(' / ').map(k=><kbd key={k}>{k}</kbd>)}</dt><dd>{t(label)}</dd></div>)}</dl></section>
    <section><h2>{t('配置与常见问题')}</h2><dl>{notes.map(([name,body])=><div key={name}><dt>{t(name)}</dt><dd>{t(body)}</dd></div>)}</dl></section>
    <section className="guide-actions"><button onClick={openSettings}>{t('打开工作台设置')}</button><a href={repo.issues} target="_blank" rel="noopener noreferrer">{t('提交问题与建议')} ↗</a><a href={repo.url} target="_blank" rel="noopener noreferrer">{t('访问 GitHub 仓库')} ↗</a></section>

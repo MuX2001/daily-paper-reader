@@ -1,4 +1,4 @@
-import {chromium} from '@playwright/test';
+import {chromium,expect} from '@playwright/test';
 import assert from 'node:assert/strict';
 import {parse} from 'yaml';
 const browser=await chromium.launch({headless:true});const page=await browser.newPage({locale:'zh-CN',viewport:{width:1440,height:1000}});
@@ -7,12 +7,32 @@ const yaml='models:\n  unchanged: yes\nsubscriptions:\n  intent_profiles:\n    -
 await page.route('https://api.github.com/**',async route=>{
  const request=route.request();
  if(request.method()==='PUT'){saved=request.postDataJSON();await route.fulfill({json:{content:{sha:'updated-sha'}}});}
+ else if(new URL(request.url()).pathname.endsWith('/actions/runs')){
+   const workflow_runs=Array.from({length:20},(_,i)=>({id:i+1,display_title:'Run '+(i+1),status:'completed',conclusion:'success',html_url:'https://github.com/test/reader/actions/runs/'+(i+1)}));
+   await route.fulfill({json:{workflow_runs}});
+ }
  else if(request.method()==='POST'){dispatched=request.postDataJSON();await route.fulfill({status:204});}
  else await route.fulfill({json:{encoding:'base64',content:btoa(yaml),sha:'original-sha'}});
 });
 await page.goto(process.env.DPR_TEST_URL||'http://127.0.0.1:5173/');await page.locator('.paper-card').first().waitFor();
 await page.locator('.profile').click();await page.getByRole('tab',{name:/研究管理连接/}).click();await page.getByLabel('GitHub 仓库',{exact:true}).fill('test/reader');await page.getByLabel('GitHub Token',{exact:true}).fill('mock-token');await page.getByRole('button',{name:'保存任务设置',exact:true}).click();await page.getByRole('button',{name:'关闭对话框',exact:true}).click();
 await page.locator('nav').getByRole('button',{name:'研究管理'}).click();await page.getByRole('button',{name:'读取仓库配置',exact:true}).click();await page.getByText('Robotics',{exact:true}).waitFor();
+await expect(page.getByRole('heading',{name:'每日推荐',exact:true})).toBeVisible();
+const controls=await page.locator('.management-controls').boundingBox();
+const recent=page.locator('.recent-runs');
+assert.ok((await recent.boundingBox()).x >= controls.x+controls.width);
+await recent.getByRole('button').click();
+const lastRun=recent.getByRole('link').last();
+for(const [width,height] of [[1280,640],[900,420],[900,310],[390,600]]){
+ await page.setViewportSize({width,height});
+ await page.mouse.move(width-70,height/2);
+ await page.mouse.wheel(0,-10000);
+ await expect(lastRun).not.toBeInViewport();
+ await page.mouse.wheel(0,10000);
+ await expect(lastRun).toBeInViewport({ratio:1});
+ await expect(lastRun).toHaveAttribute('href','https://github.com/test/reader/actions/runs/20');
+}
+await page.setViewportSize({width:1440,height:1000});
 await page.getByLabel('任务研究方向',{exact:true}).selectOption('robots');
 await page.getByRole('button',{name:'编辑方向',exact:true}).click();
 await page.getByLabel('方向说明',{exact:true}).fill('Updated robotics');
