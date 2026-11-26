@@ -21,4 +21,4 @@ export function storeValues(values:Record<string,string|null>,storage:Storage=lo
 export function saveSecrets(chat:boolean,github:boolean,apiKey:string,token:string){
  storeValues({'dpr.settings.remember_secrets':JSON.stringify({chat,github}),'dpr.chat.api_key':chat?apiKey:null,'dpr.github.token':github?token:null});
 }
-export const CHAT_PRESETS=[{name:'DeepSeek',url:'https://api.deepseek.com',model:'deepseek-v4-pro'},{name:'OpenAI',url:'https://api.openai.com/v1',model:''},{name:'OpenRouter',url:'https://openrouter.ai/api/v1',model:''},{name:'自定义',url:'',model:''}];
+export const CHAT_PRESETS=[{name:'DeepSeek Flash',url:'https://api.deepseek.com',model:'deepseek-flash'},{name:'DeepSeek Pro',url:'https://api.deepseek.com',model:'deepseek-v4-pro'},{name:'OpenAI',url:'https://api.openai.com/v1',model:''},{name:'OpenRouter',url:'https://openrouter.ai/api/v1',model:''},{name:'自定义',url:'',model:''}];

@@ -5,14 +5,20 @@ import {resolve} from 'node:path';
 const browser=await chromium.launch({headless:true});
 try{
  const page=await browser.newPage({locale:'zh-CN',viewport:{width:1440,height:1000}});
- let modelCalls=0,githubPosts=0;
+ let modelCalls=0,githubPosts=0,dailyModel='';
+ await page.route(/^https:\/\/api\.github\.com\/repos\/test\/reader\/actions\/variables(?:[/?]|$)/,async r=>{
+   const req=r.request();
+   if(req.method()==='GET')return r.fulfill({json:{variables:dailyModel?[{name:'DAILY_READER_MODEL',value:dailyModel}]:[]}});
+   if(req.method()==='DELETE')dailyModel='';else {const body=req.postDataJSON();assert.equal(body.name,'DAILY_READER_MODEL');dailyModel=body.value;}
+   return r.fulfill({status:req.method()==='POST'?201:204});
+ });
  await page.route('https://api.deepseek.com/**',async r=>{modelCalls++;assert.equal(r.request().postDataJSON().messages.length,1);if(r.request().headers().authorization==='Bearer rejected-key')await r.fulfill({status:401,json:{error:{message:'Invalid API key rejected-key'}}});else await r.fulfill({json:{choices:[{message:{content:'OK'}}]}});});
- await page.route('https://api.github.com/**',async r=>{if(r.request().method()==='POST')githubPosts++;await r.fulfill({json:{state:'active'}});});
+ await page.route('https://api.github.com/**',async r=>{if(r.request().url().includes('/actions/variables'))return r.fallback();if(r.request().method()==='POST')githubPosts++;await r.fulfill({json:{state:'active'}});});
  await page.goto(process.env.DPR_TEST_URL);await page.locator('.paper-card').first().waitFor();await page.locator('.profile').click();
  await expect(page.getByRole('heading',{name:'工作台设置',exact:true})).toBeVisible();await expect(page.getByRole('tab')).toHaveCount(5);
  const tab=name=>page.getByRole('tab',{name:new RegExp(name)}).click();
  await tab('网页 AI 聊天');await page.getByLabel('快速预设').selectOption('0');await page.getByLabel('聊天 API Key',{exact:true}).fill('session-only');
- await tab('研究管理连接');await tab('网页 AI 聊天');await expect(page.getByLabel('聊天 API Key',{exact:true})).toHaveValue('session-only');
+ await page.getByLabel('快速预设').selectOption({label:'DeepSeek Pro'});await expect(page.getByLabel('聊天模型 ID')).toHaveValue('deepseek-v4-pro');await page.getByLabel('快速预设').selectOption({label:'DeepSeek Flash'});await expect(page.getByLabel('聊天模型 ID')).toHaveValue('deepseek-flash');await tab('研究管理连接');await tab('网页 AI 聊天');await expect(page.getByLabel('聊天 API Key',{exact:true})).toHaveValue('session-only');
  await page.getByRole('button',{name:'测试连接',exact:true}).click();await expect(page.getByText('模型已返回有效回答。测试没有保存设置。',{exact:true})).toBeVisible();assert.equal(modelCalls,1);await page.getByLabel('聊天 API Key',{exact:true}).fill('rejected-key');await page.getByRole('button',{name:'测试连接',exact:true}).click();await expect(page.locator('.settings-result.failure')).toContainText('401');await expect(page.locator('.settings-result.failure')).not.toContainText('rejected-key');await page.getByLabel('聊天 API Key',{exact:true}).fill('session-only');
  assert.equal(await page.evaluate(()=>localStorage.getItem('dpr.chat.model')),null);
  await page.getByRole('button',{name:'保存聊天设置',exact:true}).click();await expect(page.getByRole('tab',{name:/网页 AI 聊天/})).not.toContainText('未保存');
@@ -21,6 +27,11 @@ try{
  await tab('研究管理连接');await page.getByLabel('GitHub 仓库',{exact:true}).fill('test/reader');await page.getByLabel('GitHub Token',{exact:true}).fill('github-memory');await page.getByLabel('在当前浏览器记住 Token（仅限个人设备）',{exact:true}).check();
  await page.getByRole('button',{name:'验证仓库与权限',exact:true}).click();await expect(page.getByText(/Actions 写权限需实际研究任务确认/)).toBeVisible();assert.equal(githubPosts,0);
  await page.getByRole('button',{name:'保存任务设置',exact:true}).click();await page.getByRole('button',{name:'关闭对话框',exact:true}).click();await page.reload();await page.locator('.profile').click();await tab('研究管理连接');await expect(page.getByLabel('GitHub Token',{exact:true})).toHaveValue('github-memory');
+ const daily=page.getByLabel('日报模型',{exact:true}),saveDaily=page.getByRole('button',{name:'保存日报模型到 GitHub'});
+ for(const id of ['deepseek-flash','deepseek-v4-pro','']){
+   await daily.selectOption(id);await saveDaily.click();await expect(saveDaily).toBeDisabled();await expect.poll(()=>dailyModel).toBe(id);
+   await tab('网页 AI 聊天');await tab('研究管理连接');await expect(daily).toHaveValue(id);
+ }
  await tab('网页 AI 聊天');await expect(page.getByLabel('聊天 API Key',{exact:true})).toHaveValue('remember-me');await page.getByLabel('在当前浏览器记住 API Key（仅限个人设备）',{exact:true}).uncheck();assert.equal(await page.evaluate(()=>localStorage.getItem('dpr.chat.api_key')),null);
  await tab('导出与 Obsidian');await page.getByLabel('两者同时显示',{exact:true}).check();await page.getByLabel('Vault 名称',{exact:true}).fill('Research');await page.getByLabel('收件箱目录',{exact:true}).fill('Papers/Inbox');await page.getByLabel('笔记命名格式').selectOption('id-title');await expect(page.locator('.settings-preview')).toContainText('Papers/Inbox/');await page.getByRole('button',{name:'保存导出偏好',exact:true}).click();
  await page.getByRole('button',{name:'关闭对话框',exact:true}).click();await expect(page.getByRole('button',{name:'导出骨架到 Obsidian',exact:true})).toBeVisible();

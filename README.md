@@ -80,6 +80,7 @@ The two secrets from Step 3 are all you need for standard daily digests. Everyth
 | `PUBLIC_RERANK_API_BASE_URL`, `PUBLIC_RERANK_API_KEY` | Secret | Public reranker overrides. Defaults to `https://zwwen.online/rerank` with built-in fallback. |
 | `SILICONFLOW_RERANK_URL`, `SILICONFLOW_API_KEY` | Secret | Used only with the SiliconFlow preset (`https://api.siliconflow.cn/v1/rerank`); requires your SiliconFlow API key. |
 | `SILICONFLOW_RERANK_MIN_INTERVAL_SECONDS` | Secret | Minimum delay between SiliconFlow requests (`8` seconds by default in Actions). |
+| `DAILY_READER_MODEL` | Variable | Optional override for both daily scoring and triage. Select Flash or Pro in Workspace settings → Daily Model & Research Connection. Inherit to restore the existing settings. |
 | `TRIAGE_API_KEY`, `TRIAGE_MODEL`, `TRIAGE_BASE_URL` | Secret / Variable / Variable | Dedicated credentials for the triage summary step; falls back to the corresponding `DEEPSEEK_*` settings if unset. |
 
 </details>

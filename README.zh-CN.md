@@ -80,6 +80,7 @@ DPR_READER_DATA_DIR="$PWD/docs/data" npm run dev -- --port 5173 --strictPort
 | `PUBLIC_RERANK_API_BASE_URL`, `PUBLIC_RERANK_API_KEY` | Secret | 公共重排端点和密钥，默认使用 https://zwwen.online/rerank 和公共客户端的回退配置。 |
 | `SILICONFLOW_RERANK_URL`, `SILICONFLOW_API_KEY` | Secret | 仅 SiliconFlow 重排需要，默认端点 https://api.siliconflow.cn/v1/rerank，使用时提供服务商密钥。 |
 | `SILICONFLOW_RERANK_MIN_INTERVAL_SECONDS` | Secret | SiliconFlow 请求最小间隔，Actions 默认 8 秒。 |
+| `DAILY_READER_MODEL` | Variable | 可选，同时覆盖日报评分和分诊模型。在工作台设置 → 日报模型与研究管理连接中选 Flash 或 Pro；选「沿用仓库原配置」恢复。 |
 | `TRIAGE_API_KEY`, `TRIAGE_MODEL`, `TRIAGE_BASE_URL` | Secret / Variable / Variable | 分别覆盖分诊密钥、模型和端点。未填则沿用对应的 DEEPSEEK 配置，端点最终回退到官方地址。 |
 
 </details>
