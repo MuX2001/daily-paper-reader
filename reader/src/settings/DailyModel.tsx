@@ -26,7 +26,7 @@ function endpoint(value:string){
   if(u.protocol!=='https:'||u.username||u.password||u.search||u.hash)throw new Error(t('请填写有效的 HTTPS 模型端点'));
   return value.replace(/\/+$/,'');
 }
-export function DailyModel({repository,token,branch,connectionEdited,children,onBusy,onDirty}:{repository:string;token:string;branch:string;connectionEdited:boolean;children:ReactNode;onBusy:(v:boolean)=>void;onDirty:(v:boolean)=>void}){
+export function DailyModel({repository,token,branch,connectionEdited,children,saveButton,saveResult,onBusy,onDirty}:{repository:string;token:string;branch:string;connectionEdited:boolean;children:ReactNode;saveButton:ReactNode;saveResult:ReactNode;onBusy:(v:boolean)=>void;onDirty:(v:boolean)=>void}){
   const cfg={repository,token,ref:branch};
   const [snapshot,setSnapshot]=useState<ConfigSnapshot|null>(null),[form,setForm]=useState(defaults);
   const [dates,setDates]=useState<Record<string,string>|null>(null),[keys,setKeys]=useState<Record<string,string>>({});
@@ -92,7 +92,9 @@ export function DailyModel({repository,token,branch,connectionEdited,children,on
     setMessage(t('已保存到 GitHub，下次日报生效。'));
   }
   return <>
-    <section className="settings-card">{children}<button disabled={!connected||!!busy} onClick={()=>setCheck(n=>n+1)}>{t('检查连接与权限')}</button>
+    <section className="settings-card">{children}
+      <div className="settings-actions">{saveButton}<button disabled={!connected||!!busy} onClick={()=>setCheck(n=>n+1)}>{t('检查连接与权限')}</button></div>
+      {saveResult}
       {!connected&&<p>{t('请先保存仓库、dev 分支和 Token')}</p>}
       {connected&&<p>{['Contents','Actions','Secrets'].map(n=><span key={n} style={{color:access[n]?'#186543':'#846414'}}>{access[n]?'✓':'⚠'} {n}　</span>)}</p>}
       <small>{t('检查确认读取权限；写权限在保存或运行时验证。')}</small>
@@ -105,7 +107,7 @@ export function DailyModel({repository,token,branch,connectionEdited,children,on
       {d.provider_preset==='deepseek'&&<div className="settings-actions">{['deepseek-flash','deepseek-v4-pro'].map((id,i)=><button key={id} aria-pressed={d.model===id} onClick={()=>daily({model:id})}>{i?'DeepSeek Pro':'DeepSeek Flash'}</button>)}</div>}
       <label>{t('新生成速览语言')}<select value={form.summary_lang} onChange={e=>setForm({...form,summary_lang:e.target.value})}><option value="zh">中文</option><option value="en">English</option></select></label>
       {secret('DEEPSEEK_API_KEY')}<button disabled={!keys.DEEPSEEK_API_KEY?.trim()} onClick={()=>void act('test',()=>test(d.model,d.base_url,keys.DEEPSEEK_API_KEY))}>{t('测试模型连接')}</button>
-      <label><input type="checkbox" checked={tr.use_separate_model} onChange={e=>{triage({use_separate_model:e.target.checked});if(!e.target.checked)setKeys(k=>({...k,TRIAGE_API_KEY:''}));}}/>{t('为速览单独指定模型或密钥')}</label>
+      <label className="settings-check"><input type="checkbox" checked={tr.use_separate_model} onChange={e=>{triage({use_separate_model:e.target.checked});if(!e.target.checked)setKeys(k=>({...k,TRIAGE_API_KEY:''}));}}/>{t('为速览单独指定模型或密钥')}</label>
       {tr.use_separate_model&&<>{field('Triage Base URL',tr.base_url,base_url=>triage({base_url}))}{field('Triage Model ID',tr.model,model=>triage({model}))}{secret('TRIAGE_API_KEY')}
       <button disabled={!keys.TRIAGE_API_KEY?.trim()} onClick={()=>void act('test',()=>test(tr.model||d.model,tr.base_url||d.base_url,keys.TRIAGE_API_KEY))}>{t('测试速览连接')}</button></>}
     </fieldset></section>
