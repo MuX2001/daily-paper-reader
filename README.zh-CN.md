@@ -4,16 +4,16 @@
 
 每天用三分钟筛论文的收件箱。扫一遍当日推荐，想细读的按一下收藏，其余归档。
 
-![宽屏论文收件箱，展示 TL;DR 与 2×2 结构化速览](docs/Screenshot.png)
+![宽屏论文收件箱，展示论文列表与阅读预览](docs/Screenshot.png)
 
 ## 为什么做这个 Fork
 
 感谢 `ziwenhahaha/daily-paper-reader` 提供论文检索流水线和初代阅读器。这一版围绕每天筛论文的过程做了四处调整。
 
-- **一屏完成分诊。** 三栏布局把导航、紧凑队列和 2×2 阅读卡片放在同一屏。可以全程用键盘操作，进度环显示本批进度，热力图展示最近 12 周的阅读情况。
-- **速览提前算好。** Min-Max 卡片交代旧方法卡在哪、新方法怎么做、实验测出了什么，以及值得翻哪张图表。打开论文就能看，同时保留原始摘要供核对。
+- **在收件箱筛论文。** 中栏看标题和一句话简介，选中论文后在右栏看速览与原始摘要。可以全程用键盘操作，进度环显示本批进度，热力图展示最近 12 周的阅读情况。
+- **速览提前算好。** 有完整速览的论文按背景、做法、实验结果与局限展开。打开论文就能看，同时保留原始摘要供核对。
 - **给值得追的论文留出口。** 按 `c` 在正文旁追问；也可以复制精读包，交给自己常用的强模型。想留底时直接下载 Markdown 或发到 Obsidian。
-- **界面和摘要分别选语言。** 顶部 **中 / EN** 切换界面和默认提示词。`SUMMARY_LANG` 决定新生成摘要的语言，历史摘要保留生成时的文字。
+- **界面和摘要分别选语言。** 顶部 **中 / EN** 切换界面和默认提示词。在工作台设置里选择「新生成速览语言」，历史摘要保留生成时的文字。
 
 ## 系统如何协作
 
@@ -23,15 +23,19 @@
 
 ## 五分钟快速部署
 
-1. Fork **MuX2001/daily-paper-reader**，保留勾选 **Copy the dev branch only**，并确认 Fork 的默认分支为 `dev`。在 [config.yaml](config.yaml) 的 `subscriptions.intent_profiles` 中填写自己的研究方向。
+1. Fork **MuX2001/daily-paper-reader**，保留勾选 **Copy the dev branch only**，并确认 Fork 的默认分支为 `dev`。发布后可在侧栏「研究管理」编辑自己的研究方向。
 2. 新建用于**阅读状态**的 Supabase 项目，在 SQL Editor 完整执行 [create_paper_states_schema.sql](sql/create_paper_states_schema.sql)。这一个脚本包含笔记、反馈字段、登录用户授权和按用户隔离的 RLS 策略。启用邮箱密码登录。公共论文检索源已在 `config.yaml` 中配好，无需自建论文库；[其余 SQL](sql/) 用于维护论文库或站点统计。
 3. 创建限当前 Fork 的 Fine-grained PAT，将 **Actions、Contents、Secrets** 三项设为 **Read and write**。发布后在阅读器里用它连接仓库。
 4. 在 **Actions** 页启用工作流。在 **Settings → Actions → General → Workflow permissions** 开启读写权限；在 **Settings → Pages** 选择 **Deploy from a branch → dev → /(root)**，点 **Save**。发布工作流会把编译后的首页、资源和日报数据提交到 `dev`，再请求 Pages 构建并核对发布的提交。
 5. 从 dev 手动运行一次 **Publish compiled reader to existing Pages**。打开站点 → **工作台设置 → 日报模型与研究管理连接**，保存仓库、dev 和 PAT，选模型、填日报密钥，点「保存流水线配置到 GitHub」，再点「立即运行一次今日推荐」。需要云同步时，在「账户与同步」验证 Supabase URL 和公开密钥并登录。
 
+**运行和查看推荐。** 在侧栏打开「研究管理」，点「读取仓库配置」。在「日常管理 → 每日推荐」选择研究方向和检索窗口，点「准备运行任务」，核对后确认提交。「最近运行」可刷新并打开 GitHub 运行记录。宽屏下它在右侧，窄屏下向下滚动即可看到。
+
+**更新网页。** 推送阅读器源码后，要立即上线就从 `dev` 再运行一次 **Publish compiled reader to existing Pages**；定时日报成功生成批次也会触发发布。
+
 **可选集成。** 需要边读边问时再配置网页 AI；复制精读包无需模型密钥。使用 Obsidian 时选择导出方式和 Vault。迁移旧记录可在「数据与维护」读取当前浏览器记录或 JSON 备份，预览后导入已登录账户。
 
-**本地运行。** 在已激活的 Python 3.11 项目环境中安装 [requirements.txt](requirements.txt) 和 [requirements-reader.txt](requirements-reader.txt) 的依赖。在仓库根目录将 [.env.example](.env.example) 复制为 `.env`，填写日报密钥和模型 ID，然后执行：
+**本地运行。** 在已激活的 Python 3.11 项目环境中安装 [requirements.txt](requirements.txt) 和 [requirements-reader.txt](requirements-reader.txt) 的依赖。在仓库根目录将 [.env.example](.env.example) 复制为 `.env`，填写日报密钥 `DEEPSEEK_API_KEY`，模型和速览语言在 [config.yaml](config.yaml) 的 `pipeline` 中设置，然后执行：
 
 ```bash
 PYTHONPATH=src python src/main.py --content-mode triage --export-triage
@@ -54,10 +58,10 @@ DPR_READER_DATA_DIR="$PWD/docs/data" npm run dev -- --port 5173 --strictPort
 
 | 配置名 | 存放位置 | 用途与默认行为 |
 |---|---|---|
-| `DEEPSEEK_API_KEY` | Secret | 标准日报必填，供评分和分诊共用。 |
+| `DEEPSEEK_API_KEY` | Secret | 标准日报必填，供评分和默认速览共用。 |
 | `DEEPSEEK_MODEL` | Secret | YAML 未指定模型时使用的历史兼容项。 |
-| `DEEPSEEK_BASE_URL` | Variable / Secret | 日报可用 Secret 改端点；精读优先读取同名 Variable。默认值：`https://api.deepseek.com`。 |
-| `SUMMARY_LANG` | Variable | 新速览语言默认 `zh`，英文填 `en`。 |
+| `DEEPSEEK_BASE_URL` | Variable / Secret | 日报优先使用 YAML 中的端点，缺省时读取环境配置；精读优先读取同名 Variable。默认值：`https://api.deepseek.com`。 |
+| `SUMMARY_LANG` | Variable | 仅在 YAML 未指定 `pipeline.summary_lang` 时生效，可填 `zh` 或 `en`。 |
 
 部分旧评分代码仍使用兼容别名 `deepseek-v4-flash`。新配置统一填 `deepseek-flash`。[DeepSeek 官方模型目录](https://api-docs.deepseek.com/quick_start/pricing/)
 
@@ -70,18 +74,18 @@ DPR_READER_DATA_DIR="$PWD/docs/data" npm run dev -- --port 5173 --strictPort
 
 </details>
 
-<details><summary>检索、重排与分诊</summary>
+<details><summary>检索、重排与速览</summary>
 
 | 配置名 | 存放位置 | 用途与默认行为 |
 |---|---|---|
 | `DPR_EMBED_API_URL`, `DPR_EMBED_API_KEY` | Secret | 向量服务地址与密钥，默认使用 https://zwwen.online/embed 和客户端的公共服务回退配置。 |
-| `RERANK_PROFILE` | Secret | 重排预设，手动运行时的输入优先于 Secret。默认值：`public-zwwen-rerank`。 |
+| `RERANK_PROFILE` | Secret | 重排预设，依次使用手动运行输入、YAML 预设、环境配置。默认值：`public-zwwen-rerank`。 |
 | `RERANK_PROVIDER`, `RERANK_MODEL`, `RERANK_API_BASE_URL`, `RERANK_API_KEY` | Secret | 重排服务商、模型、端点与密钥，留空按所选预设和客户端解析。 |
 | `PUBLIC_RERANK_API_BASE_URL`, `PUBLIC_RERANK_API_KEY` | Secret | 公共重排端点和密钥，默认使用 https://zwwen.online/rerank 和公共客户端的回退配置。 |
 | `SILICONFLOW_RERANK_URL`, `SILICONFLOW_API_KEY` | Secret | 仅 SiliconFlow 重排需要，默认端点 https://api.siliconflow.cn/v1/rerank，使用时提供服务商密钥。 |
 | `SILICONFLOW_RERANK_MIN_INTERVAL_SECONDS` | Secret | SiliconFlow 请求最小间隔，Actions 默认 8 秒。 |
 | `DAILY_READER_MODEL` | Variable | YAML 未指定模型时使用的历史兼容项。 |
-| `TRIAGE_API_KEY`, `TRIAGE_MODEL`, `TRIAGE_BASE_URL` | Secret / Variable / Variable | 分别覆盖分诊密钥、模型和端点。未填则沿用对应的 DEEPSEEK 配置，端点最终回退到官方地址。 |
+| `TRIAGE_API_KEY`, `TRIAGE_MODEL`, `TRIAGE_BASE_URL` | Secret / Variable / Variable | 默认速览沿用日报配置。启用独立速览后可单设密钥；模型和端点优先读取 YAML 对应字段。 |
 
 </details>
 
@@ -126,8 +130,9 @@ DPR_READER_DATA_DIR="$PWD/docs/data" npm run dev -- --port 5173 --strictPort
 
 | 分组 | 配置和用途 |
 |---|---|
-| 网页 AI 聊天 | 可选择 DeepSeek、OpenAI、OpenRouter 或自定义预设，填写端点、模型 ID、API Key，测试后保存。 |
-| 研究任务 | 填自己的 Fork（`owner/repo`）、分支 `dev` 和 GitHub Token，用于触发工作流或保存订阅。 |
+| 账户与同步 | 连接阅读状态库，登录、同步或退出当前账户。 |
+| 网页 AI 聊天 | 可选择 DeepSeek Flash、DeepSeek Pro、OpenAI、OpenRouter 或自定义预设，填写端点、模型 ID、API Key，测试后保存。 |
+| 日报模型与研究管理连接 | 连接自己的 Fork，保存日报模型和语言，按需单设速览模型。重排可选公共服务、SiliconFlow 或自定义端点。 |
 | 导出与 Obsidian | 选择下载 Markdown、发送到 Obsidian 或同时显示两个入口。可设置 Vault、收件箱目录（留空为根目录）和文件命名格式。网页导出无需笔记仓库 Token。 |
 | 数据与维护 | 从本浏览器或 JSON 备份读取旧记录，按需选择旧用户名，预览后导入。这里也可以清除已保存的密钥，或连接独立的本地测试库。 |
 
