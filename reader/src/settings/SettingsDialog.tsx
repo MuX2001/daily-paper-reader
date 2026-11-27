@@ -52,7 +52,12 @@ export function SettingsDialog(p:Props){
   if(id==='account')setEditCloud(false);
   return id==='account'?uiText("连接已保存并验证。阅读状态同步以账户卡片为准。"):uiText("设置已保存。连接是否可用以测试结果为准。");
  });}
- function result(id:string){const r=results[id];return r?<p role={r.error?'alert':'status'} className={`settings-result ${r.error?'failure':'success'}`}>{r.text}</p>:null;}
+ useEffect(()=>{
+   if(!results.sync||results.sync.error)return;
+   const timer=setTimeout(()=>setResults(r=>({...r,sync:undefined})),1800);
+   return ()=>clearTimeout(timer);
+ },[results.sync]);
+ function result(id:string){const r=results[id];return r?<p role={r.error?'alert':'status'} className={`settings-result ${id==="sync"&&!r.error?"sync-toast":""} ${r.error?'failure':'success'}`}>{r.text}</p>:null;}
  function status(id:SettingsTab){
   if(results[id]?.error)return {tone:'red',text:uiText("操作失败")};
   if(id==='account')return p.session?{tone:p.syncStatus==='synced'?'green':p.syncStatus==='failed'?'red':'yellow',text:p.syncStatus==='synced'?uiText("已同步"):p.syncStatus==='failed'?uiText("同步失败"):uiText("待同步")}:{tone:saved.url?'yellow':'gray',text:saved.url?uiText("待登录"):uiText("未配置")};

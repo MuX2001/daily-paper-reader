@@ -16,7 +16,7 @@ const fixtures=new Map([
  ['docs/data/daily/20261124.json',JSON.stringify({schema_version:1,run_id:'20261124',papers})],
  ...papers.map((_,i)=>[`docs/20261124/fixture-${i+1}.txt`,'Synthetic complete text for browser transport tests. '.repeat(120)+'\nReferences\nTest reference.'])
 ]);
-const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.txt':'text/plain','.png':'image/png','.webp':'image/webp','.svg':'image/svg+xml'};
+const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.txt':'text/plain','.png':'image/png','.webp':'image/webp','.svg':'image/svg+xml','.woff2':'font/woff2'};
 const server=createServer(async(req,res)=>{
  try{
   const pathname=decodeURIComponent(new URL(req.url,'http://localhost').pathname);
@@ -30,7 +30,7 @@ const server=createServer(async(req,res)=>{
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const address=server.address();
 try{
- for(const suite of ['settings','reading-material','obsidian','migration','conferences','notes','management','topics','chat','minmax','workspace','citation','feedback','thumbnails','language','guide']){
+ for(const suite of ['settings','reading-material','obsidian','migration','conferences','notes','queue','management','topics','chat','minmax','workspace','citation','feedback','thumbnails','language','guide']){
   console.log(`Browser suite: ${suite} (production bundle, subpath, synthetic data)`);
   await new Promise((resolve,reject)=>{
    const child=spawn(process.execPath,[`reader/tests/browser-${suite}.mjs`],{stdio:'inherit',env:{...process.env,DPR_TEST_URL:`http://127.0.0.1:${address.port}${prefix}`,DPR_TEST_OUTPUT:browserOutput}});

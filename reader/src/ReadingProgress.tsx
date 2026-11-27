@@ -1,9 +1,9 @@
 import {t as uiText} from './i18n/messages.ts';
 import {useEffect,useState} from 'react';
 import {feed} from './api';
-import type {CatalogEntry,PaperState} from './domain';
+import {isDone,type CatalogEntry,type PaperState} from './domain';
 
-export function ReadingProgress({runs,states,batch}:{batch:{paper_key:string}[];runs:CatalogEntry[];states:Record<string,PaperState>}){
+export function ReadingProgress({runs,states,batch,run,libraryView}:{libraryView:boolean;run:string;batch:{paper_key:string}[];runs:CatalogEntry[];states:Record<string,PaperState>}){
   const [days,setDays]=useState<Record<string,string[]>>({});
   const [failed,setFailed]=useState(false);
   const today=new Date();
@@ -14,7 +14,7 @@ export function ReadingProgress({runs,states,batch}:{batch:{paper_key:string}[];
   useEffect(()=>{
     const control=new AbortController();
     async function load(){
-      const entries=runs.filter(r=>/^\d{8}$/.test(r.run_id)&&r.run_id>=first&&r.run_id<=last);
+      const entries=runs.filter(r=>(libraryView && r.run_id===run)||/^\d{8}$/.test(r.run_id)&&r.run_id>=first&&r.run_id<=last);
       const data:Record<string,string[]>={};
       for(const r of entries){
         const batch=await feed(r.path,control.signal);
@@ -24,14 +24,14 @@ export function ReadingProgress({runs,states,batch}:{batch:{paper_key:string}[];
     }
     load().catch(()=>{if(!control.signal.aborted)setFailed(true);});
     return ()=>control.abort();
-  },[runs,first,last]);
+  },[runs,first,last,libraryView,run]);
   const count=(keys:string[])=>{
-    let starred=0,archived=0;
-    for(const key of new Set(keys)){if(states[key]?.dismissed_at)archived++;else if(states[key]?.starred)starred++;}
-    return {starred,archived,total:starred+archived};
+    let starred=0,archived=0,total=0;
+    for(const key of new Set(keys)){if(isDone(states[key]))total++;if(states[key]?.dismissed_at)archived++;else if(states[key]?.starred)starred++;}
+    return {starred,archived,total};
   };
-  const fallback=!days[last]?.length&&batch.length>0;
-  const keys=fallback?batch.map(p=>p.paper_key):days[last]||[],done=count(keys).total,size=new Set(keys).size;
+  const fallback=run!==last;
+  const keys=libraryView && run!=='all' ? days[run] || [] : batch.map(p=>p.paper_key),done=count(keys).total,size=new Set(keys).size;
   const weeks=Array.from({length:12},(_,i)=>{
     const start=offset((i-11)*7),end=offset((i-11)*7+6);
     const stats=count(Object.entries(days).filter(([day])=>day>=dateKey(start)&&day<=dateKey(end)).flatMap(([,ids])=>ids));

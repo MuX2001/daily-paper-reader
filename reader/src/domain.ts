@@ -3,7 +3,7 @@ export interface ReadableCard {tldr:string;problem_delta:string;method_steps:str
 export interface MinMax {readable?:ReadableCard;format?:string;status:string;reason?:string;input_scope?:string;source?:{source_url:string;format:string};excerpts?:{id:string;start:number;end:number;text:string}[];delta?:MinMaxClaim;steps?:MinMaxClaim;evidence?:MinMaxClaim;constraints?:MinMaxClaim;landmarks?:MinMaxClaim}
 export interface Narrative {card_hook:string;context_and_problem:string;core_approach:string[];experimental_results?:string;caveats_and_pointers?:string;results_and_reality_check?:string;tags:string[]}
 export interface Paper {
-  narrative?:Narrative; recommendation_reason?:string;
+  partial_narrative?:Partial<Narrative>; analysis_error?:{stage:string;reason:string}; narrative?:Narrative; recommendation_reason?:string;
   minmax?:MinMax; minmax_candidate?:MinMax;
   venue?: string | null;
   publication_date?: string | null; publication_date_precision?: string | null;
@@ -12,7 +12,7 @@ export interface Paper {
   title: string; title_zh: string | null; abstract: string | null; authors: string[]; published: string | null;
   url: string | null; pdf_url: string | null; score: number | null; reason: string | null; tldr: string | null;
   tags: string[]; breakdown: {problem: string | null; method: string | null; results: string | null};
-  thumbnail: {url: string; kind: string; evidence?:string; source_url?:string} | null; code_url: string | null; content_status: string;
+  thumbnail: {url: string; kind: string; evidence?:string; figure_id?:string; format?:string; source_url?:string} | null; code_url: string | null; content_status: string;
 }
 export interface PaperState { note_text?: string; legacy_status?: string; legacy_imported_at?: string; paper_key: string; starred: boolean; read_at: string | null; dismissed_at: string | null; feedback: number; revision: number }
 export type StatePatch = Partial<Pick<PaperState, 'starred' | 'read_at' | 'dismissed_at' | 'feedback' | 'note_text'>>;
@@ -20,6 +20,11 @@ export type View = 'inbox' | 'starred' | 'topics' | 'archive' | 'manage';
 export interface Feed { schema_version: number; run_id: string; papers: Paper[] }
 export interface CatalogEntry {run_id:string;count:number;path:string;title?:string;kind?:string}
 export interface Catalog { schema_version: number; runs: CatalogEntry[]; topics?:CatalogEntry[]; conferences?:CatalogEntry[]; migration?:{unresolved_conference_routes?:string[]} }
+export const isDone=(s?:PaperState)=>Boolean(s?.read_at||s?.starred||s?.dismissed_at);
+export function nextUnread(papers:Paper[],states:Record<string,PaperState>,key:string){
+  const index=papers.findIndex(p=>p.paper_key===key);
+  return [...papers.slice(index+1),...papers.slice(0,index)].find(p=>!states[p.paper_key]?.read_at&&!states[p.paper_key]?.dismissed_at)?.paper_key;
+}
 export const emptyState = (key: string): PaperState => ({paper_key:key, starred:false, read_at:null, dismissed_at:null, feedback:0, revision:0});
 export function safeURL(value: string | null | undefined): string | undefined {
   if (!value) return;

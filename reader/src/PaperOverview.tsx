@@ -1,3 +1,5 @@
+import {useState} from 'react';
+import {PaperText} from './PaperText';
 import {t} from './i18n/messages';
 import {cardHook,displayTags,sameText} from './presentation';
 import {citationDate} from './citation';
@@ -7,13 +9,14 @@ import {PaperThumbnail} from './PaperThumbnail';
 export function PaperOverview({paper,feedback,busy,vote,downloadPDF}:{
   paper:Paper;feedback:number;busy:boolean;vote:(value:number)=>void;downloadPDF:()=>void
 }){
-  const context=paper.narrative?.context_and_problem||paper.minmax?.readable?.problem_delta||paper.breakdown?.problem;
+  const context=paper.narrative?.context_and_problem||paper.partial_narrative?.context_and_problem||paper.minmax?.readable?.problem_delta||paper.breakdown?.problem;
   const reason=paper.recommendation_reason||paper.reason;
   const hook=cardHook(paper);
   const summary=sameText(hook,context)
     ? [reason,paper.tldr].find(text=>text&&!sameText(text,context))||t('详见下方背景与卡点。')
     : hook;
-  const figure=thumbnailURL(paper.thumbnail?.url);
+  const [failedFigure,setFailedFigure]=useState('');
+  const figure=paper.thumbnail?.url!==failedFigure&&paper.thumbnail?.kind!=='first_page'&&thumbnailURL(paper.thumbnail?.url);
   const metadata=<dl className="overview-meta">
     {[['Authors',paper.authors?.join(', ')],['Date',citationDate(paper)],['Venue',paper.venue||paper.source],['Score',paper.score?.toFixed(1)],['Tags',displayTags(paper).join(' · ')]].map(([label,value])=>value&&
       <div key={label} className={label==='Authors'||label==='Tags'?'meta-wide':''}><dt>{label}</dt><dd title={value}>{value}</dd></div>)}
@@ -22,12 +25,12 @@ export function PaperOverview({paper,feedback,busy,vote,downloadPDF}:{
   </dl>;
   return <section className={'overview'+(figure?' with-figure':'')}>
     <div className="overview-copy">
-      {summary&&<><h3>{t('一句话总览')}</h3><p className="overview-hook" title={summary}>{summary}</p></>}
+      {summary&&<><h3>{t('一句话总览')}</h3><div className="overview-hook" title={summary}><PaperText text={summary}/></div></>}
       {figure&&metadata}
       <div className="feedback"><span title={reason||undefined}>{reason&&!sameText(reason,summary)&&!sameText(reason,context)?reason:t('推荐有帮助吗？')}</span>
         {([1,-1] as const).map(value=><button key={value} aria-label={t(value===1?'推荐有帮助':'不感兴趣')} aria-pressed={feedback===value} disabled={busy} onClick={()=>vote(feedback===value?0:value)}>{value===1?'＋':'−'}</button>)}
       </div>
     </div>
-    {figure?<PaperThumbnail key={paper.paper_key} thumbnail={paper.thumbnail}/>:metadata}
+    {figure?<PaperThumbnail key={paper.paper_key} thumbnail={paper.thumbnail} onUnavailable={()=>setFailedFigure(paper.thumbnail?.url||'')}/>:metadata}
   </section>;
 }

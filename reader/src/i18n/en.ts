@@ -1,4 +1,10 @@
 export const english:Record<string,string> = {
+  "此项缺少已核验内容。":"No verified information for this section.",
+  "此项与前文重复，暂缺独立证据。":"The source repeats an earlier section without independent evidence.",
+  "部分解析成功，当前仅展示已有内容。":"Partial analysis. Available content is shown below.",
+  "已读完当前队列":"Queue complete",
+  "标为已读并继续":"Mark read and advance",
+  "今日无符合条件的新论文":"No new papers met the criteria today",
   "笔记": "Notes",
   "导出": "Export",
   "未读": "Unread",
