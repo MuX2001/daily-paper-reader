@@ -9,9 +9,9 @@ from datetime import date
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/"src"))
 import yaml
-from recommendation_channels import atom_records, author_match, allocate, merge_pool, retrieve
+from recommendation_channels import atom_records, author_match, backfill_author, allocate, merge_pool, retrieve
 from recommendation_evidence import validate, select
-from recommendation_v2 import DailyRun
+from recommendation_v2 import DailyRun, global_window, feedback_metrics
 from reader_fulltext import html_text
 from triage_export import project_paper
 
@@ -107,6 +107,81 @@ class V2Tests(unittest.TestCase):
             pool=run.prepare([paper(1)])
             self.assertEqual((pool["start"],pool["end"]),("2026-01-04","2026-01-06"))
             self.assertEqual(run.prepare([paper(1)]),pool)
+
+    def test_global_gap_and_feedback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cursor=Path(directory)/"global.json"
+            cursor.write_text('{"through":"2026-01-01"}')
+            window,through=global_window("20260115",{**config(),"shadow_mode":False},{"days_window":9},cursor)
+            self.assertEqual((window,through),(("2026-01-02","2026-01-05"),"2026-01-04"))
+            self.assertEqual(global_window("20260115",config(),{"days_window":9},cursor),(None,None))
+        obs={"legacy":["a","x"],"recommended":["b","x"]}
+        votes={"labels":{"b":1},"label_source":"human","feedback_context_ids":[]}
+        metrics=feedback_metrics(obs,votes,2)["recommended"]
+        self.assertIsNone(metrics["useful_precision_at_k"])
+        self.assertEqual(metrics["unique_useful"],["b"])
+
+    def test_openalex_backfill(self):
+        from types import SimpleNamespace
+        raw=b'<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>https://arxiv.org/abs/2601.00001v2</id><author><name>Example Person</name></author><published>2026-01-01T00:00:00Z</published></entry></feed>'
+        profile={"openalex_id":"A123","backfill_days":3,"name":"Example Person"}
+        def request(url,params):
+            if "openalex" in url:
+                self.assertIn("from_publication_date:2025-12-31",params["filter"])
+                return SimpleNamespace(json=lambda:{"results":[{"doi":"https://doi.org/10.48550/arXiv.2601.00001",
+                    "authorships":[{"author":{"display_name":"Example Person","id":"https://openalex.org/A123"}}]}]})
+            self.assertEqual(params["id_list"],"2601.00001")
+            return SimpleNamespace(content=raw)
+        rows=backfill_author(profile,date(2026,1,3),date(2026,1,4),request)
+        self.assertEqual(author_match(rows[0],profile),"confirmed_id")
+        self.assertEqual(rows[0]["found_via"],"openalex_backfill")
+
+    def test_minmax_daily_entry(self):
+        import minmax, os
+        from contextlib import ExitStack
+        from triage_enrich import atomic_json
+        papers=[paper(n) for n in range(3)]
+        for shadow,activate,expected in [(True,False,3),(False,False,1),(False,True,1)]:
+            with self.subTest(shadow=shadow,activate=activate), tempfile.TemporaryDirectory() as folder, ExitStack() as stack:
+                root=Path(folder)
+                path=root/"feed.json"
+                cfg=root/"config.yaml"
+                cfg.write_text(yaml.safe_dump({"pipeline":{"recommendation_v2":{**config(),"shadow_mode":shadow,
+                    "select_v2":activate,"exploration":False,"full_text_candidates":2,"max_recommendations":1}}}))
+                atomic_json(path,{"schema_version":1,"run_id":"20260102","papers":papers})
+                stack.enter_context(patch.dict(os.environ,TRIAGE_API_KEY="offline",TRIAGE_MODEL="fixture"))
+                stack.enter_context(patch.object(sys,"argv",["minmax","--style","narrative","--quality-config",str(cfg),"--state-root",folder,"--feed",str(path),"--cache-dir",folder]))
+                stack.enter_context(patch.object(minmax,"enrich_feed",side_effect=lambda path,*a,**kw:json.loads(Path(path).read_text())))
+                stack.enter_context(patch("recommendation_quality.assess",side_effect=lambda rows,*a:{p["paper_key"]:{"eligible":True,"reason":"baseline","final_score":8} for p in rows}))
+                q="Specific evidence in this exact version."
+                stack.enter_context(patch.object(DailyRun,"review",return_value=validate(judgment(q),{"S1.p1":{"text":q,"kind":"paragraph","url":None}})))
+                minmax.main()
+                feed=json.loads(path.read_text())
+                self.assertTrue(feed["quality_screened"])
+                self.assertEqual(len(feed["papers"]),expected)
+                self.assertEqual(feed["recommendation_mode"],"v2" if activate else "legacy")
+                self.assertTrue((root/"archive/recommendation-v2/20260102/observation.json").exists())
+
+    def test_promotional_claim_and_visual_modality(self):
+        q="Our breakthrough solves every problem."
+        source={"F1":{"kind":"figure","text":q,"url":"https://arxiv.org/html/2601.00001v1#F1"}}
+        value=judgment(q)
+        value["highlights"][0]["evidence_ids"]=["unknown"]
+        value["claim_evidence_gap"]={"present":True,"reason":"No comparison supports the universal claim."}
+        ev=validate(value,source)
+        self.assertFalse(select([{**paper(1),"retrieval_sources":[],"evaluation_v2":ev}],8))
+        value["highlights"][0].update(dimension="visualization",evidence_ids=["F1"])
+        self.assertIsNone(validate(value,source)["dimensions"]["visualization"])
+        self.assertTrue(validate(value,source,viewed="F1")["highlights"][0]["verified"])
+
+    def test_recovery_shares_actual_day_budget(self):
+        with tempfile.TemporaryDirectory() as folder:
+            first=DailyRun({**config(),"full_text_candidates":1},"20260102",folder,folder)
+            first.admit([paper(1)])
+            old=DailyRun({**config(),"full_text_candidates":1},"20260101",folder,folder,accounting_day="20260102")
+            with self.assertRaises(RuntimeError):
+                old.admit([paper(2)],require_all=True)
+            self.assertEqual(old.admit([paper(1)],require_all=True),[paper(1)])
 
 
 if __name__=="__main__":

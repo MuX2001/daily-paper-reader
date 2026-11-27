@@ -77,6 +77,11 @@ def resolve_supabase_recall_window(config: Dict[str, Any], end_dt: datetime | No
   anchor = anchor.astimezone(timezone.utc)
   token = str(os.getenv("DPR_RUN_DATE") or "").strip()
 
+  override = os.getenv("DPR_V2_GLOBAL_WINDOW")
+  if override and DATE_RE_DAY.fullmatch(token):
+    start, stop = override.split(",")
+    return datetime.fromisoformat(start).replace(tzinfo=timezone.utc), datetime.fromisoformat(stop).replace(tzinfo=timezone.utc)
+
   if DATE_RE_RANGE.fullmatch(token):
     start_text, end_text = token.split("-", 1)
     try:

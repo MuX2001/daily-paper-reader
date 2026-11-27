@@ -149,7 +149,7 @@ def enrich_feed(path,root,client,max_new=50,enricher=enrich):
 
 def main():
     from llm import LLMClient
-    p=argparse.ArgumentParser();p.add_argument('--feed',required=True);p.add_argument('--cache-dir',required=True);p.add_argument('--max-new',type=int,default=50);p.add_argument('--style',choices=['classic','readable','narrative'],default='classic');p.add_argument('--quality-config',type=Path);a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--feed',required=True);p.add_argument('--cache-dir',required=True);p.add_argument('--max-new',type=int,default=50);p.add_argument('--style',choices=['classic','readable','narrative'],default='classic');p.add_argument('--quality-config',type=Path);p.add_argument('--state-root',type=Path,default=Path(__file__).resolve().parents[1]);a=p.parse_args()
     if a.max_new<0:raise ValueError('Negative budget')
     key=os.getenv('TRIAGE_API_KEY') or os.getenv('DEEPSEEK_API_KEY');model=os.getenv('TRIAGE_MODEL') or os.getenv('DEEPSEEK_MODEL')
     endpoint=os.getenv('TRIAGE_BASE_URL') or os.getenv('DEEPSEEK_BASE_URL') or 'https://api.deepseek.com'
@@ -173,11 +173,15 @@ def main():
         v2_config = config.get("pipeline", {}).get("recommendation_v2", {})
         if v2_config.get("enabled"):
             try:
-                from recommendation_v2 import DailyRun
+                from recommendation_v2 import DailyRun, ContentClient
                 original_feed = json.loads(Path(a.feed).read_text())
-                v2_run = DailyRun(v2_config, original_feed["run_id"], a.quality_config.resolve().parent, a.cache_dir)
+                v2_run = DailyRun(v2_config, original_feed["run_id"], a.state_root, a.cache_dir)
                 pool = v2_run.prepare(original_feed["papers"])
+                through = os.getenv("DPR_V2_GLOBAL_THROUGH")
+                if through:
+                    atomic_json(v2_run.run.parent/"global-through.json",{"through":through})
                 if not v2_config["shadow_mode"]:
+                    client = ContentClient(client,v2_run)
                     atomic_json(a.feed, {**original_feed, "papers":pool["papers"]})
             except Exception as exc:
                 print(f"V2 preparation unavailable: {type(exc).__name__}: {exc}", flush=True)
@@ -195,7 +199,10 @@ def main():
             if review['eligible']:
                 ranked.append({**paper,'screening_score':paper['score'],'score':review['final_score'],'quality':review,'reason':review['reason']})
         ranked.sort(key=lambda p:(-p['score'],p['paper_key']))
-        feed.update(papers=ranked[:settings(config)['daily_cap']],quality_screened=True)
+        cap = settings(config)['daily_cap']
+        if v2_run and not v2_run.config["shadow_mode"]:
+            cap = min(cap,v2_run.config["max_recommendations"])
+        feed.update(papers=ranked[:cap],quality_screened=True)
         atomic_json(Path(a.cache_dir)/'quality'/f"{feed['run_id']}-reviews.json",reviews)
         atomic_json(a.feed,feed)
         atomic_json(Path(a.cache_dir)/'quality'/f"{feed['run_id']}-usage.json",{'responses':client._call_index,'tokens':client._cum_tokens,'eligible':len(ranked),'published':len(feed['papers'])})

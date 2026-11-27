@@ -1,5 +1,7 @@
 """Candidate retrieval and budget allocation for the daily reader."""
 from collections import defaultdict
+from datetime import timedelta
+import os
 from functools import lru_cache
 import hashlib
 import json
@@ -90,7 +92,8 @@ def merge_pool(lanes, config):
             provenance = {"channel":channel, "rank":rank, "version_id":p["original_id"], **p.get("match", {})}
             if provenance not in evidence[key]:
                 evidence[key].append(provenance)
-            if key not in newest or (p.get("version") or 0) > (newest[key].get("version") or 0):
+            if (key not in newest or (p.get("version") or 0) > (newest[key].get("version") or 0)
+                    or (channel=="global" and p["paper_key"]==newest[key]["paper_key"])):
                 newest[key] = p
     weights = {k:config["shares"][k] for k in CHANNELS}
     selected = allocate(lanes, weights, config["full_text_candidates"])
@@ -104,17 +107,21 @@ def rotate(profiles, day):
     return []
 
 
+def identity_name(text):
+    return " ".join(re.findall(r"[^\W_]+",unicodedata.normalize("NFKC",text).casefold(),re.UNICODE))
+
+
 def author_match(paper, profile):
-    names = {normalize(n) for n in [profile.get("name", ""), *profile.get("aliases", [])] if n}
-    affiliations = {normalize(n) for n in profile.get("affiliations", []) if n}
+    names = {identity_name(n) for n in [profile.get("name", ""), *profile.get("aliases", [])] if n}
+    affiliations = {identity_name(n) for n in profile.get("affiliations", []) if n}
     for author in paper["credits"]:
-        name = normalize(author["name"])
-        affiliations_match = bool(affiliations.intersection(normalize(a) for a in author["affiliations"]))
+        name = identity_name(author["name"])
+        affiliations_match = bool(affiliations.intersection(identity_name(a) for a in author["affiliations"]))
         if not profile.get("openalex_id") and (not names or name in names) and affiliations_match:
             return "confirmed_affiliation"
-        if name in names:
-            if profile.get("openalex_id") and profile["openalex_id"] in author.get("openalex_ids", []):
-                return "confirmed_id"
+        if (not names or name in names) and profile.get("openalex_id") in author.get("openalex_ids", []):
+            return "confirmed_id"
+        if name and name in names:
             if not affiliations and not profile.get("openalex_id") and profile.get("accept_name_only") is True:
                 return "configured_name"
     return None
@@ -150,19 +157,67 @@ def quote(term):
     return '"'+term.strip()+'"'
 
 
+def openalex_params(params):
+    key = os.getenv("OPENALEX_API_KEY")
+    return {**params,"api_key":key} if key else params
+
+
+def backfill_author(profile, start, end, request):
+    author_id = profile.get("openalex_id","")
+    if not re.fullmatch(r"A[1-9][0-9]+",author_id):
+        raise ValueError("OpenAlex author ID must have the form A123")
+    since = start-timedelta(days=min(30,max(0,int(profile.get("backfill_days",0)))))
+    works = request("https://api.openalex.org/works",openalex_params({
+        "filter":f"author.id:{author_id},from_publication_date:{since},to_publication_date:{end}",
+        "per_page":25,"select":"doi,authorships","sort":"publication_date:desc"})).json()["results"]
+    resolved = {}
+    for work in works:
+        doi = re.fullmatch(r"https://doi.org/10\.48550/arxiv\.(.+)",str(work.get("doi")),re.I)
+        if not doi:
+            continue
+        pid = doi[1]
+        if not ARXIV_VERSION.fullmatch(pid+"v1"):
+            continue
+        names = {identity_name(a["author"]["display_name"]) for a in work.get("authorships",[])
+                 if a["author"]["id"].rsplit("/",1)[-1]==author_id}
+        if names:
+            resolved[pid] = names
+    if not resolved:
+        return []
+    # Hydrate the latest exact version from the official arXiv Atom record.
+    raw = request("https://export.arxiv.org/api/query",{"id_list":",".join(sorted(resolved)),"max_results":25})
+    rows = []
+    for paper in atom_records(raw.content):
+        pid = paper["id"].rsplit("v",1)[0]
+        if pid not in resolved or not str(since)<=str(paper["published"])[:10]<=str(end):
+            continue
+        for credit in paper["credits"]:
+            if identity_name(credit["name"]) in resolved[pid]:
+                credit["openalex_ids"] = [author_id]
+        rows.append({**paper,"found_via":"openalex_backfill"})
+    return rows
+
+
 def resolve_author_ids(raw, request):
     # OpenAlex indexes unversioned works. Require the exact arXiv DOI and
     # match the author display name before attaching an identity to a credit.
     pid = raw["id"].rsplit("v",1)[0]
     doi = "10.48550/arxiv."+pid.lower()
-    result = request("https://api.openalex.org/works/https://doi.org/"+doi, {}).json()
+    result = request("https://api.openalex.org/works/https://doi.org/"+doi, openalex_params({})).json()
     if str(result.get("doi")).lower() != "https://doi.org/"+doi:
         return
     for credit in raw["credits"]:
         matches = [row["author"]["id"].rsplit("/",1)[-1] for row in result.get("authorships", [])
-                   if normalize(row["author"]["display_name"]) == normalize(credit["name"])]
+                   if identity_name(row["author"]["display_name"]) == identity_name(credit["name"])]
         if len(matches) == 1:
             credit["openalex_ids"] = matches
+
+
+def balance_exploration(papers, config):
+    lanes = {k:[p for p in papers if p["match"]["mode"]==k] for k in MODES}
+    reserved = quotas(config["full_text_candidates"], {k:config["shares"][k] for k in CHANNELS})["exploration"]
+    first = allocate(lanes, {k:config["exploration_shares"][k] for k in MODES}, reserved)
+    return first + [p for k in MODES for p in lanes[k] if p not in first and config["exploration_shares"][k]>0]
 
 
 def retrieve(config, start, end, request, memo):
@@ -195,9 +250,16 @@ def retrieve(config, start, end, request, memo):
             terms = ["au:"+quote(n) for n in [profile.get("name"), *profile.get("aliases", [])] if n]
             if not terms:
                 terms = ["all:"+quote(n) for n in profile.get("affiliations", [])]
-            if not terms:
-                raise ValueError("Tracking entry needs author or affiliation")
-            for raw in fetch(" OR ".join(terms)):
+            candidates = fetch(" OR ".join(terms)) if terms else []
+            if profile.get("openalex_id") and profile.get("backfill_days",0):
+                try:
+                    candidates = candidates + memo(digest(["openalex",profile,start.isoformat(),end.isoformat()]),
+                        lambda:backfill_author(profile,start,end,request))
+                except (ValueError, requests.RequestException, ET.ParseError, RuntimeError) as exc:
+                    failures.append(f"backfill: {type(exc).__name__}")
+            elif not terms:
+                raise ValueError("Tracking entry needs a name, affiliation or enabled author-ID backfill")
+            for raw in candidates:
                 if profile.get("openalex_id") and not author_match(raw, profile):
                     def resolved():
                         resolve_author_ids(raw, request)
@@ -208,15 +270,13 @@ def retrieve(config, start, end, request, memo):
                     ambiguous += 1
                     continue
                 hits = phrase_hits(raw["title"]+" "+raw["abstract"], profile.get("phrases", []))
-                lanes["targeted"].append({**project_paper(raw), "match":{"profile":profile.get("name") or profile["affiliations"][0],
-                    "identity":status, "phrases":hits,"preliminary":(2 if status.startswith("confirmed") else 0) + min(1,len(hits))}})
+                lanes["targeted"].append({**project_paper(raw), "match":{"profile":profile.get("name") or profile.get("openalex_id") or profile["affiliations"][0],
+                    "identity":status, "via":raw.get("found_via","arxiv_atom"), "phrases":hits,"preliminary":(2 if status.startswith("confirmed") else 0) + min(1,len(hits))}})
         except (ValueError, requests.RequestException, ET.ParseError, RuntimeError) as exc:
             failures.append(f"targeted: {type(exc).__name__}")
     for papers in lanes.values():
         papers.sort(key=lambda p:(-p["match"]["preliminary"],p["paper_key"]))
     # Retain every provenance record. Interleave both modes up to their
     # reserved slots before appending remaining candidates for redistribution.
-    reserved = quotas(config["full_text_candidates"], {k:config["shares"][k] for k in CHANNELS})["exploration"]
-    first = allocate(lanes, {k:config["exploration_shares"][k] for k in MODES}, reserved)
-    lanes["exploration"] = first + [p for k in MODES for p in lanes[k] if p not in first and config["exploration_shares"][k]>0]
+    lanes["exploration"] = balance_exploration([p for k in MODES for p in lanes[k]],config)
     return {k:lanes[k] for k in ("targeted","exploration")}, failures, ambiguous
