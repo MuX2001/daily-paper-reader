@@ -166,6 +166,21 @@ def main():
     elif a.style=='readable':
         from minmax_readable import enrich as selected_enricher
     else:selected_enricher=enrich
-    enrich_feed(a.feed,a.cache_dir,client,a.max_new,enricher=selected_enricher)
+    feed=enrich_feed(a.feed,a.cache_dir,client,a.max_new,enricher=selected_enricher)
+    if a.quality_config:
+        import yaml
+        from recommendation_quality import assess,settings
+        config=yaml.safe_load(a.quality_config.read_text())
+        reviews=assess(feed['papers'],config,client,a.cache_dir)
+        ranked=[]
+        for paper in feed['papers']:
+            review=reviews[paper['paper_key']]
+            if review['eligible']:
+                ranked.append({**paper,'screening_score':paper['score'],'score':review['final_score'],'quality':review,'reason':review['reason']})
+        ranked.sort(key=lambda p:(-p['score'],p['paper_key']))
+        feed.update(papers=ranked[:settings(config)['daily_cap']],quality_screened=True)
+        atomic_json(Path(a.cache_dir)/'quality'/f"{feed['run_id']}-reviews.json",reviews)
+        atomic_json(a.feed,feed)
+        atomic_json(Path(a.cache_dir)/'quality'/f"{feed['run_id']}-usage.json",{'responses':client._call_index,'tokens':client._cum_tokens,'eligible':len(ranked),'published':len(feed['papers'])})
 
 if __name__=='__main__':main()

@@ -101,6 +101,17 @@ def build_feed(payload, run_id, previous=None):
         if group not in payload or not isinstance(payload[group], list):
             raise ValueError(f'Missing or invalid {group}')
         records.extend(project_paper(p) for p in payload[group])
+    if previous and previous.get('quality_screened'):
+        # Re-evaluate only the present shortlist. Keep same-version content,
+        # but do not feed a previous final ranking back as a screening score.
+        fresh=records[len(previous['papers']):]
+        old={p['paper_key']:p for p in previous['papers']}
+        records=[]
+        for item in fresh:
+            cached=old.get(item['paper_key'])
+            if cached:
+                records.append({**cached,'score':item['score'],'reason':item['reason']})
+            records.append(item)
     return {'schema_version': 1, 'run_id': run_id, 'papers': merge_records(records)}
 
 

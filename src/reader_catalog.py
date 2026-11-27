@@ -125,11 +125,14 @@ def build_catalog(root: Path, destination: Path):
         run_id=folder.parent.name
         if not re.fullmatch(r'\d{8}(?:-\d{8})?',run_id):continue
         inputs=sorted(folder.glob('*.standard.json')) or sorted(folder.glob('*.skims.json'))
-        for source in inputs:export_feed(source,destination/'daily'/f'{run_id}.json',run_id)
+        output=destination/'daily'/f'{run_id}.json'
+        if output.exists() and json.loads(output.read_text()).get('quality_screened'):continue
+        for source in inputs:export_feed(source,output,run_id)
     for run_id,records in published_daily_records(root):
         output=destination/'daily'/f'{run_id}.json'
         previous=json.loads(output.read_text()) if output.exists() else {'schema_version':1,'run_id':run_id,'papers':[]}
         # Existing pipeline records remain authoritative; history only fills missing IDs.
+        if previous.get('quality_screened'):continue
         known={p.get('paper_key') for p in previous['papers']}
         missing=[]
         for paper in records:
@@ -159,7 +162,7 @@ def build_catalog(root: Path, destination: Path):
             if paper.get('paper_key') in candidates:paper['minmax_candidate']=candidates[paper['paper_key']]
             if paper.get('paper_key') in narratives:paper.update(narratives[paper['paper_key']])
         atomic_json(output,feed)
-        if feed['papers']:entries[run_id]={'run_id':run_id,'count':len(feed['papers']),'path':f'daily/{run_id}.json',**({'title':feed['title']} if feed.get('title') else {})}
+        if feed['papers'] or feed.get('quality_screened'):entries[run_id]={'run_id':run_id,'count':len(feed['papers']),'path':f'daily/{run_id}.json',**({'title':feed['title']} if feed.get('title') else {})}
     records=sorted(entries.values(),key=lambda e:e['run_id'],reverse=True)
     conferences,skipped=conference_catalog(root,destination)
     atomic_json(destination/'catalog.json',{'schema_version':1,'runs':records,'conferences':conferences,'migration':{'unresolved_conference_routes':skipped},'topics':topic_catalog(root,destination,routes)})
