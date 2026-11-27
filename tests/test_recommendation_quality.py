@@ -26,3 +26,24 @@ def test_cached_evidence_and_empty_daily_catalog(tmp_path):
     out=tmp_path/'docs/data';(out/'daily').mkdir(parents=True)
     (out/'daily/20261127.json').write_text(json.dumps({'run_id':'20261127','schema_version':1,'papers':[],'quality_screened':True}))
     assert build_catalog(tmp_path,out)[0]['count']==0
+
+
+def test_penalty_requires_two_real_passage_references(tmp_path):
+    row = dict(id='p1', problem_match=4, information_gain=4, hype_penalty=1,
+               reason='The measured scope is narrower.', evidence='E2')
+    defect = dict(kind='unsupported_claim', claim='E1', support='missing',
+                  explanation='Evaluation covers only a single setting.')
+    prompts = []
+
+    def generate(messages, **kwargs):
+        prompts.append(messages[0]['content'])
+        support = 'missing' if len(prompts) == 1 else 'E2'
+        return {'parsed': {'results': [{**row, 'penalties': [{**defect, 'support': support}]}]}}
+
+    client = SimpleNamespace(model='test', base_url='test', kwargs={}, chat_structured=generate)
+    paper = dict(paper_key='arxiv:test', original_id='test', title='General control',
+                 abstract='Tests in a single setting.')
+    result = assess([paper], {}, client, tmp_path)['arxiv:test']
+    assert len(prompts) == 2 and 'p1' in prompts[1]
+    assert result['penalties'][0]['support'] == paper['abstract']
+    assert result['final_score'] == 7.2
