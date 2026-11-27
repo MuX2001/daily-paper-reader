@@ -130,10 +130,13 @@ def enrich_feed(path,root,client,max_new=50,enricher=enrich):
                 if p.get('minmax',{}).get('status')!='ready':p['minmax']={'status':'deferred','reason':'本轮生成预算已用完'}
             else:
                 result.pop('analysis_error',None)
+                result.pop('partial_narrative',None)
                 feed['papers'][i]=result;calls+=not reused
         except Exception as exc:
             # Count failed attempts conservatively toward the budget too.
             calls+=1;failures+=1
+            if getattr(exc,'sections',None) and not p.get('narrative'):
+                p['partial_narrative']=exc.sections
             p['analysis_error']={'stage':'source' if isinstance(exc,ValueError) and 'verified complete text' in str(exc) else 'analysis','reason':str(exc)[:400] if isinstance(exc,ValueError) else type(exc).__name__}
             if not p.get('narrative') and p.get('minmax',{}).get('status')!='ready':
                 p['content_status']='partial'
@@ -146,7 +149,7 @@ def enrich_feed(path,root,client,max_new=50,enricher=enrich):
 
 def main():
     from llm import LLMClient
-    p=argparse.ArgumentParser();p.add_argument('--feed',required=True);p.add_argument('--cache-dir',required=True);p.add_argument('--max-new',type=int,default=50);p.add_argument('--style',choices=['classic','readable','narrative'],default='classic');a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--feed',required=True);p.add_argument('--cache-dir',required=True);p.add_argument('--max-new',type=int,default=50);p.add_argument('--style',choices=['classic','readable','narrative'],default='classic');p.add_argument('--quality-config',type=Path);a=p.parse_args()
     if a.max_new<0:raise ValueError('Negative budget')
     key=os.getenv('TRIAGE_API_KEY') or os.getenv('DEEPSEEK_API_KEY');model=os.getenv('TRIAGE_MODEL') or os.getenv('DEEPSEEK_MODEL')
     endpoint=os.getenv('TRIAGE_BASE_URL') or os.getenv('DEEPSEEK_BASE_URL') or 'https://api.deepseek.com'

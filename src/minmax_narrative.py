@@ -92,11 +92,30 @@ def validate(value, *, draft=False):
     if len(set(sections))!=len(sections):
         raise ValueError('Duplicated narrative sections')
     body=value['context_and_problem']+''.join(value['core_approach'])+value['experimental_results']+value['caveats_and_pointers']
-    if len(body)>(2400 if draft else (1800 if summary_language()=="en" else 1200)):raise ValueError(f'Narrative body has {len(body)} characters; shorten all four blocks. Aim for 650 Chinese characters or 180 English words total, counting Latin text too.')
+    # Per-field hard limits already bound the response. A soft prose-length
+    # target must not discard evidence or trigger an extra paid generation.
     if not 550<=len(body)<=750:warnings.warn(f'Narrative length {len(body)} outside soft target 550–750')
     if value['card_hook'] in body:raise ValueError('Repeated card hook')
     if any(w in body+value['card_hook'] for w in BANNED):raise ValueError('Academic filler in narrative')
     return value
+
+
+class PartialNarrativeError(ValueError):
+    def __init__(self, reason, decoded):
+        super().__init__(reason)
+        self.sections={}
+        if not isinstance(decoded,dict):return
+        for key in FIELDS[:-1]:
+            value=decoded.get(key)
+            fragments=value if key=='core_approach' and isinstance(value,list) else [value]
+            if not fragments or any(not isinstance(x,str) or not x.strip() or len(x)>700 for x in fragments):continue
+            try:
+                for text in fragments:validate_prose(text)
+            except ValueError:continue
+            if key=='core_approach':
+                self.sections[key]=fragments[:4]
+            elif value not in self.sections.values():
+                self.sections[key]=value
 
 
 def enrich(paper,client,root,allow_new=True,fetcher=get_fulltext, *, draft=False):
@@ -116,6 +135,7 @@ def enrich(paper,client,root,allow_new=True,fetcher=get_fulltext, *, draft=False
         messages=[{'role':'system','content':active_prompt()},{'role':'user','content':request}]
         for attempt in range(2):
             response=client.chat_structured(messages,schema_name='narrative_card',schema=SCHEMA,allow_validation_fallback=False)
+            decoded=response.get('parsed')
             try:
                 if response.get('parse_error') or response.get('refusal') or response.get('finish_reason')=='length':
                     raise ValueError('Incomplete or invalid narrative JSON')
@@ -126,7 +146,7 @@ def enrich(paper,client,root,allow_new=True,fetcher=get_fulltext, *, draft=False
                     raise ValueError('Unknown figure_id; use a supplied caption ID or null')
                 break
             except ValueError as exc:
-                if attempt:raise
+                if attempt:raise PartialNarrativeError(str(exc),decoded) from exc
                 messages.append({'role':'user','content':f'Validation failed: {exc}. Regenerate the complete JSON from the supplied evidence. Use JSON-escaped LaTeX and distinct sections.'})
         atomic_json(path,{'result':value,'identity':identity,'tokens':response.get('tokens')})
     return {**paper,'content_status':'minmax','narrative':value,'narrative_provenance':{'source':meta,'cache_key':key,'input_scope':'selected_excerpts','model':client.model}},reused
