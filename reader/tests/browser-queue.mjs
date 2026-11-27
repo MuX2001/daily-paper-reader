@@ -58,5 +58,6 @@ try{
   await page.keyboard.press('Escape');await page.locator('.profile').click();
   await page.getByRole('button',{name:'立即同步'}).click();await expect(page.locator('.sync-toast')).toBeVisible();await expect(page.locator('.sync-toast')).toHaveCount(0);
   failRead=true;await page.getByRole('button',{name:'立即同步'}).click();await expect(page.locator('.settings-result.failure')).toContainText('test unavailable');
+  await expect(page.locator('.workspace-notifications [role=alert]')).toHaveCount(0);
   console.log('Queue progress, optimistic rollback, stable order, wraparound, completion, persistence, manual sync toast/error, structured Markdown and KaTeX passed');
 }finally{await browser.close();}

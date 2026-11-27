@@ -114,10 +114,10 @@ function App() {
     const {data} = client.auth.onAuthStateChange((_event,value)=>{authEvent=true;if(!stopped&&getClient()===client)setSession(value);});
     return ()=>{stopped=true;data.subscription.unsubscribe();};
   },[cloudEpoch]);
-  const refresh = useCallback(async()=>{
+  const refresh = useCallback(async(showWorkspaceError=true)=>{
     if(!session) {setStates({});setSyncStatus('idle');setSyncTime('');return;}
     const captured=activeScope.current, ticket=++refreshTicket.current, cloud=getClient();setSyncStatus('syncing');
-    try {const loaded=await loadStates(session.user.id);if(activeScope.current===captured&&ticket===refreshTicket.current&&getClient()===cloud){setStates(loaded);setStateScope(captured);setSyncStatus('synced');setSyncTime(new Date().toISOString());}} catch(e){if(activeScope.current===captured&&ticket===refreshTicket.current&&getClient()===cloud){setSyncStatus('failed');setError(errorMessage(e));}throw e;}
+    try {const loaded=await loadStates(session.user.id);if(activeScope.current===captured&&ticket===refreshTicket.current&&getClient()===cloud){setStates(loaded);setStateScope(captured);setSyncStatus('synced');setSyncTime(new Date().toISOString());}} catch(e){if(activeScope.current===captured&&ticket===refreshTicket.current&&getClient()===cloud){setSyncStatus('failed');if(showWorkspaceError)setError(errorMessage(e));}throw e;}
   },[session,cloudEpoch]);
   useEffect(()=>{void refresh().catch(()=>{}); const handler=()=>void refresh().catch(()=>{}); window.addEventListener('focus',handler); return ()=>window.removeEventListener('focus',handler);},[refresh]);
   useEffect(()=>{
@@ -150,7 +150,7 @@ function App() {
   },[noteDrafts,scope,states]);
   const state = current ? states[current.paper_key] || emptyState(current.paper_key) : null;
   const change = useCallback(async(p:Paper,patch:StatePatch,advance=false)=>{
-    if(!session){setSettingsTab('account');setSettings(true);setNotice(uiText("登录后即可保存阅读状态并在设备间同步。"));return;}
+    if(!session){setSettingsTab('account');setSettings(true);return;}
     if(pending.current)return;
     const captured=activeScope.current;
     const cloud=getClient();refreshTicket.current++;
@@ -206,7 +206,7 @@ function App() {
   const [archiveUndo,setArchiveUndo]=useState<{scope:string;items:{paper_key:string;revision:number}[]}>({scope:'',items:[]});
   const undoItems=archiveUndo.scope===scope?archiveUndo.items:[];
   async function bulkArchive(){
-    if(!session){setArchiveConfirm(false);setSettings(true);return;}
+    if(!session){setArchiveConfirm(false);setSettingsTab('account');setSettings(true);return;}
     if(pending.current)return;
     const captured=activeScope.current,cloud=getClient();
     const active=()=>activeScope.current===captured&&getClient()===cloud;
@@ -246,8 +246,10 @@ function App() {
       <div className="nav-bottom"><ReadingProgress libraryView={view==='starred'||view==='archive'} run={run} batch={papers} runs={runs} states={states}/><div className="sync-note" data-sync={busy?'syncing':syncStatus} title={uiText(busy||syncStatus==='syncing'?"正在同步…":syncStatus==='failed'?"同步失败":syncStatus==='synced'?"已同步":"待同步")}><i className={session?'online':''}/>{session?uiText("云端账户已连接"):uiText("访客浏览 · 登录后同步")}</div><button className="profile" onClick={()=>{setSettingsTab('account');setSettings(true);}}><span className="avatar">{session?'U':'G'}</span><span>{session?.user.user_metadata.user_name || uiText("工作台设置")}<small>{uiText("账户与阅读偏好")}</small></span><span>⚙</span></button></div>
     </aside>
     <main className="main"><header className="topbar workspace-heading"><div className="heading-main"><button className="menu-toggle" aria-label={uiText("导航菜单")} aria-expanded={menuOpen} onClick={()=>setMenuOpen(!menuOpen)}>☰</button><h1>{uiText(guide?"使用指南":labels[view])}</h1>{!guide&&<div className="summary-strip"><span><b>{papers.length}</b> {uiText("篇推荐")}</span><span><b>{high}</b> {uiText("篇高相关")}</span><span><b>{papers.filter(p=>states[p.paper_key]?.starred&&!states[p.paper_key]?.dismissed_at).length}</b> {uiText("篇待精读")}</span></div>}</div><div className="workspace-tools"><a className="mobile-guide" href="#guide">{uiText("使用指南")}</a><LanguageSwitch/><time>{displayDate || uiText("暂无日报")}</time><button className="quiet" onClick={()=>setHelp(true)}>{uiText("快捷键")} <kbd>?</kbd></button><button className="mobile-settings quiet" onClick={()=>{setSettingsTab('account');setSettings(true);}}>{uiText("设置")}</button></div></header>
+      <div className="workspace-notifications">
       {error&&<div className="banner error" role="alert">{error}<button onClick={()=>{setRetry(x=>x+1);if(session)void refresh().catch(()=>{});}}>{uiText("重试读取")}</button><button aria-label={uiText("关闭")} onClick={()=>setError('')}>×</button></div>}
       {notice&&<div className="banner" role="status">{notice}<button aria-label={uiText("关闭提示")} onClick={()=>setNotice('')}>×</button></div>}
+      </div>
       {(guide||view==='manage'||view==='topics')?<div className="workspace-page" key={guide?'guide':view}>{guide?<Guide openSettings={()=>{setSettingsTab('account');setSettings(true);}}/>:view==='manage'?<Suspense fallback={<p>{uiText("正在加载研究管理…")}</p>}><ManagementPanel key={`${repository}:${branch}`} config={{repository,ref:branch,token:githubToken}} configure={()=>{setSettingsTab('deep');setSettings(true);}}/></Suspense>:<TopicsPanel entries={runs.filter(r=>r.kind==='topic')} open={(id,key)=>{setRun(id);setView('inbox');if(key)setSelected(key);}}/>}</div>:<>
       <div className="toolbar"><label className="search"><span>⌕</span><input ref={searchInput} aria-label={uiText("搜索论文")} placeholder={uiText("搜索标题、摘要或研究方向…")} value={query} onChange={e=>setQuery(e.target.value)}/><kbd>/</kbd></label><select title={runs.find(r=>r.run_id===run)?.title||displayDate} aria-label={uiText("推荐日期")} disabled={view==='starred'||view==='archive'} value={view==='starred'||view==='archive'?'all':run} onChange={e=>setRun(e.target.value)}><option value="all">{uiText("全部日期")}</option>{runs.map(r=><option key={r.run_id} value={r.run_id}>{runLabel(r)}</option>)}</select><button className="quiet" disabled={busy||!batchTargets.length} onClick={()=>setArchiveConfirm(true)}>{uiText("批量归档")}</button>{undoItems.length>0&&<button className="quiet" disabled={busy} onClick={()=>void undoArchive()}>{uiText("撤销上次归档（")}{undoItems.length}）</button>}</div>
       <div className={'reading-layout'+(detail?' detail-open':'')}><section className="paper-list" aria-label={uiText("论文列表")}><div className="list-caption"><span>{visible.length} {uiText("篇论文")}</span>{view==='inbox'?<div className="queue-filter">{[false,true].map(value=><button key={String(value)} aria-pressed={unreadOnly===value} onClick={()=>setUnreadOnly(value)}>{uiText(value?'未读':'全部')}</button>)}</div>:<span>{uiText("按匹配得分排序")}</span>}{allRead&&<span role="status">{uiText("已读完当前队列")}</span>}</div>
@@ -293,7 +295,7 @@ function App() {
       </div><button aria-label={uiText(panel==='chat'?"关闭问答":"关闭笔记")} onClick={()=>setPanel(null)}>× <kbd>Esc</kbd></button></header>
       {panel==='notes'?<div role="tabpanel"><strong className="chat-title">{current.title}</strong><NoteEditor saved={state?.note_text??''} draft={noteDrafts[noteKey(current)]} edit={draft=>setNoteDrafts(d=>({...d,[noteKey(current)]:draft}))} discard={()=>setNoteDrafts(d=>{const next={...d};delete next[noteKey(current)];return next;})} save={()=>{if(!session)download(current);void change(current,{note_text:personalNote(current)});}} busy={busy} loggedIn={!!session}/></div>:<ChatPanel key={current.paper_key} paper={current} config={{endpoint:chatEndpoint,model:chatModel,apiKey:chatKey}} messages={histories[current.paper_key]||[]} save={messages=>setHistories(old=>({...old,[current.paper_key]:messages}))} configure={()=>{setSettingsTab('chat');setSettings(true);}}/>}</aside>}
     {feedbackOpen&&<Modal title={uiText("项目反馈")} close={()=>setFeedbackOpen(false)}><FeedbackForm/></Modal>}
-    {settings&&<SettingsDialog config={settingsConfig} session={session} syncStatus={busy?'syncing':syncStatus} syncTime={syncTime} initialTab={settingsTab} paper={current} runs={runs} states={states} close={()=>setSettings(false)} save={saveSettings} refresh={refresh} clearSecrets={clearSecrets} forget={forgetSecret}/>}
+    {settings&&<SettingsDialog config={settingsConfig} session={session} syncStatus={busy?'syncing':syncStatus} syncTime={syncTime} initialTab={settingsTab} paper={current} runs={runs} states={states} close={()=>setSettings(false)} save={saveSettings} refresh={()=>refresh(false)} clearSecrets={clearSecrets} forget={forgetSecret}/>}
 
     {help&&<Modal title={uiText("让阅读更顺手")} close={()=>setHelp(false)}><dl className="shortcuts">{[['j / k',uiText("下一篇 / 上一篇")],['s',uiText("加入或移出待精读")],['x',uiText("归档或恢复")],['o',uiText("打开原文")],['n',uiText('阅读笔记')],['r',uiText('标为已读并继续')],['u',uiText('切换已读状态')],['c',uiText("打开或收起 AI 问答")],['?',uiText("查看快捷键")]].map(([k,v])=><div key={k}><dt><kbd>{k}</kbd></dt><dd>{v}</dd></div>)}</dl><p>{uiText("输入文字时不会触发快捷键。")}</p><button onClick={()=>{setHelp(false);setFeedbackOpen(true);}}>{uiText("反馈问题")}</button></Modal>}
     {archiveConfirm&&<Modal title={uiText("归档当前日期的未读论文")} close={()=>setArchiveConfirm(false)}><p>{uiText("将归档")} {displayDate} {uiText("的")} {batchTargets.length} {uiText("篇未读论文。已收藏的论文会保留，之后可从“已归档”逐篇恢复。")}</p><button className="primary" onClick={()=>void bulkArchive()}>{uiText("归档")} {batchTargets.length} {uiText("篇")}</button></Modal>}

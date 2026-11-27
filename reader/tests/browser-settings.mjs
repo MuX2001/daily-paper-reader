@@ -28,7 +28,14 @@ try{
    if(method==='POST'){githubPosts++;return r.fulfill({status:204});}
    await r.fulfill({json:{state:'active'}});
  });
- await page.goto(process.env.DPR_TEST_URL);await page.locator('.paper-card').first().waitFor();await page.locator('.profile').click();
+ await page.goto(process.env.DPR_TEST_URL);await page.locator('.paper-card').first().waitFor();const headingY=(await page.locator('.paper-heading').boundingBox()).y;
+ await page.keyboard.press('u');
+ await expect(page.locator('.settings-body').getByText('登录后即可保存阅读状态并在设备间同步。')).toBeVisible();
+ await expect(page.locator('.settings-heading')).not.toContainText('未登录');
+ await expect(page.locator('.workspace-notifications .banner').filter({hasText:'登录后即可保存'})).toHaveCount(0);
+ await page.getByRole('button',{name:'关闭对话框'}).click();
+ assert.equal((await page.locator('.paper-heading').boundingBox()).y,headingY);
+ await page.locator('.profile').click();
  await expect(page.getByRole('heading',{name:'工作台设置',exact:true})).toBeVisible();await expect(page.getByRole('tab')).toHaveCount(5);
  const tab=name=>page.getByRole('tab',{name:new RegExp(name)}).click();
  await tab('网页 AI 聊天');await page.getByLabel('快速预设').selectOption('0');await page.getByLabel('聊天 API Key',{exact:true}).fill('session-only');
