@@ -36,6 +36,9 @@ def validate_fulltext(text):
         raise ValueError('Received an error page instead of a paper')
     if not re.search(r'\b(references|bibliography)\b',lower):
         raise ValueError('Full text lacks a references section; refusing incomplete deep reading')
+    heading=re.search(r"(?im)^\s*(?:references|bibliography)\s*$",text)
+    if heading and len(text[:heading.start()].strip())<1800:
+        raise ValueError("Insufficient paper body before the bibliography")
     return text
 
 

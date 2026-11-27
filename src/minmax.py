@@ -128,14 +128,19 @@ def enrich_feed(path,root,client,max_new=50,enricher=enrich):
             result,reused=enricher(p,client,root,allow_new=calls<max_new)
             if result is None:
                 if p.get('minmax',{}).get('status')!='ready':p['minmax']={'status':'deferred','reason':'本轮生成预算已用完'}
-            else:feed['papers'][i]=result;calls+=not reused
+            else:
+                result.pop('analysis_error',None)
+                feed['papers'][i]=result;calls+=not reused
         except Exception as exc:
             # Count failed attempts conservatively toward the budget too.
             calls+=1;failures+=1
-            if p.get('minmax',{}).get('status')!='ready':p['minmax']={'status':'unavailable','reason':('此来源尚未接入已核验全文抽取，请打开原文' if p.get('source')!='arxiv' else '原文获取或事实抽取失败；未以摘要冒充原文分析')}
+            p['analysis_error']={'stage':'source' if isinstance(exc,ValueError) and 'verified complete text' in str(exc) else 'analysis','reason':str(exc)[:400] if isinstance(exc,ValueError) else type(exc).__name__}
+            if not p.get('narrative') and p.get('minmax',{}).get('status')!='ready':
+                p['content_status']='partial'
+                p['minmax']={'status':'unavailable','reason':('此来源尚未接入已核验全文抽取，请打开原文' if p.get('source')!='arxiv' else '原文获取或事实抽取失败；未以摘要冒充原文分析')}
             print(f"{p['paper_key']}: {type(exc).__name__}",flush=True)
         atomic_json(path,feed)
-    atomic_json(Path(root)/'minmax-report.json',{'model_requests_upper_bound':calls,'failures':failures,'papers':len(feed['papers'])})
+    atomic_json(Path(root)/'minmax-report.json',{'papers_attempted':calls,'model_responses':getattr(client,'_call_index',0),'tokens':getattr(client,'_cum_tokens',{}),'failures':failures,'papers':len(feed['papers'])})
     return feed
 
 
@@ -151,7 +156,8 @@ def main():
     from urllib.parse import urlsplit
     if urlsplit(endpoint).hostname=='api.deepseek.com':
         client.kwargs.pop('temperature',None)
-        client.kwargs.update(max_tokens=65536,thinking={'type':'enabled'},reasoning_effort='high')
+        if a.style=='narrative':client.kwargs.update(max_tokens=4096,thinking={'type':'disabled'})
+        else:client.kwargs.update(max_tokens=65536,thinking={'type':'enabled'},reasoning_effort='high')
     if a.style=='narrative':
         from minmax_narrative import enrich as selected_enricher
     elif a.style=='readable':

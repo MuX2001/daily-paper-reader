@@ -30,3 +30,15 @@ class NarrativeTests(unittest.TestCase):
             new,reused=enrich(paper,client,root,fetcher=fetcher);self.assertFalse(reused);self.assertEqual(new['minmax'],paper['minmax']);self.assertNotIn('narrative',paper)
             self.assertTrue(enrich(paper,client,root,False,fetcher)[1]);self.assertEqual(len(calls),1)
             client.kwargs={'changed':True};self.assertEqual(enrich(paper,client,root,False,fetcher),(None,False));self.assertEqual(len(calls),1)
+
+def test_json_math_and_structure():
+    import json
+    from narrative_text import validate_prose
+    text = r'$$\begin{aligned}\frac{\tau}{\beta}&=\nabla f\end{aligned}$$' + '\n\n1. First\n2. Second\n\n- A\n- B'
+    decoded = json.loads(json.dumps(text))
+    validate_prose(decoded)
+    assert decoded == text
+    import pytest
+    for command in (r'\frac',r'\tau',r'\beta',r'\nabla',r'\begin{aligned}'):
+        with pytest.raises(ValueError):
+            validate_prose(json.loads('"$'+command+'$"'))

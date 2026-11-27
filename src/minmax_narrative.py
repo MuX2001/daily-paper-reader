@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 import warnings
 from minmax_readable import context
+from narrative_text import validate_prose
 from reader_fulltext import get_fulltext
 from triage_enrich import atomic_json
 
@@ -17,7 +18,7 @@ BANNED=('提出了一种创新性框架','有效解决了','显著提升了','�
 
 
 def active_prompt():
-    return prompt_for(PROMPT, 'Use card_hook, context_and_problem, core_approach (2–4 paragraphs), experimental_results, caveats_and_pointers and tags (2–4). Explain design choices in connected sentences. Aim for 160–210 words total. Mention only verified figure numbers.')
+    return prompt_for(PROMPT, 'Use card_hook, context_and_problem, core_approach (2–4 paragraphs), experimental_results, caveats_and_pointers and tags (2–4). Explain design choices in connected sentences. Aim for 160–210 words total. Mention only verified figure numbers. Preserve Markdown paragraphs, lists and display math, JSON-escape LaTeX backslashes. State when evidence is missing.')
 
 
 def narrative_context(text):
@@ -44,6 +45,13 @@ def narrative_context(text):
     # Budget in source characters (roughly 3.5–5.5k English tokens).
     # Prioritize conclusions and captions ahead of supplementary method text.
     priority=spans[:1]+spans[-len(endings):] if endings else spans[:1]
+    # Reserve source spans for results and a late body excerpt even in PDFs
+    # without recognizable headings. References must not consume this budget.
+    result=re.search(r'(?im)^\s*(?:[0-9.IVX]+\s+)?(?:results|experiments|evaluation|experimental results)\b[^\n]{0,60}$',body)
+    if result:
+        priority.append((result.start(),min(len(body),result.end()+2200)))
+    if not endings:
+        priority.append((max(0,len(body)-1800),len(body)))
     merged=[]
     remaining=19500
     for a,b in priority+spans:
@@ -69,6 +77,12 @@ def validate(value, *, draft=False):
     for k in ('core_approach','tags'):
         xs=value[k]
         if not isinstance(xs,list) or not 2<=len(xs)<=4 or any(not isinstance(x,str) or not x.strip() or len(x)>(450 if k=='core_approach' else 20) for x in xs):raise ValueError('Invalid narrative list: '+k)
+    for field in FIELDS:
+        for fragment in value[field] if isinstance(value[field],list) else [value[field]]:
+            validate_prose(fragment)
+    sections=[value[k].strip() for k in ('context_and_problem','experimental_results','caveats_and_pointers')]
+    if len(set(sections))!=len(sections):
+        raise ValueError('Duplicated narrative sections')
     body=value['context_and_problem']+''.join(value['core_approach'])+value['experimental_results']+value['caveats_and_pointers']
     if len(body)>(2400 if draft else (1800 if summary_language()=="en" else 1200)):raise ValueError('Narrative too long')
     if not 550<=len(body)<=750:warnings.warn(f'Narrative length {len(body)} outside soft target 550–750')
@@ -91,7 +105,17 @@ def enrich(paper,client,root,allow_new=True,fetcher=get_fulltext, *, draft=False
     if reused:value=validate(json.loads(path.read_text())['result'],draft=draft)
     else:
         if not allow_new:return None,False
-        response=client.chat_structured([{'role':'system','content':active_prompt()},{'role':'user','content':request}],schema_name='narrative_card',schema=SCHEMA,allow_validation_fallback=False)
-        if response.get('parse_error') or response.get('refusal') or response.get('finish_reason')=='length':raise ValueError('Incomplete narrative response')
-        value=validate(response.get('parsed'),draft=draft);atomic_json(path,{'result':value,'identity':identity,'tokens':response.get('tokens')})
+        messages=[{'role':'system','content':active_prompt()},{'role':'user','content':request}]
+        for attempt in range(2):
+            response=client.chat_structured(messages,schema_name='narrative_card',schema=SCHEMA,allow_validation_fallback=False)
+            try:
+                if response.get('parse_error') or response.get('refusal') or response.get('finish_reason')=='length':
+                    raise ValueError('Incomplete or invalid narrative JSON')
+                decoded=json.loads(response['content']) if 'content' in response else response.get('parsed')
+                value=validate(decoded,draft=draft)
+                break
+            except ValueError as exc:
+                if attempt:raise
+                messages.append({'role':'user','content':f'Validation failed: {exc}. Regenerate the complete JSON from the supplied evidence. Use JSON-escaped LaTeX and distinct sections.'})
+        atomic_json(path,{'result':value,'identity':identity,'tokens':response.get('tokens')})
     return {**paper,'content_status':'minmax','narrative':value,'narrative_provenance':{'source':meta,'cache_key':key,'input_scope':'selected_excerpts','model':client.model}},reused
