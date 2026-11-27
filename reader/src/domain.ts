@@ -3,6 +3,7 @@ export interface ReadableCard {tldr:string;problem_delta:string;method_steps:str
 export interface MinMax {readable?:ReadableCard;format?:string;status:string;reason?:string;input_scope?:string;source?:{source_url:string;format:string};excerpts?:{id:string;start:number;end:number;text:string}[];delta?:MinMaxClaim;steps?:MinMaxClaim;evidence?:MinMaxClaim;constraints?:MinMaxClaim;landmarks?:MinMaxClaim}
 export interface Narrative {card_hook:string;context_and_problem:string;core_approach:string[];experimental_results?:string;caveats_and_pointers?:string;results_and_reality_check?:string;tags:string[]}
 export interface Paper {
+  arxiv_id?: string | null; id?: string | null;
   partial_narrative?:Partial<Narrative>; analysis_error?:{stage:string;reason:string}; narrative?:Narrative; recommendation_reason?:string;
   minmax?:MinMax; minmax_candidate?:MinMax;
   venue?: string | null;
@@ -29,6 +30,27 @@ export const emptyState = (key: string): PaperState => ({paper_key:key, starred:
 export function safeURL(value: string | null | undefined): string | undefined {
   if (!value) return;
   try { const url = new URL(value); if (['https:', 'http:'].includes(url.protocol) && !url.username && !url.password) return url.href; } catch { /* missing URL */ }
+}
+type PaperLinks = Partial<Pick<Paper, 'arxiv_id' | 'id' | 'url' | 'pdf_url' | 'source' | 'original_id'>>;
+
+export function getCanonicalArxivUrl(paper: PaperLinks): string | undefined {
+  const catalogId = paper.source === 'arxiv' ? paper.original_id : undefined;
+  for (const value of [paper.arxiv_id, paper.id, paper.url, paper.pdf_url, catalogId]) {
+    if (typeof value !== 'string') continue;
+    let id = value.trim();
+    if (/^https?:\/\//i.test(id)) {
+      const href = safeURL(id);
+      if (!href) continue;
+      const url = new URL(href);
+      if (!/^(?:[\w-]+\.)*arxiv\.org$/i.test(url.hostname)) continue;
+      id = url.pathname.replace(/^\/(?:abs|pdf|html)\//i, '');
+    }
+    id = id.replace(/^arxiv:\s*/i, '').replace(/\.pdf$/i, '');
+    if (/^(?:\d{4}\.\d{4,5}|[a-z][a-z.-]*\/\d{7})(?:v[1-9]\d*)?$/i.test(id)) {
+      return 'https://arxiv.org/abs/' + id;
+    }
+  }
+  return safeURL(paper.pdf_url) || safeURL(paper.url);
 }
 export function filterPapers(papers: Paper[], states: Record<string, PaperState>, view: View, query: string) {
   const q = query.trim().toLowerCase();

@@ -13,7 +13,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspens
 import { createRoot } from 'react-dom/client';
 import type { Session } from '@supabase/supabase-js';
 import { catalog, feed, library, configureCloud, getClient, matchesCloudConfiguration, loadStates, saveState } from './api';
-import { nextUnread, editableTarget, emptyState, filterPapers, safeURL, type Catalog, type Paper, type PaperState, type StatePatch, type View } from './domain';
+import { getCanonicalArxivUrl, nextUnread, editableTarget, emptyState, filterPapers, safeURL, type Catalog, type Paper, type PaperState, type StatePatch, type View } from './domain';
 import './style.css';
 import {ReadingMaterial} from './ReadingMaterial';
 import {SettingsDialog} from './settings/SettingsDialog';
@@ -162,6 +162,20 @@ function App() {
     catch(e){if(activeScope.current===captured&&getClient()===cloud){setOptimistic(null);if(target)setSelected(key=>key===target?p.paper_key:key);setError(errorMessage(e));await refresh().catch(()=>{});}}
     finally{pending.current=false;setBusy(false);setOptimistic(null);}
   },[session,states,refresh,visible,view,unreadOnly]);
+  const [copiedLink,setCopiedLink]=useState<{key:string}|null>(null);
+  useEffect(()=>{
+    if(!copiedLink)return;
+    const timer=window.setTimeout(()=>setCopiedLink(null),1200);
+    return ()=>window.clearTimeout(timer);
+  },[copiedLink]);
+  const copyPaperLink=useCallback(async(p:Paper)=>{
+    const url=getCanonicalArxivUrl(p);
+    if(!url)return;
+    try{
+      await navigator.clipboard.writeText(url);
+      setCopiedLink({key:p.paper_key});
+    }catch{setError(uiText("无法访问剪贴板，请检查浏览器权限。"));}
+  },[]);
   const openOriginal = useCallback((p:Paper)=>{const link=safeURL(p.pdf_url)||safeURL(p.url);if(link)window.open(link,'_blank','noopener,noreferrer');else setNotice(uiText("该论文尚无可核验原文链接"));},[]);
   async function downloadPDF(p:Paper){
     const url=safeURL(p.pdf_url);
@@ -185,7 +199,7 @@ function App() {
       if(e.key==='?'){setHelp(true);return;}
       if(e.key==='/'&&searchInput.current){e.preventDefault();searchInput.current.focus();return;}
       if(!current||view==='topics')return;
-      if(['j','k','s','x','o','u','n','r','Escape'].includes(e.key))e.preventDefault();
+      if(['j','k','s','x','o','u','n','r','y','Escape'].includes(e.key))e.preventDefault();
       const i=visible.findIndex(p=>p.paper_key===current.paper_key);
       if(e.key==='j'||e.key==='k')setSelected(visible[Math.max(0,Math.min(visible.length-1,i+(e.key==='j'?1:-1)))].paper_key);
       if(e.key==='c'){e.preventDefault();togglePanel('chat');}
@@ -194,11 +208,12 @@ function App() {
       if(e.key==='u')void change(current,{read_at:state?.read_at?null:new Date().toISOString()});
       if(e.key==='s')void change(current,{starred:!state?.starred});
       if(e.key==='x')void change(current,{dismissed_at:state?.dismissed_at?null:new Date().toISOString()},!state?.dismissed_at);
+      if(e.key==='y'&&!e.repeat)void copyPaperLink(current);
       if(e.key==='o')openOriginal(current);
       if(e.key==='Escape')setDetail(false);
     };
     window.addEventListener('keydown',handler);return()=>window.removeEventListener('keydown',handler);
-  },[current,state,visible,change,openOriginal,settings,help,feedbackOpen,archiveConfirm,githubToken,view,panel,guide]);
+  },[current,state,visible,change,openOriginal,copyPaperLink,settings,help,feedbackOpen,archiveConfirm,githubToken,view,panel,guide]);
   useEffect(()=>{document.querySelector(`[data-paper-key="${CSS.escape(current?.paper_key || '')}"]`)?.scrollIntoView({block:'nearest'});},[current?.paper_key]);
   const high = papers.filter(p=>(p.score||0)>=8).length;
   const displayDate = view==='starred'||view==='archive'||run==='all' ? uiText("全部日期") : run.length===8 && lang==='en'?run.slice(0,4)+'-'+run.slice(4,6)+'-'+run.slice(6):run.length===8 ? `${run.slice(0,4)}.${run.slice(4,6)}.${run.slice(6,8)}` : run.replace('-',' — ');
@@ -268,6 +283,7 @@ function App() {
             <button disabled={busy} onClick={()=>void change(current,{read_at:state?.read_at?null:new Date().toISOString()},!state?.read_at)}>{uiText(state?.read_at?"标记为未读":"标记为已读")} <kbd>u</kbd></button>
             <ReadingMaterial paper={current}/>
             <button onClick={()=>void copyReading(current)}>{uiText("复制精读包")}</button>
+            <button className="copy-paper-link" data-copied={copiedLink?.key===current.paper_key} aria-keyshortcuts="y" disabled={!getCanonicalArxivUrl(current)} onClick={()=>void copyPaperLink(current)}>{copiedLink?.key===current.paper_key?'✓ '+uiText("已复制"):uiText("复制链接")} <kbd>y</kbd></button>
             <details className="export-menu" onBlur={e=>{if(!e.currentTarget.contains(e.relatedTarget))e.currentTarget.open=false;}} onKeyDown={e=>{if(e.key==='Escape'){e.stopPropagation();e.currentTarget.open=false;e.currentTarget.querySelector('summary')?.focus();}}}>
               <summary>{uiText("导出")} ▾</summary>
               <div onClick={e=>{const menu=e.currentTarget.closest('details');if(menu)menu.open=false;}}>
@@ -297,7 +313,7 @@ function App() {
     {feedbackOpen&&<Modal title={uiText("项目反馈")} close={()=>setFeedbackOpen(false)}><FeedbackForm/></Modal>}
     {settings&&<SettingsDialog config={settingsConfig} session={session} syncStatus={busy?'syncing':syncStatus} syncTime={syncTime} initialTab={settingsTab} paper={current} runs={runs} states={states} close={()=>setSettings(false)} save={saveSettings} refresh={()=>refresh(false)} clearSecrets={clearSecrets} forget={forgetSecret}/>}
 
-    {help&&<Modal title={uiText("让阅读更顺手")} close={()=>setHelp(false)}><dl className="shortcuts">{[['j / k',uiText("下一篇 / 上一篇")],['s',uiText("加入或移出待精读")],['x',uiText("归档或恢复")],['o',uiText("打开原文")],['n',uiText('阅读笔记')],['r',uiText('标为已读并继续')],['u',uiText('切换已读状态')],['c',uiText("打开或收起 AI 问答")],['?',uiText("查看快捷键")]].map(([k,v])=><div key={k}><dt><kbd>{k}</kbd></dt><dd>{v}</dd></div>)}</dl><p>{uiText("输入文字时不会触发快捷键。")}</p><button onClick={()=>{setHelp(false);setFeedbackOpen(true);}}>{uiText("反馈问题")}</button></Modal>}
+    {help&&<Modal title={uiText("让阅读更顺手")} close={()=>setHelp(false)}><dl className="shortcuts">{[['j / k',uiText("下一篇 / 上一篇")],['s',uiText("加入或移出待精读")],['x',uiText("归档或恢复")],['o',uiText("打开原文")],['y',uiText('复制论文链接')],['n',uiText('阅读笔记')],['r',uiText('标为已读并继续')],['u',uiText('切换已读状态')],['c',uiText("打开或收起 AI 问答")],['?',uiText("查看快捷键")]].map(([k,v])=><div key={k}><dt><kbd>{k}</kbd></dt><dd>{v}</dd></div>)}</dl><p>{uiText("输入文字时不会触发快捷键。")}</p><button onClick={()=>{setHelp(false);setFeedbackOpen(true);}}>{uiText("反馈问题")}</button></Modal>}
     {archiveConfirm&&<Modal title={uiText("归档当前日期的未读论文")} close={()=>setArchiveConfirm(false)}><p>{uiText("将归档")} {displayDate} {uiText("的")} {batchTargets.length} {uiText("篇未读论文。已收藏的论文会保留，之后可从“已归档”逐篇恢复。")}</p><button className="primary" onClick={()=>void bulkArchive()}>{uiText("归档")} {batchTargets.length} {uiText("篇")}</button></Modal>}
   </div>;
 }

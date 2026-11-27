@@ -8,6 +8,20 @@ try{
  await page.route('https://api.github.com/**',async route=>{calls++;await route.abort();});
  await page.goto(process.env.DPR_TEST_URL);await page.locator('.paper-card').first().waitFor();
  const panel=page.locator('.preview-buttons');
+ const copy=panel.locator('.copy-paper-link');
+ await copy.click();
+ await expect(copy).toHaveText(/✓ 已复制/);
+ assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),'https://arxiv.org/abs/1706.03762v1');
+ await expect(copy).toHaveText(/复制链接/);
+ await page.locator('.paper-select').nth(1).click();
+ await page.keyboard.press('y');
+ await expect(copy).toHaveText(/✓ 已复制/);
+ assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),'https://arxiv.org/abs/1706.03762v2');
+ await page.locator('.paper-select').first().click();
+ const search=page.locator('.search input');
+ await search.focus();await page.keyboard.press('y');
+ assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),'https://arxiv.org/abs/1706.03762v2');
+ await search.fill('');
  await panel.getByRole('button',{name:'编辑提示词',exact:true}).click();
  const editor=page.getByRole('dialog',{name:'编辑精读提示词',exact:true});
  const original=await editor.getByLabel('精读提示词',{exact:true}).inputValue();
@@ -23,7 +37,7 @@ try{
  assert.match(await page.evaluate(()=>navigator.clipboard.readText()),/特别关注复杂度与消融/);
 
  assert.match(await page.evaluate(()=>navigator.clipboard.readText()),/1706\.03762v1/);
- await page.setViewportSize({width:390,height:844});await page.locator('.paper-select').first().click();await expect(panel.getByRole('button',{name:'复制精读包'})).toBeVisible();
+ await page.setViewportSize({width:390,height:844});if(!await panel.isVisible())await page.locator('.paper-select').first().click();await expect(panel.getByRole('button',{name:'复制精读包'})).toBeVisible();
  const mobile=await notice.boundingBox();
  assert.ok(mobile.y>page.viewportSize().height/2 && mobile.y+mobile.height<=page.viewportSize().height);
  assert.equal(calls,0);
