@@ -3,7 +3,7 @@ export interface ReadableCard {tldr:string;problem_delta:string;method_steps:str
 export interface MinMax {readable?:ReadableCard;format?:string;status:string;reason?:string;input_scope?:string;source?:{source_url:string;format:string};excerpts?:{id:string;start:number;end:number;text:string}[];delta?:MinMaxClaim;steps?:MinMaxClaim;evidence?:MinMaxClaim;constraints?:MinMaxClaim;landmarks?:MinMaxClaim}
 export interface Narrative {card_hook:string;context_and_problem:string;core_approach:string[];experimental_results?:string;caveats_and_pointers?:string;results_and_reality_check?:string;tags:string[]}
 export interface Paper {
-  narrative?:Narrative;
+  narrative?:Narrative; recommendation_reason?:string;
   minmax?:MinMax; minmax_candidate?:MinMax;
   venue?: string | null;
   publication_date?: string | null; publication_date_precision?: string | null;
@@ -12,7 +12,7 @@ export interface Paper {
   title: string; title_zh: string | null; abstract: string | null; authors: string[]; published: string | null;
   url: string | null; pdf_url: string | null; score: number | null; reason: string | null; tldr: string | null;
   tags: string[]; breakdown: {problem: string | null; method: string | null; results: string | null};
-  thumbnail: {url: string; kind: string; evidence?:string} | null; code_url: string | null; content_status: string;
+  thumbnail: {url: string; kind: string; evidence?:string; source_url?:string} | null; code_url: string | null; content_status: string;
 }
 export interface PaperState { note_text?: string; legacy_status?: string; legacy_imported_at?: string; paper_key: string; starred: boolean; read_at: string | null; dismissed_at: string | null; feedback: number; revision: number }
 export type StatePatch = Partial<Pick<PaperState, 'starred' | 'read_at' | 'dismissed_at' | 'feedback' | 'note_text'>>;

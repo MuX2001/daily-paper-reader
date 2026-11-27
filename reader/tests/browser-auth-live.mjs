@@ -28,6 +28,7 @@ try{
  await page.getByRole('button',{name:'立即同步',exact:true}).click();await expect(page.getByText('已读取云端阅读状态',{exact:true})).toBeVisible();
  await page.getByRole('button',{name:'关闭对话框',exact:true}).click();
  await page.getByText('云端账户已连接',{exact:true}).waitFor();
+ await page.locator('.preview-buttons').getByRole('button',{name:/笔记/}).click();
  const note=page.getByRole('textbox',{name:'个人阅读笔记',exact:true});await note.fill('Actual UI login test note');
  await page.getByRole('button',{name:'保存笔记',exact:true}).click();
  await expect(page.locator('.note-controls [role=status]')).toContainText('与云端一致');
@@ -36,6 +37,7 @@ try{
  await page.getByRole('button',{name:'邮箱登录',exact:true}).click();
  await expect(page.getByRole('button',{name:'退出登录',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'关闭对话框',exact:true}).click();await page.reload();
+ await page.locator('.preview-buttons').getByRole('button',{name:/笔记/}).click();
  await expect(page.getByRole('textbox',{name:'个人阅读笔记',exact:true})).toHaveValue('Actual UI login test note');
  console.log('PASS real UI signup, password login, persistent note, hidden disabled GitHub provider, draft connection isolation and manual sync; no auth mocks');
 }finally{

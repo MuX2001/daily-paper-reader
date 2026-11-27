@@ -4,7 +4,7 @@ import {LanguageSwitch,useLanguage} from './i18n/LanguageProvider';
 import type {ChatMessage} from './chat';
 import {ReadingProgress} from './ReadingProgress';
 import {ArchiveIcon,StarButton} from './PaperActions';
-import {cardHook,displayTitle,runLabel} from './presentation';
+import {cardHook,displayTags,displayTitle,runLabel} from './presentation';
 import {readingMaterial,readingPrompt} from './readingMaterial';
 import {MinMaxCard} from './MinMaxCard';
 import {errorMessage} from './errors';
@@ -17,12 +17,12 @@ import './style.css';
 import {ReadingMaterial} from './ReadingMaterial';
 import {SettingsDialog} from './settings/SettingsDialog';
 import {readSetting,rememberedSecrets,exportPreferences,storeValues,saveSecrets,type SettingsConfig,type SettingsTab} from './settings/config';
-import {PaperThumbnail} from './PaperThumbnail';
+import {PaperOverview} from './PaperOverview';
 import {FeedbackForm} from './FeedbackForm';
 import {NoteEditor,type NoteDraft} from './NoteEditor';
 import {noteMarkdown,exportFilename,obsidianURI,obsidianFolder} from './notes';
 import {scopedBatch} from './scopedBatch';
-import {installCitation,downloadCitation,citationDate} from './citation';
+import {bibtex,installCitation,downloadCitation,citationDate} from './citation';
 const ManagementPanel=lazy(()=>import('./ManagementPanel').then(module=>({default:module.ManagementPanel})));
 import { TopicsPanel } from './TopicsPanel';
 import { ChatPanel } from './ChatPanel';
@@ -35,7 +35,7 @@ function App() {
   const [guide,setGuide]=useState(()=>location.hash==='#guide');
   const searchInput=useRef<HTMLInputElement>(null);
   useEffect(()=>{
-    const navigate=()=>{setGuide(location.hash==='#guide');setMenuOpen(false);setChatOpen(false);setDetail(false);};
+    const navigate=()=>{setGuide(location.hash==='#guide');setMenuOpen(false);setPanel(null);setDetail(false);};
     window.addEventListener('hashchange',navigate);
     return ()=>window.removeEventListener('hashchange',navigate);
   },[]);
@@ -43,7 +43,8 @@ function App() {
   const [loading,setLoading] = useState(true), [error,setError] = useState(''), [notice,setNotice] = useState('');
   const [menuOpen,setMenuOpen]=useState(false);
   const [collapsed,setCollapsed]=useState(()=>window.innerWidth<1280);
-  const [chatOpen,setChatOpen]=useState(false);
+  const [panel,setPanel]=useState<'chat'|'notes'|null>(null);
+  const togglePanel=(tab:'chat'|'notes')=>setPanel(open=>open===tab?null:tab);
   const lang=useLanguage();
   useEffect(()=>{document.documentElement.lang=lang;},[lang]);
   const [narrow,setNarrow]=useState(()=>window.innerWidth<1600);
@@ -169,22 +170,24 @@ function App() {
   async function copyReading(p:Paper){try{await navigator.clipboard.writeText(readingMaterial(p,personalNote(p),readSetting(`dpr.reading.prompt.${p.paper_key}`)||readingPrompt(p)));setNotice(uiText("精读包已复制，请同时附上对应版本的 PDF。"));}catch{setError(uiText("无法访问剪贴板，请检查浏览器权限。"));}}
   useEffect(()=>{
     const handler=(e:KeyboardEvent)=>{
-      if(chatOpen&&e.key==="Escape"&&!document.querySelector("dialog[open]")){e.preventDefault();setChatOpen(false);return;}
+      if(panel&&e.key==="Escape"&&!document.querySelector("dialog[open]")){e.preventDefault();setPanel(null);return;}
       if(document.querySelector('dialog[open]')||e.isComposing||e.ctrlKey||e.metaKey||e.altKey||editableTarget(e.target)||view==='manage'||guide||settings||help||feedbackOpen||archiveConfirm)return;
       if(e.key==='?'){setHelp(true);return;}
       if(e.key==='/'&&searchInput.current){e.preventDefault();searchInput.current.focus();return;}
-      if(!current)return;
-      if(['j','k','s','x','o','Escape'].includes(e.key))e.preventDefault();
+      if(!current||view==='topics')return;
+      if(['j','k','s','x','o','u','n','Escape'].includes(e.key))e.preventDefault();
       const i=visible.findIndex(p=>p.paper_key===current.paper_key);
       if(e.key==='j'||e.key==='k')setSelected(visible[Math.max(0,Math.min(visible.length-1,i+(e.key==='j'?1:-1)))].paper_key);
-      if(e.key==='c'){e.preventDefault();setChatOpen(v=>!v);}
+      if(e.key==='c'){e.preventDefault();togglePanel('chat');}
+      if(e.key==='n')togglePanel('notes');
+      if(e.key==='u')void change(current,{read_at:state?.read_at?null:new Date().toISOString()});
       if(e.key==='s')void change(current,{starred:!state?.starred});
       if(e.key==='x')void change(current,{dismissed_at:state?.dismissed_at?null:new Date().toISOString()});
       if(e.key==='o')openOriginal(current);
       if(e.key==='Escape')setDetail(false);
     };
     window.addEventListener('keydown',handler);return()=>window.removeEventListener('keydown',handler);
-  },[current,state,visible,change,openOriginal,settings,help,feedbackOpen,archiveConfirm,githubToken,view,chatOpen,guide]);
+  },[current,state,visible,change,openOriginal,settings,help,feedbackOpen,archiveConfirm,githubToken,view,panel,guide]);
   useEffect(()=>{document.querySelector(`[data-paper-key="${CSS.escape(current?.paper_key || '')}"]`)?.scrollIntoView({block:'nearest'});},[current?.paper_key]);
   const high = papers.filter(p=>(p.score||0)>=8).length;
   const displayDate = view==='starred'||view==='archive'||run==='all' ? uiText("全部日期") : run.length===8 && lang==='en'?run.slice(0,4)+'-'+run.slice(4,6)+'-'+run.slice(6):run.length===8 ? `${run.slice(0,4)}.${run.slice(4,6)}.${run.slice(6,8)}` : run.replace('-',' — ');
@@ -222,12 +225,12 @@ function App() {
     }catch(e){if(active()){setError(uiText("已恢复 {0} 篇；其余可能已在归档后修改，请在已归档中检查。{1}", done, errorMessage(e)));await refresh().catch(()=>{});}}
     finally{pending.current=false;setBusy(false);}
   }
-  const showChat=!guide&&!!current&&chatOpen&&view!=='manage'&&view!=='topics';
+  const showChat=!guide&&!!current&&!!panel&&view!=='manage'&&view!=='topics';
   const bilingual=(p:Paper)=>lang==='zh'&&p.title_zh&&displayTitle(p.title_zh)!==displayTitle(p.title);
   return <div className={"workspace"+(showChat?" split-open":"")+((collapsed||(showChat&&narrow))?" nav-collapsed":"")+(menuOpen?" menu-open":"")}>
     <aside className="navigation"><button className="nav-collapse" disabled={showChat&&narrow} title={collapsed?uiText("展开导航"):uiText("折叠导航")} aria-expanded={!collapsed} onClick={()=>setCollapsed(!collapsed)}>{collapsed?"»":"«"}</button><a className="brand" href="#"><span className="brand-icon">P<span>·</span></span><span>Paper Reader<small>{uiText("把注意力留给好论文")}</small></span></a>
 
-      <div className="nav-label">{uiText("工作空间")}</div><nav>{(Object.keys(labels) as View[]).map(v=><button key={v} title={uiText(labels[v])} className={!guide&&view===v?'nav-item active':'nav-item'} onClick={()=>{if(guide)location.hash='';setChatOpen(false);setView(v);setDetail(false);setMenuOpen(false);}}><span className="nav-icon">{v==='archive'?<ArchiveIcon/>:icons[v]}</span><span className="nav-text">{uiText(labels[v])}</span>{v==='inbox'&&<span className="nav-count">{papers.filter(p=>!states[p.paper_key]?.dismissed_at).length}</span>}</button>)}</nav>
+      <div className="nav-label">{uiText("工作空间")}</div><nav>{(Object.keys(labels) as View[]).map(v=><button key={v} title={uiText(labels[v])} className={!guide&&view===v?'nav-item active':'nav-item'} onClick={()=>{if(guide)location.hash='';setPanel(null);setView(v);setDetail(false);setMenuOpen(false);}}><span className="nav-icon">{v==='archive'?<ArchiveIcon/>:icons[v]}</span><span className="nav-text">{uiText(labels[v])}</span>{v==='inbox'&&<span className="nav-count">{papers.filter(p=>!states[p.paper_key]?.dismissed_at).length}</span>}</button>)}</nav>
       <div className="nav-divider"/><div className="nav-label">{uiText("资料与工具")}</div><a className="nav-item" href="./legacy.html">▧<span>{uiText("历史阅读库")}</span></a><a title={uiText("使用指南")} aria-current={guide?"page":undefined} className={guide?"nav-item active":"nav-item"} href="#guide">◷<span>{uiText("使用指南")}</span></a>
       <div className="nav-bottom"><ReadingProgress batch={papers} runs={runs} states={states}/><div className="sync-note"><i className={session?'online':''}/>{session?uiText("云端账户已连接"):uiText("访客浏览 · 登录后同步")}</div><button className="profile" onClick={()=>{setSettingsTab('account');setSettings(true);}}><span className="avatar">{session?'U':'G'}</span><span>{session?.user.user_metadata.user_name || uiText("工作台设置")}<small>{uiText("账户与阅读偏好")}</small></span><span>⚙</span></button></div>
     </aside>
@@ -238,17 +241,49 @@ function App() {
       <div className="toolbar"><label className="search"><span>⌕</span><input ref={searchInput} aria-label={uiText("搜索论文")} placeholder={uiText("搜索标题、摘要或研究方向…")} value={query} onChange={e=>setQuery(e.target.value)}/><kbd>/</kbd></label><select title={runs.find(r=>r.run_id===run)?.title||displayDate} aria-label={uiText("推荐日期")} disabled={view==='starred'||view==='archive'} value={view==='starred'||view==='archive'?'all':run} onChange={e=>setRun(e.target.value)}><option value="all">{uiText("全部日期")}</option>{runs.map(r=><option key={r.run_id} value={r.run_id}>{runLabel(r)}</option>)}</select><button className="quiet" disabled={busy||!batchTargets.length} onClick={()=>setArchiveConfirm(true)}>{uiText("批量归档")}</button>{undoItems.length>0&&<button className="quiet" disabled={busy} onClick={()=>void undoArchive()}>{uiText("撤销上次归档（")}{undoItems.length}）</button>}</div>
       <div className={'reading-layout'+(detail?' detail-open':'')}><section className="paper-list" aria-label={uiText("论文列表")}><div className="list-caption"><span>{visible.length} {uiText("篇论文")}</span><span>{uiText("按匹配得分排序")}</span></div>
         {loading?<div className="empty">{uiText("正在读取论文…")}</div>:!visible.length?<div className="empty"><span className="empty-icon">▤</span><h2>{papers.length?uiText("这里暂时没有论文"):uiText("尚无推荐数据")}</h2><p>{papers.length?uiText("试试其他日期或筛选条件。"):uiText("运行每日流水线后，论文会出现在这里。")}</p></div>:visible.map(p=>{const s=states[p.paper_key]||emptyState(p.paper_key);return <article key={p.paper_key} data-paper-key={p.paper_key} className={'paper-card'+(current?.paper_key===p.paper_key?' selected':'')}>
-          <button className="paper-select" onClick={()=>{setSelected(p.paper_key);setDetail(true);}} aria-label={uiText("阅读 {0}", p.title)}><div className="paper-meta"><span className="source">{p.source}</span><span>{citationDate(p)}</span>{s.read_at&&<span>{uiText("已读")}</span>}{s.legacy_status&&['blue','orange'].includes(s.legacy_status)&&<span>{s.legacy_status==='blue'?uiText("旧标记2"):uiText("旧标记3")}</span>}{p.score!=null&&<span className="score">{p.score.toFixed(1)}</span>}</div><div className="card-body"><div><h2>{displayTitle(bilingual(p)?p.title_zh!:p.title)}</h2>{bilingual(p)&&<p className="english-title">{displayTitle(p.title)}</p>}<p className="tldr" title={cardHook(p)||undefined}>{cardHook(p)}</p></div></div></button>
-          <footer className="card-footer"><div className="tags">{[...new Set((p.narrative?.tags||p.tags).map(t=>t.replace(/^(keyword|query):/,'')))].slice(0,2).map(t=><span key={t}>{t}</span>)}</div><div className="card-actions"><StarButton compact starred={s.starred} busy={busy} onClick={()=>void change(p,{starred:!s.starred})}/><button title={s.dismissed_at?uiText("恢复 (x)"):uiText("归档 (x)")} aria-label={s.dismissed_at?uiText("恢复论文"):uiText("归档论文")} disabled={busy} onClick={()=>void change(p,{dismissed_at:s.dismissed_at?null:new Date().toISOString()})}>{s.dismissed_at?'↶':<ArchiveIcon/>}</button></div></footer>
+          <button className="paper-select" onClick={()=>{setSelected(p.paper_key);setDetail(true);}} aria-label={uiText("阅读 {0}", p.title)}><div className="paper-meta"><span className="source">{p.source}</span><span>{citationDate(p)}</span>{s.legacy_status&&['blue','orange'].includes(s.legacy_status)&&<span>{s.legacy_status==='blue'?uiText("旧标记2"):uiText("旧标记3")}</span>}{p.score!=null&&<span className="score">{p.score.toFixed(1)}</span>}</div><div className="card-body"><div><h2>{displayTitle(bilingual(p)?p.title_zh!:p.title)}</h2>{bilingual(p)&&<p className="english-title">{displayTitle(p.title)}</p>}<p className="tldr" title={cardHook(p)||undefined}>{cardHook(p)}</p></div></div></button>
+          <footer className="card-footer"><div className="tags">{displayTags(p).slice(0,2).map(t=><span key={t}>{t}</span>)}</div><div className="card-actions"><button className="queue-read" aria-pressed={!!s.read_at} title={uiText(s.read_at?"标记为未读":"标记为已读")} disabled={busy} onClick={()=>void change(p,{read_at:s.read_at?null:new Date().toISOString()})}>{uiText(s.read_at?"已读":"未读")}</button><StarButton compact starred={s.starred} busy={busy} onClick={()=>void change(p,{starred:!s.starred})}/><button title={s.dismissed_at?uiText("恢复 (x)"):uiText("归档 (x)")} aria-label={s.dismissed_at?uiText("恢复论文"):uiText("归档论文")} disabled={busy} onClick={()=>void change(p,{dismissed_at:s.dismissed_at?null:new Date().toISOString()})}>{s.dismissed_at?'↶':<ArchiveIcon/>}</button></div></footer>
         </article>;})}</section>
-        <aside className="preview" aria-label={uiText("论文预览")}>{current?<><div className="preview-top"><button className="quiet close-preview" onClick={()=>setDetail(false)}>{uiText("关闭")}</button></div><div className="preview-content"><h2>{displayTitle(bilingual(current)?current.title_zh!:current.title)}</h2>{bilingual(current)&&<p className="original-title">{displayTitle(current.title)}</p>}<div className="preview-buttons"><button className="primary" onClick={()=>openOriginal(current)}>{uiText("打开原文")} <kbd>o</kbd></button><StarButton starred={!!state?.starred} busy={busy} onClick={()=>void change(current,{starred:!state?.starred})}/><button title={state?.dismissed_at?uiText("恢复 (x)"):uiText("归档 (x)")} disabled={busy} onClick={()=>void change(current,{dismissed_at:state?.dismissed_at?null:new Date().toISOString()})}><ArchiveIcon/>{state?.dismissed_at?uiText("恢复"):uiText("归档")} <kbd>x</kbd></button><ReadingMaterial key={`reading:${current.paper_key}`} paper={current}/><button onClick={()=>void copyReading(current)}>{uiText("复制精读包")}</button><button onClick={()=>download(current)}>{uiText("导出 Markdown")}</button><button aria-expanded={showChat} onClick={()=>setChatOpen(v=>!v)}>{uiText("AI 问答")}<kbd>c</kbd></button></div><div className="overview"><div>{cardHook(current)&&<><h3>{uiText("一句话总览")}</h3><p>{cardHook(current)}</p></>}{current.reason&&<><h3>{uiText("为什么推荐")}</h3><p>{current.reason}</p></>}<div className="feedback"><span>{uiText("推荐有帮助吗？")}</span><button aria-label={uiText("推荐有帮助")} aria-pressed={state?.feedback===1} disabled={busy} onClick={()=>void change(current,{feedback:state?.feedback===1?0:1})}>＋</button><button aria-label={uiText("不感兴趣")} aria-pressed={state?.feedback===-1} disabled={busy} onClick={()=>void change(current,{feedback:state?.feedback===-1?0:-1})}>−</button></div></div><dl className="overview-meta">{[['Authors',current.authors?.join(', ')],['Date',citationDate(current)],['Source / Venue',[current.source,current.venue].filter(Boolean).join(' · ')],['Score',current.score?.toFixed(1)],['Tags',(current.narrative?.tags||current.tags).join(' · ')]].map(([label,value])=>value&&<div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}{safeURL(current.pdf_url)&&<div><dt>PDF</dt><dd><a href={safeURL(current.pdf_url)} target="_blank" rel="noreferrer">{uiText("预览")}</a> · <button className="pdf-download" onClick={()=>void downloadPDF(current)}>{uiText("下载")}</button></dd></div>}{safeURL(current.code_url)&&<div><dt>Code</dt><dd><a href={safeURL(current.code_url)} target="_blank" rel="noreferrer">{uiText("代码仓库")}</a></dd></div>}</dl></div><MinMaxCard paper={current}/>{current.thumbnail&&<section className="figure-grid"><h3>{uiText("图表预览")}</h3><PaperThumbnail thumbnail={current.thumbnail}/></section>}<details key={current.paper_key} className="original-abstract" aria-label={uiText("原始摘要")}><summary>{uiText("展开英文原始摘要")}</summary><p className="abstract">{current.abstract||uiText("摘要缺失，请打开原文。")}</p></details><NoteEditor saved={state?.note_text??''} draft={noteDrafts[noteKey(current)]} edit={draft=>setNoteDrafts(d=>({...d,[noteKey(current)]:draft}))} discard={()=>setNoteDrafts(d=>{const next={...d};delete next[noteKey(current)];return next;})} save={()=>{if(!session)download(current);void change(current,{note_text:personalNote(current)});}} busy={busy} loggedIn={!!session}/><h3>{uiText("知识库")}</h3><p className="muted">{uiText("仅导出你选中的论文，不自动收录整个日报。")}</p><div className="export-actions"><button onClick={()=>downloadCitation(current)}>{uiText("下载 BibTeX")}</button>{exportPrefs.exportMode!=='obsidian'&&<button onClick={()=>download(current)}>{uiText("下载骨架 Markdown")}</button>}{exportPrefs.exportMode!=='markdown'&&<button onClick={()=>{if(!vault){setSettingsTab('export');setSettings(true);setNotice(uiText("先设置 Obsidian vault 名称。"));return;}let uri:string|null;try{uri=obsidianURI(current,vault,personalNote(current),inboxFolder,exportPrefs.naming);}catch(e){setError(errorMessage(e));setSettings(true);return;}if(!uri){download(current);setNotice(uiText("笔记较长，已下载 Markdown，请导入 Obsidian。"));return;}window.location.href=uri;}}>{uiText("导出骨架到 Obsidian")}</button>}</div><button className="read-toggle" disabled={busy} onClick={()=>void change(current,{read_at:state?.read_at?null:new Date().toISOString()})}>{state?.read_at?uiText("标记为未读"):uiText("标记为已读")}</button></div></>:<div className="empty">{uiText("选择一篇论文开始阅读")}</div>}</aside>
+        <aside key={current?.paper_key} className="preview" aria-label={uiText("论文预览")}>{current?<><header className="paper-heading">
+          <button className="quiet close-preview" onClick={()=>setDetail(false)}>{uiText("关闭")}</button>
+          <h2 title={current.title_zh||current.title}>{displayTitle(bilingual(current)?current.title_zh!:current.title)}</h2>
+          {bilingual(current)&&<p className="original-title" title={current.title}>{displayTitle(current.title)}</p>}
+          <div className="preview-buttons">
+            <button className="primary" onClick={()=>openOriginal(current)}>{uiText("打开原文")} <kbd>o</kbd></button>
+            <StarButton starred={!!state?.starred} busy={busy} onClick={()=>void change(current,{starred:!state?.starred})}/>
+            <button disabled={busy} onClick={()=>void change(current,{dismissed_at:state?.dismissed_at?null:new Date().toISOString()})}><ArchiveIcon/>{uiText(state?.dismissed_at?"恢复":"归档")} <kbd>x</kbd></button>
+            <button disabled={busy} onClick={()=>void change(current,{read_at:state?.read_at?null:new Date().toISOString()})}>{uiText(state?.read_at?"标记为未读":"标记为已读")} <kbd>u</kbd></button>
+            <ReadingMaterial paper={current}/>
+            <button onClick={()=>void copyReading(current)}>{uiText("复制精读包")}</button>
+            <details className="export-menu" onBlur={e=>{if(!e.currentTarget.contains(e.relatedTarget))e.currentTarget.open=false;}} onKeyDown={e=>{if(e.key==='Escape'){e.stopPropagation();e.currentTarget.open=false;e.currentTarget.querySelector('summary')?.focus();}}}>
+              <summary>{uiText("导出")} ▾</summary>
+              <div onClick={e=>{const menu=e.currentTarget.closest('details');if(menu)menu.open=false;}}>
+                <button onClick={()=>download(current)}>{uiText("导出 Markdown")}</button>
+                {exportPrefs.exportMode!=='markdown'&&<button onClick={()=>{if(!vault){setSettingsTab('export');setSettings(true);setNotice(uiText("先设置 Obsidian vault 名称。"));return;}let uri:string|null;try{uri=obsidianURI(current,vault,personalNote(current),inboxFolder,exportPrefs.naming);}catch(e){setError(errorMessage(e));setSettings(true);return;}if(!uri){download(current);setNotice(uiText("笔记较长，已下载 Markdown，请导入 Obsidian。"));return;}window.location.href=uri;}}>{uiText("导出骨架到 Obsidian")}</button>}
+                <button onClick={()=>download(current)}>{uiText("下载骨架 Markdown")}</button>
+                <button onClick={async()=>{try{await navigator.clipboard.writeText(bibtex(current));setNotice(uiText("已复制 BibTeX"));}catch{setError(uiText("无法访问剪贴板，请检查浏览器权限。"));}}}>{uiText("复制 BibTeX")}</button>
+                <button onClick={()=>downloadCitation(current)}>{uiText("下载 BibTeX")}</button>
+              </div>
+            </details>
+            <button aria-expanded={panel==='chat'} onClick={()=>togglePanel('chat')}>{uiText("AI 问答")} <kbd>c</kbd></button>
+            <button aria-expanded={panel==='notes'} onClick={()=>togglePanel('notes')}>{personalNote(current).trim()&&<i className="note-dot"/>}{uiText("笔记")} <kbd>n</kbd></button>
+          </div>
+        </header><div className="preview-content">
+          <PaperOverview paper={current} feedback={state?.feedback||0} busy={busy} vote={feedback=>void change(current,{feedback})} downloadPDF={()=>void downloadPDF(current)}/>
+          <MinMaxCard paper={current}/>
+          <details className="original-abstract" aria-label={uiText("原始摘要")}><summary>{uiText("展开英文原始摘要")}</summary><p className="abstract">{current.abstract||uiText("摘要缺失，请打开原文。")}</p></details>
+        </div></>:<div className="empty">{uiText("选择一篇论文开始阅读")}</div>}</aside>
       </div></>}
       {!guide&&<footer className="workspace-footer"><span>DAILY PAPER READER</span><span><kbd>j</kbd><kbd>k</kbd> {uiText("切换")} <kbd>s</kbd> {uiText("待精读")} <kbd>x</kbd> {uiText("归档")} </span></footer>}
-    </main>{showChat&&current&&<ChatPanel key={current.paper_key} paper={current} config={{endpoint:chatEndpoint,model:chatModel,apiKey:chatKey}} messages={histories[current.paper_key]||[]} save={messages=>setHistories(old=>({...old,[current.paper_key]:messages}))} close={()=>setChatOpen(false)} configure={()=>{setSettingsTab('chat');setSettings(true);}}/>}
+    </main>{showChat&&current&&<aside className="split-chat chat-panel">
+      <header className="drawer-tabs"><div role="tablist" aria-label={uiText("论文工具")}>
+        {(['chat','notes'] as const).map(tab=><button key={tab} role="tab" aria-selected={panel===tab} onClick={()=>setPanel(tab)}>{uiText(tab==='chat'?"AI 问答":"阅读笔记")} <kbd>{tab==='chat'?'c':'n'}</kbd></button>)}
+      </div><button aria-label={uiText(panel==='chat'?"关闭问答":"关闭笔记")} onClick={()=>setPanel(null)}>× <kbd>Esc</kbd></button></header>
+      {panel==='notes'?<div role="tabpanel"><strong className="chat-title">{current.title}</strong><NoteEditor saved={state?.note_text??''} draft={noteDrafts[noteKey(current)]} edit={draft=>setNoteDrafts(d=>({...d,[noteKey(current)]:draft}))} discard={()=>setNoteDrafts(d=>{const next={...d};delete next[noteKey(current)];return next;})} save={()=>{if(!session)download(current);void change(current,{note_text:personalNote(current)});}} busy={busy} loggedIn={!!session}/></div>:<ChatPanel key={current.paper_key} paper={current} config={{endpoint:chatEndpoint,model:chatModel,apiKey:chatKey}} messages={histories[current.paper_key]||[]} save={messages=>setHistories(old=>({...old,[current.paper_key]:messages}))} configure={()=>{setSettingsTab('chat');setSettings(true);}}/>}</aside>}
     {feedbackOpen&&<Modal title={uiText("项目反馈")} close={()=>setFeedbackOpen(false)}><FeedbackForm/></Modal>}
     {settings&&<SettingsDialog config={settingsConfig} session={session} syncStatus={busy?'syncing':syncStatus} syncTime={syncTime} initialTab={settingsTab} paper={current} runs={runs} states={states} close={()=>setSettings(false)} save={saveSettings} refresh={refresh} clearSecrets={clearSecrets} forget={forgetSecret}/>}
 
-    {help&&<Modal title={uiText("让阅读更顺手")} close={()=>setHelp(false)}><dl className="shortcuts">{[['j / k',uiText("下一篇 / 上一篇")],['s',uiText("加入或移出待精读")],['x',uiText("归档或恢复")],['o',uiText("打开原文")],['c',uiText("打开或收起 AI 问答")],['?',uiText("查看快捷键")]].map(([k,v])=><div key={k}><dt><kbd>{k}</kbd></dt><dd>{v}</dd></div>)}</dl><p>{uiText("输入文字时不会触发快捷键。")}</p><button onClick={()=>{setHelp(false);setFeedbackOpen(true);}}>{uiText("反馈问题")}</button></Modal>}
+    {help&&<Modal title={uiText("让阅读更顺手")} close={()=>setHelp(false)}><dl className="shortcuts">{[['j / k',uiText("下一篇 / 上一篇")],['s',uiText("加入或移出待精读")],['x',uiText("归档或恢复")],['o',uiText("打开原文")],['n',uiText('阅读笔记')],['u',uiText('切换已读状态')],['c',uiText("打开或收起 AI 问答")],['?',uiText("查看快捷键")]].map(([k,v])=><div key={k}><dt><kbd>{k}</kbd></dt><dd>{v}</dd></div>)}</dl><p>{uiText("输入文字时不会触发快捷键。")}</p><button onClick={()=>{setHelp(false);setFeedbackOpen(true);}}>{uiText("反馈问题")}</button></Modal>}
     {archiveConfirm&&<Modal title={uiText("归档当前日期的未读论文")} close={()=>setArchiveConfirm(false)}><p>{uiText("将归档")} {displayDate} {uiText("的")} {batchTargets.length} {uiText("篇未读论文。已收藏的论文会保留，之后可从“已归档”逐篇恢复。")}</p><button className="primary" onClick={()=>void bulkArchive()}>{uiText("归档")} {batchTargets.length} {uiText("篇")}</button></Modal>}
   </div>;
 }

@@ -20,7 +20,7 @@ try{
  assert.equal((await page.locator('.avatar').boundingBox()).width,(await page.locator('.avatar').boundingBox()).height);
  await expect(page.locator('.progress-today svg')).toBeVisible();
  await chat.getByRole('button',{name:'Go to settings'}).click();
- await expect(page.getByRole('tab',{selected:true})).toContainText('Web AI Chat');
+ await expect(page.locator('.settings-dialog').getByRole('tab',{selected:true})).toContainText('Web AI Chat');
  await page.keyboard.press('Escape');await expect(chat).toBeVisible();
  await page.keyboard.press('Escape');await expect(chat).toHaveCount(0);
  assert.equal((await page.locator('.navigation').boundingBox()).width,196);

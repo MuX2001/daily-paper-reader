@@ -20,8 +20,11 @@ try{
  await page.route('**/docs/data/catalog.json',r=>r.fulfill({json:{schema_version:1,runs:[{run_id:'20261124',count:2,path:'daily/20261124.json'}]}}));
  await page.route('**/docs/data/daily/20261124.json',r=>r.fulfill({json:{schema_version:1,run_id:'20261124',papers:[p,{...p,paper_key:'arxiv:1706.03762v6',original_id:'1706.03762v6',title:'Second paper'}]}}));
  await page.goto(process.env.DPR_TEST_URL||'http://127.0.0.1:5173/');
+ await page.locator('.preview-buttons').getByRole('button',{name:/笔记/}).click();
  const editor=page.getByRole('textbox',{name:'个人阅读笔记',exact:true});await editor.waitFor();
  await page.waitForFunction(()=>document.querySelector('.note-editor textarea')?.value==='Cloud original');
+ await page.keyboard.press('u');await expect(page.locator('.queue-read').first()).toHaveText('已读');
+ await page.locator('.queue-read').first().click();await expect(page.locator('.preview-buttons')).toContainText('标记为已读');
  // Both entry points use the same persisted state and the same star component.
  const previewStar=()=>page.locator('.preview-buttons .star-button');
  const listStar=()=>page.locator('.paper-card').first().locator('.star-button');
@@ -32,17 +35,17 @@ try{
  await listStar().click();await expect(previewStar()).toHaveAttribute('aria-pressed','false');await expect(listStar().locator('svg')).toHaveAttribute('fill','none');assert.equal(cloud.starred,false);
  await page.locator('.paper-select').nth(1).click();await expect(previewStar()).toHaveAttribute('aria-pressed','true');
  await page.locator('.paper-select').first().click();await expect(previewStar()).toHaveAttribute('aria-pressed','false');
- await page.reload();await editor.waitFor();await page.waitForFunction(()=>document.querySelector('.note-editor textarea')?.value==='Cloud original');await expect(previewStar()).toHaveAttribute('aria-pressed','false');await expect(listStar()).toHaveAttribute('aria-pressed','false');
+ await page.reload();await page.locator('.preview-buttons').getByRole('button',{name:/笔记/}).click();await editor.waitFor();await page.waitForFunction(()=>document.querySelector('.note-editor textarea')?.value==='Cloud original');await expect(previewStar()).toHaveAttribute('aria-pressed','false');await expect(listStar()).toHaveAttribute('aria-pressed','false');
  await page.locator('.preview-buttons').getByRole('button',{name:'归档 x',exact:true}).click();await expect(page.locator('.paper-card')).toHaveCount(1);assert.ok(cloud.dismissed_at);
  await page.locator('.navigation').getByRole('button',{name:'已归档',exact:true}).click();await expect(page.locator('.paper-card')).toHaveCount(1);
  await page.locator('.preview-buttons').getByRole('button',{name:'恢复 x',exact:true}).click();await expect(page.locator('.paper-card')).toHaveCount(0);assert.equal(cloud.dismissed_at,null);
- await page.locator('.navigation').getByRole('button',{name:/论文收件箱/}).click();await expect(editor).toHaveValue('Cloud original');
+ await page.locator('.navigation').getByRole('button',{name:/论文收件箱/}).click();await page.locator('.preview-buttons').getByRole('button',{name:/笔记/}).click();await expect(editor).toHaveValue('Cloud original');
  await editor.fill('My unsaved research note');await page.locator('.paper-select').nth(1).click();assert.equal(await editor.inputValue(),'');
  await page.locator('.paper-select').first().click();assert.equal(await editor.inputValue(),'My unsaved research note');
  await page.getByRole('button',{name:'保存笔记',exact:true}).click();await page.waitForFunction(()=>document.querySelector('.note-controls [role=status]')?.textContent.includes('与云端一致'));assert.equal(saved.note_text,'My unsaved research note');
  await editor.fill('Local newer draft');cloud={...cloud,note_text:'Other device edit',revision:3};await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
  await page.getByText('云端笔记已变更。草稿仍保留，请比较后选择；不会自动覆盖。',{exact:true}).waitFor();assert.equal(await editor.inputValue(),'Local newer draft');assert.equal(await page.getByRole('button',{name:'保存笔记',exact:true}).isDisabled(),true);
- const promise=page.waitForEvent('download');await page.getByRole('button',{name:'下载骨架 Markdown',exact:true}).click();const file=await promise;assert.ok((await readFile(await file.path(),'utf8')).includes('Local newer draft'));
+ const promise=page.waitForEvent('download');await page.locator('.export-menu summary').click();await page.getByRole('button',{name:'下载骨架 Markdown',exact:true}).click();const file=await promise;assert.ok((await readFile(await file.path(),'utf8')).includes('Local newer draft'));
  await page.getByRole('button',{name:'采用云端内容',exact:true}).click();assert.equal(await editor.inputValue(),'Other device edit');
  await page.getByRole('button',{name:'批量归档',exact:true}).click();await page.getByRole('button',{name:'归档 1 篇',exact:true}).click();
  await page.getByRole('button',{name:'撤销上次归档（1）',exact:true}).waitFor();
@@ -53,6 +56,7 @@ try{
  await page.route('**/rest/v1/paper_states*',r=>r.fulfill({status:404,json:{code:'PGRST205',message:"Could not find the table 'public.paper_states' in the schema cache",details:null,hint:null}}));
  await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
  await page.getByRole('alert').filter({hasText:'读取云端阅读状态失败'}).waitFor();
+ await page.keyboard.press("Escape");
  assert.equal(await page.getByText('云端账户已连接',{exact:true}).isVisible(),true);
  const problem=await page.getByRole('alert').filter({hasText:'读取云端阅读状态失败'}).innerText();
  assert.ok(problem.includes('sql/create_paper_states_schema.sql'));assert.ok(problem.includes('不是邮箱或密码错误'));assert.ok(!problem.includes('[object Object]'));

@@ -25,6 +25,7 @@ async function open(session){
  await page.route('**/docs/data/catalog.json',r=>r.fulfill({json:{schema_version:1,runs:[{run_id:'20261124',path:'daily/20261124.json',count:1}]}}));
  await page.route('**/docs/data/daily/20261124.json',r=>r.fulfill({json:{schema_version:1,run_id:'20261124',papers:[p]}}));
  await page.goto(site.href);await page.getByText('云端账户已连接',{exact:true}).waitFor();
+ await page.locator('.preview-buttons').getByRole('button',{name:/笔记/}).click();
  const editor=page.getByRole('textbox',{name:'个人阅读笔记',exact:true});await editor.waitFor();
  return {context,page,editor};
 }
