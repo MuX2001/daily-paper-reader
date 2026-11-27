@@ -166,11 +166,28 @@ def main():
     elif a.style=='readable':
         from minmax_readable import enrich as selected_enricher
     else:selected_enricher=enrich
+    v2_run = pool = None
+    if a.quality_config:
+        import yaml
+        config = yaml.safe_load(a.quality_config.read_text())
+        v2_config = config.get("pipeline", {}).get("recommendation_v2", {})
+        if v2_config.get("enabled"):
+            try:
+                from recommendation_v2 import DailyRun
+                original_feed = json.loads(Path(a.feed).read_text())
+                v2_run = DailyRun(v2_config, original_feed["run_id"], a.quality_config.resolve().parent, a.cache_dir)
+                pool = v2_run.prepare(original_feed["papers"])
+                if not v2_config["shadow_mode"]:
+                    atomic_json(a.feed, {**original_feed, "papers":pool["papers"]})
+            except Exception as exc:
+                print(f"V2 preparation unavailable: {type(exc).__name__}: {exc}", flush=True)
+                v2_run = None
     feed=enrich_feed(a.feed,a.cache_dir,client,a.max_new,enricher=selected_enricher)
     if a.quality_config:
         import yaml
         from recommendation_quality import assess,settings
         config=yaml.safe_load(a.quality_config.read_text())
+        enriched_candidates = list(feed['papers'])
         reviews=assess(feed['papers'],config,client,a.cache_dir)
         ranked=[]
         for paper in feed['papers']:
@@ -182,5 +199,11 @@ def main():
         atomic_json(Path(a.cache_dir)/'quality'/f"{feed['run_id']}-reviews.json",reviews)
         atomic_json(a.feed,feed)
         atomic_json(Path(a.cache_dir)/'quality'/f"{feed['run_id']}-usage.json",{'responses':client._call_index,'tokens':client._cum_tokens,'eligible':len(ranked),'published':len(feed['papers'])})
+        if v2_run is not None:
+            try:
+                final_feed = v2_run.finish(pool, feed, enriched_candidates, client)
+                atomic_json(a.feed, final_feed)
+            except Exception as exc:
+                print(f"V2 unavailable; retaining screened feed: {type(exc).__name__}: {exc}", flush=True)
 
 if __name__=='__main__':main()

@@ -50,7 +50,7 @@ def check_declared_version(value, paper_id):
         if declared!=paper_id:raise ValueError('Document declares a different arXiv version')
 
 
-def html_text(raw, paper_id=None):
+def html_text(raw, paper_id=None, locations=None):
     from bs4 import BeautifulSoup
     soup=BeautifulSoup(raw,'html.parser')
     for node in soup.select('meta[name="citation_arxiv_id"],meta[name="citation_pdf_url"],meta[name="citation_abstract_html_url"],link[rel="canonical"]'):
@@ -61,6 +61,9 @@ def html_text(raw, paper_id=None):
     for math in article.find_all('math'):
         tex=math.get('alttext') or math.get('alt')
         if tex: math.replace_with(f' ${tex}$ ')
+    if locations is not None:
+        from recommendation_evidence import index_html
+        locations.extend(index_html(article, paper_id))
     return validate_fulltext(article.get_text('\n',strip=True))
 
 
@@ -99,10 +102,14 @@ def get_fulltext(paper_id, cache_dir, downloader=download):
     for kind,extract in [('html',html_text),('pdf',pdf_text)]:
         url=f'https://arxiv.org/{kind}/{paper_id}'
         try:
-            text=extract(downloader(url),paper_id)
+            raw=downloader(url)
+            locations=[]
+            text=html_text(raw,paper_id,locations) if kind=='html' else extract(raw,paper_id)
             meta={'validation_version':2,'paper_id':paper_id,'source_url':url,'format':kind,'sha256':hashlib.sha256(text.encode()).hexdigest(),'characters':len(text)}
             cache.mkdir(parents=True,exist_ok=True)
             temp=cache/'fulltext.pending';temp.write_text(text,encoding='utf-8');temp.replace(text_path)
+            if locations:
+                atomic_json(cache/'locations.json',{'paper_id':paper_id,'sha256':meta['sha256'],'locations':locations})
             atomic_json(meta_path,meta)
             return text,meta
         except (ValueError,requests.RequestException) as exc:

@@ -2,7 +2,14 @@ export interface MinMaxClaim {text:string|null;quote:string|null;source_id:strin
 export interface ReadableCard {tldr:string;problem_delta:string;method_steps:string[];evidence:string;caveats:string;where_to_look:string;tags:string[]}
 export interface MinMax {readable?:ReadableCard;format?:string;status:string;reason?:string;input_scope?:string;source?:{source_url:string;format:string};excerpts?:{id:string;start:number;end:number;text:string}[];delta?:MinMaxClaim;steps?:MinMaxClaim;evidence?:MinMaxClaim;constraints?:MinMaxClaim;landmarks?:MinMaxClaim}
 export interface Narrative {card_hook:string;context_and_problem:string;core_approach:string[];experimental_results?:string;caveats_and_pointers?:string;results_and_reality_check?:string;tags:string[]}
+export type RetrievalChannel = 'global'|'targeted'|'exploration';
+export interface ValueReview {
+  dimensions: Record<'idea'|'experiment'|'engineering'|'visualization'|'insight',number|null>;
+  highlights: {dimension:keyof ValueReview['dimensions'];verified:boolean;description:string;transferability:string;limitation:string;locations?:{id:string;url?:string|null}[]}[];
+}
 export interface Paper {
+  retrieval_sources?: {channel:RetrievalChannel;profile?:string}[];
+  evaluation_v2?: ValueReview;
   arxiv_id?: string | null; id?: string | null;
   partial_narrative?:Partial<Narrative>; analysis_error?:{stage:string;reason:string}; narrative?:Narrative; recommendation_reason?:string;
   minmax?:MinMax; minmax_candidate?:MinMax;
