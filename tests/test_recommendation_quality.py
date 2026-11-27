@@ -18,7 +18,7 @@ def test_cached_evidence_and_empty_daily_catalog(tmp_path):
     calls=[]
     def generate(*args,**kwargs):
         calls.append(1)
-        return {'parsed':{'results':[dict(id='p1',problem_match=2,information_gain=3,hype_penalty=0,evidence='a small improvement',reason='Incremental')]}}
+        return {'parsed':{'results':[dict(id='p1',problem_match=2,information_gain=3,hype_penalty=0,penalties=[],evidence='E1',reason='Incremental')]}}
     client=SimpleNamespace(model='test',base_url='test',kwargs={},chat_structured=generate)
     papers=[dict(paper_key='arxiv:test',original_id='test',title='Example',abstract='Reports a small improvement.')]
     assert not assess(papers,{},client,tmp_path)['arxiv:test']['eligible']
