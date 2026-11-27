@@ -6,6 +6,7 @@ from pathlib import Path
 import warnings
 from minmax_readable import context
 from narrative_text import validate_prose
+from figure_selection import caption_context
 from reader_fulltext import get_fulltext
 from triage_enrich import atomic_json
 
@@ -14,11 +15,14 @@ from summary_language import prompt_for, summary_language
 PROMPT=Path(__file__).with_name('minmax_narrative_prompt.txt').read_text()
 FIELDS=('card_hook','context_and_problem','core_approach','experimental_results','caveats_and_pointers','tags')
 SCHEMA={'type':'object','properties':{k:({'type':'array','items':{'type':'string'},'minItems':2,'maxItems':4} if k in ('core_approach','tags') else {'type':'string'}) for k in FIELDS},'required':list(FIELDS),'additionalProperties':False}
+FIGURE_FIELDS=('figure_id','figure_type','selection_reason')
+SCHEMA['properties']['selected_figure']={'type':['object','null'],'properties':{k:{'type':'string'} for k in FIGURE_FIELDS},'required':list(FIGURE_FIELDS),'additionalProperties':False}
+SCHEMA['required'].append('selected_figure')
 BANNED=('提出了一种创新性框架','有效解决了','显著提升了','取得了优异性能','值得注意的是','本文针对','痛点')
 
 
 def active_prompt():
-    return prompt_for(PROMPT, 'Use card_hook, context_and_problem, core_approach (2–4 paragraphs), experimental_results, caveats_and_pointers and tags (2–4). Explain design choices in connected sentences. Aim for 160–210 words total. Mention only verified figure numbers. Preserve Markdown paragraphs, lists and display math, JSON-escape LaTeX backslashes. State when evidence is missing.')
+    return prompt_for(PROMPT, 'Choose selected_figure from supplied caption IDs or null; prefer an explanatory architecture, mechanism or an informative experimental finding. Avoid teasers and decorative comparisons. Use card_hook, context_and_problem, core_approach (2–4 paragraphs), experimental_results, caveats_and_pointers and tags (2–4). Explain design choices in connected sentences. Aim for 160–210 words total. Mention only verified figure numbers. Preserve Markdown paragraphs, lists and display math, JSON-escape LaTeX backslashes. State when evidence is missing.')
 
 
 def narrative_context(text):
@@ -71,7 +75,11 @@ def narrative_context(text):
 
 
 def validate(value, *, draft=False):
-    if not isinstance(value,dict) or set(value)!=set(FIELDS):raise ValueError('Narrative fields mismatch')
+    if not isinstance(value,dict) or set(value)-{'selected_figure'}!=set(FIELDS):raise ValueError('Narrative fields mismatch')
+    chosen=value.get('selected_figure')
+    if chosen is not None and (not isinstance(chosen,dict) or set(chosen)!=set(FIGURE_FIELDS) or
+            any(not isinstance(chosen[k],str) or not chosen[k].strip() for k in FIGURE_FIELDS)):
+        raise ValueError('Invalid selected_figure')
     for k in ('card_hook','context_and_problem','experimental_results','caveats_and_pointers'):
         if not isinstance(value[k],str) or not value[k].strip() or len(value[k])>700:raise ValueError('Invalid narrative field: '+k)
     for k in ('core_approach','tags'):
@@ -84,7 +92,7 @@ def validate(value, *, draft=False):
     if len(set(sections))!=len(sections):
         raise ValueError('Duplicated narrative sections')
     body=value['context_and_problem']+''.join(value['core_approach'])+value['experimental_results']+value['caveats_and_pointers']
-    if len(body)>(2400 if draft else (1800 if summary_language()=="en" else 1200)):raise ValueError('Narrative too long')
+    if len(body)>(2400 if draft else (1800 if summary_language()=="en" else 1200)):raise ValueError(f'Narrative body has {len(body)} characters; shorten all four blocks. Aim for 650 Chinese characters or 180 English words total, counting Latin text too.')
     if not 550<=len(body)<=750:warnings.warn(f'Narrative length {len(body)} outside soft target 550–750')
     if value['card_hook'] in body:raise ValueError('Repeated card hook')
     if any(w in body+value['card_hook'] for w in BANNED):raise ValueError('Academic filler in narrative')
@@ -94,11 +102,11 @@ def validate(value, *, draft=False):
 def enrich(paper,client,root,allow_new=True,fetcher=get_fulltext, *, draft=False):
     if paper.get('source')!='arxiv':raise ValueError('Exact-version arXiv source required')
     text,meta=fetcher(paper['original_id'],Path(root)/'sources');parts=narrative_context(text)
-    payload={'paper_key':paper['paper_key'],'title':paper['title'],'abstract':paper.get('abstract'),'excerpts':parts}
-    template={'card_hook':'一句完整简介','context_and_problem':'背景与问题','core_approach':['第一段完整方法说明','第二段完整方法说明','第三段完整方法说明'],'experimental_results':'实验任务、基线与具体结果','caveats_and_pointers':'前提、局限与图表路标','tags':['标签1','标签2']}
+    payload={'paper_key':paper['paper_key'],'title':paper['title'],'abstract':paper.get('abstract'),'excerpts':parts,'figure_candidates':caption_context(text)}
+    template={'card_hook':'一句完整简介','context_and_problem':'背景与问题','core_approach':['第一段完整方法说明','第二段完整方法说明','第三段完整方法说明'],'experimental_results':'实验任务、基线与具体结果','caveats_and_pointers':'前提、局限与图表路标','tags':['标签1','标签2'],'selected_figure':None}
     request=json.dumps(payload,ensure_ascii=False)+'\n请依据上面的资料填写下面完整JSON。所有键必须保留，数组中不能有空字符串；不复制占位文字，不添加其他字段。\n'+json.dumps(template,ensure_ascii=False)
     if summary_language()=='en':
-        request=json.dumps(payload,ensure_ascii=False)+'\nRequired JSON fields: '+', '.join(FIELDS)
+        request=json.dumps(payload,ensure_ascii=False)+'\nRequired JSON fields: '+', '.join(SCHEMA['required'])
     identity={'input':request,'prompt':active_prompt(),'schema':SCHEMA,'model':client.model,'endpoint':client.base_url,'options':client.kwargs,'draft':draft,'version':'narrative-v2-template'}
     key=hashlib.sha256(json.dumps(identity,ensure_ascii=False,sort_keys=True).encode()).hexdigest();path=Path(root)/'narrative'/f'{key}.json'
     reused=path.exists()
@@ -113,6 +121,9 @@ def enrich(paper,client,root,allow_new=True,fetcher=get_fulltext, *, draft=False
                     raise ValueError('Incomplete or invalid narrative JSON')
                 decoded=json.loads(response['content']) if 'content' in response else response.get('parsed')
                 value=validate(decoded,draft=draft)
+                chosen=value.get('selected_figure')
+                if chosen and chosen['figure_id'] not in payload['figure_candidates']:
+                    raise ValueError('Unknown figure_id; use a supplied caption ID or null')
                 break
             except ValueError as exc:
                 if attempt:raise
