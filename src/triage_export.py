@@ -42,6 +42,11 @@ def project_paper(paper):
     score = paper.get('llm_score')
     if score is not None and (isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(score) or not 0 <= score <= 10):
         raise ValueError('llm_score must be finite and between 0 and 10')
+    fields={'problem':'motivation_cn','method':'method_cn','results':'result_cn'}
+    breakdown={key:optional_text(paper.get(field)) if summary_language()=='zh' else None for key,field in fields.items()}
+    redundant={optional_text(paper.get(key)) for key in ('llm_tldr_cn','llm_tldr','llm_evidence_cn','llm_evidence')}
+    redundant.update({'不相关','方法细节请参考摘要与原文','not relevant'})
+    breakdown={key:None if value in redundant else value for key,value in breakdown.items()}
     canonical = re.sub(r'v\d+$', '', pid) if source == 'arxiv' and arxiv else pid
     return {
         'paper_key': f'{source}:{pid}', 'original_id': pid,
@@ -59,9 +64,8 @@ def project_paper(paper):
         'score': score, 'reason': optional_text(paper.get('llm_evidence_en')) if summary_language()=='en' else optional_text(paper.get('llm_evidence_cn')) or optional_text(paper.get('llm_evidence')),
         'tldr': optional_text(paper.get('llm_tldr_en')) if summary_language()=='en' else optional_text(paper.get('llm_tldr_cn')) or optional_text(paper.get('llm_tldr')),
         'tags': tags(paper.get('tags')) + tags(paper.get('llm_tags')),
-        # These fields require a subsequent evidence-validated enrichment stage.
-        'breakdown': {'problem': None, 'method': None, 'results': None},
-        'code_url': None, 'thumbnail': None, 'content_status': 'incomplete',
+        'breakdown': breakdown,
+        'code_url': None, 'thumbnail': None, 'content_status': 'partial' if any(breakdown.values()) else 'incomplete',
     }
 
 

@@ -487,6 +487,9 @@ def build_scored_papers(papers: List[Dict[str, Any]], llm_ranked: List[Dict[str,
             continue
         paper = dict(paper_map[pid])
         paper["llm_score"] = score
+        if item.get("title_zh"):paper["title_cn"]=item["title_zh"]
+        for field in ("motivation_cn","method_cn","result_cn","conclusion_cn"):
+            if item.get(field):paper[field]=item[field]
         evidence_cn = str(item.get("evidence_cn") or "").strip()
         evidence_en = str(item.get("evidence_en") or "").strip()
         tldr_cn = str(item.get("tldr_cn") or "").strip()
