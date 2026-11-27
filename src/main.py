@@ -659,6 +659,24 @@ def main() -> None:
     else:
         skip_fetch = args.skip_fetch
 
+    # A long outage can exceed the normal rolling RPC window. In active
+    # multi-channel mode spend this run's existing Global budget on one slice.
+    os.environ.pop("DPR_V2_GLOBAL_THROUGH", None)
+    os.environ.pop("DPR_V2_GLOBAL_WINDOW", None)
+    if len(run_date_token)==8 and args.content_mode!="legacy" and skip_fetch and not profile_tag:
+        from pathlib import Path
+        from recommendation_v2 import global_window
+        config = _load_full_config()
+        settings = config.get("pipeline", {}).get("recommendation_v2", {})
+        if settings.get("enabled"):
+            global_checkpoint = Path(ROOT_DIR)/"archive"/"recommendation-v2"/"global-through.json"
+            window,global_through = global_window(run_date_token, settings, config["arxiv_paper_setting"], global_checkpoint)
+            if global_through:
+                os.environ["DPR_V2_GLOBAL_THROUGH"] = global_through
+            if window:
+                os.environ["DPR_V2_GLOBAL_WINDOW"] = ",".join(window)
+                print(f"[INFO] V2 Global catch-up window {window}",flush=True)
+
     if skip_fetch:
         print(
             "[INFO] 跳过 Step 1（全量数据拉取）："

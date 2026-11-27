@@ -9,7 +9,7 @@ on:
       pipeline_action:
         description: "daily: 每日推荐；deep-read: 单篇全文精读"
         type: choice
-        options: [daily, deep-read]
+        options: [daily, deep-read, resume-v2]
         default: daily
       deep_read_model:
         description: "仅精读：选择实际运行模型"
@@ -20,7 +20,7 @@ on:
         description: "仅精读：精确 arXiv 版本"
         type: string
       request_id:
-        description: "仅精读：请求标识"
+        description: "精读请求标识；resume-v2 填已保存日报日期 YYYYMMDD"
         type: string
       content_mode:
         description: "triage: 轻量分诊；dual: 分诊与旧阅读页；legacy: 旧流程"
@@ -86,6 +86,7 @@ jobs:
       DPR_FEEDBACK_USER_ID: ${{ secrets.DPR_FEEDBACK_USER_ID }}
       DPR_STATE_SUPABASE_URL: ${{ secrets.DPR_STATE_SUPABASE_URL }}
       DPR_STATE_SERVICE_KEY: ${{ secrets.DPR_STATE_SERVICE_KEY }}
+      OPENALEX_API_KEY: ${{ secrets.OPENALEX_API_KEY }}
       DPR_MODELS_REMOTE_ONLY: "1"
       DPR_EMBED_ALLOW_LOCAL_FALLBACK: "0"
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
@@ -189,12 +190,19 @@ jobs:
         timeout-minutes: 330
         env:
           DPR_TRIAGE_REPORT: ${{ runner.temp }}/triage-run-report.json
+          PIPELINE_ACTION: ${{ inputs.pipeline_action }}
+          RECOVERY_DATE: ${{ inputs.request_id }}
           CONTENT_MODE: ${{ inputs.content_mode || 'triage' }}
           TRIAGE_PREVIEWS: ${{ github.event_name == 'schedule' || inputs.triage_previews }}
           HF_HOME: ${{ github.workspace }}/hf_cache
           HUGGINGFACE_HUB_CACHE: ${{ github.workspace }}/hf_cache
           HF_HUB_DISABLE_SYMLINKS: "1"
         run: |
+          if [ "$PIPELINE_ACTION" = "resume-v2" ]; then
+            python src/recommendation_v2.py recover "$RECOVERY_DATE"
+            echo "reader_run_id=$RECOVERY_DATE" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           echo "Running main script..."
           RUN_ENRICH="${{ github.event.inputs.run_enrich }}"
           FETCH_DAYS="${{ github.event.inputs.fetch_days }}"
@@ -244,6 +252,17 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+      - name: Upload V2 observations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recommendation-v2-observations
+          path: |
+            archive/recommendation-v2/*/observation.json
+            archive/recommendation-v2/*/budget.json
+          retention-days: 14
+          if-no-files-found: ignore
+
       - name: Upload long-range report
         if: success() && steps.window.outputs.long_range == 'true'
         uses: actions/upload-artifact@v4
@@ -258,8 +277,19 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+      - name: Preserve V2 budget and retrieval checkpoint after pipeline failure
+        if: failure() && github.repository != 'ziwenhahaha/daily-paper-reader' && github.ref == 'refs/heads/dev'
+        run: |
+          test -d archive/recommendation-v2 || exit 0
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- archive/recommendation-v2
+          git diff --cached --quiet && exit 0
+          git commit -m '[chore] retain partial recommendation V2 checkpoint'
+          git push origin HEAD:dev
+
       - name: Cleanup non-recommend archives
-        if: steps.window.outputs.long_range != 'true'
+        if: steps.window.outputs.long_range != 'true' && inputs.pipeline_action != 'resume-v2'
         run: |
           if [ -d archive ]; then
             find archive -mindepth 2 -maxdepth 2 -type d \( -name raw -o -name filtered -o -name rank \) -exec rm -rf {} +
@@ -288,6 +318,7 @@ jobs:
 
           shopt -s nullglob
           paths=(docs config.yaml)
+          if [ -d archive/recommendation-v2 ]; then paths+=(archive/recommendation-v2); fi
           if [ -f archive/arxiv_seen.json ]; then
             paths+=(archive/arxiv_seen.json)
           fi

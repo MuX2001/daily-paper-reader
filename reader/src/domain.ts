@@ -2,7 +2,14 @@ export interface MinMaxClaim {text:string|null;quote:string|null;source_id:strin
 export interface ReadableCard {tldr:string;problem_delta:string;method_steps:string[];evidence:string;caveats:string;where_to_look:string;tags:string[]}
 export interface MinMax {readable?:ReadableCard;format?:string;status:string;reason?:string;input_scope?:string;source?:{source_url:string;format:string};excerpts?:{id:string;start:number;end:number;text:string}[];delta?:MinMaxClaim;steps?:MinMaxClaim;evidence?:MinMaxClaim;constraints?:MinMaxClaim;landmarks?:MinMaxClaim}
 export interface Narrative {card_hook:string;context_and_problem:string;core_approach:string[];experimental_results?:string;caveats_and_pointers?:string;results_and_reality_check?:string;tags:string[]}
+export type RetrievalChannel = 'global'|'targeted'|'exploration';
+export interface ValueReview {
+  dimensions: Record<'idea'|'experiment'|'engineering'|'visualization'|'insight',number|null>;
+  highlights: {dimension:keyof ValueReview['dimensions'];verified:boolean;description:string;transferability:string;limitation:string;locations?:{id:string;url?:string|null}[]}[];
+}
 export interface Paper {
+  retrieval_sources?: {channel:RetrievalChannel;profile?:string}[];
+  evaluation_v2?: ValueReview;
   arxiv_id?: string | null; id?: string | null;
   partial_narrative?:Partial<Narrative>; analysis_error?:{stage:string;reason:string}; narrative?:Narrative; recommendation_reason?:string;
   minmax?:MinMax; minmax_candidate?:MinMax;
@@ -74,7 +81,9 @@ export function mergeLibrary(feeds: Feed[]): Paper[] {
     const old=records.get(p.paper_key);
     if(!old){records.set(p.paper_key,p);continue;}
     const preferred=(p.score??-1)>(old.score??-1)?p:old;
-    records.set(p.paper_key,{...preferred,tags:[...new Set([...old.tags,...p.tags])],
+    const sources=[...(old.retrieval_sources||[]),...(p.retrieval_sources||[])];
+    records.set(p.paper_key,{...preferred,evaluation_v2:preferred.evaluation_v2||old.evaluation_v2||p.evaluation_v2,
+      retrieval_sources:sources.length?[...new Map(sources.map(s=>[JSON.stringify(s),s])).values()]:undefined,tags:[...new Set([...old.tags,...p.tags])],
       narrative:p.narrative||old.narrative,minmax_candidate:p.minmax_candidate||old.minmax_candidate,minmax:p.minmax?.status==='ready'?p.minmax:old.minmax||p.minmax,fulltext_path:old.fulltext_path||p.fulltext_path,legacy_routes:[...new Set([...(old.legacy_routes||[]),...(p.legacy_routes||[])])]});
   }
   return [...records.values()].sort((a,b)=>(b.score??-1)-(a.score??-1)||a.paper_key.localeCompare(b.paper_key));
