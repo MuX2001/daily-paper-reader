@@ -114,7 +114,7 @@ class V2Tests(unittest.TestCase):
             cursor.write_text('{"through":"2026-01-01"}')
             window,through=global_window("20260115",{**config(),"shadow_mode":False},{"days_window":9},cursor)
             self.assertEqual((window,through),(("2026-01-02","2026-01-05"),"2026-01-04"))
-            self.assertEqual(global_window("20260115",config(),{"days_window":9},cursor),(None,None))
+            self.assertEqual(global_window("20260115",{**config(),"shadow_mode":True},{"days_window":9},cursor),(None,None))
         obs={"legacy":["a","x"],"recommended":["b","x"]}
         votes={"labels":{"b":1},"label_source":"human","feedback_context_ids":[]}
         metrics=feedback_metrics(obs,votes,2)["recommended"]
@@ -158,7 +158,11 @@ class V2Tests(unittest.TestCase):
                 minmax.main()
                 feed=json.loads(path.read_text())
                 self.assertTrue(feed["quality_screened"])
-                self.assertTrue(all(p["score"]==8 for p in feed["papers"]))
+                if activate:
+                    import recommendation_quality
+                    recommendation_quality.assess.assert_not_called()
+                else:
+                    self.assertTrue(all(p["score"]==8 for p in feed["papers"]))
                 self.assertEqual(len(feed["papers"]),expected)
                 self.assertEqual(feed["recommendation_mode"],"v2" if activate else "legacy")
                 self.assertTrue((root/"archive/recommendation-v2/20260102/observation.json").exists())

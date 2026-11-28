@@ -144,7 +144,22 @@ def main():
     parser.add_argument('--input', required=True)
     parser.add_argument('--output', required=True)
     parser.add_argument('--run-id', required=True)
+    parser.add_argument('--reranked', action='store_true')
     args = parser.parse_args()
+    if args.reranked:
+        from triage_enrich import atomic_json
+        path = Path(args.input)
+        data = json.loads(path.read_text()) if path.exists() else {}
+        papers = {str(p['id']): p for p in data.get('papers', [])}
+        ranks = {}
+        for query in data.get('queries', []):
+            for rank, item in enumerate(query.get('ranked', []), 1):
+                key = str(item['paper_id'])
+                ranks[key] = ranks.get(key, 0) + 1 / (60 + rank)
+        ids = dict.fromkeys([*sorted(ranks, key=ranks.get, reverse=True), *data.get('global_candidate_ids', [])])
+        rows = [project_paper(papers[key]) for key in ids if key in papers]
+        atomic_json(args.output, {'schema_version': 1, 'run_id': args.run_id, 'papers': rows})
+        return
     export_feed(args.input, args.output, args.run_id)
 
 

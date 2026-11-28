@@ -182,8 +182,15 @@ def main():
                     atomic_json(v2_run.run.parent/"global-through.json",{"through":through})
                 if not v2_config["shadow_mode"]:
                     client = ContentClient(client,v2_run)
+                    if v2_config.get("select_v2"):
+                        selected = v2_run.finish(pool, {**original_feed, "papers":[]}, [], client)
+                        atomic_json(a.feed, selected)
+                        enrich_feed(a.feed, a.cache_dir, client, a.max_new, enricher=selected_enricher)
+                        return
                     atomic_json(a.feed, {**original_feed, "papers":pool["papers"]})
             except Exception as exc:
+                if v2_config.get("select_v2") and not v2_config.get("shadow_mode"):
+                    raise
                 print(f"V2 preparation unavailable: {type(exc).__name__}: {exc}", flush=True)
                 v2_run = None
     feed=enrich_feed(a.feed,a.cache_dir,client,a.max_new,enricher=selected_enricher)

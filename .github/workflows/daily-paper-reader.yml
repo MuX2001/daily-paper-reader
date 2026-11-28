@@ -4,7 +4,7 @@ run-name: ${{ inputs.pipeline_action == 'deep-read' && format('Deep read {0} · 
 on:
   schedule:
     # Probe before and during the Beijing night to tolerate delayed schedule events.
-    - cron: "17 11,14,17,20 * * *"
+    - cron: "17 0,6,11,14,17,20 * * *"
   workflow_dispatch:
     inputs:
       pipeline_action:
@@ -75,37 +75,33 @@ jobs:
     if: github.event_name == 'schedule' && github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
     permissions:
-      actions: read
+      contents: read
     outputs:
       start: ${{ steps.window.outputs.start }}
+      day: ${{ steps.window.outputs.day }}
     steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref_name }}
+          sparse-checkout: docs/data/daily
       - id: window
-        name: Check Beijing time and nightly marker
+        name: Run if today's Beijing digest is missing
         env:
-          GH_TOKEN: ${{ github.token }}
           TZ: Asia/Shanghai
         run: |
-          read -r night hour <<< "$(date '+%F %H')"
-          if (( 10#$hour >= 6 )); then
-            echo "Outside Beijing 00:00–05:59, skipping"
-            exit 0
-          fi
-          marker="daily-paper-night-$night"
-          count=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$marker" --jq '.total_count')
-          if [[ "$count" != 0 ]]; then
-            echo "Already started for $night, skipping"
-            exit 0
-          fi
-          echo "$GITHUB_RUN_ID" > "$RUNNER_TEMP/night.txt"
-          echo "marker=$marker" >> "$GITHUB_OUTPUT"
-          echo "start=true" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@v4
-        if: steps.window.outputs.start == 'true'
-        with:
-          name: ${{ steps.window.outputs.marker }}
-          path: ${{ runner.temp }}/night.txt
-          retention-days: 2
-          if-no-files-found: error
+          python3 - <<'PYTHON'
+          from datetime import date
+          import json, os
+          from pathlib import Path
+          day = date.today().strftime("%Y%m%d")
+          path = Path("docs/data/daily") / (day + ".json")
+          feed = json.loads(path.read_text()) if path.exists() else {}
+          if feed.get("run_id") == day and feed.get("quality_screened"):
+              print(f"{day} already completed")
+          else:
+              with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+                  print("start=true", f"day={day}", sep="\n", file=out)
+          PYTHON
   run:
     needs: night-window
     if: >-
@@ -160,6 +156,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'schedule' && github.ref_name || github.sha }}
 
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -223,6 +220,7 @@ jobs:
         timeout-minutes: 330
         env:
           DPR_TRIAGE_REPORT: ${{ runner.temp }}/triage-run-report.json
+          DPR_SCHEDULED_DAY: ${{ needs.night-window.outputs.day }}
           PIPELINE_ACTION: ${{ inputs.pipeline_action }}
           RECOVERY_DATE: ${{ inputs.request_id }}
           CONTENT_MODE: ${{ inputs.content_mode || 'triage' }}

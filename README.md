@@ -18,7 +18,7 @@ Built on top of [`ziwenhahaha/daily-paper-reader`](https://github.com/ziwenhahah
 ## How It Works
 
 1. **GitHub Actions** fetches candidate papers matching your topics in `config.yaml`, reranks and scores them, and writes the selected batch with precomputed previews to `docs/data/daily/`.
-2. **GitHub Pages** hosts the compiled web reader and static JSON feeds. Scheduled checks start the daily pipeline once when a check arrives between 00:00 and 05:59 Beijing time and automatically triggers a Pages release whenever a new batch is produced.
+2. **GitHub Pages** hosts the compiled web reader and static JSON feeds. Scheduled checks prioritize overnight delivery in Beijing and retry later if that day’s digest is missing and automatically triggers a Pages release whenever a new batch is produced.
 3. **Your browser** reads the static feed, syncs reading state and personal notes to your own Supabase project, and talks directly to your configured chat endpoint when you send a question.
 
 ## 5-Minute Quick Start

@@ -588,6 +588,9 @@ def main() -> None:
 
     sidebar_date_label = resolve_sidebar_date_label(args.fetch_days)
     run_date_token = resolve_run_date_token(args.fetch_days)
+    scheduled_day = os.getenv("DPR_SCHEDULED_DAY")
+    if scheduled_day and len(run_date_token) == 8:
+        run_date_token = datetime.strptime(scheduled_day, "%Y%m%d").strftime("%Y%m%d")
     os.environ["DPR_RUN_DATE"] = run_date_token
     print(f"[INFO] DPR_RUN_DATE={run_date_token}", flush=True)
     profile_tag = str(args.profile_tag or os.getenv("DPR_FILTER_PROFILE_TAG") or "").strip()
@@ -734,27 +737,32 @@ def main() -> None:
             "--root", ROOT_DIR, "--output", feedback_path,
         ])
         os.environ["DPR_FEEDBACK_CONTEXT"] = feedback_path
-    run_step(
-        "Step 4 - LLM refine",
-        [python, os.path.join(SRC_DIR, "4.llm_refine_papers.py")],
-    )
-    if trace_ids:
-        print_trace_llm("LLM", llm_path, trace_ids)
-    run_step(
-        "Step 5 - Select",
-        [
-            python,
-            os.path.join(SRC_DIR, "5.select_papers.py"),
-            *(["--modes", "skims"] if use_skims_mode else []),
-        ],
-    )
-    if trace_ids:
-        print_trace_recommend("RECOMMEND", recommend_path, trace_ids)
+    settings = _load_full_config().get("pipeline", {}).get("recommendation_v2", {})
+    direct_v2 = (args.content_mode == "triage" and len(run_date_token) == 8
+                 and settings.get("enabled") and settings.get("select_v2") and not settings.get("shadow_mode"))
+    if not direct_v2:
+        run_step(
+            "Step 4 - LLM refine",
+            [python, os.path.join(SRC_DIR, "4.llm_refine_papers.py")],
+        )
+        if trace_ids:
+            print_trace_llm("LLM", llm_path, trace_ids)
+        run_step(
+            "Step 5 - Select",
+            [
+                python,
+                os.path.join(SRC_DIR, "5.select_papers.py"),
+                *(["--modes", "skims"] if use_skims_mode else []),
+            ],
+        )
+        if trace_ids:
+            print_trace_recommend("RECOMMEND", recommend_path, trace_ids)
     if args.export_triage or args.content_mode != "legacy":
         run_step(
             "Step 5.1 - Export triage JSON",
             [python, os.path.join(SRC_DIR, "triage_export.py"),
-             "--input", recommend_path, "--run-id", run_date_token,
+             "--input", rerank_path if direct_v2 else recommend_path, "--run-id", run_date_token,
+             *(["--reranked"] if direct_v2 else []),
              "--output", os.path.join(ROOT_DIR, "docs", "data", "daily", f"{run_date_token}.json")],
         )
     if args.content_mode != "legacy":

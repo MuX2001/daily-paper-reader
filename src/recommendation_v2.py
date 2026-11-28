@@ -24,7 +24,7 @@ def load(path, default):
 
 
 def global_window(day, settings, paper_settings, checkpoint):
-    end = datetime.strptime(day,"%Y%m%d").date()
+    end = min(datetime.strptime(day,"%Y%m%d").date(), datetime.now(timezone.utc).date())
     through = load(checkpoint,{}).get("through")
     if through:
         start = datetime.fromisoformat(through).date()+timedelta(days=1)
@@ -132,7 +132,7 @@ class DailyRun:
         if saved.get("signature")==signature and not saved["failures"] and "full_text_versions" in self.usage:
             return {**saved,"papers":self.admit(saved["papers"])}
         # Complete UTC dates avoid marking the remainder of today's submissions seen.
-        end = datetime.strptime(self.day,"%Y%m%d").date()-timedelta(days=1)
+        end = min(datetime.strptime(self.day,"%Y%m%d").date(), datetime.now(timezone.utc).date())-timedelta(days=1)
         cursor = self.run.parent/"retrieved-through.json"
         last = load(cursor,{})
         start = end
@@ -228,7 +228,7 @@ class DailyRun:
         activate = self.config.get("select_v2") and not self.config.get("shadow_mode")
         # Never publish an empty replacement solely because all analyses failed.
         if activate and (not self.config.get("evaluate") or (self.errors or pool["failures"]) and not recommended):
-            activate = False
+            raise RuntimeError("V2 evaluation unavailable; daily selection incomplete")
         if activate:
             output = recommended
         else:
