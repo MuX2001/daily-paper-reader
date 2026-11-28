@@ -29,10 +29,26 @@ SKIMS_FETCH_DAYS_THRESHOLD = 11
 
 def run_step(label: str, args: list[str], env: dict[str, str] | None = None) -> None:
     print(f"[INFO] {label}: {' '.join(args)}", flush=True)
-    subprocess.run(args, check=True, env=env)
+    try:
+        subprocess.run(args, check=True, env=env)
+    finally:
+        if label in ("Step 2.1 - BM25", "Step 2.2 - Embedding"):
+            from candidate_archive import capture_global
+            channel = "bm25" if "BM25" in label else "embedding"
+            day = os.environ["DPR_RUN_DATE"]
+            path = os.path.join(ROOT_DIR, "archive", day, "filtered",
+                                f"arxiv_papers_{day}.{channel}.json")
+            capture_global(path, channel, _load_full_config())
 
 
 def report_reader_run(run_id: str) -> None:
+    from candidate_archive import finalize
+    try:
+        path = os.path.join(ROOT_DIR, "docs", "data", "daily", run_id + ".json")
+        with open(path) as source:
+            finalize(json.load(source)["papers"])
+    except Exception as exc:
+        print(f"::warning::Candidate selection unavailable ({type(exc).__name__})")
     output = os.getenv("GITHUB_OUTPUT")
     if output:
         with open(output, "a", encoding="utf-8") as handle:

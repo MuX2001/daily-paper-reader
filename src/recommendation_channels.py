@@ -227,8 +227,17 @@ def retrieve(config, start, end, request, memo):
     ambiguous = 0
 
     def fetch(query):
-        return memo(digest([query,start.isoformat(),end.isoformat()]), lambda:search(query,start,end,request))
+        from candidate_archive import record
+        window = [start.isoformat(), end.isoformat()]
+        try:
+            rows = memo(digest([query,*window]), lambda:search(query,start,end,request))
+        except Exception:
+            record(channel, query, [], config, window, 60, "failed")
+            raise
+        record(channel, query, rows, config, window, 60)
+        return rows
 
+    channel = "exploration"
     for mode in MODES if config.get("exploration") else ():
         group = rotate([p for p in config["profiles"] if p["mode"] == mode], end)
         if not group:
@@ -245,6 +254,7 @@ def retrieve(config, start, end, request, memo):
                         "abstraction":profile["abstraction"], "phrases":hits, "category":raw["categories"], "preliminary":rank}})
         except (ValueError, requests.RequestException, ET.ParseError, RuntimeError) as exc:
             failures.append(f"{mode}: {type(exc).__name__}")
+    channel = "targeted"
     for profile in rotate(config.get("tracking", []), end) if config.get("targeted") else ():
         try:
             terms = ["au:"+quote(n) for n in [profile.get("name"), *profile.get("aliases", [])] if n]
@@ -259,6 +269,8 @@ def retrieve(config, start, end, request, memo):
                     failures.append(f"backfill: {type(exc).__name__}")
             elif not terms:
                 raise ValueError("Tracking entry needs a name, affiliation or enabled author-ID backfill")
+            from candidate_archive import record
+            record("targeted", profile, candidates, config, [start.isoformat(), end.isoformat()])
             for raw in candidates:
                 if profile.get("openalex_id") and not author_match(raw, profile):
                     def resolved():
