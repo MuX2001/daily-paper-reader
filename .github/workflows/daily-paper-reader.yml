@@ -3,7 +3,8 @@ run-name: ${{ inputs.pipeline_action == 'deep-read' && format('Deep read {0} · 
 
 on:
   schedule:
-    - cron: "37 18 * * *" # 北京时间次日 02:30（UTC 18:30）
+    # Probe before and during the Beijing night to tolerate delayed schedule events.
+    - cron: "17 11,14,17,20 * * *"
   workflow_dispatch:
     inputs:
       pipeline_action:
@@ -70,8 +71,47 @@ jobs:
       request_id: ${{ inputs.request_id }}
       model_choice: ${{ inputs.deep_read_model || 'configured' }}
     secrets: inherit
+  night-window:
+    if: github.event_name == 'schedule' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      start: ${{ steps.window.outputs.start }}
+    steps:
+      - id: window
+        name: Check Beijing time and nightly marker
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TZ: Asia/Shanghai
+        run: |
+          read -r night hour <<< "$(date '+%F %H')"
+          if (( 10#$hour >= 6 )); then
+            echo "Outside Beijing 00:00–05:59, skipping"
+            exit 0
+          fi
+          marker="daily-paper-night-$night"
+          count=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$marker" --jq '.total_count')
+          if [[ "$count" != 0 ]]; then
+            echo "Already started for $night, skipping"
+            exit 0
+          fi
+          echo "$GITHUB_RUN_ID" > "$RUNNER_TEMP/night.txt"
+          echo "marker=$marker" >> "$GITHUB_OUTPUT"
+          echo "start=true" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        if: steps.window.outputs.start == 'true'
+        with:
+          name: ${{ steps.window.outputs.marker }}
+          path: ${{ runner.temp }}/night.txt
+          retention-days: 2
+          if-no-files-found: error
   run:
-    if: github.ref == 'refs/heads/dev' && (inputs.pipeline_action != 'deep-read')
+    needs: night-window
+    if: >-
+      !cancelled() && github.ref == 'refs/heads/dev' && inputs.pipeline_action != 'deep-read' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (needs.night-window.result == 'success' && needs.night-window.outputs.start == 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 360
     outputs:
@@ -116,13 +156,6 @@ jobs:
       PYTHONUNBUFFERED: "1"
 
     steps:
-      - name: Random delay to spread scheduled runs
-        if: github.event_name == 'schedule'
-        run: |
-          DELAY=$(shuf -i 0-59 -n 1)
-          echo "Sleeping ${DELAY}s (≈$((DELAY/60))min) to stagger fork runs over 1 hour …"
-          sleep $DELAY
-
       - name: Checkout
         uses: actions/checkout@v5
         with:
