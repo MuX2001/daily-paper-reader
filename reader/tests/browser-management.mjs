@@ -18,6 +18,13 @@ await page.goto(process.env.DPR_TEST_URL||'http://127.0.0.1:5173/');await page.l
 await page.locator('.profile').click();await page.getByRole('tab',{name:/研究管理连接/}).click();await page.getByLabel('GitHub 仓库',{exact:true}).fill('test/reader');await page.getByLabel('GitHub Token',{exact:true}).fill('mock-token');await page.getByRole('button',{name:'保存任务设置',exact:true}).click();await page.getByRole('button',{name:'关闭对话框',exact:true}).click();
 await page.locator('nav').getByRole('button',{name:'研究管理'}).click();await page.getByRole('button',{name:'读取仓库配置',exact:true}).click();await page.getByText('Robotics',{exact:true}).waitFor();
 await expect(page.getByRole('heading',{name:'每日推荐',exact:true})).toBeVisible();
+await expect(page.getByRole('status').filter({hasText:'已读取配置'})).toBeVisible();
+await expect(page.getByRole('status').filter({hasText:'已读取配置'})).toHaveCount(0,{timeout:7000});
+await page.getByRole('button',{name:'读取仓库配置',exact:true}).click();
+await expect(page.getByRole('status').filter({hasText:'已读取配置'})).toBeVisible();
+await page.getByRole('button',{name:'关闭提示',exact:true}).click();
+await expect(page.getByRole('status').filter({hasText:'已读取配置'})).toHaveCount(0);
+
 const controls=await page.locator('.management-controls').boundingBox();
 const recent=page.locator('.recent-runs');
 assert.ok((await recent.boundingBox()).x >= controls.x+controls.width);

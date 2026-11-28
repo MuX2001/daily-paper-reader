@@ -17,11 +17,17 @@ export function ManagementPanel({config,configure}:{config:GitHubConfig;configur
  const [mode,setMode]=useState('90'),[asOf,setAsOf]=useState(new Date().toISOString().slice(0,10)),[budget,setBudget]=useState('10'),[resume,setResume]=useState('');
  const [preview,setPreview]=useState<{status:string;count:number|null;threshold:number;reason?:string}|null>(null);
  const [pending,setPending]=useState<{workflow:string;inputs:Record<string,string>}|null>(null),[runs,setRuns]=useState<Awaited<ReturnType<typeof recentRuns>>>([]);
- async function load(){if(!config.token){configure();return;}setBusy(true);setError('');try{const next=await loadConfig(config);setSnapshot(next);setProfiles(next.profiles);setDirty(false);setNotice(uiText("已读取配置"));}catch(e){setError(errorMessage(e));}finally{setBusy(false);}}
+ async function load(){if(!config.token){configure();return;}setBusy(true);setError('');setNotice('');try{const next=await loadConfig(config);setSnapshot(next);setProfiles(next.profiles);setDirty(false);setNotice(uiText("已读取配置"));}catch(e){setError(errorMessage(e));}finally{setBusy(false);}}
+ useEffect(()=>{
+  if(!notice)return;
+  const timer=window.setTimeout(()=>setNotice(''),5000);
+  return ()=>window.clearTimeout(timer);
+ },[notice]);
+ useEffect(()=>{setError('');setNotice('');},[config.repository,config.ref,tab,dailyTag,conferenceTag,topicTag,days,conference,years,mode,asOf,budget,resume,editing]);
  useEffect(()=>{setSnapshot(null);setProfiles([]);setDirty(false);setRuns([]);setPending(null);},[config.repository,config.ref]);
  useEffect(()=>{setPending(null);},[tab,dailyTag,conferenceTag,topicTag,days,conference,years,mode,asOf,budget,resume,profiles,editing]);
  useEffect(()=>{setPreview(null);},[topicTag,mode,asOf,profiles]);
- function update(next:Profile[]){setProfiles(next);setDirty(true);setPending(null);}
+ function update(next:Profile[]){setError('');setNotice('');setProfiles(next);setDirty(true);setPending(null);}
  function remapSelection(oldTag:string,newTag:string){
   if(dailyTag===oldTag)setDailyTag(newTag);if(conferenceTag===oldTag)setConferenceTag(newTag);if(topicTag===oldTag)setTopicTag(newTag);
  }
@@ -31,6 +37,7 @@ export function ManagementPanel({config,configure}:{config:GitHubConfig;configur
   update(next);setEditing(null);setError('');
  }catch(e){setError(errorMessage(e));}}
  function prepare(){
+  setError('');setNotice('');
   try{
    if(editing!==null)throw new Error(uiText("请先应用或取消方向编辑"));
    if(dirty)throw new Error(uiText("请先保存订阅修改，再触发任务"));
@@ -49,7 +56,7 @@ export function ManagementPanel({config,configure}:{config:GitHubConfig;configur
  }
  const selectedTag=tab==='daily'?dailyTag:tab==='conference'?conferenceTag:topicTag;
  function selectTag(value:string){if(tab==='daily')setDailyTag(value);else if(tab==='conference')setConferenceTag(value);else setTopicTag(value);}
- return <section className="management"><div className="management-heading"><h2>{uiText("研究方向与任务")}</h2><div><button disabled={busy||dirty||editing!==null} onClick={()=>void load()}>{uiText("读取仓库配置")}</button><button disabled={busy||!dirty||!snapshot||editing!==null} onClick={async()=>{if(!snapshot)return;setBusy(true);setError('');try{setSnapshot(await saveProfiles(config,snapshot,profiles));setDirty(false);setNotice(uiText("订阅已保存到所选分支"));}catch(e){setError(errorMessage(e));}finally{setBusy(false);}}}>{uiText("保存订阅")}</button></div></div><p className="muted">{uiText("当前目标：")}{config.repository||uiText("未配置仓库")} / {config.ref}{uiText("。模型密钥继续保存在 GitHub Actions Secrets。")}</p>{error&&<p role="alert" className="banner error">{error}</p>}{notice&&<p role="status" className="banner">{notice}</p>}<div className="management-columns"><div className="management-controls"><div className="management-tabs">{[['daily',uiText("日常管理")],['conference',uiText("会议论文")],['topic',uiText("专题研究")]].map(([key,label])=><button key={key} aria-pressed={tab===key} onClick={()=>{setTab(key);setPending(null);if(key==='topic'&&!topicVisited.current){topicVisited.current=true;if(dailyTag)setTopicTag(dailyTag);}}}>{label}</button>)}</div>
+ return <section className="management"><div className="management-heading"><h2>{uiText("研究方向与任务")}</h2><div><button disabled={busy||dirty||editing!==null} onClick={()=>void load()}>{uiText("读取仓库配置")}</button><button disabled={busy||!dirty||!snapshot||editing!==null} onClick={async()=>{if(!snapshot)return;setBusy(true);setError('');setNotice('');try{setSnapshot(await saveProfiles(config,snapshot,profiles));setDirty(false);setNotice(uiText("订阅已保存到所选分支"));}catch(e){setError(errorMessage(e));}finally{setBusy(false);}}}>{uiText("保存订阅")}</button></div></div><p className="muted">{uiText("当前目标：")}{config.repository||uiText("未配置仓库")} / {config.ref}{uiText("。模型密钥继续保存在 GitHub Actions Secrets。")}</p>{error&&<p role="alert" className="banner error"><span>{error}</span><button onClick={()=>setError('')} aria-label={uiText("关闭提示")}>×</button></p>}{notice&&<p role="status" className="banner"><span>{notice}</span><button onClick={()=>setNotice('')} aria-label={uiText("关闭提示")}>×</button></p>}<div className="management-columns"><div className="management-controls"><div className="management-tabs">{[['daily',uiText("日常管理")],['conference',uiText("会议论文")],['topic',uiText("专题研究")]].map(([key,label])=><button key={key} aria-pressed={tab===key} onClick={()=>{setTab(key);setPending(null);if(key==='topic'&&!topicVisited.current){topicVisited.current=true;if(dailyTag)setTopicTag(dailyTag);}}}>{label}</button>)}</div>
  <div className="profile-grid">{profiles.map((p,i)=><article className="profile-card" key={p.tag}><div><strong>{p.tag}</strong><label><input type="checkbox" checked={p.enabled!==false} disabled={busy||editing!==null} onChange={e=>update(profiles.map((item,j)=>j===i?{...item,enabled:e.target.checked}:item))}/>{uiText("启用")}</label></div><p>{p.description||uiText("尚无方向说明")}</p><small>{p.keywords?.length||0} {uiText("个关键词 ·")} {p.intent_queries?.length||0} {uiText("个语义查询")}</small><button disabled={busy||editing!==null} onClick={()=>{setDeleting(null);setEditing(i);setDraft(JSON.stringify(p,null,2));}}>{uiText("编辑方向")}</button><button disabled={busy||editing!==null} onClick={()=>setDeleting(i)}>{uiText("删除方向")}</button></article>)}</div><button className="add-profile" disabled={!snapshot||busy||editing!==null} onClick={()=>{setDeleting(null);setEditing(profiles.length);setDraft(JSON.stringify({tag:'',description:'',enabled:true,paper_sources:['arxiv'],keywords:[{keyword:'',query:''}],intent_queries:[]},null,2));}}>{uiText("＋ 新增研究方向")}</button>
  {deleting!==null&&<div className="task-confirm" role="alert"><p>{uiText("从订阅中移除“")}{profiles[deleting]?.tag}{uiText("”？历史论文和阅读记录会保留，保存订阅后生效。")}</p><button onClick={()=>{const old=profiles[deleting];if(old)remapSelection(old.tag,'');update(profiles.filter((_,i)=>i!==deleting));setDeleting(null);}}>{uiText("确认移除方向")}</button><button onClick={()=>setDeleting(null)}>{uiText("取消移除")}</button></div>}
  {editing!==null&&<ProfileEditor draft={draft} onChange={setDraft} apply={applyEdit} cancel={()=>setEditing(null)}/>}
